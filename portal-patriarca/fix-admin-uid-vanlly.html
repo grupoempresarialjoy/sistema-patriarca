@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Fix Admin UID — Vanlly</title>
+<style>
+  body { font-family: monospace; background:#111; color:#0f0; padding:24px; }
+  button { background:#2a6; color:#fff; border:none; padding:10px 20px; font-size:14px; cursor:pointer; border-radius:6px; margin:6px 4px; }
+  input { display:block; padding:8px 12px; margin-bottom:8px; background:#1a1a1a; border:1px solid #444; color:#fff; border-radius:6px; font-size:13px; width:300px; }
+  label { font-size:11px; color:#aaa; margin-bottom:3px; display:block; }
+  #log { white-space:pre-wrap; font-size:12px; line-height:1.8; margin-top:16px; }
+  .ok{color:#0f0;} .err{color:#f44;} .inf{color:#ff0;} .gray{color:#888;} .blu{color:#6af;}
+</style>
+</head>
+<body>
+<h2>🔧 Fix Admin UID — Vanlly</h2>
+
+<div id="login-box">
+  <label>Correo admin</label>
+  <input id="email-inp" type="email" value="Vanily.admin@admin.aj16">
+  <label>Contraseña</label>
+  <input id="pass-inp" type="password" placeholder="Contraseña del administrador">
+  <button onclick="diagnose()">▶ Diagnosticar</button>
+  <button onclick="fixUid()">🔧 Corregir UID automáticamente</button>
+</div>
+<div id="log"></div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyBQ42PzffxkEUEJVaPIVxHPKDqA_wk6IS0",
+  authDomain: "portal-patriarca-aj16.firebaseapp.com",
+  projectId: "portal-patriarca-aj16",
+  storageBucket: "portal-patriarca-aj16.firebasestorage.app",
+  messagingSenderId: "1073575698338",
+  appId: "1:1073575698338:web:f014083b3092c6dc245cfb",
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db   = firebase.firestore();
+
+const REAL_UID = 'qDAjnQusOhauB4Qw58E3JPRKowk2'; // UID real de vanlly@aj16.com
+
+const logEl = document.getElementById('log');
+function L(msg, cls='') { logEl.innerHTML += `<span class="${cls}">${msg}</span>\n`; }
+
+async function login() {
+  const email = document.getElementById('email-inp').value.trim();
+  const pass  = document.getElementById('pass-inp').value;
+  if (!pass) { L('⚠ Ingresa la contraseña del admin', 'err'); return false; }
+  if (auth.currentUser) return true;
+  try {
+    await auth.signInWithEmailAndPassword(email, pass);
+    L('✅ Sesión iniciada como: ' + auth.currentUser.email, 'ok');
+    return true;
+  } catch(e) {
+    L('❌ Error de login: ' + e.message, 'err');
+    return false;
+  }
+}
+
+async function diagnose() {
+  logEl.innerHTML = '';
+  if (!await login()) return;
+
+  // 1. Ver todos los docs en admin_usuarios con rol=operador
+  L('\n📋 admin_usuarios (operadores):', 'inf');
+  try {
+    const snap = await db.collection('admin_usuarios').where('rol','==','operador').get({ source: 'server' });
+    L(`  → ${snap.size} operadores encontrados`, snap.size > 0 ? 'ok' : 'err');
+    snap.docs.forEach(d => {
+      const data = d.data();
+      const uidUsado = data.uid || d.id;
+      const esVanlly = (data.nombre||'').toLowerCase().includes('vanlly') || (data.email||'').toLowerCase().includes('vanlly');
+      L(`\n  DocID: ${d.id}`, esVanlly ? 'ok' : 'gray');
+      L(`    nombre: ${data.nombre || '(sin nombre)'}`, esVanlly ? 'ok' : 'gray');
+      L(`    uid field: ${data.uid || '(no tiene)'}`, esVanlly ? 'ok' : 'gray');
+      L(`    → UID usado por admin: ${uidUsado}`, uidUsado === REAL_UID ? 'ok' : 'err');
+      if (esVanlly && uidUsado !== REAL_UID) {
+        L(`    ⚠ INCORRECTO — debería ser: ${REAL_UID}`, 'err');
+      } else if (esVanlly) {
+        L(`    ✅ UID correcto`, 'ok');
+      }
+    });
+  } catch(e) {
+    L('❌ Error leyendo admin_usuarios: ' + e.message, 'err');
+  }
+
+  // 2. Verificar clientes de Vanlly
+  L('\n📋 patriarca_clientes con opId=' + REAL_UID + ':', 'inf');
+  try {
+    const cSnap = await db.collection('patriarca_clientes').where('opId','==',REAL_UID).get({ source: 'server' });
+    L(`  → ${cSnap.size} clientes encontrados`, cSnap.size > 0 ? 'ok' : 'err');
+    cSnap.docs.forEach(d => L(`    • ${d.data().nombre || d.data().nombre_completo || d.id}`, 'ok'));
+  } catch(e) {
+    L('❌ Error: ' + e.message, 'err');
+  }
+}
+
+async function fixUid() {
+  logEl.innerHTML = '';
+  if (!await login()) return;
+
+  L('\n🔧 Buscando doc de Vanlly en admin_usuarios...', 'inf');
+  try {
+    const snap = await db.collection('admin_usuarios').where('rol','==','operador').get({ source: 'server' });
+    let found = null;
+    snap.docs.forEach(d => {
+      const data = d.data();
+      if ((data.nombre||'').toLowerCase().includes('vanlly') || (data.email||'').toLowerCase().includes('vanlly')) {
+        found = d;
+      }
+    });
+
+    if (!found) { L('❌ No se encontró doc de Vanlly', 'err'); return; }
+
+    const currentUid = found.data().uid || found.id;
+    L(`  DocID: ${found.id}`, 'inf');
+    L(`  UID actual: ${currentUid}`, currentUid === REAL_UID ? 'ok' : 'err');
+
+    if (currentUid === REAL_UID) {
+      L('✅ El UID ya es correcto — no necesita cambio.', 'ok');
+      L('\n→ Si el admin aún no muestra clientes, el problema es otro.', 'inf');
+      L('  Verifica que patriarca_clientes tenga opId=' + REAL_UID, 'inf');
+      return;
+    }
+
+    await db.collection('admin_usuarios').doc(found.id).update({ uid: REAL_UID });
+    L(`\n✅ UID actualizado a: ${REAL_UID}`, 'ok');
+    L('→ Recarga el admin y vuelve a seleccionar Vanlly. Los clientes deben aparecer.', 'ok');
+  } catch(e) {
+    L('❌ Error: ' + e.message, 'err');
+  }
+}
+</script>
+</body>
+</html>

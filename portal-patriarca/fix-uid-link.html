@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Fix UID Link — AJ1.6</title>
+<style>
+body{font-family:monospace;background:#0d0f14;color:#e8eaf0;padding:20px;font-size:13px}
+h2{color:#a070ff;margin-bottom:8px}
+.panel{background:#13161d;border:1px solid #2a2f3f;border-radius:8px;padding:16px;margin-bottom:16px}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{background:#1a1e28;color:#8890a8;padding:7px 10px;text-align:left}
+td{padding:7px 10px;border-bottom:1px solid #2a2f3f}
+.btn{padding:7px 14px;border-radius:5px;border:none;cursor:pointer;font-size:12px;font-weight:700;font-family:monospace}
+.btn-red{background:rgba(224,80,80,.2);border:1px solid #e05050;color:#e05050}
+.btn-green{background:rgba(36,191,98,.2);border:1px solid #24BF62;color:#24BF62}
+.btn-purple{background:#a070ff;color:#fff}
+.log{background:#000;border:1px solid #2a2f3f;border-radius:4px;padding:12px;min-height:100px;white-space:pre-wrap;font-size:11px;color:#24BF62}
+.badge-dup{background:rgba(224,80,80,.15);color:#e05050;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:700}
+.badge-ok{background:rgba(36,191,98,.15);color:#24BF62;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:700}
+.badge-warn{background:rgba(240,160,80,.15);color:#f0a050;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:700}
+select{background:#1a1e28;border:1px solid #2a2f3f;border-radius:4px;color:#e8eaf0;padding:5px 8px;font-size:12px;width:100%}
+</style>
+</head>
+<body>
+<h2>🔧 Fix UID Link — Admin Usuarios</h2>
+<p style="color:#8890a8;margin-bottom:16px">Vincula UIDs de patriarca_operadores a admin_usuarios y elimina duplicados.</p>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script>
+firebase.initializeApp({
+  apiKey:"AIzaSyBQ42PzffxkEUEJVaPIVxHPKDqA_wk6IS0",
+  authDomain:"portal-patriarca-aj16.firebaseapp.com",
+  projectId:"portal-patriarca-aj16",
+  storageBucket:"portal-patriarca-aj16.firebasestorage.app",
+  messagingSenderId:"1073575698338",
+  appId:"1:1073575698338:web:f014083b3092c6dc245cfb"
+});
+const db = firebase.firestore();
+</script>
+
+<div class="panel" id="panel-login">
+  <b style="color:#a070ff">LOGIN — Autenticación requerida</b>
+  <p style="color:#8890a8;margin:6px 0 10px">Entra con tu cuenta Google (ronaldo140294@gmail.com)</p>
+  <button class="btn" onclick="doGoogleLogin()" style="background:#fff;color:#222;border:1px solid #ccc;padding:10px 20px;font-size:13px;display:flex;align-items:center;gap:10px">
+    <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+    Entrar con Google
+  </button>
+  <div style="margin-top:12px;border-top:1px solid #2a2f3f;padding-top:12px">
+    <p style="color:#8890a8;font-size:11px;margin-bottom:8px">O con email y contraseña:</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <input type="email" id="login-email" placeholder="Email" value="ronaldo140294@gmail.com" style="background:#1a1e28;border:1px solid #2a2f3f;border-radius:4px;color:#e8eaf0;padding:7px 10px;font-size:12px;font-family:monospace;flex:1;min-width:200px">
+      <input type="password" id="login-pass" placeholder="Contraseña" style="background:#1a1e28;border:1px solid #2a2f3f;border-radius:4px;color:#e8eaf0;padding:7px 10px;font-size:12px;font-family:monospace;flex:1;min-width:150px">
+      <button class="btn btn-purple" onclick="doLogin()">Entrar</button>
+    </div>
+  </div>
+</div>
+
+<div class="panel" id="panel-load" style="display:none">
+  <b style="color:#a070ff">PASO 1 — Cargar datos</b>
+  <div style="margin-top:10px">
+    <button class="btn btn-purple" onclick="cargarDatos()">🔄 Cargar admin_usuarios + patriarca_operadores</button>
+  </div>
+</div>
+
+<div class="panel" id="panel-admin" style="display:none">
+  <b>admin_usuarios (operadores)</b>
+  <div style="overflow-x:auto;margin-top:10px">
+    <table>
+      <thead><tr><th>DocID</th><th>Nombre</th><th>Email</th><th>UID actual</th><th>Estado</th><th>Acción</th></tr></thead>
+      <tbody id="tbody-admin"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="panel" id="panel-ops" style="display:none">
+  <b>patriarca_operadores (fuente de UIDs)</b>
+  <div style="overflow-x:auto;margin-top:10px">
+    <table>
+      <thead><tr><th>UID (doc ID)</th><th>Nombre</th><th>Email</th></tr></thead>
+      <tbody id="tbody-ops"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="panel" id="panel-link" style="display:none">
+  <b style="color:#f0a050">PASO 2 — Vincular UID manualmente</b>
+  <p style="color:#8890a8;margin-top:6px;margin-bottom:12px">Selecciona un operador de admin_usuarios sin UID y asígnale el UID correcto desde patriarca_operadores.</p>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+    <div>
+      <div style="font-size:10px;color:#8890a8;margin-bottom:4px">Operador en admin_usuarios (sin UID)</div>
+      <select id="sel-admin-doc"></select>
+    </div>
+    <div>
+      <div style="font-size:10px;color:#8890a8;margin-bottom:4px">UID correcto de patriarca_operadores</div>
+      <select id="sel-op-uid"></select>
+    </div>
+  </div>
+  <button class="btn btn-green" onclick="vincularUID()">✅ Vincular UID</button>
+</div>
+
+<div class="panel" id="panel-dup" style="display:none">
+  <b style="color:#e05050">PASO 3 — Eliminar duplicados</b>
+  <p style="color:#8890a8;margin-top:6px;margin-bottom:12px">Estas entradas parecen duplicadas (UID coincide con otra entrada o email es email del portal). Márcalas para eliminar.</p>
+  <div id="dup-list"></div>
+</div>
+
+<div class="panel">
+  <b>Log de operaciones</b>
+  <div class="log" id="log">Esperando...</div>
+</div>
+
+<script>
+let adminDocs = [];
+let opsDocs = [];
+
+async function doGoogleLogin() {
+  try {
+    const provider = new firebase.auth.GoogleAuthProvider();
+    provider.setCustomParameters({ login_hint: 'ronaldo140294@gmail.com' });
+    const result = await firebase.auth().signInWithPopup(provider);
+    document.getElementById('panel-login').style.display = 'none';
+    document.getElementById('panel-load').style.display  = '';
+    log('✅ Sesión iniciada como ' + result.user.email);
+  } catch(e) {
+    log('❌ Google login fallido: ' + e.message);
+  }
+}
+
+async function doLogin() {
+  const email = document.getElementById('login-email').value.trim();
+  const pass  = document.getElementById('login-pass').value;
+  try {
+    await firebase.auth().signInWithEmailAndPassword(email, pass);
+    document.getElementById('panel-login').style.display = 'none';
+    document.getElementById('panel-load').style.display  = '';
+    log('✅ Sesión iniciada como ' + email);
+  } catch(e) {
+    log('❌ Login fallido: ' + e.message);
+  }
+}
+
+function log(msg) {
+  const el = document.getElementById('log');
+  el.textContent += '\n' + new Date().toLocaleTimeString('es-CO') + '  ' + msg;
+  el.scrollTop = el.scrollHeight;
+}
+
+async function cargarDatos() {
+  log('Cargando admin_usuarios...');
+  const [admSnap, opsSnap] = await Promise.all([
+    db.collection('admin_usuarios').where('rol','==','operador').get(),
+    db.collection('patriarca_operadores').get()
+  ]);
+
+  adminDocs = admSnap.docs.map(d => ({ docId: d.id, ...d.data() }));
+  opsDocs   = opsSnap.docs.map(d => ({ uid: d.id, ...d.data() }));
+
+  log(`admin_usuarios: ${adminDocs.length} operadores`);
+  log(`patriarca_operadores: ${opsDocs.length} operadores`);
+
+  renderAdminTable();
+  renderOpsTable();
+  renderLinkPanel();
+  detectarDuplicados();
+
+  document.getElementById('panel-admin').style.display = '';
+  document.getElementById('panel-ops').style.display   = '';
+  document.getElementById('panel-link').style.display  = '';
+  document.getElementById('panel-dup').style.display   = '';
+}
+
+function renderAdminTable() {
+  // Detectar UIDs duplicados
+  const uidCount = {};
+  adminDocs.forEach(d => { if(d.uid) uidCount[d.uid] = (uidCount[d.uid]||0)+1; });
+
+  document.getElementById('tbody-admin').innerHTML = adminDocs.map(d => {
+    const isDup = d.uid && uidCount[d.uid] > 1;
+    const hasUID = !!d.uid;
+    const badge = isDup ? '<span class="badge-dup">DUPLICADO</span>'
+                : hasUID ? '<span class="badge-ok">OK</span>'
+                : '<span class="badge-warn">SIN UID</span>';
+    return `<tr style="${isDup?'background:rgba(224,80,80,.05)':''}">
+      <td style="font-size:10px;color:#8890a8">${d.docId}</td>
+      <td style="font-weight:700">${d.nombre||'—'}</td>
+      <td style="color:#8890a8">${d.email||'—'}</td>
+      <td style="font-size:10px;color:#4a9eff">${d.uid||'—'}</td>
+      <td>${badge}</td>
+      <td><button class="btn btn-red" style="font-size:10px;padding:3px 8px" onclick="eliminarAdminDoc('${d.docId}','${(d.nombre||'').replace(/'/g,"\\'")}')">🗑 Eliminar</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function renderOpsTable() {
+  document.getElementById('tbody-ops').innerHTML = opsDocs.map(d => `<tr>
+    <td style="font-size:10px;color:#4a9eff;font-weight:700">${d.uid}</td>
+    <td style="font-weight:700">${d.nombre||d.name||'—'}</td>
+    <td style="color:#8890a8">${d.email||'—'}</td>
+  </tr>`).join('');
+}
+
+function renderLinkPanel() {
+  const sinUID = adminDocs.filter(d => !d.uid);
+  const selAdmin = document.getElementById('sel-admin-doc');
+  const selUID   = document.getElementById('sel-op-uid');
+
+  selAdmin.innerHTML = sinUID.map(d =>
+    `<option value="${d.docId}">${d.nombre} — ${d.email||'sin email'}</option>`
+  ).join('') || '<option value="">— Todos tienen UID —</option>';
+
+  selUID.innerHTML = opsDocs.map(d =>
+    `<option value="${d.uid}">${d.nombre||d.name||'—'} (${d.email||'—'}) · ${d.uid.substring(0,12)}...</option>`
+  ).join('');
+}
+
+function detectarDuplicados() {
+  // UIDs que aparecen más de una vez
+  const uidCount = {};
+  adminDocs.forEach(d => { if(d.uid) uidCount[d.uid] = (uidCount[d.uid]||0)+1; });
+  const dups = adminDocs.filter(d => d.uid && uidCount[d.uid] > 1);
+
+  // También detectar entradas con email que parece ser email de portal (contiene @aj16.com) pero que no son el único con ese nombre
+  const portalEmails = adminDocs.filter(d => d.email && d.email.includes('@aj16.com') && !d.email.includes('admin.aj16'));
+
+  const todos = [...new Map([...dups, ...portalEmails].map(d => [d.docId, d])).values()];
+
+  const el = document.getElementById('dup-list');
+  if (!todos.length) {
+    el.innerHTML = '<p style="color:#24BF62">✅ No se detectaron duplicados.</p>';
+    return;
+  }
+
+  el.innerHTML = todos.map(d => `
+    <div style="background:rgba(224,80,80,.05);border:1px solid rgba(224,80,80,.2);border-radius:6px;padding:10px 14px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <span style="font-weight:700">${d.nombre||'—'}</span>
+        <span style="color:#8890a8;font-size:11px;margin-left:8px">${d.email||'—'}</span>
+        <span style="color:#4a9eff;font-size:10px;margin-left:8px">UID: ${d.uid||'sin uid'}</span>
+      </div>
+      <button class="btn btn-red" onclick="eliminarAdminDoc('${d.docId}','${(d.nombre||'').replace(/'/g,"\\'")}')">🗑 Eliminar</button>
+    </div>
+  `).join('');
+}
+
+async function vincularUID() {
+  const docId = document.getElementById('sel-admin-doc').value;
+  const uid   = document.getElementById('sel-op-uid').value;
+  if (!docId || !uid) { alert('Selecciona ambos campos'); return; }
+
+  const adminEntry = adminDocs.find(d => d.docId === docId);
+  const opEntry    = opsDocs.find(d => d.uid === uid);
+
+  log(`Vinculando: ${adminEntry?.nombre} → UID ${uid}`);
+  try {
+    await db.collection('admin_usuarios').doc(docId).update({ uid });
+    log(`✅ UID vinculado correctamente a ${adminEntry?.nombre}`);
+    await cargarDatos();
+  } catch(e) {
+    log('❌ Error: ' + e.message);
+  }
+}
+
+async function eliminarAdminDoc(docId, nombre) {
+  if (!confirm(`¿Eliminar la entrada "${nombre}" de admin_usuarios?\n(Solo se elimina el registro del admin, NO la cuenta de Firebase Auth)`)) return;
+  log(`Eliminando: ${nombre} (${docId})`);
+  try {
+    await db.collection('admin_usuarios').doc(docId).delete();
+    log(`✅ Entrada eliminada: ${nombre}`);
+    await cargarDatos();
+  } catch(e) {
+    log('❌ Error: ' + e.message);
+  }
+}
+</script>
+</body>
+</html>

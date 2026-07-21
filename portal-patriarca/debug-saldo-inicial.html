@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Debug Saldo Inicial</title>
+<style>
+  body { font-family: monospace; background:#111; color:#0f0; padding:24px; }
+  button { background:#2a6; color:#fff; border:none; padding:10px 20px; font-size:14px; cursor:pointer; border-radius:6px; margin:6px 4px 6px 0; }
+  input { display:block; padding:8px 12px; margin-bottom:8px; background:#1a1a1a; border:1px solid #444; color:#fff; border-radius:6px; font-size:13px; width:300px; }
+  label { font-size:11px; color:#aaa; margin-bottom:3px; display:block; }
+  #log { white-space:pre-wrap; font-size:12px; line-height:1.8; margin-top:16px; }
+  .ok{color:#0f0;} .err{color:#f44;} .inf{color:#ff0;} .gray{color:#888;} .blu{color:#6af;}
+</style>
+</head>
+<body>
+<h2>🔍 Debug Saldo Inicial — Vanlly</h2>
+<div>
+  <label>Correo</label>
+  <input id="email-inp" type="email" value="vanlly@aj16.com">
+  <label>Contraseña</label>
+  <input id="pass-inp" type="password" placeholder="Contraseña">
+  <button onclick="checkSaldoInicial()">▶ Verificar Saldo Inicial</button>
+  <button onclick="listAll()">📋 Listar TODOS los docs de patriarca_saldo_inicial</button>
+</div>
+<div id="log"></div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyBQ42PzffxkEUEJVaPIVxHPKDqA_wk6IS0",
+  authDomain: "portal-patriarca-aj16.firebaseapp.com",
+  projectId: "portal-patriarca-aj16",
+  storageBucket: "portal-patriarca-aj16.firebasestorage.app",
+  messagingSenderId: "1073575698338",
+  appId: "1:1073575698338:web:f014083b3092c6dc245cfb",
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db   = firebase.firestore();
+
+const logEl = document.getElementById('log');
+function L(msg, cls='') { logEl.innerHTML += `<span class="${cls}">${msg}</span>\n`; }
+
+async function login() {
+  const email = document.getElementById('email-inp').value.trim();
+  const pass  = document.getElementById('pass-inp').value;
+  if (!pass) { L('⚠ Ingresa la contraseña','err'); return null; }
+  if (auth.currentUser) return auth.currentUser;
+  try {
+    await auth.signInWithEmailAndPassword(email, pass);
+    L('✅ Sesión iniciada como: ' + auth.currentUser.email, 'ok');
+    L('   UID: ' + auth.currentUser.uid, 'gray');
+    return auth.currentUser;
+  } catch(e) {
+    L('❌ ' + e.message, 'err');
+    return null;
+  }
+}
+
+async function checkSaldoInicial() {
+  logEl.innerHTML = '';
+  const user = await login();
+  if (!user) return;
+
+  const uid = user.uid;
+
+  // Leer config para saber qué mes usa el portal
+  L('\n📋 Leyendo patriarca_config...', 'inf');
+  const configSnap = await db.collection('patriarca_config').doc(uid).get();
+  if (configSnap.exists) {
+    const cfg = configSnap.data();
+    L('   config.mes = ' + (cfg.mes || '(no definido)'), 'blu');
+    L('   config = ' + JSON.stringify(cfg, null, 2), 'gray');
+  } else {
+    L('   ⚠ NO existe patriarca_config para este UID', 'err');
+  }
+
+  // Calcular mesKey como lo hace el portal
+  function mesKey(mesStr) {
+    const MESES = { enero:1,febrero:2,marzo:3,abril:4,mayo:5,junio:6,julio:7,agosto:8,septiembre:9,octubre:10,noviembre:11,diciembre:12 };
+    if (!mesStr) return null;
+    const parts = mesStr.trim().toLowerCase().split(/\s+/);
+    if (parts.length < 2) return null;
+    const num = MESES[parts[0]];
+    const año = parseInt(parts[1]);
+    if (!num || !año) return null;
+    return año + '-' + String(num).padStart(2,'0');
+  }
+
+  const cfg = configSnap.exists ? configSnap.data() : {};
+  const mk = mesKey(cfg.mes) || (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  })();
+  L('\n🗓 mesKey que usa el portal: ' + mk, 'inf');
+
+  // Buscar el documento de saldo inicial
+  const docId = `${uid}_${mk}`;
+  L('\n🔍 Buscando patriarca_saldo_inicial/' + docId, 'inf');
+  const snap = await db.collection('patriarca_saldo_inicial').doc(docId).get();
+  if (snap.exists) {
+    L('✅ DOCUMENTO ENCONTRADO', 'ok');
+    const data = snap.data();
+    L('   Datos: ' + JSON.stringify(data, null, 2), 'gray');
+    const saldos = data.saldos || {};
+    const count = Object.keys(saldos).length;
+    L(`   → ${count} cliente(s) con saldo inicial`, 'ok');
+    Object.entries(saldos).forEach(([cid, casaMap]) => {
+      L(`   Cliente ${cid}:`, 'blu');
+      Object.entries(casaMap).forEach(([casa, monto]) => {
+        L(`     ${casa}: $${monto.toLocaleString()}`, 'ok');
+      });
+    });
+  } else {
+    L('❌ DOCUMENTO NO EXISTE: ' + docId, 'err');
+    L('   → Esto explica por qué aparecen "—" en Saldo Inicial', 'err');
+  }
+
+  // También probar otros meses
+  L('\n📅 Probando otros meses...', 'inf');
+  const meses = ['2026-06','2026-05','2026-07','2025-12'];
+  for (const m of meses) {
+    if (m === mk) continue;
+    const id = `${uid}_${m}`;
+    const s = await db.collection('patriarca_saldo_inicial').doc(id).get();
+    L(`   ${id}: ${s.exists ? '✅ EXISTE → ' + JSON.stringify(s.data()?.saldos || {}) : '— no existe'}`, s.exists ? 'ok' : 'gray');
+  }
+}
+
+async function listAll() {
+  logEl.innerHTML = '';
+  const user = await login();
+  if (!user) return;
+
+  L('\n📋 Listando TODOS los documentos en patriarca_saldo_inicial...', 'inf');
+  const snap = await db.collection('patriarca_saldo_inicial').get();
+  L(`   Total: ${snap.size} documentos`, 'blu');
+  snap.docs.forEach(d => {
+    const data = d.data();
+    const saldos = data.saldos || {};
+    const resumen = Object.entries(saldos).map(([cid, casaMap]) =>
+      `${cid}:[${Object.entries(casaMap).map(([c,m])=>c+'=$'+m).join(',')}]`
+    ).join(' | ');
+    L(`   📄 ${d.id}  →  opId=${data.opId||'?'}  |  ${resumen || '(sin saldos)'}`, d.id.includes(user.uid) ? 'ok' : 'gray');
+  });
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Seed Firebase Users — Portal Patriarca</title>
+<style>
+  body { font-family: monospace; background:#111; color:#0f0; padding:24px; }
+  button { background:#2a6; color:#fff; border:none; padding:12px 24px; font-size:16px; cursor:pointer; border-radius:6px; margin-bottom:16px; }
+  button:disabled { background:#444; color:#888; cursor:not-allowed; }
+  #log { white-space:pre-wrap; font-size:13px; line-height:1.6; }
+  .ok  { color:#0f0; }
+  .err { color:#f44; }
+  .inf { color:#ff0; }
+</style>
+</head>
+<body>
+<h2>🔧 Portal Patriarca — Crear Cuentas Firebase</h2>
+<p>Este archivo crea los 12 usuarios en Firebase Authentication con contraseña temporal <code>Patriarca2024!</code>.<br>
+<strong>Ejecutar UNA SOLA VEZ. Borrar después.</strong></p>
+
+<button id="btn" onclick="seedAll()">▶ Crear Todas las Cuentas</button>
+<div id="log"></div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyBQ42PzffxkEUEJVaPIVxHPKDqA_wk6IS0",
+  authDomain: "portal-patriarca-aj16.firebaseapp.com",
+  projectId: "portal-patriarca-aj16",
+  storageBucket: "portal-patriarca-aj16.firebasestorage.app",
+  messagingSenderId: "1073575698338",
+  appId: "1:1073575698338:web:f014083b3092c6dc245cfb",
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+
+const USERS = [
+  { email:'ronaldo@aj16.com',       name:'Ronaldo Pedraza',    role:'CEO'        },
+  { email:'vanlly@aj16.com',        name:'Vanlly Pedraza',     role:'CEO'        },
+  { email:'michell@aj16.com',       name:'Michell Castaño',    role:'CEO'        },
+  { email:'administradora@aj16.com',name:'Administradora JWC', role:'Directora'  },
+  { email:'paola@aj16.com',         name:'Paola Andrea Silva', role:'Cajero'     },
+  { email:'karla@aj16.com',         name:'Karla Garzón',       role:'Cajero'     },
+  { email:'annyer@aj16.com',        name:'Annyer Ruiz',        role:'Operador'   },
+  { email:'brandol@aj16.com',       name:'Brandol Gaviria',    role:'Operador'   },
+  { email:'nelson@aj16.com',        name:'Nelson Esparza',     role:'Operador'   },
+  { email:'richar@aj16.com',        name:'Richar Guerrero',    role:'Operador'   },
+  { email:'juan@aj16.com',          name:'Juan Miguel Garzón', role:'Operador'   },
+  { email:'youfrends@aj16.com',     name:'Youfrends Duarte',   role:'Operador'   },
+];
+
+const DEFAULT_PASS = 'Patriarca2024!';
+
+function log(msg, cls='inf') {
+  const el = document.getElementById('log');
+  el.innerHTML += `<span class="${cls}">${msg}</span>\n`;
+}
+
+async function seedAll() {
+  const btn = document.getElementById('btn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Creando…';
+  log('Iniciando creación de usuarios…\n');
+
+  for(const u of USERS) {
+    try {
+      const cred = await auth.createUserWithEmailAndPassword(u.email, DEFAULT_PASS);
+      await cred.user.updateProfile({ displayName: u.name });
+      log(`✅ ${u.role.padEnd(10)} ${u.email.padEnd(30)} — ${u.name}`, 'ok');
+    } catch(e) {
+      if(e.code === 'auth/email-already-in-use') {
+        log(`⚠  Ya existe: ${u.email}`, 'inf');
+      } else {
+        log(`❌ ERROR ${u.email}: ${e.message}`, 'err');
+      }
+    }
+    // small delay to avoid rate-limit
+    await new Promise(r => setTimeout(r, 500));
+  }
+
+  log('\n🎉 Proceso terminado.');
+  log(`Contraseña temporal de todos: ${DEFAULT_PASS}`, 'inf');
+  log('⚠  Recuerda cambiar las contraseñas individuales.', 'inf');
+  btn.textContent = '✅ Completado';
+}
+</script>
+</body>
+</html>

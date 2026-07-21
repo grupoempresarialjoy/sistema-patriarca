@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Seed Inversiones Vanlly — Junio 2026</title>
+<style>
+  body { font-family: monospace; background:#111; color:#0f0; padding:24px; }
+  button { background:#2a6; color:#fff; border:none; padding:12px 24px; font-size:16px; cursor:pointer; border-radius:6px; margin-bottom:16px; }
+  button:disabled { background:#444; color:#888; cursor:not-allowed; }
+  input { display:block; padding:10px 14px; margin-bottom:10px; background:#1a1a1a; border:1px solid #444; color:#fff; border-radius:6px; font-size:14px; width:320px; }
+  label { font-size:12px; color:#aaa; margin-bottom:4px; display:block; }
+  #login-box { background:#1a2a1a; border:1px solid #2a6; border-radius:8px; padding:20px; margin-bottom:20px; max-width:360px; }
+  #log { white-space:pre-wrap; font-size:12px; line-height:1.8; margin-top:12px; }
+  .ok  { color:#0f0; } .err { color:#f44; } .inf { color:#ff0; } .gray{ color:#888; }
+</style>
+</head>
+<body>
+<h2>📊 Seed Inversiones — Vanlly Junio 2026</h2>
+<p>Borra todas las inversiones existentes de Vanlly y carga las 94 del Excel.<br>
+<strong>Ejecutar UNA SOLA VEZ. Borrar el archivo después.</strong></p>
+<div id="login-box">
+  <label>Correo</label>
+  <input id="email-inp" type="email" value="vanlly@aj16.com">
+  <label>Contraseña</label>
+  <input id="pass-inp" type="password" placeholder="Contraseña">
+  <button id="btn" onclick="run()">▶ Limpiar y cargar 94 inversiones</button>
+</div>
+<div id="log"></div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyBQ42PzffxkEUEJVaPIVxHPKDqA_wk6IS0",
+  authDomain: "portal-patriarca-aj16.firebaseapp.com",
+  projectId: "portal-patriarca-aj16",
+  storageBucket: "portal-patriarca-aj16.firebasestorage.app",
+  messagingSenderId: "1073575698338",
+  appId: "1:1073575698338:web:f014083b3092c6dc245cfb",
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db   = firebase.firestore();
+
+const log = document.getElementById('log');
+function L(msg, cls='') { log.innerHTML += `<span class="${cls}">${msg}</span>\n`; }
+
+// [fecha, id_apuesta, id_evento_num, cliente, monto, casa, opcion, cuota, evento_nombre, fondos, id_recarga, comision, control, potencial_retorno, estado, retorno_cliente, retorno_plataforma, impacto]
+const INV = [
+  ['2026-06-10',4,4,'Vanlly Nataly Pedraza Sarabia',250000,'STAKE','1',2.96,'KOREA VS R. CHECA','PROPIO',null,0,'',740000,'CERRADO',740000,0,490000],
+  ['2026-06-10',4,4,'Belkis Jamzin Mendez',231000,'WPLAY','X',3.2,'KOREA VS R. CHECA','PROPIO','5 - C - OP',6930,'⚠ AL LÍMITE',739200,'CERRADO',0,231000,-231000],
+  ['2026-06-10',4,4,'Belkis Jamzin Mendez',248300,'STAKE','2',2.98,'KOREA VS R. CHECA','PROPIO',null,0,'',739934,'CERRADO',0,248300,-248300],
+  ['2026-06-10',4,4,'Vanlly Nataly Pedraza Sarabia',257000,'STAKE','1',2.87,'KOREA VS R. CHECA','PROPIO',null,0,'',737590,'CERRADO',737590,0,480590],
+  ['2026-06-10',4,4,'Vanlly Nataly Pedraza Sarabia',34000,'STAKE','1',2.7,'KOREA VS R. CHECA','PROPIO',null,0,'',91800,'CERRADO',91800,0,57800],
+  ['2026-06-10',4,4,'Belkis Jamzin Mendez',231000,'WPLAY','X',3.2,'KOREA VS R. CHECA','PROPIO','6 - C - OP',6930,'⚠ AL LÍMITE',739200,'CERRADO',0,231000,-231000],
+  ['2026-06-10',4,4,'Belkis Jamzin Mendez',30000,'WPLAY','X',3.2,'KOREA VS R. CHECA','PROPIO',null,0,'',96000,'CERRADO',0,30000,-30000],
+  ['2026-06-10',4,4,'Belkis Jamzin Mendez',279700,'STAKE','2',2.98,'KOREA VS R. CHECA','PROPIO',null,0,'',833506,'CERRADO',0,279700,-279700],
+  ['2026-06-10',5,5,'Vanlly Nataly Pedraza Sarabia',1270000,'STAKE','1',1.4665,'MEXICO VS SUDAFRICA','PROPIO',null,0,'',1862455,'CERRADO',1862455,0,592455],
+  ['2026-06-10',5,5,'Guberth Santiago Villanueva Hernandez',390000,'RUSHBET','X',4.7,'MEXICO VS SUDAFRICA','PROPIO',null,0,'',1833000,'CERRADO',0,390000,-390000],
+  ['2026-06-10',5,5,'Belkis Jamzin Mendez',200000,'STAKE','2',9.14,'MEXICO VS SUDAFRICA','PROPIO',null,0,'',1828000,'CERRADO',0,200000,-200000],
+  ['2026-06-12',6,6,'Vanlly Nataly Pedraza Sarabia',960000,'STAKE','1',1.96,'CANADA VS BOSCONIA','PROPIO',null,0,'',1881600,'CERRADO',0,960000,-960000],
+  ['2026-06-12',6,6,'Belkis Jamzin Mendez',500000,'WPLAY','X',3.6,'CANADA VS BOSCONIA','PROPIO',null,0,'',1800000,'CERRADO',1800000,0,1300000],
+  ['2026-06-12',6,6,'Belkis Jamzin Mendez',379000,'BWIN','2',4.75,'CANADA VS BOSCONIA','PROPIO',null,9475,'',1800250,'CERRADO',0,379000,-379000],
+  ['2026-06-12',7,7,'Vanlly Nataly Pedraza Sarabia',944000,'STAKE','1',2.12,'EE.UU VS PARAGUAY','PROPIO',null,0,'',2001280,'CERRADO',2001280,0,1057280],
+  ['2026-06-12',7,7,'Vanlly Nataly Pedraza Sarabia',105000,'STAKE','1',2.23,'EE.UU VS PARAGUAY','PROPIO',null,0,'',234150,'CERRADO',234150,0,129150],
+  ['2026-06-12',7,7,'Belkis Jamzin Mendez',630000,'STAKE','X',3.53,'EE.UU VS PARAGUAY','PROPIO',null,0,'',2223900,'CERRADO',0,630000,-630000],
+  ['2026-06-12',7,7,'Vanlly Nataly Pedraza Sarabia',519500,'STAKE','2',4.28,'EE.UU VS PARAGUAY','PROPIO',null,0,'',2223460,'CERRADO',0,519500,-519500],
+  ['2026-06-13',8,8,'Vanlly Nataly Pedraza Sarabia',330000,'STAKE','1',5.84,'AUSTRALIA VS TURQUIA','PROPIO',null,0,'',1927200,'CERRADO',1927200,0,1597200],
+  ['2026-06-13',8,8,'Guberth Santiago Villanueva Hernandez',535000,'RUSHBET','X',3.75,'AUSTRALIA VS TURQUIA','PROPIO',null,11700,'',2006250,'CERRADO',0,535000,-535000],
+  ['2026-06-13',8,8,'Vanlly Nataly Pedraza Sarabia',1121000,'STAKE','2',1.79,'AUSTRALIA VS TURQUIA','PROPIO',null,0,'',2006590,'CERRADO',0,1121000,-1121000],
+  ['2026-06-16',9,9,'Vanlly Nataly Pedraza Sarabia',670000,'STAKE','1',2.31,'GHANA VS PANAMA','PROPIO',null,0,'',1547700,'CERRADO',1547700,0,877700],
+  ['2026-06-16',9,9,'Belkis Jamzin Mendez',454000,'STAKE','X',3.36,'GHANA VS PANAMA','PROPIO',null,0,'',1525440,'CERRADO',0,454000,-454000],
+  ['2026-06-16',9,9,'Vanlly Nataly Pedraza Sarabia',447000,'STAKE','2',3.47,'GHANA VS PANAMA','PROPIO',null,0,'',1550490,'CERRADO',0,447000,-447000],
+  ['2026-06-16',10,10,'Vanlly Nataly Pedraza Sarabia',1080000,'STAKE','1',1.4,'AUSTRIA VS JORDANIA','PROPIO',null,0,'',1512000,'CERRADO',1512000,0,432000],
+  ['2026-06-16',10,10,'Belkis Jamzin Mendez',280000,'STAKE','X',5.1,'AUSTRIA VS JORDANIA','PROPIO',null,0,'',1428000,'CERRADO',0,280000,-280000],
+  ['2026-06-16',10,10,'Belkis Jamzin Mendez',16000,'STAKE','X',5.7,'AUSTRIA VS JORDANIA','PROPIO',null,0,'',91200,'CERRADO',0,16000,-16000],
+  ['2026-06-16',10,10,'Vanlly Nataly Pedraza Sarabia',170000,'STAKE','2',8.9,'AUSTRIA VS JORDANIA','PROPIO',null,0,'',1513000,'CERRADO',0,170000,-170000],
+  ['2026-06-17',11,11,'Vanlly Nataly Pedraza Sarabia',192000,'STAKE','1',10.9,'UZBEKISTAN VS COLOMBIA','PROPIO',null,0,'',2092800,'CERRADO',0,192000,-192000],
+  ['2026-06-17',11,11,'Belkis Jamzin Mendez',400000,'STAKE','X',4.9,'UZBEKISTAN VS COLOMBIA','PROPIO',null,0,'',1960000,'CERRADO',0,400000,-400000],
+  ['2026-06-17',11,11,'Belkis Jamzin Mendez',26000,'STAKE','X',5.26,'UZBEKISTAN VS COLOMBIA','PROPIO',null,0,'',136760,'CERRADO',0,26000,-26000],
+  ['2026-06-17',11,11,'Vanlly Nataly Pedraza Sarabia',1439000,'STAKE','2',1.45,'UZBEKISTAN VS COLOMBIA','PROPIO',null,0,'',2086550,'CERRADO',2086550,0,647550],
+  ['2026-06-16',10,10,'Vanlly Nataly Pedraza Sarabia',24800,'STAKE','1',1.0,'AUSTRIA VS JORDANIA','BONIFICACION',null,0,'',24800,'CERRADO',24800,0,0],
+  ['2026-06-18',3,3,'Belkis Jamzin Mendez',183000,'STAKE','1',1.0,'BONOS','BONIFICACION',null,0,'',183000,'CERRADO',183000,0,0],
+  ['2026-06-18',12,12,'Vanlly Nataly Pedraza Sarabia',1104200,'STAKE','1',1.82,'REPLUBLICA CHEVA VS SUDAFRICA','PROPIO',null,0,'',2009644,'CERRADO',0,1104200,-1104200],
+  ['2026-06-18',12,12,'Belkis Jamzin Mendez',558260,'STAKE','X',3.6,'REPLUBLICA CHEVA VS SUDAFRICA','PROPIO',null,0,'',2009736,'CERRADO',2009736,0,1451476],
+  ['2026-06-18',12,12,'Vanlly Nataly Pedraza Sarabia',395600,'STAKE','2',5.08,'REPLUBLICA CHEVA VS SUDAFRICA','PROPIO',null,0,'',2009648,'CERRADO',0,395600,-395600],
+  ['2026-06-24',3,3,'Belkis Jamzin Mendez',42600,'STAKE','1',1.0,'BONOS','BONIFICACION',null,0,'',42600,'CERRADO',42600,0,0],
+  ['2026-06-18',13,13,'Belkis Jamzin Mendez',838000,'STAKE','1',2.265,'MEXICO VS COREA DEL SUR','PROPIO',null,0,'',1898070,'CERRADO',1898070,0,1060070],
+  ['2026-06-18',13,13,'Vanlly Nataly Pedraza Sarabia',551000,'STAKE','X',3.48,'MEXICO VS COREA DEL SUR','PROPIO',null,0,'',1917480,'CERRADO',0,551000,-551000],
+  ['2026-06-18',13,13,'Belkis Jamzin Mendez',493000,'STAKE','2',3.85,'MEXICO VS COREA DEL SUR','PROPIO',null,0,'',1898050,'CERRADO',0,493000,-493000],
+  ['2026-06-18',14,14,'Belkis Jamzin Mendez',550000,'STAKE','1',1.32,'CANADA VS CATAR','PROPIO',null,0,'',726000,'CERRADO',726000,0,176000],
+  ['2026-06-18',14,14,'Belkis Jamzin Mendez',118000,'STAKE','X',6.12,'CANADA VS CATAR','PROPIO',null,0,'',722160,'CERRADO',0,118000,-118000],
+  ['2026-06-18',14,14,'Belkis Jamzin Mendez',33000,'STAKE','2',12.21,'CANADA VS CATAR','PROPIO',null,0,'',402930,'CERRADO',0,33000,-33000],
+  ['2026-06-18',14,14,'Vanlly Nataly Pedraza Sarabia',24200,'STAKE','2',12.7,'CANADA VS CATAR','PROPIO',null,0,'',307340,'CERRADO',0,24200,-24200],
+  ['2026-06-19',15,15,'Belkis Jamzin Mendez',1000000,'STAKE','1',1.646,'ESTADOS UNIDOS VS AUSTRALIA','PROPIO',null,0,'',1646000,'CERRADO',1646000,0,646000],
+  ['2026-06-19',15,15,'Belkis Jamzin Mendez',360000,'STAKE','X',4.57,'ESTADOS UNIDOS VS AUSTRALIA','PROPIO',null,0,'',1645200,'CERRADO',0,360000,-360000],
+  ['2026-06-19',15,15,'Belkis Jamzin Mendez',280000,'STAKE','2',5.515,'ESTADOS UNIDOS VS AUSTRALIA','PROPIO',null,0,'',1544200,'CERRADO',0,280000,-280000],
+  ['2026-06-22',16,16,'Vanlly Nataly Pedraza Sarabia',900000,'STAKE','1',2.26,'NORUEGA VS SENEGAL','PROPIO',null,0,'',2033999,'CERRADO',2033999,0,1133999],
+  ['2026-06-22',16,16,'Vanlly Nataly Pedraza Sarabia',77000,'STAKE','1',2.38,'NORUEGA VS SENEGAL','PROPIO',null,0,'',183260,'CERRADO',183260,0,106260],
+  ['2026-06-22',16,16,'Belkis Jamzin Mendez',570000,'STAKE','X',3.875,'NORUEGA VS SENEGAL','PROPIO',null,0,'',2208750,'CERRADO',0,570000,-570000],
+  ['2026-06-22',16,16,'Belkis Jamzin Mendez',628000,'STAKE','2',3.52,'NORUEGA VS SENEGAL','PROPIO',null,0,'',2210560,'CERRADO',0,628000,-628000],
+  ['2026-06-23',17,17,'Belkis Jamzin Mendez',1000000,'STAKE','1',1.17,'PORTUGAK VS UZBEKISTAN','PROPIO',null,0,'',1170000,'CERRADO',1170000,0,170000],
+  ['2026-06-23',17,17,'Vanlly Nataly Pedraza Sarabia',120000,'STAKE','X',9.8,'PORTUGAK VS UZBEKISTAN','PROPIO',null,0,'',1176000,'CERRADO',0,120000,-120000],
+  ['2026-06-23',17,17,'Vanlly Nataly Pedraza Sarabia',52000,'STAKE','2',22.5,'PORTUGAK VS UZBEKISTAN','PROPIO',null,0,'',1170000,'CERRADO',0,52000,-52000],
+  ['2026-06-24',3,3,'Vanlly Nataly Pedraza Sarabia',110750,'STAKE','1',1.0,'BONOS','BONIFICACION',null,0,'',110750,'CERRADO',110750,0,0],
+  ['2026-06-23',18,18,'Belkis Jamzin Mendez',1275000,'STAKE','1',1.57,'COLOMBIA VS REP DEL CONGO','PROPIO',null,0,'',2001750,'CERRADO',2001750,0,726750],
+  ['2026-06-23',18,18,'Vanlly Nataly Pedraza Sarabia',450000,'STAKE','X',4.41,'COLOMBIA VS REP DEL CONGO','PROPIO',null,0,'',1984500,'CERRADO',0,450000,-450000],
+  ['2026-06-23',18,18,'Vanlly Nataly Pedraza Sarabia',250000,'STAKE','2',7.71,'COLOMBIA VS REP DEL CONGO','PROPIO',null,0,'',1927500,'CERRADO',0,250000,-250000],
+  ['2026-06-24',19,19,'Belkis Jamzin Mendez',1377000,'STAKE','1',2.52,'SUIZA VS CANADA','PROPIO',null,0,'',3470040,'CERRADO',3470040,0,2093040],
+  ['2026-06-24',19,19,'Belkis Jamzin Mendez',972500,'STAKE','X',3.21,'SUIZA VS CANADA','PROPIO',null,0,'',3121725,'CERRADO',0,972500,-972500],
+  ['2026-06-24',19,19,'Vanlly Nataly Pedraza Sarabia',109000,'STAKE','X',3.21,'SUIZA VS CANADA','PROPIO',null,0,'',349890,'CERRADO',0,109000,-109000],
+  ['2026-06-24',19,19,'Vanlly Nataly Pedraza Sarabia',1000000,'STAKE','2',3.47,'SUIZA VS CANADA','PROPIO',null,0,'',3470000,'CERRADO',0,1000000,-1000000],
+  ['2026-06-25',3,3,'Belkis Jamzin Mendez',430000,'STAKE','1',1.0,'BONOS','BONIFICACION',null,0,'',430000,'CERRADO',430000,0,0],
+  ['2026-06-25',20,20,'Vanlly Nataly Pedraza Sarabia',730000,'STAKE','1',4.08,'TURQUIA VS EEUU','PROPIO',null,0,'',2978400,'CERRADO',2978400,0,2248400],
+  ['2026-06-25',20,20,'Belkis Jamzin Mendez',723000,'STAKE','X',4.15,'TURQUIA VS EEUU','PROPIO',null,0,'',3000450,'CERRADO',0,723000,-723000],
+  ['2026-06-25',20,20,'Belkis Jamzin Mendez',1508000,'STAKE','2',1.99,'TURQUIA VS EEUU','PROPIO',null,0,'',3000920,'CERRADO',0,1508000,-1508000],
+  ['2026-06-25',21,21,'Externo',619000,'STAKE','1',5.0,'ECUADOR VS ALEMANIA','PROPIO',null,0,'',3095000,'CERRADO',3095000,0,2476000],
+  ['2026-06-25',21,21,'Externo',619000,'STAKE','X',5.0,'ECUADOR VS ALEMANIA','BONIFICACION',null,0,'',3095000,'CERRADO',0,619000,-619000],
+  ['2026-06-25',21,21,'Belkis Jamzin Mendez',1887000,'STAKE','2',1.64,'ECUADOR VS ALEMANIA','PROPIO',null,0,'',3094680,'CERRADO',0,1887000,-1887000],
+  ['2026-06-25',21,21,'Externo',138500,'STAKE','2',1.0,'ECUADOR VS ALEMANIA','PROPIO',null,0,'',138500,'CERRADO',0,138500,-138500],
+  ['2026-06-26',22,22,'Belkis Jamzin Mendez',1019000,'STAKE','1',2.7,'CABO VERDE VS ARABIA SAUDITA','PROPIO',null,0,'',2751300,'CERRADO',0,1019000,-1019000],
+  ['2026-06-26',22,22,'Vanlly Nataly Pedraza Sarabia',821000,'STAKE','X',3.35,'CABO VERDE VS ARABIA SAUDITA','PROPIO',null,0,'',2750350,'CERRADO',2750350,0,1929350],
+  ['2026-06-26',22,22,'Vanlly Nataly Pedraza Sarabia',1000000,'STAKE','2',2.75,'CABO VERDE VS ARABIA SAUDITA','PROPIO',null,0,'',2750000,'CERRADO',0,1000000,-1000000],
+  ['2026-06-26',23,23,'Belkis Jamzin Mendez',1807000,'WPLAY','1',1.25,'SENEGAL VS IRAK','PROPIO',null,0,'',2258750,'CERRADO',2258750,0,451750],
+  ['2026-06-26',23,23,'Thania de la pava',1351000,'WPLAY','1',1.25,'SENEGAL VS IRAK','PROPIO',null,40530,'',1688750,'CERRADO',1688750,0,337750],
+  ['2026-06-26',23,23,'Externo',556000,'STAKE','X',7.1,'SENEGAL VS IRAK','BONIFICACION',null,0,'',3947600,'CERRADO',0,556000,-556000],
+  ['2026-06-26',23,23,'Vanlly Nataly Pedraza Sarabia',218100,'STAKE','2',16.81,'SENEGAL VS IRAK','PROPIO',null,0,'',3666561,'CERRADO',0,218100,-218100],
+  ['2026-06-26',23,23,'Belkis Jamzin Mendez',22000,'STAKE','2',14.75,'SENEGAL VS IRAK','PROPIO',null,0,'',324500,'CERRADO',0,22000,-22000],
+  ['2026-06-26',23,23,'Belkis Jamzin Mendez',136500,'WPLAY','2',2.0,'SENEGAL VS IRAK','PROPIO',null,0,'',273000,'CERRADO',0,136500,-136500],
+  ['2026-06-27',24,24,'Belkis Jamzin Mendez',830000,'STAKE','1',3.75,'COLOMBIA VS PORTUGAL','PROPIO',null,0,'',3112500,'CERRADO',0,830000,-830000],
+  ['2026-06-27',24,24,'Thania de la pava',800000,'STAKE','X',3.9,'COLOMBIA VS PORTUGAL','PROPIO',null,0,'',3120000,'CERRADO',3120000,0,2320000],
+  ['2026-06-27',24,24,'Vanlly Nataly Pedraza Sarabia',1522000,'STAKE','2',2.05,'COLOMBIA VS PORTUGAL','PROPIO',null,0,'',3120100,'CERRADO',0,1522000,-1522000],
+  ['2026-06-27',25,25,'Vanlly Nataly Pedraza Sarabia',1006000,'WPLAY','1',1.9,'CROACIA VS GHANA','PROPIO',null,48000,'',1911400,'CERRADO',1911400,0,905400],
+  ['2026-06-27',25,25,'Vanlly Nataly Pedraza Sarabia',598000,'WPLAY','X',3.2,'CROACIA VS GHANA','PROPIO',null,0,'',1913600,'CERRADO',0,598000,-598000],
+  ['2026-06-27',25,25,'Belkis Jamzin Mendez',306700,'STAKE','2',6.23,'CROACIA VS GHANA','BONIFICACION',null,0,'',1910681,'CERRADO',0,306700,-306700],
+  ['2026-06-01',1,1,'Vanlly Nataly Pedraza Sarabia',10000,'WPLAY','1',1.0,'RETIRO MES ANTERIOR','BONIFICACION',null,0,'',10000,'CERRADO',10000,0,0],
+  ['2026-06-01',2,2,'Externo',871981,'AQUI JUEGOS','2',2.0,'FALTA POR REGISTRAR','PROPIO',null,0,'',1743962,'CERRADO',0,871981,-871981],
+  ['2026-06-01',2,2,'Michael Yessenia Cataño Mendez',193000,'AQUI JUEGOS','2',2.0,'FALTA POR REGISTRAR','PROPIO',null,0,'',386000,'CERRADO',0,193000,-193000],
+  ['2026-06-30',26,26,'Thania de la pava',845000,'STAKE','1',3.55,'COSTA DE MARFIL VS NORUEGA','PROPIO',null,0,'',2999750,'CERRADO',0,845000,-845000],
+  ['2026-06-30',26,26,'Thania de la pava',850000,'STAKE','X',3.5,'COSTA DE MARFIL VS NORUEGA','PROPIO',null,0,'',2975000,'CERRADO',0,850000,-850000],
+  ['2026-06-30',26,26,'Belkis Jamzin Mendez',1396000,'WPLAY','2',2.15,'COSTA DE MARFIL VS NORUEGA','PROPIO',null,41880,'',3001400,'CERRADO',3001400,0,1605400],
+  ['2026-06-01',1,1,'Belkis Jamzin Mendez',1000000,'BETANO','1',1.0,'RETIRO MES ANTERIOR','BONIFICACION',null,0,'',1000000,'CERRADO',1000000,0,0],
+  ['2026-06-01',1,1,'Michael Yessenia Cataño Mendez',1750000,'BETANO','1',1.0,'RETIRO MES ANTERIOR','BONIFICACION',null,0,'',1750000,'CERRADO',1750000,0,0],
+];
+
+function normNombre(s) { return (s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').trim(); }
+
+async function run() {
+  document.getElementById('btn').disabled = true;
+  const emailVal = document.getElementById('email-inp').value.trim();
+  const passVal  = document.getElementById('pass-inp').value;
+  if (!passVal) { L('⚠ Ingresa la contraseña','err'); document.getElementById('btn').disabled=false; return; }
+
+  L('🔐 Iniciando sesión...','inf');
+  try { await auth.signInWithEmailAndPassword(emailVal, passVal); }
+  catch(e) { L('❌ Login fallido: '+e.message,'err'); document.getElementById('btn').disabled=false; return; }
+
+  const opId = auth.currentUser.uid;
+  L('✅ opId = '+opId,'ok');
+
+  // Cargar clientes
+  L('\n📂 Cargando clientes...','inf');
+  const cliSnap = await db.collection('patriarca_clientes').where('opId','==',opId).get();
+  const clientes = cliSnap.docs.map(d=>({id:d.id,...d.data()}));
+  L('   → '+clientes.length+' clientes','inf');
+  function findCliente(nombre) {
+    const n = normNombre(nombre);
+    return clientes.find(c=>normNombre(c.nombre||c.nombre_cliente||'')===n)
+        || clientes.find(c=>normNombre(c.nombre||c.nombre_cliente||'').includes(n.split(' ')[0]));
+  }
+
+  // Cargar eventos
+  L('📂 Cargando eventos...','inf');
+  const evSnap = await db.collection('patriarca_eventos').where('opId','==',opId).get();
+  const eventos = evSnap.docs.map(d=>({id:d.id,...d.data()}));
+  L('   → '+eventos.length+' eventos','inf');
+  function findEvento(num) { return eventos.find(e=>parseInt(e.num)===num); }
+
+  // Borrar inversiones existentes
+  L('\n🗑 Borrando inversiones existentes...','inf');
+  const invSnap = await db.collection('patriarca_inversiones').where('opId','==',opId).get();
+  L('   → '+invSnap.size+' encontradas','inf');
+  const CHUNK = 400;
+  for (let i=0;i<invSnap.docs.length;i+=CHUNK) {
+    const fb=db.batch(); invSnap.docs.slice(i,i+CHUNK).forEach(d=>fb.delete(d.ref)); await fb.commit();
+  }
+  L('   ✅ '+invSnap.size+' borradas','ok');
+
+  // Crear inversiones
+  L('\n📥 Creando 94 inversiones...','inf');
+  let ok=0, warn=0;
+  const docs=[];
+
+  for (const row of INV) {
+    const [fecha,id_ap,id_ev_num,clienteNom,monto,casa,opcion,cuota,eventoNom,fondos,id_recarga,comision,control,potencial,estado,ret_cli,ret_plat,impacto] = row;
+
+    const ev  = findEvento(id_ev_num);
+    const cli = findCliente(clienteNom);
+    if (!ev)  { L('   ⚠ Evento no encontrado: #'+id_ev_num,'inf'); warn++; }
+    if (!cli) { L('   ⚠ Cliente no encontrado: '+clienteNom,'inf'); warn++; }
+
+    docs.push({
+      opId,
+      fecha,
+      id_apuesta:          id_ap,
+      id_evento_ref:       ev?.id || null,
+      evento:              ev?.nombre || eventoNom,
+      cliente:             cli?.nombre || cli?.nombre_cliente || clienteNom,
+      cliente_id:          cli?.id || '',
+      monto,
+      casa,
+      opcion_elegida:      String(opcion),
+      cuota,
+      fondos,
+      id_recarga:          id_recarga || '',
+      id_recarga_label:    id_recarga || '',
+      comision_aplicada:   comision || 0,
+      control_recarga:     control || '',
+      potencial_retorno:   potencial || Math.round(monto * cuota),
+      estado_evento:       estado || 'CERRADO',
+      retorno_cliente:     ret_cli || 0,
+      retorno_plataforma:  ret_plat || 0,
+      impacto_apuesta:     impacto || 0,
+      ts: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    ok++;
+  }
+
+  for (let i=0;i<docs.length;i+=CHUNK) {
+    const fb=db.batch();
+    docs.slice(i,i+CHUNK).forEach(d=>fb.set(db.collection('patriarca_inversiones').doc(),d));
+    await fb.commit();
+  }
+
+  await auth.signOut();
+  L('\n'+'─'.repeat(50),'inf');
+  L('✅ '+ok+' inversiones cargadas.','ok');
+  if (warn) L('⚠ '+warn+' advertencias (clientes/eventos no encontrados).','inf');
+  L('\n🔄 Recarga el portal de Vanlly (Cmd+Shift+R).','inf');
+  L('🗑 Puedes cerrar y borrar este archivo.','inf');
+}
+</script>
+</body>
+</html>

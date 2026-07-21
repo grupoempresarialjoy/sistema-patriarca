@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Seed Intercambios Vanlly — Junio 2026</title>
+<style>
+  body { font-family: monospace; background:#111; color:#0f0; padding:24px; }
+  button { background:#2a6; color:#fff; border:none; padding:12px 24px; font-size:16px; cursor:pointer; border-radius:6px; margin-bottom:16px; }
+  button:disabled { background:#444; color:#888; cursor:not-allowed; }
+  input { display:block; padding:10px 14px; margin-bottom:10px; background:#1a1a1a; border:1px solid #444; color:#fff; border-radius:6px; font-size:14px; width:320px; }
+  label { font-size:12px; color:#aaa; margin-bottom:4px; display:block; }
+  #login-box { background:#1a2a1a; border:1px solid #2a6; border-radius:8px; padding:20px; margin-bottom:20px; max-width:360px; }
+  #log { white-space:pre-wrap; font-size:12px; line-height:1.8; }
+  .ok{color:#0f0;} .err{color:#f44;} .inf{color:#ff0;} .gray{color:#888;}
+</style>
+</head>
+<body>
+<h2>🔄 Seed Intercambios — Vanlly Junio 2026</h2>
+<p>Borra los intercambios existentes de Vanlly y carga los 13 del Excel.<br>
+También crea los registros globales para que el Cajero los vea en histórico.<br>
+<strong>Ejecutar UNA SOLA VEZ. Borrar el archivo después.</strong></p>
+<div id="login-box">
+  <label>Correo</label>
+  <input id="email-inp" type="email" value="vanlly@aj16.com">
+  <label>Contraseña</label>
+  <input id="pass-inp" type="password" placeholder="Contraseña">
+  <button id="btn" onclick="run()">▶ Limpiar y cargar 13 intercambios</button>
+</div>
+<div id="log"></div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyBQ42PzffxkEUEJVaPIVxHPKDqA_wk6IS0",
+  authDomain: "portal-patriarca-aj16.firebaseapp.com",
+  projectId: "portal-patriarca-aj16",
+  storageBucket: "portal-patriarca-aj16.firebasestorage.app",
+  messagingSenderId: "1073575698338",
+  appId: "1:1073575698338:web:f014083b3092c6dc245cfb",
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db   = firebase.firestore();
+
+const logEl = document.getElementById('log');
+function L(msg, cls='') { logEl.innerHTML += `<span class="${cls}">${msg}</span>\n`; }
+
+// Alias de métodos
+const METODO_ALIAS = {
+  'BEMOVIL':'BE MOVIL CAJA','WPLAY POS':'WPLAY UNITY',
+  'EFECTIVO':'EFECTIVO OPERADOR','EFECTY':'EFECTY 1 DE MAYO',
+  'CORRESPONSAL':'CORRESPONSAL EL PARAMO','EASYCHANGER':'EASY CHANGER',
+};
+function normMetodo(m) { return METODO_ALIAS[(m||'').trim().toUpperCase()] || (m||'').trim().toUpperCase(); }
+
+// [fecha, ix_id_raw, monto, operador2_nombre, caja_egresa, caja_ingresa]
+// OP2=Propio → tipo Interno; OP2=nombre → tipo Cruzado
+const INTERCAMBIOS = [
+  ['2026-05-03', '5 - C - OP - INTERCAMBIO',   1000000, 'Propio',                          'CORRESPONSAL', 'BEMOVIL'],
+  ['2026-06-12', '32 - C - OP - INTERCAMBIO',    564000, 'Propio',                          'EFECTIVO',     'CORRESPONSAL'],
+  ['2026-06-15', '48 - C - OP - INTERCAMBIO',    911000, 'Propio',                          'EFECTIVO',     'WPLAY POS'],
+  ['2026-06-15', '49 - C - OP - INTERCAMBIO',    220500, 'Propio',                          'CORRESPONSAL', 'WPLAY POS'],
+  ['2026-06-18', '79 - C - OP - INTERCAMBIO',  2000000, 'Ronaldo Pedraza Sarabia',          'CORRESPONSAL', 'EFECTY'],
+  ['2026-06-18', '88 - C - OP - INTERCAMBIO',    183000, 'Ronaldo Pedraza Sarabia',          'SUPER GIROS MAQUINA', 'EFECTY'],
+  ['2026-06-22', '106 - C - OP - INTERCAMBIO',   210100, 'Juan Miguel Antonio Antonio Garzon','WPLAY POS',  'EFECTY'],
+  ['2026-06-24', '137 - C - OP - INTERCAMBIO',   184750, 'Ronaldo Pedraza Sarabia',          'CORRESPONSAL', 'EFECTIVO'],
+  ['2026-06-26', '160 - C - OP - INTERCAMBIO', 2337500, 'Propio',                           'EFECTIVO',     'WPLAY POS'],
+  ['2026-06-26', '162 - C - OP - INTERCAMBIO', 1000000, 'Propio',                           'CORRESPONSAL', 'EFECTY'],
+  ['2026-06-27', '174 - C - OP - INTERCAMBIO', 2987900, 'Propio',                           'CORRESPONSAL', 'EFECTY'],
+  ['2026-06-30', '192 - C - OP - INTERCAMBIO', 1795000, 'Propio',                           'EFECTIVO',     'WPLAY POS'],
+  ['2026-06-30', '194 - C - OP - INTERCAMBIO', 1500000, 'Propio',                           'CORRESPONSAL', 'BEMOVIL'],
+];
+
+function normNombre(s) { return (s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').trim(); }
+
+async function run() {
+  document.getElementById('btn').disabled = true;
+  const emailVal = document.getElementById('email-inp').value.trim();
+  const passVal  = document.getElementById('pass-inp').value;
+  if (!passVal) { L('⚠ Ingresa la contraseña','err'); document.getElementById('btn').disabled=false; return; }
+
+  L('🔐 Iniciando sesión...','inf');
+  try { await auth.signInWithEmailAndPassword(emailVal, passVal); }
+  catch(e) { L('❌ '+e.message,'err'); document.getElementById('btn').disabled=false; return; }
+
+  const opId = auth.currentUser.uid;
+  L('✅ opId = '+opId,'ok');
+
+  // Obtener datos de Vanlly (oficina, nombre)
+  const opSnap = await db.collection('patriarca_operadores').doc(opId).get();
+  const opData = opSnap.exists ? opSnap.data() : {};
+  const oficina = opData.oficinaNombre || opData.oficina || 'Unity';
+  const op1Nombre = opData.nombre || 'Vanlly Nataly Pedraza Sarabia';
+  L('   Oficina: '+oficina+' | Nombre: '+op1Nombre, 'gray');
+
+  // Buscar UIDs de otros operadores
+  L('\n🔍 Buscando UIDs de otros operadores...','inf');
+  const opsSnap = await db.collection('patriarca_operadores').get();
+  const operadores = opsSnap.docs.map(d=>({id:d.id,...d.data()}));
+  function findOpUID(nombre) {
+    const n = normNombre(nombre);
+    return operadores.find(o => normNombre(o.nombre||'').includes(n.split(' ')[0]) && o.uid !== opId);
+  }
+
+  // Borrar intercambios existentes de Vanlly
+  L('\n🗑 Borrando intercambios existentes...','inf');
+  const ixSnap = await db.collection('patriarca_intercambios').where('opId','==',opId).get();
+  L('   → '+ixSnap.size+' encontrados','inf');
+  for (let i=0;i<ixSnap.docs.length;i+=400) {
+    const fb=db.batch(); ixSnap.docs.slice(i,i+400).forEach(d=>fb.delete(d.ref)); await fb.commit();
+  }
+  L('   ✅ '+ixSnap.size+' borrados','ok');
+
+  // Borrar globals existentes de Vanlly (op1_uid = opId)
+  L('\n🗑 Borrando ix_global existentes de Vanlly...','inf');
+  const glSnap = await db.collection('patriarca_ix_global').where('op1_uid','==',opId).get();
+  L('   → '+glSnap.size+' encontrados','inf');
+  for (let i=0;i<glSnap.docs.length;i+=400) {
+    const fb=db.batch(); glSnap.docs.slice(i,i+400).forEach(d=>fb.delete(d.ref)); await fb.commit();
+  }
+  L('   ✅ '+glSnap.size+' borrados','ok');
+
+  // Crear intercambios
+  L('\n📥 Creando 13 intercambios...','inf');
+  const ts = firebase.firestore.FieldValue.serverTimestamp();
+
+  for (const [fecha, ix_id_raw, monto, op2Nombre, egresaRaw, ingresaRaw] of INTERCAMBIOS) {
+    const esPropio  = op2Nombre === 'Propio';
+    const tipo      = esPropio ? 'I' : 'C';
+    const egresa    = normMetodo(egresaRaw);
+    const ingresa   = normMetodo(ingresaRaw);
+    const ix_id     = ix_id_raw.replace(' - C - OP - INTERCAMBIO', '-C-OP-INTERCAMBIO').replace(/ /g,'');
+
+    // Buscar UID del op2 si es cruzado
+    let op2UID = null;
+    if (!esPropio) {
+      const op2 = findOpUID(op2Nombre);
+      op2UID = op2?.uid || op2?.id || null;
+      if (!op2UID) L('   ⚠ No se encontró UID de: '+op2Nombre,'inf');
+      else L('   ✅ Op2 ('+op2Nombre+'): '+op2UID,'gray');
+    }
+
+    // Crear global
+    const globalData = {
+      tipo, oficina, fecha, monto,
+      op1_uid: opId, op1_nombre: op1Nombre,
+      op1_egresa: egresa, op1_ingresa: ingresa,
+      estado: 'completado', checkmarks: esPropio ? 2 : 3,
+      confirmado_op1_at: ts,
+      confirmado_cajera_at: ts,
+      ts,
+    };
+    if (!esPropio) {
+      globalData.op2_uid    = op2UID;
+      globalData.op2_nombre = op2Nombre;
+      globalData.op2_egresa = ingresa;
+      globalData.op2_ingresa = egresa;
+      globalData.confirmado_op2_at = ts;
+    }
+    const globalRef = await db.collection('patriarca_ix_global').add(globalData);
+
+    // Crear registro de Vanlly en patriarca_intercambios
+    await db.collection('patriarca_intercambios').add({
+      opId, fecha, monto, tipo,
+      ix_id,
+      operador1: op1Nombre,  operador1_uid: opId,
+      operador2: esPropio ? 'Propio' : op2Nombre,
+      operador2_uid: esPropio ? null : op2UID,
+      caja_egresa: egresa, caja_ingresa: ingresa,
+      es_creador: true,
+      estado: 'completado',
+      checkmarks: esPropio ? 2 : 3,
+      global_id: globalRef.id,
+      ts,
+    });
+
+    // Si es cruzado y tenemos UID del op2, crear su registro también
+    if (!esPropio && op2UID) {
+      await db.collection('patriarca_intercambios').add({
+        opId: op2UID, fecha, monto, tipo: 'C',
+        ix_id: ix_id.replace(/^\d+/, '?'), // num desconocido para op2
+        operador1: op2Nombre,  operador1_uid: op2UID,
+        operador2: op1Nombre,  operador2_uid: opId,
+        caja_egresa: ingresa, caja_ingresa: egresa, // invertido
+        es_creador: false,
+        estado: 'completado',
+        checkmarks: 3,
+        global_id: globalRef.id,
+        ts,
+      });
+    }
+
+    L('   ✅ '+ix_id_raw+' | $'+monto.toLocaleString()+' | '+egresa+' → '+ingresa+' | Op2='+op2Nombre,'ok');
+  }
+
+  await auth.signOut();
+
+  L('\n'+'─'.repeat(55),'inf');
+  L('✅ 13 intercambios cargados en patriarca_intercambios y patriarca_ix_global.','ok');
+  L('   El Cajero los verá en el histórico.','ok');
+  L('\n🔄 Recarga el portal de Vanlly (Cmd+Shift+R).','inf');
+  L('🗑 Puedes cerrar y borrar este archivo.','inf');
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Análisis Movimientos – Youfrens</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',sans-serif;background:#0a1628;color:#e2e8f0;padding:20px;font-size:13px}
+  h1{color:#fbbf24;margin-bottom:4px;font-size:18px}
+  .sub{color:#94a3b8;margin-bottom:20px;font-size:12px}
+  .kpi-row{display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap}
+  .kpi{background:#0f1e35;border:1px solid #1e3a5f;border-radius:8px;padding:14px 20px;min-width:140px}
+  .kpi-label{font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.5px}
+  .kpi-val{font-size:22px;font-weight:700;margin-top:4px}
+  .kpi-val.green{color:#4ade80} .kpi-val.red{color:#f87171} .kpi-val.yellow{color:#fbbf24} .kpi-val.blue{color:#60a5fa}
+  .panel{background:#0f1e35;border:1px solid #1e3a5f;border-radius:8px;margin-bottom:16px;overflow:hidden}
+  .panel-hdr{padding:12px 16px;border-bottom:1px solid #1e3a5f;font-weight:600;display:flex;justify-content:space-between;align-items:center}
+  table{width:100%;border-collapse:collapse}
+  th{background:#0a1628;color:#94a3b8;font-size:11px;font-weight:600;text-transform:uppercase;padding:8px 10px;text-align:left;white-space:nowrap}
+  td{padding:6px 10px;border-bottom:1px solid #1e2535;font-size:12px;vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  tr:hover td{background:rgba(255,255,255,.03)}
+  .badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700}
+  .badge-ok{background:#14532d;color:#4ade80}
+  .badge-miss{background:#7f1d1d;color:#f87171}
+  .badge-extra{background:#1e3a5f;color:#60a5fa}
+  .badge-dup{background:#451a03;color:#fbbf24}
+  .badge-rec{color:#60a5fa} .badge-pag{color:#f472b6}
+  .tabs{display:flex;gap:4px;margin-bottom:16px}
+  .tab{padding:8px 18px;border-radius:6px 6px 0 0;cursor:pointer;font-size:12px;font-weight:600;background:#0f1e35;border:1px solid #1e3a5f;border-bottom:none;color:#94a3b8}
+  .tab.active{background:#1e3a5f;color:#e2e8f0}
+  .loading{text-align:center;padding:40px;color:#64748b}
+  .mono{font-family:monospace}
+  input[type=text]{background:#0a1628;border:1px solid #1e3a5f;border-radius:6px;color:#e2e8f0;padding:6px 10px;font-size:12px;width:240px}
+  .scroll{max-height:520px;overflow-y:auto}
+  .tag-iop{color:#34d399;font-size:10px} .tag-cop{color:#a78bfa;font-size:10px}
+  .action-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+  button{padding:6px 14px;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600}
+  .btn-primary{background:#2563eb;color:#fff}
+  .btn-danger{background:#dc2626;color:#fff}
+  .btn-ghost{background:transparent;border:1px solid #475569;color:#94a3b8}
+  .resumen-fila{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #1e2535;font-size:12px}
+  .resumen-fila:last-child{border:none}
+  .monto{text-align:right;font-family:monospace}
+  .diff-pos{color:#4ade80} .diff-neg{color:#f87171} .diff-zero{color:#64748b}
+</style>
+</head>
+<body>
+<h1>📊 Análisis Movimientos – Youfrens Alexandra Duarte</h1>
+<p class="sub">Comparación entre datos del Excel (Junio 2026) y Firestore (Portal)</p>
+<div id="zona-eliminar" style="display:none;margin-bottom:16px;padding:12px 16px;background:#1a0a0a;border:1px solid #7f1d1d;border-radius:8px;display:flex;align-items:center;gap:16px">
+  <span style="color:#f87171;font-size:13px">⚠ Esto eliminará <b id="cnt-total-fs">0</b> movimientos de Youfrens en Firestore. No se puede deshacer.</span>
+  <button class="btn-danger" onclick="eliminarTodos()" id="btn-eliminar-todos">🗑 Eliminar TODOS</button>
+  <span id="eliminar-status" style="font-size:12px;color:#94a3b8"></span>
+</div>
+
+<div id="loading" class="loading">⏳ Conectando con Firestore...</div>
+<div id="app" style="display:none">
+
+  <div class="kpi-row" id="kpis"></div>
+
+  <div class="tabs">
+    <div class="tab active" onclick="showTab('resumen')">📋 Resumen</div>
+    <div class="tab" onclick="showTab('faltantes')">❌ Faltan en Portal</div>
+    <div class="tab" onclick="showTab('extras')">➕ Extra en Portal</div>
+    <div class="tab" onclick="showTab('duplicados')">🔁 Posibles Duplicados</div>
+    <div class="tab" onclick="showTab('todos')">📄 Excel completo</div>
+  </div>
+
+  <!-- RESUMEN -->
+  <div id="tab-resumen" class="panel">
+    <div class="panel-hdr">Resumen de diferencias</div>
+    <div style="padding:16px" id="resumen-body"></div>
+  </div>
+
+  <!-- FALTANTES -->
+  <div id="tab-faltantes" style="display:none" class="panel">
+    <div class="panel-hdr">
+      <span>❌ Movimientos en Excel que NO están en el Portal</span>
+      <button class="btn-danger" onclick="importarFaltantes()" id="btn-import-falt">⬆ Importar faltantes</button>
+    </div>
+    <div class="scroll">
+      <table><thead><tr><th>#</th><th>OP</th><th>Fecha</th><th>Cliente</th><th>Tipo</th><th>Casa</th><th>Monto</th><th>Método</th></tr></thead>
+      <tbody id="tbody-faltantes"></tbody></table>
+    </div>
+  </div>
+
+  <!-- EXTRAS -->
+  <div id="tab-extras" style="display:none" class="panel">
+    <div class="panel-hdr">➕ Registros en Portal que NO están en el Excel</div>
+    <div class="scroll">
+      <table><thead><tr><th>#</th><th>OP ID</th><th>Fecha</th><th>Cliente</th><th>Tipo</th><th>Casa</th><th>Monto</th><th>Método</th><th></th></tr></thead>
+      <tbody id="tbody-extras"></tbody></table>
+    </div>
+  </div>
+
+  <!-- DUPLICADOS -->
+  <div id="tab-duplicados" style="display:none" class="panel">
+    <div class="panel-hdr">🔁 Posibles duplicados en el Portal (mismo monto+tipo+fecha+cliente)</div>
+    <div class="scroll">
+      <table><thead><tr><th>#</th><th>OP ID</th><th>Fecha</th><th>Cliente</th><th>Tipo</th><th>Monto</th><th>Cuenta</th></tr></thead>
+      <tbody id="tbody-dup"></tbody></table>
+    </div>
+  </div>
+
+  <!-- TODOS (Excel) -->
+  <div id="tab-todos" style="display:none" class="panel">
+    <div class="panel-hdr">
+      <span>📄 Excel completo (212 movimientos)</span>
+      <input type="text" placeholder="🔍 Buscar..." oninput="filtrarTodos(this.value)" id="filtro-todos">
+    </div>
+    <div class="scroll">
+      <table><thead><tr><th>#</th><th>OP</th><th>Fecha</th><th>Cliente</th><th>Tipo</th><th>Casa</th><th>Monto</th><th>Método</th><th>Estado</th></tr></thead>
+      <tbody id="tbody-todos"></tbody></table>
+    </div>
+  </div>
+
+</div>
+
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+<script>
+const firebaseConfig = {
+  apiKey:"AIzaSyBQ42PzffxkEUEJVaPIVxHPKDqA_wk6IS0",
+  authDomain:"portal-patriarca-aj16.firebaseapp.com",
+  projectId:"portal-patriarca-aj16",
+  storageBucket:"portal-patriarca-aj16.firebasestorage.app",
+  messagingSenderId:"1073575698338",
+  appId:"1:1073575698338:web:f014083b3092c6dc245cfb"
+};
+
+// ─── DATOS EXCEL ───
+const EXCEL = [{"op":"1 - I - OP","fecha":"2026-06-02","cliente":"Mallerly Fernanda  Martinez Escudero","monto":1800000.0,"casa":"WPLAY","tipo":"PAGOS","metodo":"CUENTA BANCARIA","canal":"I-OP"},{"op":"2 - I - OP","fecha":"2026-06-02","cliente":"Jaime Ravelo Suarez","monto":1000000.0,"casa":"YA JUEGOS","tipo":"PAGOS","metodo":"CUENTA BANCARIA","canal":"I-OP"},{"op":"3 - I - OP","fecha":"2026-06-02","cliente":"Jaime Ravelo Suarez","monto":500000.0,"casa":"YA JUEGOS","tipo":"RECARGAS","metodo":"BEMOVIL","canal":"I-OP"},{"op":"4 - I - OP","fecha":"2026-06-02","cliente":"Externo","monto":440400.0,"casa":"BWIN","tipo":"RECARGAS","metodo":"BEMOVIL","canal":"I-OP"},{"op":"2 - C - OP","fecha":"2026-06-02","cliente":"Darling Xiomara Peñaloza Ortiz","monto":477300.0,"casa":"BET PLAY","tipo":"RECARGAS","metodo":"SUPER GIROS MAQUINA","canal":"C-OP"},{"op":"4 - C - OP","fecha":"2026-06-02","cliente":"Kelly Johanna Moreno Riaño","monto":241400.0,"casa":"WPLAY","tipo":"RECARGAS","metodo":"WPLAY POS","canal":"C-OP"},{"op":"5 - I - OP","fecha":"2026-06-02","cliente":"Externo","monto":225900.0,"casa":"BWIN","tipo":"RECARGAS","metodo":"BEMOVIL","canal":"I-OP"},{"op":"3 - C - OP","fecha":"2026-06-02","cliente":"Jose David Patiño Rojas","monto":250000.0,"casa":"BETANO","tipo":"RECARGAS","metodo":"EFECTY","canal":"C-OP"},{"op":"1 - C - OP","fecha":"2026-06-02","cliente":"Jaime Ravelo Suarez","monto":416000.0,"casa":"YA JUEGOS","tipo":"PAGOS","metodo":"CORRESPONSAL","canal":"C-OP"},{"op":"7 - C - OP","fecha":"2026-06-02","cliente":"Jaime Ravelo Suarez","monto":1365000.0,"casa":"YA JUEGOS","tipo":"PAGOS","metodo":"CORRESPONSAL","canal":"C-OP"},{"op":"5 - C - OP","fecha":"2026-06-03","cliente":"Kelly Johanna Moreno Riaño","monto":710100.0,"casa":"WPLAY","tipo":"PAGOS","metodo":"WPLAY POS","canal":"C-OP"},{"op":"6 - C - OP","fecha":"2026-06-03","cliente":"Jose David Patiño Rojas","monto":200000.0,"casa":"STAKE","tipo":"RECARGAS","metodo":"EFECTY","canal":"C-OP"},{"op":"9 - C - OP","fecha":"2026-06-04","cliente":"Mallerly Fernanda  Martinez Escudero","monto":154800.0,"casa":"WPLAY","tipo":"PAGOS","metodo":"EFECTY","canal":"C-OP"},{"op":"6 - I - OP","fecha":"2026-06-05","cliente":"Alida Marcela  Moros Rincon","monto":50300.0,"casa":"BET PLAY","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"10 - C - OP","fecha":"2026-06-05","cliente":"Juliet Katherine Hincapie Fuentes","monto":500000.0,"casa":"BETANO","tipo":"RECARGAS","metodo":"EFECTY","canal":"C-OP"},{"op":"7 - I - OP","fecha":"2026-06-05","cliente":"Youfrens Alexandra  Duarte","monto":985800.0,"casa":"YA JUEGOS","tipo":"RECARGAS","metodo":"BEMOVIL","canal":"I-OP"},{"op":"11 - C - OP","fecha":"2026-06-05","cliente":"Mallerly Fernanda  Martinez Escudero","monto":443100.0,"casa":"WPLAY","tipo":"RECARGAS","metodo":"WPLAY POS","canal":"C-OP"},{"op":"13 - C - OP","fecha":"2026-06-05","cliente":"Darling Xiomara Peñaloza Ortiz","monto":345100.0,"casa":"BET PLAY","tipo":"RECARGAS","metodo":"SUPER GIROS MAQUINA","canal":"C-OP"},{"op":"8 - I - OP","fecha":"2026-06-05","cliente":"Jose David Patiño Rojas","monto":200000.0,"casa":"STAKE","tipo":"PAGOS","metodo":"CUENTA BANCARIA","canal":"I-OP"},{"op":"16 - C - OP","fecha":"2026-06-06","cliente":"Shely Dariana Navarro Diaz","monto":200000.0,"casa":"CODERE","tipo":"RECARGAS","metodo":"EFECTY","canal":"C-OP"},{"op":"17 - C - OP","fecha":"2026-06-06","cliente":"Michael Javier Hincapie Fuentes","monto":200000.0,"casa":"CODERE","tipo":"RECARGAS","metodo":"EFECTY","canal":"C-OP"},{"op":"18 - C - OP","fecha":"2026-06-06","cliente":"Youfrens Alexandra  Duarte","monto":200000.0,"casa":"CODERE","tipo":"RECARGAS","metodo":"EFECTY","canal":"C-OP"},{"op":"19 - C - OP","fecha":"2026-06-06","cliente":"Luzdy Karina Amaya Calderon","monto":200000.0,"casa":"CODERE","tipo":"RECARGAS","metodo":"EFECTY","canal":"C-OP"},{"op":"21 - C - OP","fecha":"2026-06-06","cliente":"Anggelly Tatiana  Duarte Peñaloza","monto":200000.0,"casa":"CODERE","tipo":"RECARGAS","metodo":"EFECTY","canal":"C-OP"},{"op":"20 - C - OP","fecha":"2026-06-06","cliente":"Mallerly Fernanda  Martinez Escudero","monto":1488000.0,"casa":"WPLAY","tipo":"RECARGAS","metodo":"WPLAY POS","canal":"C-OP"},{"op":"9 - I - OP","fecha":"2026-06-06","cliente":"Externo","monto":1000000.0,"casa":"BWIN","tipo":"RECARGAS","metodo":"BEMOVIL","canal":"I-OP"},{"op":"14 - C - OP","fecha":"2026-06-06","cliente":"Mallerly Fernanda  Martinez Escudero","monto":1726000.0,"casa":"WPLAY","tipo":"PAGOS","metodo":"CORRESPONSAL","canal":"C-OP"},{"op":"15 - C - OP","fecha":"2026-06-06","cliente":"Darling Xiomara Peñaloza Ortiz","monto":334800.0,"casa":"BET PLAY","tipo":"RECARGAS","metodo":"SUPERGIROS","canal":"C-OP"},{"op":"10 - I - OP","fecha":"2026-06-06","cliente":"Youfrens Alexandra  Duarte","monto":1173800.0,"casa":"YA JUEGOS","tipo":"RECARGAS","metodo":"BEMOVIL","canal":"I-OP"},{"op":"11 - I - OP","fecha":"2026-06-06","cliente":"Juliet Katherine Hincapie Fuentes","monto":87000.0,"casa":"BETANO","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"22 - C - OP","fecha":"2026-06-08","cliente":"Mallerly Fernanda  Martinez Escudero","monto":1800000.0,"casa":"WPLAY","tipo":"PAGOS","metodo":"WPLAY POS","canal":"C-OP"},{"op":"12 - I - OP","fecha":"2026-06-08","cliente":"Externo","monto":1000000.0,"casa":"BWIN","tipo":"PAGOS","metodo":"EFECTIVO","canal":"I-OP"},{"op":"13 - I - OP","fecha":"2026-06-08","cliente":"Externo","monto":1000000.0,"casa":"BWIN","tipo":"RECARGAS","metodo":"BEMOVIL","canal":"I-OP"},{"op":"23 - C - OP","fecha":"2026-06-08","cliente":"Kelly Johanna Moreno Riaño","monto":316200.0,"casa":"WPLAY","tipo":"RECARGAS","metodo":"WPLAY POS","canal":"C-OP"},{"op":"24 - C - OP","fecha":"2026-06-08","cliente":"Darling Xiomara Peñaloza Ortiz","monto":196000.0,"casa":"BET PLAY","tipo":"RECARGAS","metodo":"SUPERGIROS","canal":"C-OP"},{"op":"14 - I - OP","fecha":"2026-06-09","cliente":"Externo","monto":1730000.0,"casa":"BWIN","tipo":"PAGOS","metodo":"CORRESPONSAL","canal":"I-OP"},{"op":"26 - C - OP","fecha":"2026-06-09","cliente":"Mallerly Fernanda  Martinez Escudero","monto":60000.0,"casa":"WPLAY","tipo":"PAGOS","metodo":"WPLAY POS","canal":"C-OP"},{"op":"15 - I - OP","fecha":"2026-06-09","cliente":"Externo","monto":364400.0,"casa":"BWIN","tipo":"RECARGAS","metodo":"BEMOVIL","canal":"I-OP"},{"op":"25 - C - OP","fecha":"2026-06-09","cliente":"Kelly Johanna Moreno Riaño","monto":559500.0,"casa":"WPLAY","tipo":"RECARGAS","metodo":"WPLAY POS","canal":"C-OP"},{"op":"16 - I - OP","fecha":"2026-06-09","cliente":"Externo","monto":223500.0,"casa":"BWIN","tipo":"RECARGAS","metodo":"BEMOVIL","canal":"I-OP"},{"op":"17 - I - OP","fecha":"2026-06-09","cliente":"Anthonny David Quintero Murillo","monto":730000.0,"casa":"STAKE","tipo":"RECARGAS","metodo":"CORRESPONSAL","canal":"I-OP"},{"op":"18 - I - OP","fecha":"2026-06-09","cliente":"Shely Dariana Navarro Diaz","monto":77272.73,"casa":"CODERE","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"19 - I - OP","fecha":"2026-06-09","cliente":"Michael Javier Hincapie Fuentes","monto":77272.73,"casa":"CODERE","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"20 - I - OP","fecha":"2026-06-09","cliente":"Youfrens Alexandra  Duarte","monto":77272.73,"casa":"CODERE","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"21 - I - OP","fecha":"2026-06-09","cliente":"Luzdy Karina Amaya Calderon","monto":38636.36,"casa":"CODERE","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"22 - I - OP","fecha":"2026-06-09","cliente":"Anggelly Tatiana  Duarte Peñaloza","monto":38636.36,"casa":"CODERE","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"27 - C - OP","fecha":"2026-06-09","cliente":"Jose David Patiño Rojas","monto":143200.0,"casa":"STAKE","tipo":"RECARGAS","metodo":"EFECTY","canal":"C-OP"},{"op":"23 - I - OP","fecha":"2026-06-09","cliente":"Yiseb Zahir Hincapie Fuentes","monto":2000.0,"casa":"BETSSON","tipo":"RECARGAS","metodo":"BEMOVIL","canal":"I-OP"},{"op":"24 - I - OP","fecha":"2026-06-09","cliente":"Youfrens Alexandra  Duarte","monto":410100.0,"casa":"YA JUEGOS","tipo":"RECARGAS","metodo":"BEMOVIL","canal":"I-OP"},{"op":"25 - I - OP","fecha":"2026-06-09","cliente":"Youfrens Alexandra  Duarte","monto":296500.0,"casa":"YA JUEGOS","tipo":"RECARGAS","metodo":"BEMOVIL","canal":"I-OP"},{"op":"26 - I - OP","fecha":"2026-06-10","cliente":"Youfrens Alexandra  Duarte","monto":922700.0,"casa":"YA JUEGOS","tipo":"PAGOS","metodo":"CUENTA BANCARIA","canal":"I-OP"},{"op":"28 - C - OP","fecha":"2026-06-10","cliente":"Kelly Johanna Moreno Riaño","monto":427200.0,"casa":"WPLAY","tipo":"PAGOS","metodo":"WPLAY POS","canal":"C-OP"},{"op":"30 - C - OP","fecha":"2026-06-11","cliente":"Juliet Katherine Hincapie Fuentes","monto":1137400.0,"casa":"BETANO","tipo":"PAGOS","metodo":"EFECTY","canal":"C-OP"},{"op":"33 - C - OP","fecha":"2026-06-11","cliente":"Youfrens Alexandra  Duarte","monto":497100.0,"casa":"STAKE","tipo":"RECARGAS","metodo":"CORRESPONSAL","canal":"C-OP"},{"op":"34 - C - OP","fecha":"2026-06-11","cliente":"Mallerly Fernanda  Martinez Escudero","monto":473900.0,"casa":"WPLAY","tipo":"RECARGAS","metodo":"WPLAY POS","canal":"C-OP"},{"op":"32 - C - OP","fecha":"2026-06-11","cliente":"Jesus Daniel Mesa Parada","monto":440000.0,"casa":"STAKE","tipo":"RECARGAS","metodo":"CORRESPONSAL","canal":"C-OP"},{"op":"31 - C - OP","fecha":"2026-06-11","cliente":"Kelly Johanna Moreno Riaño","monto":993700.0,"casa":"WPLAY","tipo":"PAGOS","metodo":"CORRESPONSAL","canal":"C-OP"},{"op":"27 - I - OP","fecha":"2026-06-11","cliente":"Jose David Patiño Rojas","monto":20000.0,"casa":"BETANO","tipo":"RECARGAS","metodo":"CUENTA BANCARIA","canal":"I-OP"},{"op":"35 - C - OP","fecha":"2026-06-12","cliente":"Mallerly Fernanda  Martinez Escudero","monto":396000.0,"casa":"WPLAY","tipo":"RECARGAS","metodo":"WPLAY POS","canal":"C-OP"},{"op":"36 - C - OP","fecha":"2026-06-12","cliente":"Externo","monto":316400.0,"casa":"BWIN","tipo":"PAGOS","metodo":"CORRESPONSAL","canal":"C-OP"},{"op":"37 - C - OP","fecha":"2026-06-12","cliente":"Youfrens Alexandra  Duarte","monto":400000.0,"casa":"STAKE","tipo":"PAGOS","metodo":"EFECTY","canal":"C-OP"},{"op":"38 - C - OP","fecha":"2026-06-12","cliente":"Kelly Johanna Moreno Riaño","monto":424700.0,"casa":"WPLAY","tipo":"RECARGAS","metodo":"WPLAY POS","canal":"C-OP"},{"op":"39 - C - OP","fecha":"2026-06-12","cliente":"Mallerly Fernanda  Martinez Escudero","monto":1386000.0,"casa":"WPLAY","tipo":"PAGOS","metodo":"EFECTY","canal":"C-OP"},{"op":"42 - C - OP","fecha":"2026-06-13","cliente":"Darling Xiomara Peñaloza Ortiz","monto":400000.0,"casa":"BET PLAY","tipo":"RECARGAS","metodo":"SUPERGIROS","canal":"C-OP"},{"op":"40 - C - OP","fecha":"2026-06-13","cliente":"Anthonny David Quintero Murillo","monto":500000.0,"casa":"STAKE","tipo":"RECARGAS","metodo":"EFECTY","canal":"C-OP"},{"op":"43 - C - OP","fecha":"2026-06-13","cliente":"Darling Xiomara Peñaloza Ortiz","monto":220000.0,"casa":"BET PLAY","tipo":"RECARGAS","metodo":"SUPERGIROS","canal":"C-OP"},{"op":"41 - C - OP","fecha":"2026-06-13","cliente":"Juliet Katherine Hincapie Fuentes","monto":300000.0,"casa":"BETSSON","tipo":"RECARGAS","metodo":"EFECTY","canal":"C-OP"},{"op":"44 - C - OP","fecha":"2026-06-13","cliente":"Kelly Johanna Moreno Riaño","monto":180000.0,"casa":"WPLAY","tipo":"RECARGAS","metodo":"WPLAY POS","canal":"C-OP"},{"op":"28 - I - OP","fecha":"2026-06-13","cliente":"Youfrens Alexandra  Duarte","monto":364000.0,"casa":"STAKE","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"45 - C - OP","fecha":"2026-06-14","cliente":"Darling Xiomara Peñaloza Ortiz","monto":1000000.0,"casa":"BET PLAY","tipo":"RECARGAS","metodo":"SUPERGIROS","canal":"C-OP"},{"op":"29 - I - OP","fecha":"2026-06-14","cliente":"Externo","monto":1000000.0,"casa":"YA JUEGOS","tipo":"RECARGAS","metodo":"BEMOVIL","canal":"I-OP"},{"op":"30 - I - OP","fecha":"2026-06-14","cliente":"Darling Xiomara Peñaloza Ortiz","monto":990000.0,"casa":"BET PLAY","tipo":"PAGOS","metodo":"CUENTA BANCARIA","canal":"I-OP"},{"op":"31 - I - OP","fecha":"2026-06-14","cliente":"Juliet Katherine Hincapie Fuentes","monto":198400.0,"casa":"BETSSON","tipo":"RECARGAS","metodo":"BEMOVIL","canal":"I-OP"},{"op":"47 - C - OP","fecha":"2026-06-15","cliente":"Jose David Patiño Rojas","monto":1034800.0,"casa":"STAKE","tipo":"RECARGAS","metodo":"EFECTY","canal":"C-OP"},{"op":"32 - I - OP","fecha":"2026-06-15","cliente":"Externo","monto":416200.0,"casa":"YA JUEGOS","tipo":"RECARGAS","metodo":"BEMOVIL","canal":"I-OP"},{"op":"48 - C - OP","fecha":"2026-06-15","cliente":"Mallerly Fernanda  Martinez Escudero","monto":74600.0,"casa":"WPLAY","tipo":"RECARGAS","metodo":"WPLAY POS","canal":"C-OP"},{"op":"33 - I - OP","fecha":"2026-06-15","cliente":"Youfrens Alexandra  Duarte","monto":1000000.0,"casa":"STAKE","tipo":"PAGOS","metodo":"CUENTA BANCARIA","canal":"I-OP"},{"op":"50 - C - OP","fecha":"2026-06-15","cliente":"Youfrens Alexandra  Duarte","monto":1000000.0,"casa":"STAKE","tipo":"PAGOS","metodo":"EFECTIVO","canal":"C-OP"},{"op":"46 - C - OP","fecha":"2026-06-15","cliente":"Youfrens Alexandra  Duarte","monto":821500.0,"casa":"STAKE","tipo":"PAGOS","metodo":"EFECTY","canal":"C-OP"},{"op":"34 - I - OP","fecha":"2026-06-15","cliente":"Darling Xiomara Peñaloza Ortiz","monto":408600.0,"casa":"BET PLAY","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"35 - I - OP","fecha":"2026-06-15","cliente":"Externo","monto":111800.0,"casa":"YA JUEGOS","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"52 - C - OP","fecha":"2026-06-15","cliente":"Jose David Patiño Rojas","monto":700000.0,"casa":"STAKE","tipo":"RECARGAS","metodo":"EFECTY","canal":"C-OP"},{"op":"53 - C - OP","fecha":"2026-06-15","cliente":"Anthonny David Quintero Murillo","monto":268500.0,"casa":"STAKE","tipo":"RECARGAS","metodo":"EFECTY","canal":"C-OP"},{"op":"51 - C - OP","fecha":"2026-06-15","cliente":"Jesus Daniel Mesa Parada","monto":177300.0,"casa":"STAKE","tipo":"RECARGAS","metodo":"EFECTY","canal":"C-OP"},{"op":"58 - C - OP","fecha":"2026-06-16","cliente":"Darling Xiomara Peñaloza Ortiz","monto":1000000.0,"casa":"BET PLAY","tipo":"RECARGAS","metodo":"SUPER GIROS MAQUINA","canal":"C-OP"},{"op":"60 - C - OP","fecha":"2026-06-16","cliente":"Kelly Johanna Moreno Riaño","monto":226300.0,"casa":"WPLAY","tipo":"RECARGAS","metodo":"WPLAY POS","canal":"C-OP"},{"op":"62 - C - OP","fecha":"2026-06-16","cliente":"Darling Xiomara Peñaloza Ortiz","monto":663000.0,"casa":"BET PLAY","tipo":"RECARGAS","metodo":"SUPERGIROS","canal":"C-OP"},{"op":"61 - C - OP","fecha":"2026-06-16","cliente":"Yiseb Zahir Hincapie Fuentes","monto":500000.0,"casa":"BETANO","tipo":"RECARGAS","metodo":"EFECTY","canal":"C-OP"},{"op":"64 - C - OP","fecha":"2026-06-16","cliente":"Kelly Johanna Moreno Riaño","monto":17000.0,"casa":"WPLAY","tipo":"RECARGAS","metodo":"WPLAY POS","canal":"C-OP"},{"op":"54 - C - OP","fecha":"2026-06-16","cliente":"Externo","monto":2038000.0,"casa":"YA JUEGOS","tipo":"PAGOS","metodo":"CORRESPONSAL","canal":"C-OP"},{"op":"36 - I - OP","fecha":"2026-06-16","cliente":"Darling Xiomara Peñaloza Ortiz","monto":532000.0,"casa":"BET PLAY","tipo":"PAGOS","metodo":"CUENTA BANCARIA","canal":"I-OP"},{"op":"57 - C - OP","fecha":"2026-06-16","cliente":"Mallerly Fernanda  Martinez Escudero","monto":272300.0,"casa":"WPLAY","tipo":"PAGOS","metodo":"WPLAY POS","canal":"C-OP"},{"op":"65 - C - OP","fecha":"2026-06-17","cliente":"Darling Xiomara Peñaloza Ortiz","monto":338300.0,"casa":"BET PLAY","tipo":"RECARGAS","metodo":"SUPERGIROS","canal":"C-OP"},{"op":"66 - C - OP","fecha":"2026-06-17","cliente":"Jose David Patiño Rojas","monto":1100000.0,"casa":"STAKE","tipo":"RECARGAS","metodo":"EFECTY","canal":"C-OP"},{"op":"37 - I - OP","fecha":"2026-06-17","cliente":"Darling Xiomara Peñaloza Ortiz","monto":990000.0,"casa":"BET PLAY","tipo":"PAGOS","metodo":"CUENTA BANCARIA","canal":"I-OP"},{"op":"38 - I - OP","fecha":"2026-06-17","cliente":"Externo","monto":990000.0,"casa":"YA JUEGOS","tipo":"PAGOS","metodo":"CUENTA BANCARIA","canal":"I-OP"},{"op":"67 - C - OP","fecha":"2026-06-17","cliente":"Kelly Johanna Moreno Riaño","monto":271900.0,"casa":"WPLAY","tipo":"PAGOS","metodo":"WPLAY POS","canal":"C-OP"},{"op":"39 - I - OP","fecha":"2026-06-18","cliente":"Juliet Katherine Hincapie Fuentes","monto":160000.0,"casa":"BETSSON","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"68 - C - OP","fecha":"2026-06-18","cliente":"Darling Xiomara Peñaloza Ortiz","monto":317000.0,"casa":"BET PLAY","tipo":"RECARGAS","metodo":"SUPERGIROS","canal":"C-OP"},{"op":"70 - C - OP","fecha":"2026-06-18","cliente":"Darling Xiomara Peñaloza Ortiz","monto":1000000.0,"casa":"BET PLAY","tipo":"RECARGAS","metodo":"SUPERGIROS","canal":"C-OP"},{"op":"71 - C - OP","fecha":"2026-06-18","cliente":"Mallerly Fernanda  Martinez Escudero","monto":126500.0,"casa":"WPLAY","tipo":"RECARGAS","metodo":"WPLAY POS","canal":"C-OP"},{"op":"72 - C - OP","fecha":"2026-06-18","cliente":"Darling Xiomara Peñaloza Ortiz","monto":160000.0,"casa":"BET PLAY","tipo":"RECARGAS","metodo":"SUPER GIROS MAQUINA","canal":"C-OP"},{"op":"40 - I - OP","fecha":"2026-06-18","cliente":"Darling Xiomara Peñaloza Ortiz","monto":1980000.0,"casa":"BET PLAY","tipo":"PAGOS","metodo":"CUENTA BANCARIA","canal":"I-OP"},{"op":"73 - C - OP","fecha":"2026-06-18","cliente":"Darling Xiomara Peñaloza Ortiz","monto":226800.0,"casa":"BET PLAY","tipo":"RECARGAS","metodo":"SUPER GIROS MAQUINA","canal":"C-OP"},{"op":"69 - C - OP","fecha":"2026-06-18","cliente":"Mallerly Fernanda  Martinez Escudero","monto":500000.0,"casa":"BETANO","tipo":"RECARGAS","metodo":"EFECTY","canal":"C-OP"},{"op":"75 - C - OP","fecha":"2026-06-19","cliente":"Kelly Johanna Moreno Riaño","monto":454200.0,"casa":"WPLAY","tipo":"RECARGAS","metodo":"WPLAY POS","canal":"C-OP"},{"op":"77 - C - OP","fecha":"2026-06-19","cliente":"Darling Xiomara Peñaloza Ortiz","monto":300200.0,"casa":"BET PLAY","tipo":"RECARGAS","metodo":"SUPERGIROS","canal":"C-OP"},{"op":"78 - C - OP","fecha":"2026-06-19","cliente":"Kelly Johanna Moreno Riaño","monto":449300.0,"casa":"WPLAY","tipo":"RECARGAS","metodo":"WPLAY POS","canal":"C-OP"},{"op":"74 - C - OP","fecha":"2026-06-19","cliente":"Mallerly Fernanda  Martinez Escudero","monto":165700.0,"casa":"WPLAY","tipo":"PAGOS","metodo":"EFECTY","canal":"C-OP"},{"op":"41 - I - OP","fecha":"2026-06-19","cliente":"Darling Xiomara Peñaloza Ortiz","monto":1980000.0,"casa":"BET PLAY","tipo":"PAGOS","metodo":"CUENTA BANCARIA","canal":"I-OP"},{"op":"42 - I - OP","fecha":"2026-06-19","cliente":"Youfrens Alexandra  Duarte","monto":518300.0,"casa":"STAKE","tipo":"RECARGAS","metodo":"CUENTA BANCARIA","canal":"I-OP"},{"op":"43 - I - OP","fecha":"2026-06-19","cliente":"Jose David Patiño Rojas","monto":1600000.0,"casa":"STAKE","tipo":"RECARGAS","metodo":"CUENTA BANCARIA","canal":"I-OP"},{"op":"81 - C - OP","fecha":"2026-06-21","cliente":"Darling Xiomara Peñaloza Ortiz","monto":346000.0,"casa":"BET PLAY","tipo":"RECARGAS","metodo":"SUPERGIROS","canal":"C-OP"},{"op":"82 - C - OP","fecha":"2026-06-21","cliente":"Youfrens Alexandra  Duarte","monto":193200.0,"casa":"STAKE","tipo":"RECARGAS","metodo":"EFECTY","canal":"C-OP"},{"op":"80 - C - OP","fecha":"2026-06-21","cliente":"Jose David Patiño Rojas","monto":1328400.0,"casa":"STAKE","tipo":"PAGOS","metodo":"EFECTY","canal":"C-OP"},{"op":"85 - C - OP","fecha":"2026-06-22","cliente":"Darling Xiomara Peñaloza Ortiz","monto":396500.0,"casa":"BET PLAY","tipo":"RECARGAS","metodo":"SUPERGIROS","canal":"C-OP"},{"op":"83 - C - OP","fecha":"2026-06-22","cliente":"Youfrens Alexandra  Duarte","monto":400000.0,"casa":"STAKE","tipo":"RECARGAS","metodo":"EFECTY","canal":"C-OP"},{"op":"84 - C - OP","fecha":"2026-06-22","cliente":"Darling Xiomara Peñaloza Ortiz","monto":331000.0,"casa":"BET PLAY","tipo":"RECARGAS","metodo":"SUPERGIROS","canal":"C-OP"},{"op":"44 - I - OP","fecha":"2026-06-22","cliente":"Jose David Patiño Rojas","monto":659600.0,"casa":"STAKE","tipo":"PAGOS","metodo":"CUENTA BANCARIA","canal":"I-OP"},{"op":"45 - I - OP","fecha":"2026-06-23","cliente":"Youfrens Alexandra  Duarte","monto":433400.0,"casa":"STAKE","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"46 - I - OP","fecha":"2026-06-23","cliente":"Externo","monto":79000.0,"casa":"STAKE","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"47 - I - OP","fecha":"2026-06-23","cliente":"Darling Xiomara Peñaloza Ortiz","monto":336200.0,"casa":"BET PLAY","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"48 - I - OP","fecha":"2026-06-23","cliente":"Jose David Patiño Rojas","monto":1000000.0,"casa":"STAKE","tipo":"PAGOS","metodo":"BEMOVIL","canal":"I-OP"},{"op":"86 - C - OP","fecha":"2026-06-23","cliente":"Jose David Patiño Rojas","monto":192400.0,"casa":"STAKE","tipo":"PAGOS","metodo":"EFECTY","canal":"C-OP"},{"op":"49 - I - OP","fecha":"2026-06-23","cliente":"Luis Santiago Carvajal Gelvez","monto":818700.0,"casa":"YA JUEGOS","tipo":"RECARGAS","metodo":"BEMOVIL","canal":"I-OP"},{"op":"50 - I - OP","fecha":"2026-06-24","cliente":"Youfrens Alexandra  Duarte","monto":115556.0,"casa":"STAKE","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"89 - C - OP","fecha":"2026-06-24","cliente":"Darling Xiomara Peñaloza Ortiz","monto":821300.0,"casa":"BET PLAY","tipo":"RECARGAS","metodo":"SUPERGIROS","canal":"C-OP"},{"op":"88 - C - OP","fecha":"2026-06-24","cliente":"Youfrens Alexandra  Duarte","monto":1000000.0,"casa":"STAKE","tipo":"RECARGAS","metodo":"EFECTY","canal":"C-OP"},{"op":"87 - C - OP","fecha":"2026-06-24","cliente":"Jose David Patiño Rojas","monto":1000000.0,"casa":"STAKE","tipo":"PAGOS","metodo":"EFECTY","canal":"C-OP"},{"op":"51 - I - OP","fecha":"2026-06-24","cliente":"Darling Xiomara Peñaloza Ortiz","monto":134000.0,"casa":"BET PLAY","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"52 - I - OP","fecha":"2026-06-24","cliente":"Luis Santiago Carvajal Gelvez","monto":819000.0,"casa":"YA JUEGOS","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"53 - I - OP","fecha":"2026-06-24","cliente":"Darling Xiomara Peñaloza Ortiz","monto":2675000.0,"casa":"BET PLAY","tipo":"PAGOS","metodo":"CUENTA BANCARIA","canal":"I-OP"},{"op":"54 - I - OP","fecha":"2026-06-24","cliente":"Jose David Patiño Rojas","monto":228333.33,"casa":"STAKE","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"55 - I - OP","fecha":"2026-06-24","cliente":"Youfrens Alexandra  Duarte","monto":184372.88,"casa":"STAKE","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"90 - C - OP","fecha":"2026-06-24","cliente":"Darling Xiomara Peñaloza Ortiz","monto":558600.0,"casa":"BET PLAY","tipo":"RECARGAS","metodo":"SUPERGIROS","canal":"C-OP"},{"op":"93 - C - OP","fecha":"2026-06-24","cliente":"Jesus Daniel Mesa Parada","monto":506500.0,"casa":"STAKE","tipo":"RECARGAS","metodo":"EFECTY","canal":"C-OP"},{"op":"94 - C - OP","fecha":"2026-06-24","cliente":"Anthonny David Quintero Murillo","monto":506500.0,"casa":"STAKE","tipo":"RECARGAS","metodo":"EFECTY","canal":"C-OP"},{"op":"56 - I - OP","fecha":"2026-06-24","cliente":"Externo","monto":1000000.0,"casa":"BWIN","tipo":"RECARGAS","metodo":"BEMOVIL","canal":"I-OP"},{"op":"91 - C - OP","fecha":"2026-06-24","cliente":"Jose David Patiño Rojas","monto":636600.0,"casa":"STAKE","tipo":"PAGOS","metodo":"EFECTY","canal":"C-OP"},{"op":"92 - C - OP","fecha":"2026-06-24","cliente":"Youfrens Alexandra  Duarte","monto":219200.0,"casa":"STAKE","tipo":"PAGOS","metodo":"EFECTY","canal":"C-OP"},{"op":"57 - I - OP","fecha":"2026-06-24","cliente":"Juliet Katherine Hincapie Fuentes","monto":785500.0,"casa":"BETSSON","tipo":"PAGOS","metodo":"CUENTA BANCARIA","canal":"I-OP"},{"op":"96 - C - OP","fecha":"2026-06-25","cliente":"Mallerly Fernanda  Martinez Escudero","monto":335900.0,"casa":"WPLAY","tipo":"RECARGAS","metodo":"WPLAY POS","canal":"C-OP"},{"op":"95 - C - OP","fecha":"2026-06-25","cliente":"Darling Xiomara Peñaloza Ortiz","monto":76600.0,"casa":"BET PLAY","tipo":"RECARGAS","metodo":"SUPERGIROS","canal":"C-OP"},{"op":"58 - I - OP","fecha":"2026-06-25","cliente":"Anthonny David Quintero Murillo","monto":120000.0,"casa":"STAKE","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"59 - I - OP","fecha":"2026-06-25","cliente":"Jesus Daniel Mesa Parada","monto":120000.0,"casa":"STAKE","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"99 - C - OP","fecha":"2026-06-25","cliente":"Darling Xiomara Peñaloza Ortiz","monto":253000.0,"casa":"BET PLAY","tipo":"RECARGAS","metodo":"SUPERGIROS","canal":"C-OP"},{"op":"101 - C - OP","fecha":"2026-06-25","cliente":"Youfrens Alexandra  Duarte","monto":676300.0,"casa":"STAKE","tipo":"RECARGAS","metodo":"CORRESPONSAL","canal":"C-OP"},{"op":"98 - C - OP","fecha":"2026-06-25","cliente":"Mallerly Fernanda  Martinez Escudero","monto":408300.0,"casa":"WPLAY","tipo":"RECARGAS","metodo":"WPLAY POS","canal":"C-OP"},{"op":"60 - I - OP","fecha":"2026-06-25","cliente":"Externo","monto":258000.0,"casa":"BWIN","tipo":"RECARGAS","metodo":"BEMOVIL","canal":"I-OP"},{"op":"97 - C - OP","fecha":"2026-06-25","cliente":"Externo","monto":1950000.0,"casa":"BWIN","tipo":"PAGOS","metodo":"CORRESPONSAL","canal":"C-OP"},{"op":"102 - C - OP","fecha":"2026-06-25","cliente":"Darling Xiomara Peñaloza Ortiz","monto":169400.0,"casa":"BET PLAY","tipo":"RECARGAS","metodo":"SUPERGIROS","canal":"C-OP"},{"op":"106 - C - OP","fecha":"2026-06-25","cliente":"Jesus Daniel Mesa Parada","monto":320500.0,"casa":"STAKE","tipo":"RECARGAS","metodo":"EFECTY","canal":"C-OP"},{"op":"105 - C - OP","fecha":"2026-06-25","cliente":"Anthonny David Quintero Murillo","monto":267500.0,"casa":"STAKE","tipo":"RECARGAS","metodo":"EFECTY","canal":"C-OP"},{"op":"107 - C - OP","fecha":"2026-06-25","cliente":"Mallerly Fernanda  Martinez Escudero","monto":650000.0,"casa":"WPLAY","tipo":"RECARGAS","metodo":"WPLAY POS","canal":"C-OP"},{"op":"108 - C - OP","fecha":"2026-06-25","cliente":"Darling Xiomara Peñaloza Ortiz","monto":105500.0,"casa":"BET PLAY","tipo":"RECARGAS","metodo":"SUPERGIROS","canal":"C-OP"},{"op":"103 - C - OP","fecha":"2026-06-25","cliente":"Jose David Patiño Rojas","monto":223900.0,"casa":"STAKE","tipo":"PAGOS","metodo":"EFECTY","canal":"C-OP"},{"op":"104 - C - OP","fecha":"2026-06-25","cliente":"Youfrens Alexandra  Duarte","monto":750600.0,"casa":"STAKE","tipo":"PAGOS","metodo":"EFECTY","canal":"C-OP"},{"op":"61 - I - OP","fecha":"2026-06-26","cliente":"Jose David Patiño Rojas","monto":126562.5,"casa":"STAKE","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"62 - I - OP","fecha":"2026-06-26","cliente":"Anthonny David Quintero Murillo","monto":75826.77,"casa":"STAKE","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"109 - C - OP","fecha":"2026-06-26","cliente":"Darling Xiomara Peñaloza Ortiz","monto":700000.0,"casa":"BET PLAY","tipo":"RECARGAS","metodo":"SUPERGIROS","canal":"C-OP"},{"op":"113 - C - OP","fecha":"2026-06-26","cliente":"Darling Xiomara Peñaloza Ortiz","monto":700000.0,"casa":"BET PLAY","tipo":"RECARGAS","metodo":"SUPERGIROS","canal":"C-OP"},{"op":"111 - C - OP","fecha":"2026-06-26","cliente":"Jose David Patiño Rojas","monto":1000000.0,"casa":"STAKE","tipo":"RECARGAS","metodo":"EFECTY","canal":"C-OP"},{"op":"114 - C - OP","fecha":"2026-06-26","cliente":"Externo","monto":103600.0,"casa":"BET PLAY","tipo":"RECARGAS","metodo":"SUPER GIROS MAQUINA","canal":"C-OP"},{"op":"63 - I - OP","fecha":"2026-06-26","cliente":"Anthonny David Quintero Murillo","monto":308200.0,"casa":"STAKE","tipo":"PAGOS","metodo":"CUENTA BANCARIA","canal":"I-OP"},{"op":"110 - C - OP","fecha":"2026-06-26","cliente":"Youfrens Alexandra  Duarte","monto":1000000.0,"casa":"STAKE","tipo":"PAGOS","metodo":"EFECTY","canal":"C-OP"},{"op":"116 - C - OP","fecha":"2026-06-26","cliente":"Youfrens Alexandra  Duarte","monto":417500.0,"casa":"STAKE","tipo":"PAGOS","metodo":"CUENTA BANCARIA","canal":"C-OP"},{"op":"115 - C - OP","fecha":"2026-06-27","cliente":"Externo","monto":1801800.0,"casa":"STAKE","tipo":"PAGOS","metodo":"EFECTY","canal":"C-OP"},{"op":"117 - C - OP","fecha":"2026-06-27","cliente":"Jesus Daniel Mesa Parada","monto":1000000.0,"casa":"STAKE","tipo":"PAGOS","metodo":"CUENTA BANCARIA","canal":"C-OP"},{"op":"118 - C - OP","fecha":"2026-06-27","cliente":"Mallerly Fernanda  Martinez Escudero","monto":567400.0,"casa":"BETANO","tipo":"PAGOS","metodo":"EFECTY","canal":"C-OP"},{"op":"122 - C - OP","fecha":"2026-06-27","cliente":"Darling Xiomara Peñaloza Ortiz","monto":1000000.0,"casa":"BET PLAY","tipo":"RECARGAS","metodo":"SUPER GIROS MAQUINA","canal":"C-OP"},{"op":"121 - C - OP","fecha":"2026-06-27","cliente":"Externo","monto":339900.0,"casa":"BET PLAY","tipo":"RECARGAS","metodo":"SUPER GIROS MAQUINA","canal":"C-OP"},{"op":"119 - C - OP","fecha":"2026-06-27","cliente":"Youfrens Alexandra  Duarte","monto":1000000.0,"casa":"STAKE","tipo":"RECARGAS","metodo":"EFECTY","canal":"C-OP"},{"op":"64 - I - OP","fecha":"2026-06-27","cliente":"Jose David Patiño Rojas","monto":242857.14,"casa":"STAKE","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"65 - I - OP","fecha":"2026-06-27","cliente":"Jesus Daniel Mesa Parada","monto":202380.95,"casa":"STAKE","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"66 - I - OP","fecha":"2026-06-27","cliente":"Anthonny David Quintero Murillo","monto":62576.19,"casa":"STAKE","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"67 - I - OP","fecha":"2026-06-27","cliente":"Luna Franchesca Ruiz Alvarez","monto":1000000.0,"casa":"YA JUEGOS","tipo":"RECARGAS","metodo":"BEMOVIL","canal":"I-OP"},{"op":"123 - C - OP","fecha":"2026-06-27","cliente":"Jose David Patiño Rojas","monto":770000.0,"casa":"STAKE","tipo":"RECARGAS","metodo":"EFECTY","canal":"C-OP"},{"op":"124 - C - OP","fecha":"2026-06-27","cliente":"Darling Xiomara Peñaloza Ortiz","monto":697700.0,"casa":"BET PLAY","tipo":"RECARGAS","metodo":"SUPER GIROS MAQUINA","canal":"C-OP"},{"op":"68 - I - OP","fecha":"2026-06-27","cliente":"Jesus Daniel Mesa Parada","monto":74000.0,"casa":"STAKE","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"69 - I - OP","fecha":"2026-06-27","cliente":"Anthonny David Quintero Murillo","monto":58700.0,"casa":"STAKE","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"70 - I - OP","fecha":"2026-06-27","cliente":"Darling Xiomara Peñaloza Ortiz","monto":1740000.0,"casa":"BET PLAY","tipo":"PAGOS","metodo":"CUENTA BANCARIA","canal":"I-OP"},{"op":"128 - C - OP","fecha":"2026-06-30","cliente":"Jesus Daniel Mesa Parada","monto":1000000.0,"casa":"STAKE","tipo":"RECARGAS","metodo":"EFECTY","canal":"C-OP"},{"op":"129 - C - OP","fecha":"2026-06-30","cliente":"Darling Xiomara Peñaloza Ortiz","monto":953400.0,"casa":"BET PLAY","tipo":"RECARGAS","metodo":"SUPER GIROS MAQUINA","canal":"C-OP"},{"op":"71 - I - OP","fecha":"2026-06-30","cliente":"Jose David Patiño Rojas","monto":43177.52,"casa":"STAKE","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"72 - I - OP","fecha":"2026-06-30","cliente":"Youfrens Alexandra  Duarte","monto":61597.67,"casa":"STAKE","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"130 - C - OP","fecha":"2026-06-30","cliente":"Darling Xiomara Peñaloza Ortiz","monto":49600.0,"casa":"BET PLAY","tipo":"RECARGAS","metodo":"SUPER GIROS MAQUINA","canal":"C-OP"},{"op":"127 - C - OP","fecha":"2026-06-30","cliente":"Jose David Patiño Rojas","monto":2000000.0,"casa":"STAKE","tipo":"PAGOS","metodo":"EFECTY","canal":"C-OP"},{"op":"73 - I - OP","fecha":"2026-06-30","cliente":"Darling Xiomara Peñaloza Ortiz","monto":2040000.0,"casa":"BET PLAY","tipo":"PAGOS","metodo":"CUENTA BANCARIA","canal":"I-OP"},{"op":"74 - I - OP","fecha":"2026-06-30","cliente":"Darling Xiomara Peñaloza Ortiz","monto":1980000.0,"casa":"BET PLAY","tipo":"PAGOS","metodo":"CUENTA BANCARIA","canal":"I-OP"},{"op":"75 - I - OP","fecha":"2026-06-30","cliente":"Youfrens Alexandra  Duarte","monto":800000.0,"casa":"STAKE","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"134 - C - OP","fecha":"2026-06-30","cliente":"Darling Xiomara Peñaloza Ortiz","monto":1024800.0,"casa":"BET PLAY","tipo":"RECARGAS","metodo":"SUPER GIROS MAQUINA","canal":"C-OP"},{"op":"131 - C - OP","fecha":"2026-06-30","cliente":"Jesus Daniel Mesa Parada","monto":2000000.0,"casa":"BETANO","tipo":"RECARGAS","metodo":"EFECTY","canal":"C-OP"},{"op":"76 - I - OP","fecha":"2026-06-30","cliente":"Jesus Daniel Mesa Parada","monto":145000.0,"casa":"BETANO","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"77 - I - OP","fecha":"2026-06-30","cliente":"Yiseb Zahir Hincapie Fuentes","monto":61200.0,"casa":"BETANO","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"133 - C - OP","fecha":"2026-06-30","cliente":"Jesus Daniel Mesa Parada","monto":2145000.0,"casa":"BETANO","tipo":"PAGOS","metodo":"EFECTY","canal":"C-OP"},{"op":"135 - C - OP","fecha":"2026-06-30","cliente":"Yiseb Zahir Hincapie Fuentes","monto":61200.0,"casa":"BETANO","tipo":"PAGOS","metodo":"EFECTY","canal":"C-OP"},{"op":"136 - C - OP","fecha":"2026-06-30","cliente":"Jose David Patiño Rojas","monto":3200000.0,"casa":"BETANO","tipo":"RECARGAS","metodo":"EFECTY","canal":"C-OP"},{"op":"78 - I - OP","fecha":"2026-06-30","cliente":"Jose David Patiño Rojas","monto":42000.0,"casa":"STAKE","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"79 - I - OP","fecha":"2026-06-30","cliente":"Youfrens Alexandra  Duarte","monto":220752.0,"casa":"STAKE","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"140 - C - OP","fecha":"2026-06-30","cliente":"Juliet Katherine Hincapie Fuentes","monto":3000000.0,"casa":"BETANO","tipo":"RECARGAS","metodo":"EFECTY","canal":"C-OP"},{"op":"80 - I - OP","fecha":"2026-06-30","cliente":"Externo","monto":2420000.0,"casa":"BETANO","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"81 - I - OP","fecha":"2026-06-30","cliente":"Youfrens Alexandra  Duarte","monto":88900.0,"casa":"STAKE","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"82 - I - OP","fecha":"2026-06-30","cliente":"Youfrens Alexandra  Duarte","monto":2173.008,"casa":"STAKE","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"83 - I - OP","fecha":"2026-06-30","cliente":"Jesus Daniel Mesa Parada","monto":60.0,"casa":"STAKE","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"84 - I - OP","fecha":"2026-06-30","cliente":"Jose David Patiño Rojas","monto":74033.42,"casa":"STAKE","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"},{"op":"85 - I - OP","fecha":"2026-06-30","cliente":"Kelly Johanna Moreno Riaño","monto":10138.0,"casa":"WPLAY","tipo":"RECARGAS","metodo":"BONIFICACION","canal":"I-OP"}];
+
+const EXCEL_CON_MONTO = EXCEL.filter(m => m.monto > 0);
+
+const peso = v => '$' + Math.round(v).toLocaleString('es-CO');
+
+// Clave de comparación: monto redondeado + tipo + fecha + primeras letras del cliente
+function clave(m) {
+  const cli = (m.cliente||m.client||'').trim().toLowerCase().replace(/\s+/g,' ').substring(0,12);
+  return `${m.fecha}|${m.tipo}|${Math.round(m.monto)}|${cli}`;
+}
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+const auth = firebase.auth();
+
+auth.onAuthStateChanged(async user => {
+  if (!user) {
+    document.getElementById('loading').innerHTML = '⚠ No estás autenticado. Abre el portal primero e inicia sesión.';
+    return;
+  }
+
+  // Buscar opId de Youfrens
+  const opSnap = await db.collection('patriarca_operadores').where('email','==','youfrends@aj16.com').limit(1).get();
+  if (opSnap.empty) {
+    document.getElementById('loading').innerHTML = '⚠ No se encontró youfrends@aj16.com en patriarca_operadores.';
+    return;
+  }
+  const opId = opSnap.docs[0].id;
+
+  // Leer movimientos de Firestore
+  const movSnap = await db.collection('patriarca_movimientos').where('opId','==',opId).get();
+  const FS = movSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+
+  // Guardar referencia global y mostrar zona eliminar
+  window._allFS = FS;
+  document.getElementById('cnt-total-fs').textContent = FS.length;
+  document.getElementById('zona-eliminar').style.display = 'flex';
+
+  // ─── COMPARAR ───
+  const excelKeys = new Set(EXCEL_CON_MONTO.map(clave));
+  const fsKeys    = new Set(FS.map(clave));
+
+  const faltantes  = EXCEL_CON_MONTO.filter(m => !fsKeys.has(clave(m)));
+  const extras     = FS.filter(m => !excelKeys.has(clave(m)));
+
+  // Duplicados en Firestore (misma clave, más de 1 registro)
+  const fsKeyCount = {};
+  FS.forEach(m => { const k = clave(m); fsKeyCount[k] = (fsKeyCount[k]||0)+1; });
+  const duplicados = FS.filter(m => fsKeyCount[clave(m)] > 1);
+
+  const excelTotal = EXCEL_CON_MONTO.reduce((s,m)=>s+m.monto,0);
+  const fsTotal    = FS.reduce((s,m)=>s+(m.monto||0),0);
+  const diff       = fsTotal - excelTotal;
+
+  // ─── KPIs ───
+  document.getElementById('kpis').innerHTML = `
+    <div class="kpi"><div class="kpi-label">Excel (c/ monto)</div><div class="kpi-val blue">${EXCEL_CON_MONTO.length}</div></div>
+    <div class="kpi"><div class="kpi-label">En Portal</div><div class="kpi-val blue">${FS.length}</div></div>
+    <div class="kpi"><div class="kpi-label">Faltan en Portal</div><div class="kpi-val ${faltantes.length?'red':'green'}">${faltantes.length}</div></div>
+    <div class="kpi"><div class="kpi-label">Extra en Portal</div><div class="kpi-val ${extras.length?'yellow':'green'}">${extras.length}</div></div>
+    <div class="kpi"><div class="kpi-label">Duplicados</div><div class="kpi-val ${duplicados.length?'yellow':'green'}">${duplicados.length}</div></div>
+    <div class="kpi"><div class="kpi-label">Diferencia $ total</div><div class="kpi-val ${Math.abs(diff)<1000?'green':diff>0?'yellow':'red'}">${peso(diff)}</div></div>
+  `;
+
+  // ─── RESUMEN ───
+  const excelRec = EXCEL_CON_MONTO.filter(m=>m.tipo==='RECARGAS').reduce((s,m)=>s+m.monto,0);
+  const excelPag = EXCEL_CON_MONTO.filter(m=>m.tipo==='PAGOS').reduce((s,m)=>s+m.monto,0);
+  const fsRec    = FS.filter(m=>m.tipo==='RECARGAS').reduce((s,m)=>s+(m.monto||0),0);
+  const fsPag    = FS.filter(m=>m.tipo==='PAGOS').reduce((s,m)=>s+(m.monto||0),0);
+
+  document.getElementById('resumen-body').innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+      <div>
+        <div style="font-weight:700;margin-bottom:10px;color:#94a3b8">EXCEL</div>
+        <div class="resumen-fila"><span>Total movimientos</span><span>${EXCEL_CON_MONTO.length}</span></div>
+        <div class="resumen-fila"><span>Recargas (${EXCEL_CON_MONTO.filter(m=>m.tipo==='RECARGAS').length})</span><span class="monto badge-rec">${peso(excelRec)}</span></div>
+        <div class="resumen-fila"><span>Pagos (${EXCEL_CON_MONTO.filter(m=>m.tipo==='PAGOS').length})</span><span class="monto badge-pag">${peso(excelPag)}</span></div>
+        <div class="resumen-fila" style="font-weight:700"><span>Total</span><span class="monto">${peso(excelTotal)}</span></div>
+      </div>
+      <div>
+        <div style="font-weight:700;margin-bottom:10px;color:#94a3b8">PORTAL (Firestore)</div>
+        <div class="resumen-fila"><span>Total movimientos</span><span>${FS.length}</span></div>
+        <div class="resumen-fila"><span>Recargas (${FS.filter(m=>m.tipo==='RECARGAS').length})</span><span class="monto badge-rec">${peso(fsRec)}</span></div>
+        <div class="resumen-fila"><span>Pagos (${FS.filter(m=>m.tipo==='PAGOS').length})</span><span class="monto badge-pag">${peso(fsPag)}</span></div>
+        <div class="resumen-fila" style="font-weight:700"><span>Total</span><span class="monto">${peso(fsTotal)}</span></div>
+      </div>
+    </div>
+    <div style="margin-top:16px;padding:12px;background:#0a1628;border-radius:6px;border:1px solid ${Math.abs(diff)<1000?'#14532d':diff>0?'#451a03':'#7f1d1d'}">
+      <span style="font-weight:700">Diferencia: </span>
+      <span class="${Math.abs(diff)<1000?'diff-zero':diff>0?'diff-pos':'diff-neg'}">${peso(diff)}</span>
+      <span style="color:#64748b;font-size:11px;margin-left:8px">${Math.abs(diff)<1000?'✅ Los totales coinciden':diff>0?'⚠ Portal tiene MÁS dinero que Excel':'⚠ Portal tiene MENOS dinero que Excel'}</span>
+    </div>
+  `;
+
+  // ─── FALTANTES ───
+  window._faltantes = faltantes;
+  window._opId = opId;
+  document.getElementById('tbody-faltantes').innerHTML = faltantes.length
+    ? faltantes.map((m,i)=>`<tr>
+        <td>${i+1}</td>
+        <td class="mono" style="font-size:11px">${m.op}</td>
+        <td>${m.fecha}</td>
+        <td>${m.cliente}</td>
+        <td><span class="badge ${m.tipo==='RECARGAS'?'badge-extra':'badge-miss'}">${m.tipo}</span></td>
+        <td>${m.casa}</td>
+        <td class="monto">${peso(m.monto)}</td>
+        <td>${m.metodo}</td>
+      </tr>`).join('')
+    : '<tr><td colspan="8" style="text-align:center;padding:30px;color:#4ade80">✅ No faltan movimientos</td></tr>';
+
+  // ─── EXTRAS ───
+  document.getElementById('tbody-extras').innerHTML = extras.length
+    ? extras.map((m,i)=>`<tr>
+        <td>${i+1}</td>
+        <td class="mono" style="font-size:11px">${m.op_id||m.opId||'—'}</td>
+        <td>${m.fecha||'—'}</td>
+        <td>${m.cliente||'—'}</td>
+        <td><span class="badge ${m.tipo==='RECARGAS'?'badge-extra':'badge-miss'}">${m.tipo||'—'}</span></td>
+        <td>${m.casa||'—'}</td>
+        <td class="monto">${peso(m.monto||0)}</td>
+        <td>${m.metodo||'—'}</td>
+        <td><button class="btn-ghost" style="font-size:11px" onclick="eliminarExtra('${m.id}')">🗑</button></td>
+      </tr>`).join('')
+    : '<tr><td colspan="9" style="text-align:center;padding:30px;color:#4ade80">✅ No hay registros extra</td></tr>';
+
+  // ─── DUPLICADOS ───
+  document.getElementById('tbody-dup').innerHTML = duplicados.length
+    ? duplicados.map((m,i)=>`<tr>
+        <td>${i+1}</td>
+        <td class="mono" style="font-size:11px">${m.op_id||'—'}</td>
+        <td>${m.fecha||'—'}</td>
+        <td>${m.cliente||'—'}</td>
+        <td><span class="badge badge-dup">${m.tipo||'—'}</span></td>
+        <td class="monto">${peso(m.monto||0)}</td>
+        <td><button class="btn-danger" style="font-size:11px" onclick="eliminarExtra('${m.id}')">🗑 Eliminar</button></td>
+      </tr>`).join('')
+    : '<tr><td colspan="7" style="text-align:center;padding:30px;color:#4ade80">✅ No se detectaron duplicados</td></tr>';
+
+  // ─── TODOS EXCEL ───
+  renderTodos(EXCEL_CON_MONTO, fsKeys);
+});
+
+function renderTodos(lista, fsKeys) {
+  document.getElementById('tbody-todos').innerHTML = lista.map((m,i)=>{
+    const ok = fsKeys.has(clave(m));
+    return `<tr>
+      <td>${i+1}</td>
+      <td class="mono" style="font-size:11px">${m.op}</td>
+      <td>${m.fecha}</td>
+      <td style="max-width:180px">${m.cliente}</td>
+      <td><span class="badge ${m.tipo==='RECARGAS'?'badge-extra':'badge-miss'}">${m.tipo}</span></td>
+      <td>${m.casa}</td>
+      <td class="monto">${peso(m.monto)}</td>
+      <td>${m.metodo}</td>
+      <td><span class="badge ${ok?'badge-ok':'badge-miss'}">${ok?'✓ OK':'✗ Falta'}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+function filtrarTodos(q) {
+  q = q.toLowerCase();
+  const filtrado = EXCEL_CON_MONTO.filter(m =>
+    m.cliente.toLowerCase().includes(q) || m.casa.toLowerCase().includes(q) ||
+    m.metodo.toLowerCase().includes(q) || m.fecha.includes(q) || m.tipo.toLowerCase().includes(q)
+  );
+  // Rebuild with current fsKeys (stored globally after first render)
+  document.getElementById('tbody-todos').querySelectorAll('tr').forEach((tr,i)=>{
+    tr.style.display = q ? (filtrado.includes(EXCEL_CON_MONTO[i]) ? '' : 'none') : '';
+  });
+}
+
+async function importarFaltantes() {
+  if (!window._faltantes || !window._faltantes.length) return;
+  if (!confirm(`¿Importar ${window._faltantes.length} movimientos faltantes a Firestore?`)) return;
+  const btn = document.getElementById('btn-import-falt');
+  btn.disabled = true; btn.textContent = 'Importando...';
+
+  const METODO_ALIAS = {'BEMOVIL':'BE MOVIL CAJA','BE MOVIL':'BE MOVIL CAJA','WPLAY POS':'WPLAY UNITY','EFECTIVO':'EFECTIVO OPERADOR','EFECTY':'EFECTY 1 DE MAYO','CORRESPONSAL':'CORRESPONSAL EL PARAMO','EASYCHANGER':'EASY CHANGER','SUPERGIROS':'SUPER GIROS UNITY'};
+  const METODOS_INTERNOS = new Set(['EFECTIVO OPERADOR','BE MOVIL CAJA','CUENTA BANCARIA','BONIFICACION','SIN COMISION','FREE','BIENVENIDA','REJUEGO','DESCUENTO IVA','BONO IVA']);
+
+  try {
+    const CHUNK = 400;
+    const docs = window._faltantes.map(m => {
+      const met = METODO_ALIAS[m.metodo] || m.metodo;
+      const esInt = METODOS_INTERNOS.has(met);
+      const canal = esInt ? 'I-OP' : 'C-OP';
+      const impacto = m.tipo === 'RECARGAS' ? m.monto : -m.monto;
+      return { opId: window._opId, op_id: m.op, canal, estado_cajero:'Realizada', tipo:m.tipo, cliente:m.cliente, casa:m.casa, metodo:met, monto:m.monto, fecha:m.fecha, comision:0, impacto, ts:firebase.firestore.FieldValue.serverTimestamp() };
+    });
+    for (let i=0; i<docs.length; i+=CHUNK) {
+      const fb = db.batch();
+      docs.slice(i,i+CHUNK).forEach(doc => fb.set(db.collection('patriarca_movimientos').doc(), doc));
+      await fb.commit();
+    }
+    btn.textContent = `✅ ${window._faltantes.length} importados`;
+    setTimeout(()=>location.reload(),1500);
+  } catch(e) { btn.textContent='❌ Error: '+e.message; btn.disabled=false; }
+}
+
+async function eliminarExtra(id) {
+  if (!confirm('¿Eliminar este registro del portal?')) return;
+  await db.collection('patriarca_movimientos').doc(id).delete();
+  location.reload();
+}
+
+async function eliminarTodos() {
+  const total = window._allFS?.length || 0;
+  if (!total) return;
+  if (!confirm(`¿Eliminar los ${total} movimientos de Youfrens en Firestore? Esta acción no se puede deshacer.`)) return;
+  const btn = document.getElementById('btn-eliminar-todos');
+  const st  = document.getElementById('eliminar-status');
+  btn.disabled = true;
+  const ids = window._allFS.map(m => m.id);
+  const CHUNK = 400;
+  let eliminados = 0;
+  try {
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const fb = db.batch();
+      ids.slice(i, i + CHUNK).forEach(id => fb.delete(db.collection('patriarca_movimientos').doc(id)));
+      await fb.commit();
+      eliminados += Math.min(CHUNK, ids.length - i);
+      st.textContent = `Eliminando... ${eliminados}/${total}`;
+    }
+    st.textContent = `✅ ${total} movimientos eliminados.`;
+    btn.textContent = '✓ Listo';
+    setTimeout(() => location.reload(), 1500);
+  } catch(e) {
+    st.textContent = '❌ Error: ' + e.message;
+    btn.disabled = false;
+  }
+}
+
+function showTab(t) {
+  ['resumen','faltantes','extras','duplicados','todos'].forEach(n=>{
+    document.getElementById('tab-'+n).style.display = n===t?'':'none';
+  });
+  document.querySelectorAll('.tab').forEach((el,i)=>{
+    el.classList.toggle('active', ['resumen','faltantes','extras','duplicados','todos'][i]===t);
+  });
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Migración Vanlly — AJ1.6joy1 → vanlly@aj16.com</title>
+<style>
+  body { font-family: monospace; background:#111; color:#0f0; padding:24px; max-width:820px; }
+  h2 { color:#fff; }
+  .warn { color:#ff0; background:#221a00; border:1px solid #664; padding:12px; border-radius:6px; margin-bottom:16px; }
+  .section { background:#1a1a1a; border:1px solid #333; border-radius:8px; padding:16px; margin-bottom:12px; }
+  label { font-size:11px; color:#aaa; margin-bottom:3px; display:block; }
+  input { padding:8px 12px; margin-bottom:10px; background:#0d0d0d; border:1px solid #444; color:#fff; border-radius:6px; font-size:13px; width:280px; display:block; }
+  button { background:#2a6; color:#fff; border:none; padding:11px 22px; font-size:14px; cursor:pointer; border-radius:6px; }
+  button:disabled { background:#333; color:#666; cursor:not-allowed; }
+  #log { white-space:pre-wrap; font-size:12px; line-height:1.8; margin-top:16px; }
+  .ok   { color:#0f0; }
+  .err  { color:#f55; }
+  .inf  { color:#ff0; }
+  .gray { color:#777; }
+  .step { color:#5cf; font-weight:bold; }
+</style>
+</head>
+<body>
+<h2>🔄 Migración Total: AJ1.6joy1@gmail.com → vanlly@aj16.com</h2>
+<div class="warn">
+  ⚠ Este script migra TODO el contenido de la cuenta vieja a la nueva y <strong>elimina la cuenta AJ1.6joy1@gmail.com</strong> para que no se pueda usar más.<br>
+  Ejecutar UNA SOLA VEZ. <strong>No cerrar la página mientras corre.</strong>
+</div>
+
+<div class="section">
+  <label>Cuenta NUEVA (destino) — vanlly@aj16.com</label>
+  <input id="pass-nueva" type="password" placeholder="Contraseña de vanlly@aj16.com">
+
+  <label style="margin-top:8px">Cuenta VIEJA (origen) — AJ1.6joy1@gmail.com</label>
+  <input id="pass-vieja" type="password" placeholder="Contraseña de AJ1.6joy1@gmail.com">
+
+  <button id="btn" onclick="migrar()">🚀 Iniciar Migración Completa</button>
+</div>
+
+<div id="log"></div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyBQ42PzffxkEUEJVaPIVxHPKDqA_wk6IS0",
+  authDomain: "portal-patriarca-aj16.firebaseapp.com",
+  projectId: "portal-patriarca-aj16",
+  storageBucket: "portal-patriarca-aj16.firebasestorage.app",
+  messagingSenderId: "1073575698338",
+  appId: "1:1073575698338:web:f014083b3092c6dc245cfb",
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db   = firebase.firestore();
+
+const logEl = document.getElementById('log');
+function L(msg, cls='') { logEl.innerHTML += `<span class="${cls}">${msg}</span>\n`; }
+function Ls(msg) { L(msg, 'step'); }
+function Lo(msg) { L(msg, 'ok'); }
+function Le(msg) { L(msg, 'err'); }
+function Li(msg) { L(msg, 'inf'); }
+function Lg(msg) { L(msg, 'gray'); }
+
+const EMAIL_NUEVA = 'vanlly@aj16.com';
+const EMAIL_VIEJA = 'AJ1.6joy1@gmail.com';
+const CHUNK = 400;
+
+// colecciones donde opId es un campo normal
+const COLECCIONES_SIMPLES = ['movimientos', 'clientes', 'recargas'];
+
+async function migrar() {
+  document.getElementById('btn').disabled = true;
+  logEl.innerHTML = '';
+
+  const passNueva = document.getElementById('pass-nueva').value;
+  const passVieja = document.getElementById('pass-vieja').value;
+  if (!passNueva || !passVieja) { Le('⚠ Ingresa ambas contraseñas'); document.getElementById('btn').disabled=false; return; }
+
+  // ══════════════════════════════════════════════════════════
+  // PASO 1: Login como cuenta NUEVA → obtener UID destino
+  // ══════════════════════════════════════════════════════════
+  Ls('\n── PASO 1: Obtener UID de la cuenta nueva ──');
+  try { await auth.signInWithEmailAndPassword(EMAIL_NUEVA, passNueva); }
+  catch(e) { Le('❌ No se pudo iniciar sesión como ' + EMAIL_NUEVA + ': ' + e.message); document.getElementById('btn').disabled=false; return; }
+  const UID_NUEVA = auth.currentUser.uid;
+  Lo(`✅ ${EMAIL_NUEVA} → UID = ${UID_NUEVA}`);
+  await auth.signOut();
+
+  // ══════════════════════════════════════════════════════════
+  // PASO 2: Login como cuenta VIEJA → obtener UID origen
+  // ══════════════════════════════════════════════════════════
+  Ls('\n── PASO 2: Obtener UID de la cuenta vieja ──');
+  try { await auth.signInWithEmailAndPassword(EMAIL_VIEJA, passVieja); }
+  catch(e) { Le('❌ No se pudo iniciar sesión como ' + EMAIL_VIEJA + ': ' + e.message); document.getElementById('btn').disabled=false; return; }
+  const UID_VIEJA = auth.currentUser.uid;
+  const userVieja = auth.currentUser;
+  Lo(`✅ ${EMAIL_VIEJA} → UID = ${UID_VIEJA}`);
+
+  if (UID_NUEVA === UID_VIEJA) { Le('⚠ Ambas cuentas tienen el mismo UID — nada que migrar.'); return; }
+
+  // ══════════════════════════════════════════════════════════
+  // PASO 3: Migrar colecciones simples (opId como campo)
+  // ══════════════════════════════════════════════════════════
+  Ls('\n── PASO 3: Migrar colecciones (movimientos, clientes, recargas) ──');
+  for (const col of COLECCIONES_SIMPLES) {
+    const snap = await db.collection('patriarca_' + col).where('opId','==', UID_VIEJA).get();
+    Li(`  patriarca_${col}: ${snap.size} documentos`);
+    if (!snap.size) { Lg('    → vacío, omitiendo'); continue; }
+
+    // Crear con UID_NUEVA
+    for (let i=0; i<snap.docs.length; i+=CHUNK) {
+      const fb = db.batch();
+      snap.docs.slice(i,i+CHUNK).forEach(d => {
+        const data = {...d.data(), opId: UID_NUEVA};
+        fb.set(db.collection('patriarca_' + col).doc(), data);
+      });
+      await fb.commit();
+    }
+    // Borrar los viejos
+    for (let i=0; i<snap.docs.length; i+=CHUNK) {
+      const fb = db.batch();
+      snap.docs.slice(i,i+CHUNK).forEach(d => fb.delete(d.ref));
+      await fb.commit();
+    }
+    Lo(`    ✅ ${snap.size} docs migrados`);
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // PASO 4: Migrar INVERSIONES (tiene campos cruzados)
+  // ══════════════════════════════════════════════════════════
+  Ls('\n── PASO 4: Migrar inversiones ──');
+  // 4a. Inversiones donde opId = UID_VIEJA (las propias de Vanlly)
+  const snapInv = await db.collection('patriarca_inversiones').where('opId','==', UID_VIEJA).get();
+  Li(`  patriarca_inversiones (propias): ${snapInv.size} docs`);
+  if (snapInv.size) {
+    for (let i=0; i<snapInv.docs.length; i+=CHUNK) {
+      const fb = db.batch();
+      snapInv.docs.slice(i,i+CHUNK).forEach(d => {
+        const data = {...d.data(), opId: UID_NUEVA};
+        // Actualizar campos de operador1 si coinciden
+        if (data.operador1_uid === UID_VIEJA) data.operador1_uid = UID_NUEVA;
+        if (data.op1_uid       === UID_VIEJA) data.op1_uid       = UID_NUEVA;
+        if (data.op2_uid       === UID_VIEJA) data.op2_uid       = UID_NUEVA;
+        fb.set(db.collection('patriarca_inversiones').doc(), data);
+      });
+      await fb.commit();
+    }
+    for (let i=0; i<snapInv.docs.length; i+=CHUNK) {
+      const fb = db.batch();
+      snapInv.docs.slice(i,i+CHUNK).forEach(d => fb.delete(d.ref));
+      await fb.commit();
+    }
+    Lo(`    ✅ ${snapInv.size} inversiones propias migradas`);
+  }
+
+  // 4b. Inversiones de OTROS operadores que referencian a Vanlly (op2_uid o op1_uid)
+  const snapInvOp2 = await db.collection('patriarca_inversiones').where('op2_uid','==', UID_VIEJA).get();
+  Li(`  inversiones de otros ops con op2_uid = viejo: ${snapInvOp2.size}`);
+  if (snapInvOp2.size) {
+    for (let i=0; i<snapInvOp2.docs.length; i+=CHUNK) {
+      const fb = db.batch();
+      snapInvOp2.docs.slice(i,i+CHUNK).forEach(d => fb.update(d.ref, { op2_uid: UID_NUEVA }));
+      await fb.commit();
+    }
+    Lo(`    ✅ ${snapInvOp2.size} refs cruzadas actualizadas`);
+  }
+
+  const snapInvOp1 = await db.collection('patriarca_inversiones').where('op1_uid','==', UID_VIEJA).get();
+  Li(`  inversiones de otros ops con op1_uid = viejo: ${snapInvOp1.size}`);
+  if (snapInvOp1.size) {
+    for (let i=0; i<snapInvOp1.docs.length; i+=CHUNK) {
+      const fb = db.batch();
+      snapInvOp1.docs.slice(i,i+CHUNK).forEach(d => fb.update(d.ref, { op1_uid: UID_NUEVA }));
+      await fb.commit();
+    }
+    Lo(`    ✅ ${snapInvOp1.size} refs cruzadas actualizadas`);
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // PASO 5: Migrar EVENTOS
+  //   Los 26 correctos ya están bajo UID_NUEVA (del seed anterior).
+  //   Solo borrar los eventos bajo UID_VIEJA.
+  // ══════════════════════════════════════════════════════════
+  Ls('\n── PASO 5: Limpiar eventos viejos ──');
+  const snapEv = await db.collection('patriarca_eventos').where('opId','==', UID_VIEJA).get();
+  Li(`  eventos bajo UID viejo: ${snapEv.size}`);
+  if (snapEv.size) {
+    for (let i=0; i<snapEv.docs.length; i+=CHUNK) {
+      const fb = db.batch();
+      snapEv.docs.slice(i,i+CHUNK).forEach(d => fb.delete(d.ref));
+      await fb.commit();
+    }
+    Lo(`    ✅ ${snapEv.size} eventos viejos borrados`);
+  }
+  const snapEvNueva = await db.collection('patriarca_eventos').where('opId','==', UID_NUEVA).get();
+  Lo(`    ✅ Eventos bajo vanlly@aj16.com: ${snapEvNueva.size}`);
+
+  // ══════════════════════════════════════════════════════════
+  // PASO 6: Migrar CONFIG (doc keyed by opId)
+  // ══════════════════════════════════════════════════════════
+  Ls('\n── PASO 6: Migrar config ──');
+  const configViejaSnap = await db.collection('patriarca_config').doc(UID_VIEJA).get();
+  if (configViejaSnap.exists) {
+    const configData = {...configViejaSnap.data()};
+    // Solo copiar si la nueva no tiene config, o mergear
+    await db.collection('patriarca_config').doc(UID_NUEVA).set(configData, { merge: true });
+    await db.collection('patriarca_config').doc(UID_VIEJA).delete();
+    Lo('    ✅ Config migrada');
+  } else {
+    Lg('    → Sin config en cuenta vieja');
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // PASO 7: Migrar OPERADORES (doc keyed by opId)
+  // ══════════════════════════════════════════════════════════
+  Ls('\n── PASO 7: Migrar patriarca_operadores ──');
+  const opViejoSnap = await db.collection('patriarca_operadores').doc(UID_VIEJA).get();
+  if (opViejoSnap.exists) {
+    const opData = {...opViejoSnap.data(), uid: UID_NUEVA};
+    await db.collection('patriarca_operadores').doc(UID_NUEVA).set(opData, { merge: true });
+    await db.collection('patriarca_operadores').doc(UID_VIEJA).delete();
+    Lo('    ✅ Operador migrado');
+  } else {
+    Lg('    → Sin doc en patriarca_operadores para cuenta vieja');
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // PASO 8: Actualizar ADMIN_USUARIOS
+  // ══════════════════════════════════════════════════════════
+  Ls('\n── PASO 8: Actualizar admin_usuarios ──');
+  // Buscar por email de la cuenta vieja
+  const adminSnapEmail = await db.collection('admin_usuarios')
+    .where('email','==', EMAIL_VIEJA.toLowerCase()).get();
+  if (!adminSnapEmail.empty) {
+    for (const d of adminSnapEmail.docs) {
+      await d.ref.update({ uid: UID_NUEVA, email: EMAIL_NUEVA.toLowerCase() });
+      Lo(`    ✅ admin_usuarios actualizado: ${d.data().nombre}`);
+    }
+  }
+  // Buscar por uid viejo
+  const adminSnapUid = await db.collection('admin_usuarios').where('uid','==', UID_VIEJA).get();
+  if (!adminSnapUid.empty) {
+    for (const d of adminSnapUid.docs) {
+      if (d.data().email?.toLowerCase() === EMAIL_VIEJA.toLowerCase()) continue; // ya actualizado
+      await d.ref.update({ uid: UID_NUEVA });
+      Lo(`    ✅ admin_usuarios uid actualizado: ${d.data().nombre}`);
+    }
+  }
+  if (adminSnapEmail.empty && adminSnapUid.empty) {
+    Lg('    → Sin registro en admin_usuarios para cuenta vieja');
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // PASO 9: Eliminar la cuenta Firebase Auth vieja
+  // ══════════════════════════════════════════════════════════
+  Ls('\n── PASO 9: Eliminar cuenta AJ1.6joy1@gmail.com ──');
+  try {
+    // Ya estamos logueados como la cuenta vieja (del paso 2)
+    await userVieja.delete();
+    Lo('    ✅ Cuenta AJ1.6joy1@gmail.com eliminada de Firebase Auth');
+    Lo('       Ya no se podrá usar para ingresar al portal.');
+  } catch(e) {
+    if (e.code === 'auth/requires-recent-login') {
+      Li('    ⚠ Se requiere re-autenticación para eliminar la cuenta.');
+      Li('    Volviendo a iniciar sesión como la cuenta vieja...');
+      try {
+        await auth.signInWithEmailAndPassword(EMAIL_VIEJA, passVieja);
+        await auth.currentUser.delete();
+        Lo('    ✅ Cuenta AJ1.6joy1@gmail.com eliminada de Firebase Auth');
+      } catch(e2) {
+        Le('    ❌ No se pudo eliminar la cuenta Auth: ' + e2.message);
+        Li('    Puedes eliminarla manualmente en Firebase Console > Authentication.');
+      }
+    } else {
+      Le('    ❌ Error al eliminar: ' + e.message);
+    }
+  }
+
+  // Sign out al final
+  try { await auth.signOut(); } catch(_) {}
+
+  // ══════════════════════════════════════════════════════════
+  // RESUMEN
+  // ══════════════════════════════════════════════════════════
+  L('\n' + '═'.repeat(60), 'step');
+  Lo('✅ MIGRACIÓN COMPLETA');
+  L('', '');
+  Lo('  • Todos los datos de AJ1.6joy1@gmail.com migrados a vanlly@aj16.com');
+  Lo('  • La cuenta AJ1.6joy1@gmail.com fue eliminada');
+  Lo('  • vanlly@aj16.com es ahora la ÚNICA cuenta de Vanlly');
+  L('', '');
+  Li('  👉 Pídele a Vanlly que ingrese al portal con:');
+  Li('       Correo: vanlly@aj16.com');
+  Li('       (misma contraseña de siempre)');
+  L('', '');
+  Li('  🗑 Puedes cerrar y borrar migrar-vanlly.html y debug-eventos.html');
+  L('═'.repeat(60), 'step');
+}
+</script>
+</body>
+</html>

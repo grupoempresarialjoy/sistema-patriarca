@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Seed Movimientos Vanlly — Junio 2026</title>
+<style>
+  body { font-family: monospace; background:#111; color:#0f0; padding:24px; }
+  button { background:#2a6; color:#fff; border:none; padding:12px 24px; font-size:16px; cursor:pointer; border-radius:6px; margin-bottom:16px; }
+  button:disabled { background:#444; color:#888; cursor:not-allowed; }
+  input { display:block; padding:10px 14px; margin-bottom:10px; background:#1a1a1a; border:1px solid #444; color:#fff; border-radius:6px; font-size:14px; width:320px; }
+  label { font-size:12px; color:#aaa; margin-bottom:4px; display:block; }
+  #login-box { background:#1a2a1a; border:1px solid #2a6; border-radius:8px; padding:20px; margin-bottom:20px; max-width:360px; }
+  #log { white-space:pre-wrap; font-size:12px; line-height:1.8; margin-top:12px; }
+  .ok  { color:#0f0; }
+  .err { color:#f44; }
+  .inf { color:#ff0; }
+  .gray{ color:#888; }
+</style>
+</head>
+<body>
+<h2>📋 Seed Movimientos — Vanlly Junio 2026</h2>
+<p>Borra todos los movimientos existentes de Vanlly y carga los 62 del Excel.<br>
+<strong>Ejecutar UNA SOLA VEZ. Borrar el archivo después.</strong></p>
+
+<div id="login-box">
+  <label>Correo</label>
+  <input id="email-inp" type="email" value="vanlly@aj16.com">
+  <label>Contraseña</label>
+  <input id="pass-inp" type="password" placeholder="Contraseña">
+  <button id="btn" onclick="run()">▶ Limpiar y cargar 62 movimientos</button>
+</div>
+<div id="log"></div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyBQ42PzffxkEUEJVaPIVxHPKDqA_wk6IS0",
+  authDomain: "portal-patriarca-aj16.firebaseapp.com",
+  projectId: "portal-patriarca-aj16",
+  storageBucket: "portal-patriarca-aj16.firebasestorage.app",
+  messagingSenderId: "1073575698338",
+  appId: "1:1073575698338:web:f014083b3092c6dc245cfb",
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db   = firebase.firestore();
+
+const log = document.getElementById('log');
+function L(msg, cls='') { log.innerHTML += `<span class="${cls}">${msg}</span>\n`; }
+
+// Alias de métodos (mismo que el portal)
+const METODO_ALIAS = {
+  'BEMOVIL'       : 'BE MOVIL CAJA',
+  'BE MOVIL'      : 'BE MOVIL CAJA',
+  'WPLAY POS'     : 'WPLAY UNITY',
+  'EFECTIVO'      : 'EFECTIVO OPERADOR',
+  'EFECTY'        : 'EFECTY 1 DE MAYO',
+  'CORRESPONSAL'  : 'CORRESPONSAL EL PARAMO',
+  'EASYCHANGER'   : 'EASY CHANGER',
+};
+function normMetodo(m) { return METODO_ALIAS[(m||'').trim().toUpperCase()] || (m||'').trim().toUpperCase(); }
+
+// Métodos internos (canal I-OP)
+const METODOS_INTERNOS = new Set(['EFECTIVO OPERADOR','BE MOVIL CAJA','CUENTA BANCARIA','BONIFICACION','SIN COMISION','FREE','BIENVENIDA','REJUEGO','DESCUENTO IVA','BONO IVA']);
+
+// ══════════════════════════════════════════════════════
+// 62 MOVIMIENTOS DEL EXCEL (OP-O | FECHA | CLIENTE | MONTO | CASA | TIPO | METODO | COMISION | IMPACTO)
+// ══════════════════════════════════════════════════════
+const MOVS_RAW = [
+  // op_raw, id_ev, fecha, cliente_nombre, monto, casa, tipo, metodo, comision, impacto
+  ['1 - C - OP',  5, '2026-06-10', 'Belkis Jamzin Mendez',                    200000,  'STAKE',   'RECARGAS', 'EFECTY',        0,     200000],
+  ['2 - C - OP',  4, '2026-06-10', 'Vanlly Nataly Pedraza Sarabia',           250000,  'STAKE',   'RECARGAS', 'EFECTY',        0,     250000],
+  ['3 - C - OP',  4, '2026-06-10', 'Vanlly Nataly Pedraza Sarabia',           257000,  'STAKE',   'RECARGAS', 'EFECTY',        0,     257000],
+  ['4 - C - OP',  4, '2026-06-10', 'Belkis Jamzin Mendez',                    528000,  'STAKE',   'RECARGAS', 'EFECTY',        0,     528000],
+  ['5 - C - OP',  4, '2026-06-10', 'Belkis Jamzin Mendez',                    231000,  'WPLAY',   'RECARGAS', 'WPLAY POS',     6930,  231000],
+  ['6 - C - OP',  4, '2026-06-10', 'Belkis Jamzin Mendez',                    231000,  'WPLAY',   'RECARGAS', 'WPLAY POS',     6930,  231000],
+  ['7 - C - OP',  4, '2026-06-10', 'Vanlly Nataly Pedraza Sarabia',            34000,  'STAKE',   'RECARGAS', 'EFECTY',        0,      34000],
+  ['8 - C - OP',  4, '2026-06-10', 'Belkis Jamzin Mendez',                     30000,  'WPLAY',   'RECARGAS', 'WPLAY POS',     900,    30000],
+  ['9 - C - OP',  5, '2026-06-11', 'Vanlly Nataly Pedraza Sarabia',           720000,  'STAKE',   'RECARGAS', 'CORRESPONSAL',  0,     720000],
+  ['10 - C - OP', 5, '2026-06-11', 'Vanlly Nataly Pedraza Sarabia',           550000,  'STAKE',   'RECARGAS', 'EFECTY',        0,     550000],
+  ['1 - I - OP',  5, '2026-06-11', 'Guberth Santiago Villanueva Hernandez',   390000,  'RUSHBET', 'RECARGAS', 'BEMOVIL',       11700, 390000],
+  ['2 - I - OP',  5, '2026-06-11', 'Guberth Santiago Villanueva Hernandez',    10000,  'RUSHBET', 'RECARGAS', 'BEMOVIL',       300,    10000],
+  ['11 - C - OP', 6, '2026-06-12', 'Belkis Jamzin Mendez',                    507000,  'WPLAY',   'RECARGAS', 'WPLAY POS',     15210, 507000],
+  ['3 - I - OP',  6, '2026-06-12', 'Belkis Jamzin Mendez',                    379000,  'BWIN',    'RECARGAS', 'BEMOVIL',       9475,  379000],
+  ['12 - C - OP', 6, '2026-06-12', 'Belkis Jamzin Mendez',                    674000,  'STAKE',   'RECARGAS', 'EFECTY',        0,     674000],
+  ['4 - I - OP',  6, '2026-06-12', 'Vanlly Nataly Pedraza Sarabia',           364000,  'BWIN',    'PAGOS',    'EFECTIVO',      0,    -364000],
+  ['5 - I - OP',  6, '2026-06-12', 'Vanlly Nataly Pedraza Sarabia',           200000,  'BETANO',  'PAGOS',    'EFECTIVO',      0,    -200000],
+  ['6 - I - OP',  7, '2026-06-13', 'Guberth Santiago Villanueva Hernandez',   157000,  'RUSHBET', 'RECARGAS', 'BEMOVIL',       4710,  157000],
+  ['13 - C - OP', 7, '2026-06-13', 'Belkis Jamzin Mendez',                   1800000,  'WPLAY',   'PAGOS',    'CORRESPONSAL',  0,   -1800000],
+  ['7 - I - OP',  7, '2026-06-15', 'Vanlly Nataly Pedraza Sarabia',           914000,  'STAKE',   'PAGOS',    'EFECTIVO',      0,    -914000],
+  ['14 - C - OP', 9, '2026-06-16', 'Belkis Jamzin Mendez',                    706000,  'STAKE',   'RECARGAS', 'EFECTY',        0,     706000],
+  ['8 - I - OP',  9, '2026-06-16', 'Vanlly Nataly Pedraza Sarabia',            24800,  'STAKE',   'RECARGAS', 'BONIFICACION',  0,      24800],
+  ['15 - C - OP',11, '2026-06-17', 'Belkis Jamzin Mendez',                    426000,  'STAKE',   'RECARGAS', 'CORRESPONSAL',  0,     426000],
+  ['9 - I - OP', 12, '2026-06-18', 'Belkis Jamzin Mendez',                    183000,  'STAKE',   'RECARGAS', 'BONIFICACION',  0,     183000],
+  ['17 - C - OP',12, '2026-06-18', 'Belkis Jamzin Mendez',                    374300,  'STAKE',   'RECARGAS', 'EFECTY',        0,     374300],
+  ['16 - C - OP',13, '2026-06-18', 'Vanlly Nataly Pedraza Sarabia',          2000000,  'STAKE',   'PAGOS',    'CORRESPONSAL',  0,   -2000000],
+  ['10 - I - OP',13, '2026-06-18', 'Belkis Jamzin Mendez',                     42600,  'STAKE',   'RECARGAS', 'BONIFICACION',  0,      42600],
+  ['18 - C - OP',13, '2026-06-18', 'Vanlly Nataly Pedraza Sarabia',           371000,  'STAKE',   'RECARGAS', 'EFECTY',        0,     371000],
+  ['19 - C - OP',16, '2026-06-22', 'Vanlly Nataly Pedraza Sarabia',          1000000,  'STAKE',   'RECARGAS', 'EFECTY',        0,    1000000],
+  ['11 - I - OP',17, '2026-06-23', 'Vanlly Nataly Pedraza Sarabia',           110750,  'STAKE',   'RECARGAS', 'BONIFICACION',  0,     110750],
+  ['20 - C - OP',19, '2026-06-24', 'Vanlly Nataly Pedraza Sarabia',           170000,  'STAKE',   'PAGOS',    'CORRESPONSAL',  0,    -170000],
+  ['12 - I - OP',19, '2026-06-24', 'Vanlly Nataly Pedraza Sarabia',           184750,  'STAKE',   'RECARGAS', 'EFECTIVO',      0,     184750],
+  ['13 - I - OP',19, '2026-06-24', 'Belkis Jamzin Mendez',                    430000,  'STAKE',   'RECARGAS', 'BONIFICACION',  0,     430000],
+  ['21 - C - OP',20, '2026-06-25', 'Vanlly Nataly Pedraza Sarabia',           235000,  'STAKE',   'RECARGAS', 'EFECTY',        0,     235000],
+  ['22 - C - OP',20, '2026-06-25', 'Belkis Jamzin Mendez',                    292000,  'STAKE',   'RECARGAS', 'EFECTY',        0,     292000],
+  ['14 - I - OP',20, '2026-06-25', 'Externo',                                 619000,  'STAKE',   'RECARGAS', 'BONIFICACION',  0,     619000],
+  ['15 - I - OP',20, '2026-06-25', 'Externo',                                      0,  'STAKE',   'RECARGAS', 'EASYCHANGER',   0,          0],
+  ['23 - C - OP',22, '2026-06-26', 'Vanlly Nataly Pedraza Sarabia',          1000000,  'STAKE',   'PAGOS',    'CORRESPONSAL',  0,   -1000000],
+  ['24 - C - OP',22, '2026-06-26', 'Belkis Jamzin Mendez',                   1000000,  'STAKE',   'RECARGAS', 'EFECTY',        0,    1000000],
+  ['25 - C - OP',22, '2026-06-26', 'Belkis Jamzin Mendez',                   1800000,  'WPLAY',   'RECARGAS', 'WPLAY POS',     54000, 1800000],
+  ['26 - C - OP',22, '2026-06-26', 'Thania de la pava',                      1351000,  'WPLAY',   'RECARGAS', 'WPLAY POS',     40530, 1351000],
+  ['16 - I - OP',22, '2026-06-26', 'Externo',                                 556000,  'STAKE',   'RECARGAS', 'BONIFICACION',  0,     556000],
+  ['17 - I - OP',22, '2026-06-26', 'Externo',                                2337500,  'STAKE',   'PAGOS',    'EFECTIVO',      0,   -2337500],
+  ['27 - C - OP',22, '2026-06-26', 'Belkis Jamzin Mendez',                   1800000,  'WPLAY',   'PAGOS',    'WPLAY POS',     0,   -1800000],
+  ['28 - C - OP',24, '2026-06-27', 'Thania de la pava',                      1688900,  'WPLAY',   'PAGOS',    'CORRESPONSAL',  0,   -1688900],
+  ['29 - C - OP',24, '2026-06-27', 'Belkis Jamzin Mendez',                    322250,  'WPLAY',   'PAGOS',    'CORRESPONSAL',  0,    -322250],
+  ['30 - C - OP',25, '2026-06-27', 'Belkis Jamzin Mendez',                    850000,  'STAKE',   'RECARGAS', 'EFECTY',        0,     850000],
+  ['31 - C - OP',25, '2026-06-27', 'Thania de la pava',                       800000,  'STAKE',   'RECARGAS', 'EFECTY',        0,     800000],
+  ['32 - C - OP',25, '2026-06-27', 'Vanlly Nataly Pedraza Sarabia',          1600000,  'WPLAY',   'RECARGAS', 'WPLAY POS',     48000, 1600000],
+  ['18 - I - OP',25, '2026-06-27', 'Belkis Jamzin Mendez',                    306700,  'STAKE',   'RECARGAS', 'BONIFICACION',  0,     306700],
+  ['19 - I - OP',25, '2026-06-27', 'Vanlly Nataly Pedraza Sarabia',            10000,  'WPLAY',   'RECARGAS', 'BONIFICACION',  0,      10000],
+  ['33 - C - OP',25, '2026-06-27', 'Vanlly Nataly Pedraza Sarabia',          1000000,  'STAKE',   'PAGOS',    'CORRESPONSAL',  0,   -1000000],
+  ['34 - C - OP',26, '2026-06-30', 'Belkis Jamzin Mendez',                   1396000,  'WPLAY',   'RECARGAS', 'WPLAY POS',     41880, 1396000],
+  ['35 - C - OP',26, '2026-06-30', 'Thania de la pava',                      1000000,  'STAKE',   'PAGOS',    'EFECTY',        0,   -1000000],
+  ['20 - I - OP',26, '2026-06-30', 'Vanlly Nataly Pedraza Sarabia',          1800000,  'WPLAY',   'PAGOS',    'EFECTIVO',      0,   -1800000],
+  ['36 - C - OP',26, '2026-06-30', 'Thania de la pava',                       425000,  'STAKE',   'PAGOS',    'EFECTY',        0,    -425000],
+  ['21 - I - OP',26, '2026-06-30', 'Belkis Jamzin Mendez',                   1000000,  'BETANO',  'RECARGAS', 'BONIFICACION',  0,    1000000],
+  ['38 - C - OP',26, '2026-06-30', 'Belkis Jamzin Mendez',                   1000000,  'BETANO',  'RECARGAS', 'EFECTY',        0,    1000000],
+  ['39 - C - OP',26, '2026-06-30', 'Vanlly Nataly Pedraza Sarabia',          1500000,  'BETANO',  'RECARGAS', 'EFECTY',        0,    1500000],
+  ['22 - I - OP',26, '2026-06-30', 'Michael Yessenia Cataño Mendez',         1750000,  'BETANO',  'RECARGAS', 'BONIFICACION',  0,    1750000],
+  ['23 - I - OP',26, '2026-06-30', 'Belkis Jamzin Mendez',                   1982000,  'BETANO',  'PAGOS',    'CORRESPONSAL',  0,   -1982000],
+  ['42 - C - OP',26, '2026-06-30', 'Belkis Jamzin Mendez',                   1800000,  'WPLAY',   'PAGOS',    'CORRESPONSAL',  0,   -1800000],
+];
+
+function normNombre(s) {
+  return (s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').trim();
+}
+
+async function run() {
+  document.getElementById('btn').disabled = true;
+  const emailVal = document.getElementById('email-inp').value.trim();
+  const passVal  = document.getElementById('pass-inp').value;
+  if (!passVal) { L('⚠ Ingresa la contraseña', 'err'); document.getElementById('btn').disabled=false; return; }
+
+  L('🔐 Iniciando sesión...', 'inf');
+  try { await auth.signInWithEmailAndPassword(emailVal, passVal); }
+  catch(e) { L('❌ Login fallido: ' + e.message, 'err'); document.getElementById('btn').disabled=false; return; }
+
+  const opId = auth.currentUser.uid;
+  L('✅ Sesión iniciada. opId = ' + opId, 'ok');
+
+  // Cargar clientes
+  L('\n📂 Cargando clientes...', 'inf');
+  const clientesSnap = await db.collection('patriarca_clientes').where('opId','==',opId).get();
+  const clientes = clientesSnap.docs.map(d => ({id: d.id, ...d.data()}));
+  L('   → ' + clientes.length + ' clientes encontrados', 'inf');
+
+  function findCliente(nombre) {
+    const norm = normNombre(nombre);
+    return clientes.find(c => normNombre(c.nombre || c.nombre_cliente || '') === norm)
+        || clientes.find(c => normNombre(c.nombre || c.nombre_cliente || '').includes(norm.split(' ')[0]));
+  }
+
+  // Cargar eventos
+  L('📂 Cargando eventos...', 'inf');
+  const eventosSnap = await db.collection('patriarca_eventos').where('opId','==',opId).get();
+  const eventos = eventosSnap.docs.map(d => ({id: d.id, ...d.data()}));
+  L('   → ' + eventos.length + ' eventos encontrados', 'inf');
+
+  function findEvento(num) { return eventos.find(e => parseInt(e.num) === num); }
+
+  // Borrar movimientos existentes
+  L('\n🗑 Borrando movimientos existentes...', 'inf');
+  const movSnap = await db.collection('patriarca_movimientos').where('opId','==',opId).get();
+  L('   → ' + movSnap.size + ' movimientos encontrados', 'inf');
+  const CHUNK = 400;
+  for (let i=0; i<movSnap.docs.length; i+=CHUNK) {
+    const fb = db.batch();
+    movSnap.docs.slice(i,i+CHUNK).forEach(d => fb.delete(d.ref));
+    await fb.commit();
+  }
+  L('   ✅ ' + movSnap.size + ' borrados', 'ok');
+
+  // Crear movimientos
+  L('\n📥 Creando 62 movimientos...', 'inf');
+  let ok = 0, warn = 0;
+  const docs = [];
+
+  for (const [op_raw, id_ev, fecha, clienteNombre, monto, casa, tipo, metodoRaw, comision, impacto] of MOVS_RAW) {
+    // Parsear canal desde "N - C - OP" o "N - I - OP"
+    const parts = op_raw.split('-').map(s => s.trim());
+    const num   = parseInt(parts[0]);
+    const opPart = parts[1] || 'C';
+    const metodo = normMetodo(metodoRaw);
+    const esInterno = METODOS_INTERNOS.has(metodo);
+    const canal = esInterno ? 'I-OP' : 'C-OP';
+    const op_id = num + ' - ' + (esInterno ? 'I' : 'C') + ' - OP';
+
+    // Buscar cliente
+    const cli = findCliente(clienteNombre);
+    const cliente_id = cli ? cli.id : null;
+    const cliente_nombre_final = cli ? (cli.nombre || cli.nombre_cliente || clienteNombre) : clienteNombre;
+    if (!cli) { L('   ⚠ Cliente no encontrado: ' + clienteNombre, 'inf'); warn++; }
+
+    // Buscar evento
+    const ev = findEvento(id_ev);
+    const id_evento_ref = ev ? ev.id : null;
+    const id_apuesta = ev ? String(ev.num) : String(id_ev);
+    if (!ev) { L('   ⚠ Evento no encontrado: #' + id_ev, 'inf'); warn++; }
+
+    docs.push({
+      opId,
+      op_id,
+      canal,
+      num,
+      fecha,
+      cliente: cliente_nombre_final,
+      cliente_id: cliente_id || '',
+      monto,
+      casa,
+      tipo,
+      metodo,
+      comision,
+      impacto,
+      id_apuesta,
+      id_evento_ref: id_evento_ref || '',
+      estado_cajero: 'Realizada',
+      descuentos: '',
+      monto_descuento: 0,
+      ts: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    ok++;
+  }
+
+  // Escribir en Firestore por chunks
+  for (let i=0; i<docs.length; i+=CHUNK) {
+    const fb = db.batch();
+    docs.slice(i,i+CHUNK).forEach(d => fb.set(db.collection('patriarca_movimientos').doc(), d));
+    await fb.commit();
+  }
+
+  await auth.signOut();
+
+  L('\n' + '─'.repeat(50), 'inf');
+  L('✅ ' + ok + ' movimientos cargados correctamente.', 'ok');
+  if (warn) L('⚠ ' + warn + ' advertencias (clientes/eventos no encontrados — revisa arriba).', 'inf');
+  L('\n🔄 Recarga el portal de Vanlly (Cmd+Shift+R) para ver los cambios.', 'inf');
+  L('🗑 Puedes cerrar y borrar este archivo.', 'inf');
+}
+</script>
+</body>
+</html>

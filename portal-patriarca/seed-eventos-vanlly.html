@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Seed Eventos Vanlly — Junio 2026</title>
+<style>
+  body { font-family: monospace; background:#111; color:#0f0; padding:24px; }
+  button { background:#2a6; color:#fff; border:none; padding:12px 24px; font-size:16px; cursor:pointer; border-radius:6px; margin-bottom:16px; }
+  button:disabled { background:#444; color:#888; cursor:not-allowed; }
+  input { display:block; padding:10px 14px; margin-bottom:10px; background:#1a1a1a; border:1px solid #444; color:#fff; border-radius:6px; font-size:14px; width:320px; }
+  label { font-size:12px; color:#aaa; margin-bottom:4px; display:block; }
+  #login-box { background:#1a2a1a; border:1px solid #2a6; border-radius:8px; padding:20px; margin-bottom:20px; max-width:360px; }
+  #log { white-space:pre-wrap; font-size:13px; line-height:1.8; margin-top:12px; }
+  .ok  { color:#0f0; }
+  .err { color:#f44; }
+  .inf { color:#ff0; }
+</style>
+</head>
+<body>
+<h2>📅 Seed Eventos — Vanlly Junio 2026</h2>
+<p>Borra todos los eventos existentes de Vanlly y carga los 26 del Excel.<br>
+<strong>Ejecutar UNA SOLA VEZ. Borrar el archivo después.</strong></p>
+
+<div id="login-box">
+  <label>Correo de Vanlly</label>
+  <input id="email-inp" type="email" value="vanlly@aj16.com">
+  <label>Contraseña</label>
+  <input id="pass-inp" type="password" placeholder="Contraseña">
+  <button id="btn" onclick="run()">▶ Limpiar y cargar 26 eventos</button>
+</div>
+<div id="log"></div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyBQ42PzffxkEUEJVaPIVxHPKDqA_wk6IS0",
+  authDomain: "portal-patriarca-aj16.firebaseapp.com",
+  projectId: "portal-patriarca-aj16",
+  storageBucket: "portal-patriarca-aj16.firebasestorage.app",
+  messagingSenderId: "1073575698338",
+  appId: "1:1073575698338:web:f014083b3092c6dc245cfb",
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db   = firebase.firestore();
+
+const EVENTOS = [
+  {num:1,  fecha_registro:'2026-06-01', nombre:'RETIRO MES ANTERIOR',        fecha_evento:'2026-06-01', deporte:'FUTBOL', opciones:'2 Opciones', estado:'CERRADO', opcion_ganadora:'1', analisis:'CORRECTO'},
+  {num:2,  fecha_registro:'2026-06-01', nombre:'FALTA POR REGISTRAR',         fecha_evento:'2026-06-01', deporte:'FUTBOL', opciones:'2 Opciones', estado:'CERRADO', opcion_ganadora:'1', analisis:'CORRECTO'},
+  {num:3,  fecha_registro:'2026-06-01', nombre:'BONOS',                        fecha_evento:'2026-06-01', deporte:'FUTBOL', opciones:'3 Opciones', estado:'CERRADO', opcion_ganadora:'1', analisis:'CORRECTO'},
+  {num:4,  fecha_registro:'2026-06-10', nombre:'KOREA VS R. CHECA',            fecha_evento:'2026-06-11', deporte:'FUTBOL', opciones:'3 Opciones', estado:'CERRADO', opcion_ganadora:'1', analisis:'CORRECTO'},
+  {num:5,  fecha_registro:'2026-06-10', nombre:'MEXICO VS SUDAFRICA',          fecha_evento:'2026-06-11', deporte:'FUTBOL', opciones:'3 Opciones', estado:'CERRADO', opcion_ganadora:'1', analisis:'CORRECTO'},
+  {num:6,  fecha_registro:'2026-06-12', nombre:'CANADA VS BOSCONIA',           fecha_evento:'2026-06-12', deporte:'FUTBOL', opciones:'3 Opciones', estado:'CERRADO', opcion_ganadora:'x', analisis:'CORRECTO'},
+  {num:7,  fecha_registro:'2026-06-12', nombre:'EE.UU VS PARAGUAY',            fecha_evento:'2026-06-13', deporte:'FUTBOL', opciones:'3 Opciones', estado:'CERRADO', opcion_ganadora:'1', analisis:'CORRECTO'},
+  {num:8,  fecha_registro:'2026-06-13', nombre:'AUSTRALIA VS TURQUIA',         fecha_evento:'2026-06-13', deporte:'FUTBOL', opciones:'3 Opciones', estado:'CERRADO', opcion_ganadora:'1', analisis:'CORRECTO'},
+  {num:9,  fecha_registro:'2026-06-16', nombre:'GHANA VS PANAMA',              fecha_evento:'2026-06-17', deporte:'FUTBOL', opciones:'3 Opciones', estado:'CERRADO', opcion_ganadora:'1', analisis:'CORRECTO'},
+  {num:10, fecha_registro:'2026-06-16', nombre:'AUSTRIA VS JORDANIA',          fecha_evento:'2026-06-16', deporte:'FUTBOL', opciones:'3 Opciones', estado:'CERRADO', opcion_ganadora:'1', analisis:'CORRECTO'},
+  {num:11, fecha_registro:'2026-06-17', nombre:'UZBEKISTAN VS COLOMBIA',       fecha_evento:'2026-06-17', deporte:'FUTBOL', opciones:'3 Opciones', estado:'CERRADO', opcion_ganadora:'2', analisis:'CORRECTO'},
+  {num:12, fecha_registro:'2026-06-18', nombre:'REPLUBLICA CHEVA VS SUDAFRICA',fecha_evento:'2026-06-18', deporte:'FUTBOL', opciones:'3 Opciones', estado:'CERRADO', opcion_ganadora:'x', analisis:'CORRECTO'},
+  {num:13, fecha_registro:'2026-06-18', nombre:'MEXICO VS COREA DEL SUR',      fecha_evento:'2026-06-18', deporte:'FUTBOL', opciones:'3 Opciones', estado:'CERRADO', opcion_ganadora:'1', analisis:'CORRECTO'},
+  {num:14, fecha_registro:'2026-06-18', nombre:'CANADA VS CATAR',              fecha_evento:'2026-06-18', deporte:'FUTBOL', opciones:'3 Opciones', estado:'CERRADO', opcion_ganadora:'1', analisis:'CORRECTO'},
+  {num:15, fecha_registro:'2026-06-19', nombre:'ESTADOS UNIDOS VS AUSTRALIA',  fecha_evento:'2026-06-19', deporte:'FUTBOL', opciones:'3 Opciones', estado:'CERRADO', opcion_ganadora:'1', analisis:'CORRECTO'},
+  {num:16, fecha_registro:'2026-06-22', nombre:'NORUEGA VS SENEGAL',           fecha_evento:'2026-06-22', deporte:'FUTBOL', opciones:'3 Opciones', estado:'CERRADO', opcion_ganadora:'1', analisis:'CORRECTO'},
+  {num:17, fecha_registro:'2026-06-23', nombre:'PORTUGAK VS UZBEKISTAN',       fecha_evento:'2026-06-23', deporte:'FUTBOL', opciones:'3 Opciones', estado:'CERRADO', opcion_ganadora:'1', analisis:'CORRECTO'},
+  {num:18, fecha_registro:'2026-06-23', nombre:'COLOMBIA VS REP DEL CONGO',    fecha_evento:'2026-06-23', deporte:'FUTBOL', opciones:'3 Opciones', estado:'CERRADO', opcion_ganadora:'1', analisis:'CORRECTO'},
+  {num:19, fecha_registro:'2026-06-24', nombre:'SUIZA VS CANADA',              fecha_evento:'2026-06-24', deporte:'FUTBOL', opciones:'3 Opciones', estado:'CERRADO', opcion_ganadora:'1', analisis:'CORRECTO'},
+  {num:20, fecha_registro:'2026-06-25', nombre:'TURQUIA VS EEUU',              fecha_evento:'2026-06-25', deporte:'FUTBOL', opciones:'3 Opciones', estado:'CERRADO', opcion_ganadora:'1', analisis:'CORRECTO'},
+  {num:21, fecha_registro:'2026-06-25', nombre:'ECUADOR VS ALEMANIA',          fecha_evento:'2026-06-25', deporte:'FUTBOL', opciones:'3 Opciones', estado:'CERRADO', opcion_ganadora:'1', analisis:'CORRECTO'},
+  {num:22, fecha_registro:'2026-06-26', nombre:'CABO VERDE VS ARABIA SAUDITA', fecha_evento:'2026-06-26', deporte:'FUTBOL', opciones:'3 Opciones', estado:'CERRADO', opcion_ganadora:'x', analisis:'CORRECTO'},
+  {num:23, fecha_registro:'2026-06-26', nombre:'SENEGAL VS IRAK',              fecha_evento:'2026-06-26', deporte:'FUTBOL', opciones:'3 Opciones', estado:'CERRADO', opcion_ganadora:'1', analisis:'CORRECTO'},
+  {num:24, fecha_registro:'2026-06-27', nombre:'COLOMBIA VS PORTUGAL',         fecha_evento:'2026-06-27', deporte:'FUTBOL', opciones:'3 Opciones', estado:'CERRADO', opcion_ganadora:'x', analisis:'CORRECTO'},
+  {num:25, fecha_registro:'2026-06-27', nombre:'CROACIA VS GHANA',             fecha_evento:'2026-06-27', deporte:'FUTBOL', opciones:'3 Opciones', estado:'CERRADO', opcion_ganadora:'1', analisis:'CORRECTO'},
+  {num:26, fecha_registro:'2026-06-30', nombre:'COSTA DE MARFIL VS NORUEGA',   fecha_evento:'2026-06-30', deporte:'FUTBOL', opciones:'3 Opciones', estado:'CERRADO', opcion_ganadora:'2', analisis:'CORRECTO'},
+];
+
+const log = document.getElementById('log');
+function L(msg, cls='') { log.innerHTML += `<span class="${cls}">${msg}</span>\n`; }
+
+async function run() {
+  const emailVal = document.getElementById('email-inp').value.trim();
+  const passVal  = document.getElementById('pass-inp').value;
+  if (!passVal) { L('⚠ Ingresa la contraseña', 'err'); return; }
+  document.getElementById('btn').disabled = true;
+
+  L('🔐 Iniciando sesión como ' + emailVal + '...', 'inf');
+  try {
+    await auth.signInWithEmailAndPassword(emailVal, passVal);
+  } catch(e) {
+    L('❌ Login fallido: ' + e.message, 'err');
+    document.getElementById('btn').disabled = false;
+    return;
+  }
+
+  const opId = auth.currentUser.uid;
+  L('✅ Sesión iniciada. opId = ' + opId, 'ok');
+
+  // 1. Borrar todos los eventos existentes de este opId
+  L('🗑  Borrando eventos existentes...', 'inf');
+  const snap = await db.collection('patriarca_eventos').where('opId','==',opId).get();
+  L(`   → ${snap.size} eventos encontrados para borrar`, 'inf');
+
+  const CHUNK = 400;
+  const refs = snap.docs.map(d => d.ref);
+  for (let i = 0; i < refs.length; i += CHUNK) {
+    const fb = db.batch();
+    refs.slice(i, i + CHUNK).forEach(r => fb.delete(r));
+    await fb.commit();
+  }
+  L(`   ✅ ${refs.length} eventos borrados`, 'ok');
+
+  // 2. Crear los 26 eventos frescos
+  L('📥 Creando 26 eventos desde Excel...', 'inf');
+  for (let i = 0; i < EVENTOS.length; i += CHUNK) {
+    const fb = db.batch();
+    EVENTOS.slice(i, i + CHUNK).forEach(ev => {
+      fb.set(db.collection('patriarca_eventos').doc(), {
+        opId,
+        num:             ev.num,
+        nombre:          ev.nombre,
+        fecha_registro:  ev.fecha_registro,
+        fecha_evento:    ev.fecha_evento,
+        deporte:         ev.deporte,
+        opciones:        ev.opciones,
+        estado:          ev.estado,
+        opcion_ganadora: ev.opcion_ganadora,
+        analisis:        ev.analisis,
+        ts: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+    });
+    await fb.commit();
+  }
+
+  await auth.signOut();
+  L('', '');
+  L('✅ ¡Listo! 26 eventos cargados correctamente en el portal de Vanlly.', 'ok');
+  L('Recarga el portal de Vanlly para ver los cambios (Cmd+Shift+R).', 'inf');
+  L('Puedes cerrar esta página y borrar seed-eventos-vanlly.html.', 'inf');
+}
+</script>
+</body>
+</html>

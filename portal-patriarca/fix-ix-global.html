@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fix IX Global — AJ1.6</title>
+<style>
+:root{--bg:#0d0f14;--bg2:#13161d;--bg3:#1a1e28;--border:#2a2f3f;--text:#e8eaf0;--text2:#8890a8;--green:#24BF62;--red:#e05050;--orange:#f0a050;--blue:#4a9eff;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,sans-serif;font-size:13px;padding:24px;}
+h1{font-size:18px;margin-bottom:4px;}
+.sub{color:var(--text2);font-size:12px;margin-bottom:24px;line-height:1.6;}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:16px;}
+.card h2{font-size:14px;font-weight:600;margin-bottom:12px;}
+.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;}
+.stat{background:var(--bg3);border-radius:8px;padding:10px 18px;text-align:center;min-width:130px;}
+.stat-val{font-size:22px;font-weight:700;}.stat-lbl{font-size:11px;color:var(--text2);margin-top:2px;}
+.green{color:var(--green);}.red{color:var(--red);}.orange{color:var(--orange);}.blue{color:var(--blue);}
+button{border:none;border-radius:7px;padding:9px 18px;font-size:13px;font-weight:600;cursor:pointer;}
+.btn-blue{background:#1e40af;color:#fff;}.btn-green{background:#166534;color:#fff;}
+.btn-ghost{background:var(--bg3);color:var(--text);border:1px solid var(--border);}
+.btn-red{background:#7f1d1d;color:#fff;}
+button:disabled{opacity:.45;cursor:not-allowed;}
+#log{font-family:monospace;font-size:11px;line-height:1.8;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px;max-height:400px;overflow-y:auto;}
+table{width:100%;border-collapse:collapse;font-size:11px;}
+th{text-align:left;color:var(--text2);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--border);white-space:nowrap;}
+td{padding:5px 8px;border-bottom:1px solid var(--border);vertical-align:top;}
+tr:hover td{background:rgba(255,255,255,.02);}
+.badge{display:inline-block;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:600;}
+.br{background:#3b0f0f;color:var(--red);}.bg{background:#0f2b1a;color:var(--green);}
+.bo{background:#2b1a05;color:var(--orange);}.bb{background:#0f1f3b;color:var(--blue);}
+.login-box{max-width:340px;margin:60px auto;}
+.login-box input{width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:9px 12px;font-size:13px;margin-bottom:10px;}
+progress{width:100%;height:8px;border-radius:4px;overflow:hidden;appearance:none;}
+progress::-webkit-progress-bar{background:var(--bg3);border-radius:4px;}
+progress::-webkit-progress-value{background:var(--blue);border-radius:4px;}
+code{background:var(--bg3);padding:1px 5px;border-radius:4px;font-size:11px;}
+.section-title{font-size:13px;font-weight:700;color:var(--orange);margin:16px 0 8px;}
+</style>
+</head>
+<body>
+
+<div id="login-section">
+  <div class="login-box">
+    <h1 style="text-align:center;margin-bottom:6px">🔧 Fix IX Global</h1>
+    <p style="text-align:center;color:var(--text2);margin-bottom:20px;font-size:12px">Diagnóstico y corrección completa de intercambios</p>
+    <input type="email" id="email" placeholder="Email">
+    <input type="password" id="pwd" placeholder="Contraseña">
+    <div id="login-err" style="color:var(--red);font-size:11px;margin-bottom:8px;display:none"></div>
+    <button class="btn-blue" style="width:100%" onclick="doLogin()">Ingresar</button>
+  </div>
+</div>
+
+<div id="main-section" style="display:none">
+  <h1>🔧 Fix IX Global — Corrección completa</h1>
+  <p class="sub">
+    Detecta y corrige 3 tipos de errores de migración:<br>
+    <strong style="color:var(--orange)">① Duplicados</strong> — mismo intercambio con dos ix_global (uno por operador)<br>
+    <strong style="color:var(--blue)">② Auto-cruzados</strong> — Nelson↔Nelson tipo C con op2 null → convertir a Interno<br>
+    <strong style="color:var(--red)">③ Op2 null en cruzados reales</strong> — diferentes operadores pero campos op2 vacíos
+  </p>
+
+  <div class="card">
+    <div class="row" style="margin-bottom:14px">
+      <div class="stat"><div class="stat-val blue" id="st-ix">—</div><div class="stat-lbl">ix_global total</div></div>
+      <div class="stat"><div class="stat-val blue" id="st-ixdocs">—</div><div class="stat-lbl">intercambios docs</div></div>
+      <div class="stat"><div class="stat-val orange" id="st-dup">—</div><div class="stat-lbl">① Duplicados</div></div>
+      <div class="stat"><div class="stat-val blue" id="st-self">—</div><div class="stat-lbl">② Auto-cruzados</div></div>
+      <div class="stat"><div class="stat-val red" id="st-nullop2">—</div><div class="stat-lbl">③ Op2 null</div></div>
+      <div class="stat"><div class="stat-val green" id="st-ok">—</div><div class="stat-lbl">Correctos</div></div>
+    </div>
+    <div style="margin-bottom:14px"><progress id="prog" value="0" max="100" style="display:none"></progress></div>
+    <div class="row" style="gap:8px">
+      <button class="btn-blue" id="btn-audit" onclick="runAudit()">🔍 Auditar</button>
+      <button class="btn-green" id="btn-fix" onclick="applyFixes()" disabled>✅ Aplicar correcciones (<span id="fix-total">0</span> cambios)</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>📋 Log</h2>
+    <div id="log">Presiona "Auditar" para comenzar el análisis...</div>
+  </div>
+
+  <div id="results-section" style="display:none">
+    <!-- Duplicados -->
+    <div class="card" id="dup-card" style="display:none">
+      <h2>① Duplicados — <span id="dup-count">0</span> pares</h2>
+      <p style="color:var(--text2);font-size:12px;margin-bottom:10px">
+        Mismo intercambio registrado 2 veces (una por cada operador). Se fusionan: se elimina uno y se actualiza el otro con ambos lados.
+      </p>
+      <div style="overflow-x:auto"><table>
+        <thead><tr><th>#</th><th>Fecha</th><th>Monto</th><th>Op1</th><th>Egresa→Ingresa</th><th>Op2</th><th>Acción</th></tr></thead>
+        <tbody id="dup-tbody"></tbody>
+      </table></div>
+    </div>
+
+    <!-- Auto-cruzados -->
+    <div class="card" id="self-card" style="display:none">
+      <h2>② Auto-cruzados → Internos — <span id="self-count">0</span></h2>
+      <p style="color:var(--text2);font-size:12px;margin-bottom:10px">
+        Tipo C con op1=op2=mismo operador. Se convierten a Interno (tipo I) y se limpian campos op2.
+      </p>
+      <div style="overflow-x:auto"><table>
+        <thead><tr><th>#</th><th>ID OP1</th><th>Operador</th><th>Egresa→Ingresa</th><th>Monto</th><th>Acción</th></tr></thead>
+        <tbody id="self-tbody"></tbody>
+      </table></div>
+    </div>
+
+    <!-- Op2 null en cruzados reales -->
+    <div class="card" id="null-card" style="display:none">
+      <h2>③ Cruzados con op2 null — <span id="null-count">0</span></h2>
+      <p style="color:var(--text2);font-size:12px;margin-bottom:10px">
+        Operadores distintos pero campos op2 vacíos. Se rellenan con el espejo de op1 o desde patriarca_intercambios.
+      </p>
+      <div style="overflow-x:auto"><table>
+        <thead><tr><th>#</th><th>ID OP1</th><th>Op1</th><th>Egresa→Ingresa</th><th>Op2</th><th>Op2 egresa→ingresa (correcto)</th><th>Monto</th></tr></thead>
+        <tbody id="null-tbody"></tbody>
+      </table></div>
+    </div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+firebase.initializeApp({
+  apiKey:"AIzaSyBQ42PzffxkEUEJVaPIVxHPKDqA_wk6IS0",
+  authDomain:"portal-patriarca-aj16.firebaseapp.com",
+  projectId:"portal-patriarca-aj16",
+  storageBucket:"portal-patriarca-aj16.firebasestorage.app",
+  messagingSenderId:"1073575698338",
+  appId:"1:1073575698338:web:f014083b3092c6dc245cfb"
+});
+const auth=firebase.auth(), db=firebase.firestore();
+
+function doLogin(){
+  const e=document.getElementById('email').value.trim(), p=document.getElementById('pwd').value;
+  const err=document.getElementById('login-err'); err.style.display='none';
+  auth.signInWithEmailAndPassword(e,p).catch(ex=>{err.textContent=ex.message;err.style.display='block';});
+}
+auth.onAuthStateChanged(u=>{
+  document.getElementById('login-section').style.display=u?'none':'block';
+  document.getElementById('main-section').style.display=u?'block':'none';
+});
+document.addEventListener('keydown',e=>{
+  if(e.key==='Enter'&&document.getElementById('login-section').style.display!=='none') doLogin();
+});
+
+const ALIAS={'SUPERGIROS UNITY':'SUPER GIROS UNITY','SUPER GIROS UNITY ':'SUPER GIROS UNITY',
+  'BEMOVIL':'BE MOVIL CAJA','BE MOVIL':'BE MOVIL CAJA','WPLAY POS':'WPLAY UNITY',
+  'EFECTIVO':'EFECTIVO OPERADOR','EFECTY':'EFECTY 1 DE MAYO',
+  'CORRESPONSAL':'CORRESPONSAL EL PARAMO','EASYCHANGER':'EASY CHANGER'};
+const N=m=>{const u=(m||'').trim().toUpperCase();return ALIAS[u]||u;};
+const pesos=n=>'$'+Math.round(n||0).toLocaleString('es-CO');
+let _log=null;
+function log(msg,cls=''){
+  if(!_log)_log=document.getElementById('log');
+  const d=document.createElement('div');
+  d.style.color=cls==='ok'?'var(--green)':cls==='err'?'var(--red)':cls==='warn'?'var(--orange)':cls==='gray'?'var(--text2)':'var(--text)';
+  d.textContent=msg; _log.appendChild(d); _log.scrollTop=_log.scrollHeight;
+}
+
+// ── Estado global ──
+let fixes = {
+  duplicados: [],   // [{keep: ixDoc, del: ixDoc, intercambiosToUpdate: [{docId, newGlobalId}]}]
+  selfCruzados: [], // [{ixDoc, intercambiosToDelete: [docId]}]
+  nullOp2: [],      // [{ixDoc, correctOp2Egresa, correctOp2Ingresa, correctOp2Uid}]
+};
+
+async function runAudit(){
+  document.getElementById('btn-audit').disabled=true;
+  document.getElementById('btn-fix').disabled=true;
+  document.getElementById('log').innerHTML='';
+  document.getElementById('results-section').style.display='none';
+  _log=document.getElementById('log');
+  fixes={duplicados:[],selfCruzados:[],nullOp2:[]};
+
+  const prog=document.getElementById('prog');
+  prog.style.display='block'; prog.value=0;
+
+  // ── 1. Cargar ix_global ──
+  log('① Cargando patriarca_ix_global...');
+  let ixDocs=[];
+  try{
+    const snap=await db.collection('patriarca_ix_global').get();
+    ixDocs=snap.docs.map(d=>({_id:d.id,...d.data()}));
+    document.getElementById('st-ix').textContent=snap.size;
+    log(`   ✓ ${snap.size} docs en ix_global`,'ok');
+  }catch(e){log('ERROR: '+e.message,'err');document.getElementById('btn-audit').disabled=false;return;}
+  prog.value=20;
+
+  // ── 2. Cargar patriarca_intercambios ──
+  log('② Cargando patriarca_intercambios...');
+  let ixIntercambios=[];
+  try{
+    const snap=await db.collection('patriarca_intercambios').get();
+    ixIntercambios=snap.docs.map(d=>({_docId:d.id,...d.data()}));
+    document.getElementById('st-ixdocs').textContent=snap.size;
+    log(`   ✓ ${snap.size} docs en patriarca_intercambios`,'ok');
+  }catch(e){log('ERROR: '+e.message,'err');document.getElementById('btn-audit').disabled=false;return;}
+  prog.value=40;
+
+  // Mapas útiles
+  const byGlobalId={};
+  ixIntercambios.forEach(d=>{
+    if(!d.global_id) return;
+    if(!byGlobalId[d.global_id]) byGlobalId[d.global_id]=[];
+    byGlobalId[d.global_id].push(d);
+  });
+
+  // ── 3. Buscar duplicados ──
+  log('③ Buscando intercambios duplicados (mismo intercambio visto desde 2 operadores)...');
+  const visitados=new Set();
+
+  for(let i=0;i<ixDocs.length;i++){
+    const a=ixDocs[i];
+    if(visitados.has(a._id)) continue;
+    if(a.tipo!=='C') continue;
+    // Buscar doc B que sea el espejo: op1=B.op2, op2=B.op1, misma fecha y monto
+    for(let j=i+1;j<ixDocs.length;j++){
+      const b=ixDocs[j];
+      if(visitados.has(b._id)) continue;
+      if(b.tipo!=='C') continue;
+      if(a.monto!==b.monto) continue;
+      if(a.fecha!==b.fecha) continue;
+      // Son espejo si intercambian roles op1/op2
+      const sonEspejo=(
+        a.op1_uid===b.op2_uid && a.op2_uid===b.op1_uid
+      );
+      if(!sonEspejo) continue;
+
+      // Encontrado par duplicado: a y b
+      // Elegir cuál conservar: el que tenga más campos completos en op2
+      const aOp2Score=(a.op2_egresa?1:0)+(a.op2_ingresa?1:0)+(a.op2_doc_id?1:0)+(a.op2_ix_id?1:0);
+      const bOp2Score=(b.op2_egresa?1:0)+(b.op2_ingresa?1:0)+(b.op2_doc_id?1:0)+(b.op2_ix_id?1:0);
+      const keep=aOp2Score>=bOp2Score?a:b;
+      const del =aOp2Score>=bOp2Score?b:a;
+
+      // Los patriarca_intercambios del doc eliminado deben apuntar al doc conservado
+      const intercambiosDelDel=(byGlobalId[del._id]||[]).map(d=>d._docId);
+
+      // Los campos op2 del conservado: completar con datos del eliminado si faltan
+      // El doc eliminado tiene op1 = op2 del conservado
+      const op2Fix={};
+      if(!keep.op2_egresa && del.op1_egresa) op2Fix.op2_egresa=N(del.op1_egresa);
+      if(!keep.op2_ingresa && del.op1_ingresa) op2Fix.op2_ingresa=N(del.op1_ingresa);
+      if(!keep.op2_ix_id && del.op1_ix_id) op2Fix.op2_ix_id=del.op1_ix_id;
+      // op2_doc_id: buscar el doc del op2 en los intercambios del eliminado
+      const op2IntercambioDoc=(byGlobalId[del._id]||[]).find(d=>d.es_creador===true);
+      if(!keep.op2_doc_id && op2IntercambioDoc) op2Fix.op2_doc_id=op2IntercambioDoc._docId;
+
+      fixes.duplicados.push({keep,del,op2Fix,intercambiosToUpdate:intercambiosDelDel});
+      visitados.add(a._id); visitados.add(b._id);
+      break;
+    }
+  }
+  document.getElementById('st-dup').textContent=fixes.duplicados.length;
+  log(`   Duplicados: ${fixes.duplicados.length} pares`,'ok');
+  prog.value=60;
+
+  // ── 4. Buscar auto-cruzados (op1=op2, tipo C) ──
+  log('④ Buscando auto-cruzados (op1=op2=mismo operador, tipo C)...');
+  ixDocs.forEach(ix=>{
+    if(visitados.has(ix._id)) return;
+    if(ix.tipo!=='C') return;
+    if(!ix.op1_uid || ix.op1_uid!==ix.op2_uid) return;
+    // Auto-cruzado: Nelson consigo mismo
+    // Docs de intercambios vinculados
+    const vinculados=byGlobalId[ix._id]||[];
+    // El que es es_creador=false (op2 ficticio) se puede eliminar
+    const op2Docs=vinculados.filter(d=>d.es_creador===false).map(d=>d._docId);
+    fixes.selfCruzados.push({ix,intercambiosToDelete:op2Docs});
+    visitados.add(ix._id);
+  });
+  document.getElementById('st-self').textContent=fixes.selfCruzados.length;
+  log(`   Auto-cruzados: ${fixes.selfCruzados.length}`,'ok');
+  prog.value=75;
+
+  // ── 5. Cruzados reales con op2 null ──
+  log('⑤ Buscando cruzados entre distintos operadores con campos op2 null...');
+  ixDocs.forEach(ix=>{
+    if(visitados.has(ix._id)) return;
+    if(ix.tipo!=='C') return;
+    if(ix.op1_uid===ix.op2_uid) return; // auto-cruzado ya manejado
+    const missingOp2=(!ix.op2_egresa||!ix.op2_ingresa);
+    if(!missingOp2) return;
+
+    // Intentar completar desde patriarca_intercambios del op2
+    const vinculados=byGlobalId[ix._id]||[];
+    const op2Doc=vinculados.find(d=>d.opId===ix.op2_uid||(d.es_creador===false));
+    const correctEgr=op2Doc?N(op2Doc.caja_egresa):(ix.op1_ingresa?N(ix.op1_ingresa):null);
+    const correctIng=op2Doc?N(op2Doc.caja_ingresa):(ix.op1_egresa?N(ix.op1_egresa):null);
+
+    fixes.nullOp2.push({ix,correctOp2Egresa:correctEgr,correctOp2Ingresa:correctIng,
+      op2DocId:op2Doc?op2Doc._docId:null,op2IxId:op2Doc?op2Doc.ix_id:null});
+    visitados.add(ix._id);
+  });
+  document.getElementById('st-nullop2').textContent=fixes.nullOp2.length;
+  log(`   Cruzados con op2 null: ${fixes.nullOp2.length}`,'ok');
+
+  // ── 6. Totales ──
+  const totalFixes=fixes.duplicados.length+fixes.selfCruzados.length+fixes.nullOp2.length;
+  const correctos=ixDocs.length-fixes.duplicados.length*2-fixes.selfCruzados.length-fixes.nullOp2.length;
+  document.getElementById('st-ok').textContent=Math.max(0,correctos);
+  document.getElementById('fix-total').textContent=totalFixes;
+  prog.value=100;
+
+  if(totalFixes===0){
+    log('✅ Todo está correcto, no hay errores que corregir.','ok');
+  } else {
+    log(`\n⚠ ${totalFixes} correcciones necesarias. Revisa las tablas y presiona "Aplicar correcciones".`,'warn');
+    renderTables();
+    document.getElementById('results-section').style.display='block';
+    document.getElementById('btn-fix').disabled=false;
+  }
+  document.getElementById('btn-audit').disabled=false;
+}
+
+function renderTables(){
+  // ── Duplicados ──
+  if(fixes.duplicados.length){
+    const tb=document.getElementById('dup-tbody'); tb.innerHTML='';
+    fixes.duplicados.forEach((f,i)=>{
+      const tr=document.createElement('tr');
+      tr.innerHTML=`
+        <td style="color:var(--text2)">${i+1}</td>
+        <td>${f.keep.fecha||'—'}</td>
+        <td style="font-weight:700">${pesos(f.keep.monto)}</td>
+        <td style="font-size:11px">${f.keep.op1_nombre||'—'}</td>
+        <td><span class="badge br">${f.keep.op1_egresa||'?'}</span> → <span class="badge bg">${f.keep.op1_ingresa||'?'}</span></td>
+        <td style="font-size:11px">${f.keep.op2_nombre||'—'}</td>
+        <td style="font-size:11px;color:var(--green)">
+          Conservar: <code>${f.keep.op1_ix_id||f.keep._id.slice(0,8)}</code><br>
+          Eliminar: <code style="color:var(--red)">${f.del.op1_ix_id||f.del._id.slice(0,8)}</code>
+          ${f.intercambiosToUpdate.length?`<br><span style="color:var(--text2)">${f.intercambiosToUpdate.length} intercambios redirigidos</span>`:''}
+        </td>`;
+      tb.appendChild(tr);
+    });
+    document.getElementById('dup-count').textContent=fixes.duplicados.length;
+    document.getElementById('dup-card').style.display='block';
+  }
+
+  // ── Auto-cruzados ──
+  if(fixes.selfCruzados.length){
+    const tb=document.getElementById('self-tbody'); tb.innerHTML='';
+    fixes.selfCruzados.forEach((f,i)=>{
+      const tr=document.createElement('tr');
+      tr.innerHTML=`
+        <td style="color:var(--text2)">${i+1}</td>
+        <td><code>${f.ix.op1_ix_id||'?'}</code></td>
+        <td style="font-size:11px">${f.ix.op1_nombre||'—'}</td>
+        <td><span class="badge br">${f.ix.op1_egresa||'?'}</span> → <span class="badge bg">${f.ix.op1_ingresa||'?'}</span></td>
+        <td style="font-weight:700">${pesos(f.ix.monto)}</td>
+        <td style="font-size:11px;color:var(--blue)">
+          C → <strong>I (Interno)</strong>${f.intercambiosToDelete.length?`<br><span style="color:var(--text2)">Eliminar ${f.intercambiosToDelete.length} doc(s) op2</span>`:''}
+        </td>`;
+      tb.appendChild(tr);
+    });
+    document.getElementById('self-count').textContent=fixes.selfCruzados.length;
+    document.getElementById('self-card').style.display='block';
+  }
+
+  // ── Null op2 ──
+  if(fixes.nullOp2.length){
+    const tb=document.getElementById('null-tbody'); tb.innerHTML='';
+    fixes.nullOp2.forEach((f,i)=>{
+      const tr=document.createElement('tr');
+      tr.innerHTML=`
+        <td style="color:var(--text2)">${i+1}</td>
+        <td><code>${f.ix.op1_ix_id||'?'}</code></td>
+        <td style="font-size:11px">${f.ix.op1_nombre||'—'}</td>
+        <td><span class="badge br">${f.ix.op1_egresa||'?'}</span> → <span class="badge bg">${f.ix.op1_ingresa||'?'}</span></td>
+        <td style="font-size:11px">${f.ix.op2_nombre||'—'}</td>
+        <td>${f.correctOp2Egresa?`<span class="badge br">${f.correctOp2Egresa}</span> → <span class="badge bg">${f.correctOp2Ingresa||'?'}</span>`:'<span style="color:var(--red)">No encontrado — usando espejo</span>'}</td>
+        <td style="font-weight:700">${pesos(f.ix.monto)}</td>`;
+      tb.appendChild(tr);
+    });
+    document.getElementById('null-count').textContent=fixes.nullOp2.length;
+    document.getElementById('null-card').style.display='block';
+  }
+}
+
+// ── APLICAR CORRECCIONES ──
+async function applyFixes(){
+  const total=fixes.duplicados.length+fixes.selfCruzados.length+fixes.nullOp2.length;
+  if(!total) return;
+  if(!confirm(`¿Aplicar ${total} correcciones en Firestore?\n\n• ${fixes.duplicados.length} duplicados eliminados/fusionados\n• ${fixes.selfCruzados.length} auto-cruzados → Internos\n• ${fixes.nullOp2.length} op2 null rellenados\n\nEsta acción es irreversible.`)) return;
+
+  document.getElementById('btn-fix').disabled=true;
+  document.getElementById('btn-audit').disabled=true;
+  const prog=document.getElementById('prog'); prog.value=0;
+
+  const ops=[]; // [{type:'update'|'delete', ref, data?}]
+
+  // ── A. Duplicados ──
+  fixes.duplicados.forEach(f=>{
+    // 1. Eliminar ix_global del duplicado
+    ops.push({type:'delete', ref:db.collection('patriarca_ix_global').doc(f.del._id)});
+    // 2. Actualizar ix_global conservado con campos op2 mejorados
+    if(Object.keys(f.op2Fix).length){
+      ops.push({type:'update', ref:db.collection('patriarca_ix_global').doc(f.keep._id), data:f.op2Fix});
+    }
+    // 3. Redirigir patriarca_intercambios del eliminado → conservado
+    f.intercambiosToUpdate.forEach(docId=>{
+      ops.push({type:'update', ref:db.collection('patriarca_intercambios').doc(docId),
+        data:{global_id:f.keep._id}});
+    });
+  });
+
+  // ── B. Auto-cruzados → Internos ──
+  fixes.selfCruzados.forEach(f=>{
+    // Convertir ix_global a tipo I
+    ops.push({type:'update', ref:db.collection('patriarca_ix_global').doc(f.ix._id), data:{
+      tipo:'I',
+      op2_uid: firebase.firestore.FieldValue.delete(),
+      op2_nombre: 'Propio',
+      op2_egresa: firebase.firestore.FieldValue.delete(),
+      op2_ingresa: firebase.firestore.FieldValue.delete(),
+      op2_doc_id: firebase.firestore.FieldValue.delete(),
+      op2_ix_id: firebase.firestore.FieldValue.delete(),
+      confirmado_op2_at: firebase.firestore.FieldValue.delete(),
+    }});
+    // Eliminar patriarca_intercambios del lado op2 ficticio
+    f.intercambiosToDelete.forEach(docId=>{
+      ops.push({type:'delete', ref:db.collection('patriarca_intercambios').doc(docId)});
+    });
+  });
+
+  // ── C. Op2 null → rellenar ──
+  fixes.nullOp2.forEach(f=>{
+    const upd={};
+    if(f.correctOp2Egresa) upd.op2_egresa=f.correctOp2Egresa;
+    if(f.correctOp2Ingresa) upd.op2_ingresa=f.correctOp2Ingresa;
+    if(f.op2DocId) upd.op2_doc_id=f.op2DocId;
+    if(f.op2IxId) upd.op2_ix_id=f.op2IxId;
+    if(Object.keys(upd).length){
+      ops.push({type:'update', ref:db.collection('patriarca_ix_global').doc(f.ix._id), data:upd});
+    }
+  });
+
+  log(`\nAplicando ${ops.length} operaciones en lotes de 400...`);
+
+  // Ejecutar en batches de 400
+  const BATCH=400;
+  let done=0;
+  for(let i=0;i<ops.length;i+=BATCH){
+    const chunk=ops.slice(i,i+BATCH);
+    const batch=db.batch();
+    chunk.forEach(op=>{
+      if(op.type==='delete') batch.delete(op.ref);
+      else batch.update(op.ref,op.data);
+    });
+    try{
+      await batch.commit();
+      done+=chunk.length;
+      prog.value=Math.round((done/ops.length)*100);
+      log(`✓ Lote ${Math.ceil((i+1)/BATCH)}: ${chunk.length} operaciones`,'ok');
+    }catch(e){
+      log(`ERROR lote ${Math.ceil((i+1)/BATCH)}: ${e.message}`,'err');
+    }
+  }
+
+  prog.value=100;
+  log(`\n✅ Completado: ${done}/${ops.length} operaciones aplicadas.`,'ok');
+  log(`Resumen:\n  - ${fixes.duplicados.length} duplicados eliminados/fusionados\n  - ${fixes.selfCruzados.length} auto-cruzados convertidos a Interno\n  - ${fixes.nullOp2.length} campos op2 rellenados`,'ok');
+  log('\nRecarga cajero.html — los intercambios deben coincidir con los portales de operadores.','warn');
+
+  // Reset
+  fixes={duplicados:[],selfCruzados:[],nullOp2:[]};
+  document.getElementById('btn-audit').disabled=false;
+}
+</script>
+</body>
+</html>

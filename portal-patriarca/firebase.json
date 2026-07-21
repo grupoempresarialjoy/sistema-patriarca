@@ -1,0 +1,16 @@
+{
+  "hosting": [
+    {
+      "site": "portal-aj16",
+      "public": ".",
+      "ignore": [
+        "firebase.json",
+        "seed-users.html",
+        ".firebaserc"
+      ]
+    }
+  ],
+  "firestore": {
+    "rules": "firestore.rules"
+  }
+}

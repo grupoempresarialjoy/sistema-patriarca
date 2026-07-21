@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Limpiar Eventos Duplicados — Vanlly</title>
+<style>
+  body { font-family: monospace; background:#111; color:#0f0; padding:24px; }
+  button { background:#2a6; color:#fff; border:none; padding:10px 20px; font-size:13px; cursor:pointer; border-radius:6px; margin:4px; }
+  button.red { background:#922; }
+  input { display:block; padding:8px 12px; margin-bottom:8px; background:#1a1a1a; border:1px solid #444; color:#fff; border-radius:6px; font-size:13px; width:300px; }
+  label { font-size:11px; color:#aaa; margin-bottom:3px; display:block; }
+  #login-box { background:#1a2a1a; border:1px solid #2a6; border-radius:8px; padding:16px; margin-bottom:16px; max-width:360px; }
+  #log { white-space:pre-wrap; font-size:12px; line-height:1.8; }
+  .ok  { color:#0f0; }
+  .err { color:#f44; }
+  .inf { color:#ff0; }
+  .gray{ color:#888; }
+</style>
+</head>
+<body>
+<h2>🧹 Limpiar Eventos Duplicados — Vanlly</h2>
+<p style="color:#ff0">
+  Inicia sesión con <strong>vanlly@aj16.com</strong> (la cuenta oficial del portal).<br>
+  El script detecta y borra solo los eventos bajo la cuenta antigua (AJ1.6joy1@gmail.com).
+</p>
+
+<div id="login-box">
+  <label>Correo (cuenta oficial del portal)</label>
+  <input id="email-inp" type="email" value="vanlly@aj16.com">
+  <label>Contraseña</label>
+  <input id="pass-inp" type="password" placeholder="Contraseña de vanlly@aj16.com">
+  <button id="btn" onclick="run()">▶ Diagnosticar y limpiar</button>
+</div>
+<div id="log"></div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyBQ42PzffxkEUEJVaPIVxHPKDqA_wk6IS0",
+  authDomain: "portal-patriarca-aj16.firebaseapp.com",
+  projectId: "portal-patriarca-aj16",
+  storageBucket: "portal-patriarca-aj16.firebasestorage.app",
+  messagingSenderId: "1073575698338",
+  appId: "1:1073575698338:web:f014083b3092c6dc245cfb",
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db   = firebase.firestore();
+
+const log = document.getElementById('log');
+function L(msg, cls='') { log.innerHTML += `<span class="${cls}">${msg}</span>\n`; }
+
+async function run() {
+  document.getElementById('btn').disabled = true;
+  log.innerHTML = '';
+
+  const emailVal = document.getElementById('email-inp').value.trim();
+  const passVal  = document.getElementById('pass-inp').value;
+  if (!passVal) { L('⚠ Ingresa la contraseña', 'err'); document.getElementById('btn').disabled=false; return; }
+
+  // 1. Login como vanlly@aj16.com
+  L('🔐 Iniciando sesión como ' + emailVal + '...', 'inf');
+  try {
+    await auth.signInWithEmailAndPassword(emailVal, passVal);
+  } catch(e) {
+    L('❌ Login fallido: ' + e.message, 'err');
+    document.getElementById('btn').disabled = false;
+    return;
+  }
+  const myOpId = auth.currentUser.uid;
+  L(`✅ UID de vanlly@aj16.com = ${myOpId}`, 'ok');
+
+  // 2. Leer SOLO los eventos de vanlly@aj16.com
+  L('\n📋 Leyendo eventos de vanlly@aj16.com...', 'inf');
+  const snapMios = await db.collection('patriarca_eventos').where('opId','==', myOpId).get();
+  L(`   → ${snapMios.size} eventos con este opId`, snapMios.size===26?'ok':'inf');
+  snapMios.docs.sort((a,b)=>(a.data().num||0)-(b.data().num||0))
+    .forEach(d => L(`      #${d.data().num} ${d.data().nombre}`, 'gray'));
+
+  // 3. Buscar eventos de la cuenta ANTIGUA (AJ1.6joy1) — todos los eventos menos los de myOpId
+  //    Para no tocar otros operadores, leemos todos y filtramos solo los que tienen
+  //    los mismos números 1-26 pero distinto opId (esos son los duplicados de Vanlly)
+  L('\n🔍 Buscando eventos duplicados de la cuenta antigua...', 'inf');
+  const snapTodos = await db.collection('patriarca_eventos').get();
+  const duplicados = snapTodos.docs.filter(d => {
+    const data = d.data();
+    return data.opId !== myOpId            // distinto opId (cuenta vieja)
+        && data.num >= 1 && data.num <= 26 // rango de eventos de Vanlly
+        && data.opId                       // tiene opId (no es de otro operador sin opId)
+        // Solo borramos si el opId empieza con letras/nums de Firebase UID
+        && typeof data.opId === 'string' && data.opId.length > 10;
+  });
+
+  // Agrupar los duplicados por opId para mostrar de dónde son
+  const grupos = {};
+  duplicados.forEach(d => {
+    const k = d.data().opId;
+    if (!grupos[k]) grupos[k] = [];
+    grupos[k].push(d);
+  });
+
+  if (!Object.keys(grupos).length) {
+    L('✅ No se encontraron duplicados con otro opId. ¡Todo limpio!', 'ok');
+    await auth.signOut();
+    return;
+  }
+
+  Object.entries(grupos).forEach(([opId, docs]) => {
+    L(`\n   ⚠ opId = ${opId}`, 'err');
+    L(`   → ${docs.length} eventos (probable cuenta AJ1.6joy1@gmail.com)`, 'inf');
+    docs.sort((a,b)=>(a.data().num||0)-(b.data().num||0))
+      .slice(0,5).forEach(d => L(`      #${d.data().num} ${d.data().nombre}`, 'gray'));
+    if (docs.length > 5) L(`      ... y ${docs.length-5} más`, 'gray');
+  });
+
+  // 4. Borrar los duplicados
+  L(`\n🗑 Borrando ${duplicados.length} eventos duplicados...`, 'inf');
+  const CHUNK = 400;
+  for (let i=0; i<duplicados.length; i+=CHUNK) {
+    const fb = db.batch();
+    duplicados.slice(i,i+CHUNK).forEach(d => fb.delete(d.ref));
+    await fb.commit();
+  }
+  L(`✅ ${duplicados.length} eventos duplicados borrados.`, 'ok');
+
+  // 5. Verificar estado final
+  const snapFinal = await db.collection('patriarca_eventos').where('opId','==', myOpId).get();
+  L(`\n📊 Estado final: ${snapFinal.size} eventos bajo vanlly@aj16.com`, snapFinal.size===26?'ok':'inf');
+
+  await auth.signOut();
+
+  if (snapFinal.size === 26) {
+    L('\n✅ ¡Perfecto! Vanlly tiene exactamente 26 eventos correctos.', 'ok');
+    L('🔄 Recarga el portal con vanlly@aj16.com (Cmd+Shift+R) para ver los cambios.', 'inf');
+    L('🗑 Puedes cerrar y borrar este archivo debug-eventos.html.', 'inf');
+  } else {
+    L(`\n⚠ Se esperaban 26 eventos pero hay ${snapFinal.size}. Revisa manualmente.`, 'err');
+  }
+}
+</script>
+</body>
+</html>

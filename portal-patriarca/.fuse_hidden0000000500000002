@@ -1,0 +1,27 @@
+[debug] [2026-06-25T22:05:29.558Z] ----------------------------------------------------------------------
+[debug] [2026-06-25T22:05:29.560Z] Command:       /usr/bin/node /sessions/youthful-friendly-curie/.npm/_npx/7750544ccf494d8b/node_modules/.bin/firebase deploy --only hosting
+[debug] [2026-06-25T22:05:29.560Z] CLI Version:   15.22.3
+[debug] [2026-06-25T22:05:29.560Z] Platform:      linux
+[debug] [2026-06-25T22:05:29.560Z] Node Version:  v22.22.3
+[debug] [2026-06-25T22:05:29.560Z] Detected Agent: unknown
+[debug] [2026-06-25T22:05:29.560Z] Time:          Thu Jun 25 2026 22:05:29 GMT+0000 (Coordinated Universal Time)
+[debug] [2026-06-25T22:05:29.561Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-06-25T22:05:29.562Z] >>> [apiv2][query] GET https://firebase-public.firebaseio.com/cli.json [none]
+[debug] [2026-06-25T22:05:30.137Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-06-25T22:05:30.148Z] <<< [apiv2][status] GET https://firebase-public.firebaseio.com/cli.json 403
+[debug] [2026-06-25T22:05:30.149Z] <<< [apiv2][body] GET https://firebase-public.firebaseio.com/cli.json "Connection blocked by network allowlist"
+[warn] ⚠  Unable to fetch the CLI MOTD and remote config. This is not a fatal error, but may indicate an issue with your network connection. 
+[debug] [2026-06-25T22:05:30.149Z] Failed to fetch MOTD FirebaseError: Unable to parse JSON: SyntaxError: Unexpected token 'C', "Connection"... is not valid JSON
+[debug] [2026-06-25T22:05:30.151Z] Error: Could not load the default credentials. Browse to https://cloud.google.com/docs/authentication/getting-started for more information.
+    at GoogleAuth.getApplicationDefaultAsync (/sessions/youthful-friendly-curie/.npm/_npx/7750544ccf494d8b/node_modules/google-auth-library/build/src/auth/googleauth.js:287:15)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async GoogleAuth._GoogleAuth_determineClient (/sessions/youthful-friendly-curie/.npm/_npx/7750544ccf494d8b/node_modules/google-auth-library/build/src/auth/googleauth.js:834:32)
+    at async GoogleAuth.getClient (/sessions/youthful-friendly-curie/.npm/_npx/7750544ccf494d8b/node_modules/google-auth-library/build/src/auth/googleauth.js:698:20)
+    at async GoogleAuth.getAccessToken (/sessions/youthful-friendly-curie/.npm/_npx/7750544ccf494d8b/node_modules/google-auth-library/build/src/auth/googleauth.js:722:24)
+    at async autoAuth (/sessions/youthful-friendly-curie/.npm/_npx/7750544ccf494d8b/node_modules/firebase-tools/lib/requireAuth.js:38:19)
+    at async requireAuth (/sessions/youthful-friendly-curie/.npm/_npx/7750544ccf494d8b/node_modules/firebase-tools/lib/requireAuth.js:100:20)
+    at async requirePermissions (/sessions/youthful-friendly-curie/.npm/_npx/7750544ccf494d8b/node_modules/firebase-tools/lib/requirePermissions.js:17:5)
+    at async /sessions/youthful-friendly-curie/.npm/_npx/7750544ccf494d8b/node_modules/firebase-tools/lib/command.js:278:17
+[error] 
+[error] Error: Failed to authenticate, have you run firebase login?

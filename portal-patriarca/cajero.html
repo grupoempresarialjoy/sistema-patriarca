@@ -1,0 +1,2944 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cajero — AJ1.6</title>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800&display=swap" rel="stylesheet">
+<script>(function(){var t=localStorage.getItem('aj16-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)})();</script>
+<style>
+:root{--bg:#0d0f14;--bg2:#13161d;--bg3:#1a1e28;--border:#2a2f3f;--gold:#35CC2F;--gold2:#24BF62;--red:#e05050;--green:#24BF62;--blue:#4a9eff;--orange:#f0a050;--text:#e8eaf0;--text2:#8890a8;--radius:8px;--row-hover:rgba(255,255,255,.03)}
+[data-theme="light"]{--bg:#f0f2f8;--bg2:#ffffff;--bg3:#e8eaf2;--border:#cdd0e0;--text:#1a1e2e;--text2:#5a6480;--row-hover:rgba(0,0,0,.04)}
+@media(prefers-color-scheme:light){:root:not([data-theme="dark"]){--bg:#f0f2f8;--bg2:#ffffff;--bg3:#e8eaf2;--border:#cdd0e0;--text:#1a1e2e;--text2:#5a6480;--row-hover:rgba(0,0,0,.04)}}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'Montserrat','Segoe UI',system-ui,sans-serif;font-size:14px;min-height:100vh}
+#auth-overlay{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:1000}
+.auth-box{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:40px 32px;width:360px;text-align:center}
+.auth-box .logo{font-size:20px;font-weight:800;color:var(--text);letter-spacing:2px;margin-bottom:4px}
+.auth-box .sub{color:var(--text2);font-size:12px;margin-bottom:28px}
+.auth-box input{width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:10px 14px;color:var(--text);font-size:14px;margin-bottom:12px;outline:none}
+.auth-box input:focus{border-color:var(--gold)}
+.auth-box button{width:100%;background:var(--gold);color:#000;border:none;border-radius:6px;padding:12px;font-weight:700;cursor:pointer;font-size:14px}
+.auth-box button:hover{background:var(--gold2)}
+.auth-error{color:var(--red);font-size:12px;margin-top:8px;display:none}
+#app{display:none;flex-direction:column;min-height:100vh}
+header{background:var(--bg2);border-bottom:1px solid var(--border);padding:0 20px;display:flex;align-items:center;justify-content:space-between;height:52px;flex-shrink:0}
+.header-left{display:flex;align-items:center;gap:12px}
+.header-logo{font-size:15px;font-weight:800;color:var(--gold);letter-spacing:2px}
+.header-badge{background:rgba(53,204,47,.15);border:1px solid rgba(53,204,47,.3);border-radius:20px;padding:3px 12px;font-size:11px;color:var(--gold);font-weight:700}
+.header-right{display:flex;align-items:center;gap:10px}
+.header-user{font-size:11px;color:var(--text2)}
+.btn-logout{background:transparent;border:1px solid var(--border);border-radius:6px;padding:5px 12px;color:var(--text2);cursor:pointer;font-size:12px}
+.btn-logout:hover{border-color:var(--red);color:var(--red)}
+.btn-portal{background:transparent;border:1px solid var(--gold);border-radius:6px;padding:5px 12px;color:var(--gold);cursor:pointer;font-size:12px;text-decoration:none;display:inline-block}
+.btn-theme{background:transparent;border:1px solid var(--border);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:15px;line-height:1.2;transition:border-color .15s}
+.btn-theme:hover{border-color:var(--text2)}
+nav{background:var(--bg2);border-bottom:1px solid var(--border);display:flex;overflow-x:auto;flex-shrink:0}
+nav::-webkit-scrollbar{height:3px}
+nav::-webkit-scrollbar-thumb{background:var(--border)}
+.tab{padding:12px 18px;cursor:pointer;font-size:12px;color:var(--text2);white-space:nowrap;border-bottom:2px solid transparent;transition:all .15s}
+.tab:hover{color:var(--text)}
+.tab.active{color:var(--gold);border-bottom-color:var(--gold);font-weight:600}
+main{flex:1;padding:20px;overflow:auto}
+.section{display:none}
+.section.active{display:block}
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(175px,1fr));gap:12px;margin-bottom:20px}
+.kpi{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:16px}
+.kpi-label{font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}
+.kpi-value{font-size:20px;font-weight:700;color:var(--gold)}
+.kpi-sub{font-size:11px;color:var(--text2);margin-top:3px}
+.kpi.green .kpi-value{color:var(--green)}
+.kpi.red .kpi-value{color:var(--red)}
+.kpi.blue .kpi-value{color:var(--blue)}
+.panel{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:20px}
+.panel-header{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
+.panel-title{font-weight:600;font-size:13px}
+.ix-filters{padding:10px 14px;border-bottom:1px solid var(--border);display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--bg3)}
+.ix-filters input[type="text"]{flex:1;min-width:160px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text);font-size:12px;outline:none}
+.ix-filters input[type="text"]:focus{border-color:var(--gold)}
+.ix-filters input[type="date"]{background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-size:12px;outline:none;cursor:pointer}
+.ix-filters input[type="date"]:focus{border-color:var(--gold)}
+.ix-filters select{background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-size:12px;outline:none;cursor:pointer}
+.ix-filters select:focus{border-color:var(--gold)}
+.th-sort{cursor:pointer;user-select:none;white-space:nowrap}
+.th-sort:hover{color:var(--gold)}
+.sub-tab{padding:8px 16px;cursor:pointer;font-size:12px;color:var(--text2);white-space:nowrap;border-bottom:2px solid transparent;transition:all .15s}
+.sub-tab:hover{color:var(--text)}
+.sub-tab.active{color:var(--gold);border-bottom-color:var(--gold);font-weight:600}
+.panel-body{padding:16px}
+.tbl-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{background:var(--bg3);color:var(--text2);padding:8px 10px;text-align:left;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap}
+td{padding:8px 10px;border-bottom:1px solid var(--border);white-space:nowrap}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:var(--row-hover)}
+tr:hover td.td-metodo{background:var(--bg2)}
+.badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:600}
+.badge-green{background:rgba(36,191,98,.15);color:var(--green)}
+.badge-red{background:rgba(224,80,80,.15);color:var(--red)}
+.badge-gray{background:var(--bg3);color:var(--text2)}
+.badge-blue{background:rgba(74,158,255,.15);color:var(--blue)}
+.badge-orange{background:rgba(240,160,80,.15);color:var(--orange)}
+.btn{padding:8px 16px;border-radius:6px;border:none;cursor:pointer;font-size:12px;font-weight:600;transition:all .15s;font-family:inherit}
+.btn-gold{background:var(--gold);color:#000}
+.btn-gold:hover{background:var(--gold2)}
+.btn-ghost{background:transparent;border:1px solid var(--border);color:var(--text2)}
+.btn-ghost:hover{border-color:var(--text);color:var(--text)}
+.btn-red{background:rgba(224,80,80,.15);border:1px solid var(--red);color:var(--red)}
+.btn-sm{padding:4px 10px;font-size:11px}
+.btn-del{background:none;border:none;color:var(--text2);cursor:pointer;font-size:13px;padding:2px 6px}
+.btn-del:hover{color:var(--red)}
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);display:none;align-items:center;justify-content:center;z-index:900}
+.modal-overlay.open{display:flex}
+.modal{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:28px;width:560px;max-width:95vw;max-height:90vh;overflow-y:auto}
+.modal h3{font-size:16px;margin-bottom:20px;color:var(--gold)}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.form-grid.cols1{grid-template-columns:1fr}
+.form-group{display:flex;flex-direction:column;gap:5px}
+.form-group.span2{grid-column:span 2}
+label{font-size:11px;color:var(--text2);font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+input,select,textarea{background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:9px 12px;color:var(--text);font-size:13px;width:100%;outline:none;font-family:inherit}
+input:focus,select:focus{border-color:var(--gold)}
+select option{background:var(--bg3)}
+.modal-footer{display:flex;gap:10px;justify-content:flex-end;margin-top:20px}
+.divider{border:none;border-top:1px solid var(--border);margin:16px 0}
+#toast{position:fixed;bottom:24px;right:24px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 18px;font-size:13px;z-index:9999;transform:translateY(80px);opacity:0;transition:all .3s;max-width:320px}
+#toast.show{transform:translateY(0);opacity:1}
+#toast.success{border-color:var(--green)}
+#toast.error{border-color:var(--red)}
+.sec-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px}
+.sec-title{font-size:16px;font-weight:700}
+.sec-sub{font-size:12px;color:var(--text2);margin-top:2px}
+.empty{text-align:center;padding:40px;color:var(--text2)}
+.empty-icon{font-size:36px;margin-bottom:8px}
+.cupo-input{background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:4px 8px;font-size:12px;width:130px;text-align:right;font-family:inherit;outline:none}
+.cupo-input:focus{border-color:var(--gold)}
+.td-metodo{font-weight:600;color:var(--text);min-width:160px;position:sticky;left:0;background:var(--bg2);z-index:2}
+.btn-filter{background:var(--bg3);border:1px solid var(--border);border-radius:20px;padding:4px 14px;color:var(--text2);cursor:pointer;font-size:11px;font-family:inherit;transition:all .15s}
+.btn-filter:hover{border-color:var(--gold);color:var(--text)}
+.btn-filter.active{background:rgba(53,204,47,.15);border-color:var(--gold);color:var(--gold);font-weight:600}
+.btn-filter.pagos.active{background:rgba(224,80,80,.15);border-color:var(--red);color:var(--red)}
+.btn-filter.recargas.active{background:rgba(36,191,98,.15);border-color:var(--green);color:var(--green)}
+.ho-select{background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 12px;font-size:13px;font-family:inherit;outline:none;min-width:260px}
+.ho-select:focus{border-color:var(--gold)}
+.ho-card{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px 18px;min-width:165px;text-align:center;flex-shrink:0}
+.ho-card-label{font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ho-card-value{font-size:17px;font-weight:700;margin-bottom:4px}
+.ho-card-count{font-size:10px;color:var(--text2)}
+.td-num{text-align:right;font-weight:600}
+.td-pos{color:var(--green);text-align:right;font-weight:600}
+.td-neg{color:var(--red);text-align:right;font-weight:600}
+.td-zero{color:var(--text2);text-align:right}
+.tfoot-row td{font-weight:700;background:var(--bg3);font-size:12px}
+.ix-divider{background:var(--bg3);border-top:2px solid var(--border)}
+.ix-divider td{padding:6px 10px;font-size:10px;text-transform:uppercase;color:var(--text2);letter-spacing:1px;font-weight:700}
+.method-nav{display:flex;overflow-x:auto;gap:0;border-bottom:1px solid var(--border);background:var(--bg)}
+.method-nav::-webkit-scrollbar{height:3px}
+.method-nav::-webkit-scrollbar-thumb{background:var(--border)}
+.method-tab{padding:10px 16px;cursor:pointer;font-size:11px;color:var(--text2);white-space:nowrap;border-bottom:2px solid transparent;transition:all .15s;text-transform:uppercase;letter-spacing:.5px;font-weight:600}
+.method-tab:hover{color:var(--text);background:rgba(255,255,255,.03)}
+.method-tab.active{color:var(--gold);border-bottom-color:var(--gold)}
+.cajas-summary{display:flex;gap:20px;padding:16px 20px;border-bottom:1px solid var(--border);flex-wrap:wrap;align-items:center}
+.cajas-kpi-label{font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:1px;margin-bottom:3px}
+.cajas-kpi-value{font-size:18px;font-weight:700}
+.badge-yellow{background:rgba(240,160,80,.15);color:var(--orange)}
+@media(max-width:600px){.form-grid{grid-template-columns:1fr}.form-group.span2{grid-column:span 1}.kpi-grid{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+
+<!-- AUTH -->
+<div id="auth-overlay">
+  <div class="auth-box">
+    <div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:4px"><img src="data:image/png;base64,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" style="height:44px;width:auto" alt="AJ1.6"><div class="logo"><span style="color:var(--gold)">AJ1.6</span> CAJERO</div></div>
+    <div class="sub">Módulo de Cajero — Control de Cajas</div>
+    <input type="email" id="email-in" placeholder="Correo electrónico">
+    <input type="password" id="pass-in" placeholder="Contraseña" onkeydown="if(event.key==='Enter')doLogin()">
+    <button onclick="doLogin()">INGRESAR</button>
+    <div class="auth-error" id="auth-err"></div>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app">
+  <header>
+    <div class="header-left">
+      <img src="data:image/png;base64,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" style="height:30px;width:auto" alt="AJ1.6">
+      <span class="header-badge">💼 CAJERO</span>
+      <select id="sel-mes" onchange="cambiarMes()" style="background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--text2);font-size:11px;cursor:pointer;outline:none;font-family:inherit;padding:2px 6px"></select>
+    </div>
+    <div class="header-right">
+      <span class="header-user" id="hdr-user"></span>
+      <button class="btn-theme" id="btn-theme" onclick="toggleTheme()" title="Cambiar tema">☀️</button>
+      <button class="btn-logout" onclick="doLogout()">Salir</button>
+    </div>
+  </header>
+  <nav>
+    <div class="tab active" onclick="showTab('dashboard')">📊 Dashboard</div>
+    <div class="tab" onclick="showTab('operadores')">👥 Operadores</div>
+    <div class="tab" onclick="showTab('intercambios')">🔄 Intercambios</div>
+    <div class="tab" id="tab-capital-ops" onclick="showTabGroup('cupo-actual')">📈 Capital Ops</div>
+    <div class="tab" onclick="showTab('saldo-cajas')">🏦 Saldo Cajas</div>
+    <div class="tab" onclick="showTab('cajas')">📋 Cajas</div>
+  </nav>
+  <!-- Sub-nav de Capital Ops — aparece solo cuando ese grupo está activo -->
+  <div id="sub-nav-capital" style="display:none;background:var(--bg3);border-bottom:1px solid var(--border);display:none;overflow-x:auto">
+    <div style="display:flex">
+      <div class="sub-tab" id="subtab-cupo-inicial"  onclick="showSubSection('cupo-inicial')">💰 Cupo Inicial</div>
+      <div class="sub-tab" id="subtab-hoja-op"       onclick="showSubSection('hoja-op')">📄 Hoja Operador</div>
+      <div class="sub-tab" id="subtab-cupo-actual"   onclick="showSubSection('cupo-actual')">📈 Cupo Actual</div>
+      <div class="sub-tab" id="subtab-mapa-capital"  onclick="showSubSection('mapa-capital')">🗺️ Mapa Capital</div>
+    </div>
+  </div>
+  <main>
+
+    <!-- DASHBOARD -->
+    <div class="section active" id="sec-dashboard">
+      <div class="sec-header">
+        <div><div class="sec-title">📊 Panel de Control</div><div class="sec-sub" id="dash-sub"></div></div>
+        <button class="btn btn-gold btn-sm" onclick="showTab('intercambios')">+ Intercambio</button>
+      </div>
+
+      <!-- KPIs -->
+      <div class="kpi-grid" id="dash-kpis"></div>
+
+      <!-- Alertas (se rellena dinámicamente) -->
+      <div id="dash-alertas"></div>
+
+      <!-- Saldo final por método -->
+      <div id="dash-metodos-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px"></div>
+    </div>
+
+    <!-- OPERADORES -->
+    <div class="section" id="sec-operadores">
+      <div class="sec-header">
+        <div>
+          <div class="sec-title">👥 Operadores</div>
+          <div class="sec-sub" id="op-sub">Equipo activo — administrado desde el portal de administrador</div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="tbl-wrap"><table>
+          <thead><tr><th>#</th><th>NOMBRE</th><th>OFICINA</th><th>ESTADO</th></tr></thead>
+          <tbody id="op-tbody"></tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <!-- CUPO INICIAL -->
+    <div class="section" id="sec-cupo-inicial">
+      <div class="sec-header">
+        <div><div class="sec-title">💰 Cupo Inicial</div><div class="sec-sub">Asignado por el administrador — solo lectura</div></div>
+      </div>
+      <div class="panel">
+        <div class="tbl-wrap" id="ci-matrix-wrap">
+          <!-- generado por JS -->
+        </div>
+      </div>
+    </div>
+
+    <!-- INTERCAMBIOS -->
+    <div class="section" id="sec-intercambios">
+      <div class="sec-header">
+        <div><div class="sec-title">🔄 Intercambios</div><div class="sec-sub">Confirmación final de intercambios entre operadores</div></div>
+      </div>
+
+      <!-- Pendientes de confirmar (cajera) -->
+      <div id="caj-ix-pendientes-wrap" style="margin-bottom:14px">
+        <div style="font-size:11px;font-weight:700;color:var(--gold);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">
+          ⏳ Pendientes de confirmación (✅✅ → dar ✅✅✅)
+        </div>
+        <div id="caj-ix-pendientes-list">
+          <div class="empty"><div class="empty-icon">✅</div>Sin intercambios pendientes</div>
+        </div>
+      </div>
+
+      <!-- Solicitudes de corrección / autorización -->
+      <div id="caj-correcciones-wrap" style="margin-bottom:14px;display:none">
+        <div style="font-size:11px;font-weight:700;color:var(--orange);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">
+          📝 Solicitudes de corrección / autorización
+        </div>
+        <div id="caj-correcciones-list"></div>
+      </div>
+
+      <!-- Historial completados -->
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Historial de intercambios</span>
+          <span id="ix-count" style="font-size:11px;color:var(--text2)"></span>
+        </div>
+        <!-- Filtros -->
+        <div class="ix-filters" id="ix-filters">
+          <input type="text" id="ix-f-buscar" placeholder="🔍 ID / Operador..." oninput="renderIntercambios()" title="Buscar por ID OP1, ID OP2, nombre operador">
+          <select id="ix-f-tipo" onchange="renderIntercambios()" title="Tipo">
+            <option value="">Tipo: Todos</option>
+            <option value="C">Cruzado</option>
+            <option value="I">Interno</option>
+          </select>
+          <input type="date" id="ix-f-desde" onchange="renderIntercambios()" title="Desde fecha">
+          <input type="date" id="ix-f-hasta" onchange="renderIntercambios()" title="Hasta fecha">
+          <select id="ix-f-egresa" onchange="renderIntercambios()" title="Caja que egresa">
+            <option value="">Egresa: Todas</option>
+          </select>
+          <select id="ix-f-ingresa" onchange="renderIntercambios()" title="Caja que ingresa">
+            <option value="">Ingresa: Todas</option>
+          </select>
+          <input type="number" id="ix-f-monto" placeholder="💰 Monto exacto..." oninput="renderIntercambios()" title="Buscar por monto exacto" min="0" style="width:160px">
+          <button class="btn btn-ghost btn-sm" onclick="limpiarFiltrosIX()">✕ Limpiar</button>
+        </div>
+        <div class="tbl-wrap"><table>
+          <thead><tr>
+            <th style="width:36px;text-align:center">#</th>
+            <th>ESTADO</th>
+            <th class="th-sort" id="th-fecha" onclick="toggleIxSort('fecha')" title="Ordenar por fecha">FECHA <span id="th-fecha-arrow"></span></th>
+            <th>TIPO</th>
+            <th class="th-sort" id="th-id" onclick="toggleIxSort('id')" title="Ordenar por ID OP1">ID OP1 <span id="th-id-arrow">▲</span></th>
+            <th>OP1</th><th>EGRESA</th><th>INGRESA</th><th style="text-align:right">MONTO</th>
+            <th>ID OP2</th><th>OP2</th><th></th>
+          </tr></thead>
+          <tbody id="ix-tbody"></tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <!-- HOJA OPERADOR -->
+    <div class="section" id="sec-hoja-op">
+      <div class="sec-header">
+        <div><div class="sec-title">📄 Hoja Operador</div><div class="sec-sub" id="ho-sub">Selecciona un operador para ver su resumen</div></div>
+        <select id="ho-selector" class="ho-select" onchange="setHojaOp(this.value)">
+          <option value="">— Seleccionar operador —</option>
+        </select>
+      </div>
+      <!-- Resumen por método -->
+      <div id="ho-metodos-wrap" style="display:flex;gap:12px;overflow-x:auto;padding:4px 0 16px;flex-wrap:nowrap">
+        <div class="ho-card" style="border-style:dashed;color:var(--text2)">Selecciona un operador</div>
+      </div>
+      <!-- Tabla de operaciones -->
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">📋 Operaciones</span>
+          <div id="ho-filters" style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn-filter active" onclick="setHojaFilter('todos',this)">Todos</button>
+            <button class="btn-filter" onclick="setHojaFilter('c-op',this)">C-OP</button>
+            <button class="btn-filter" onclick="setHojaFilter('i-op',this)">I-OP</button>
+            <button class="btn-filter pagos" onclick="setHojaFilter('pagos',this)">Pagos</button>
+            <button class="btn-filter recargas" onclick="setHojaFilter('recargas',this)">Recargas</button>
+          </div>
+        </div>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr>
+              <th>#</th>
+              <th style="text-align:right">OP-C</th>
+              <th style="text-align:right">MONTO</th>
+              <th>OPCIÓN</th>
+              <th>MÉTODO</th>
+              <th>CANAL</th>
+              <th>ESTADO</th>
+              <th>FECHA</th>
+            </tr></thead>
+            <tbody id="ho-tbody"><tr><td colspan="8" class="empty">Selecciona un operador</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- CUPO ACTUAL -->
+    <div class="section" id="sec-cupo-actual">
+      <div class="sec-header">
+        <div><div class="sec-title">📈 Cupo Actual</div><div class="sec-sub">Recargas y pagos por método — todos los operadores</div></div>
+      </div>
+      <div class="panel">
+        <div class="tbl-wrap"><table>
+          <thead id="ca-thead"><tr><th>MÉTODO</th></tr></thead>
+          <tbody id="ca-tbody"></tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <!-- MAPA DE CAPITAL -->
+    <div class="section" id="sec-mapa-capital">
+      <div class="sec-header">
+        <div>
+          <div class="sec-title">🗺️ Mapa de Capital por Método</div>
+          <div class="sec-sub">Desglose completo por operador — comparar con ESF del operador</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <label style="font-size:12px;color:var(--text2)">Operador:</label>
+          <select id="mc-sel-op" onchange="renderMapaCapital()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 10px;font-size:12px">
+            <option value="">— Seleccionar —</option>
+          </select>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="tbl-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th style="position:sticky;left:0;background:var(--bg3);z-index:3;min-width:160px">MÉTODO</th>
+                <th style="text-align:right">CUPO INICIAL</th>
+                <th style="text-align:right">INTERCAMBIOS</th>
+                <th style="text-align:right;color:var(--blue)">RECARGAS (−)</th>
+                <th style="text-align:right;color:var(--green)">PAGOS (+)</th>
+                <th style="text-align:right;color:var(--orange)">INVERTIDO (−)</th>
+                <th style="text-align:right;color:var(--gold)">RETORNADO (+)</th>
+                <th style="text-align:right;color:var(--red)">GASTOS (−)</th>
+                <th style="text-align:right;font-weight:700">CUPO ACTUAL</th>
+              </tr>
+            </thead>
+            <tbody id="mc-tbody">
+              <tr><td colspan="9"><div class="empty">Selecciona un operador</div></td></tr>
+            </tbody>
+            <tfoot>
+              <tr style="font-weight:700;border-top:2px solid var(--border)">
+                <td style="position:sticky;left:0;background:var(--bg2)">TOTAL</td>
+                <td id="mc-tot-ini" style="text-align:right"></td>
+                <td id="mc-tot-ix"  style="text-align:right"></td>
+                <td id="mc-tot-rec" style="text-align:right;color:var(--blue)"></td>
+                <td id="mc-tot-pag" style="text-align:right;color:var(--green)"></td>
+                <td id="mc-tot-inv" style="text-align:right;color:var(--orange)"></td>
+                <td id="mc-tot-ret" style="text-align:right;color:var(--gold)"></td>
+                <td id="mc-tot-gas" style="text-align:right;color:var(--red)"></td>
+                <td id="mc-tot-act" style="text-align:right"></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- SALDO CAJAS -->
+    <div class="section" id="sec-saldo-cajas">
+      <div class="sec-header">
+        <div><div class="sec-title">🏦 Saldo Cajas</div><div class="sec-sub">Estado consolidado por método</div></div>
+      </div>
+      <div class="panel">
+        <div class="tbl-wrap"><table>
+          <thead><tr><th>ID</th><th>MÉTODO</th><th style="text-align:right">SALDO INICIAL</th><th style="text-align:right">INTERCAMBIOS</th><th style="text-align:right;color:var(--red)">RECARGAS (-)</th><th style="text-align:right;color:var(--green)">PAGOS (+)</th><th style="text-align:right">SALDO FINAL</th></tr></thead>
+          <tbody id="sc-tbody"></tbody>
+          <tfoot><tr class="tfoot-row"><td></td><td>TOTAL</td><td class="td-pos" id="sc-tot-ini"></td><td class="td-num" id="sc-tot-ix"></td><td class="td-neg" id="sc-tot-rec"></td><td class="td-pos" id="sc-tot-pag"></td><td class="td-pos" id="sc-tot-fin"></td></tr></tfoot>
+        </table></div>
+      </div>
+    </div>
+
+    <!-- CAJAS -->
+    <div class="section" id="sec-cajas">
+      <div class="sec-header">
+        <div><div class="sec-title">📋 Cajas</div><div class="sec-sub">Movimientos por método — todos los operadores</div></div>
+      </div>
+      <div class="panel" style="padding:0">
+        <div class="method-nav" id="cajas-method-nav"></div>
+        <div id="cajas-content"></div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- MODAL MONTO (reemplaza prompt() para realizarMov / editarMontoCaja) -->
+<div class="modal-overlay" id="modal-monto" onkeydown="if(event.key==='Enter')_montoAceptar();if(event.key==='Escape')_montoCancelar()">
+  <div class="modal" style="max-width:360px">
+    <h3 id="modal-monto-title" style="margin-bottom:16px">💰 Monto</h3>
+    <div class="form-group">
+      <label id="modal-monto-label" style="font-size:12px;color:var(--text2)">Monto</label>
+      <input id="modal-monto-input" type="text" inputmode="numeric"
+        placeholder="0"
+        oninput="
+          const s=this.selectionStart,l=this.value.length;
+          this.value=formatCOP(this.value);
+          const dl=this.value.length-l;
+          this.setSelectionRange(s+dl,s+dl);
+        "
+        style="font-size:22px;font-weight:700;text-align:right;letter-spacing:1px;color:var(--gold)">
+    </div>
+    <div class="modal-footer" style="margin-top:20px">
+      <button class="btn btn-ghost" onclick="_montoCancelar()">Cancelar</button>
+      <button class="btn btn-gold" onclick="_montoAceptar()">✓ Aceptar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL OPERADOR -->
+<div class="modal-overlay" id="modal-op">
+  <div class="modal">
+    <h3 id="modal-op-title">👥 Agregar Operador</h3>
+    <input type="hidden" id="op-edit-id">
+    <div class="form-grid">
+      <div class="form-group">
+        <label>Unidad #</label>
+        <input type="text" id="op-unidad" placeholder="Ej: 02">
+      </div>
+      <div class="form-group">
+        <label>Tipo</label>
+        <select id="op-tipo">
+          <option value="Oficina">Oficina</option>
+          <option value="Independiente">Independiente</option>
+        </select>
+      </div>
+      <div class="form-group span2">
+        <label>Nombre completo</label>
+        <input type="text" id="op-nombre" placeholder="Ej: Ronaldo Pedraza Sarabia">
+      </div>
+      <div class="form-group span2">
+        <label>Correo electrónico</label>
+        <input type="email" id="op-email" placeholder="correo@ejemplo.com">
+      </div>
+      <div class="form-group">
+        <label>Estado</label>
+        <select id="op-estado">
+          <option value="Activo">Activo</option>
+          <option value="Inactivo">Inactivo</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModalOp()">Cancelar</button>
+      <button class="btn btn-gold" onclick="saveOperador()">💾 Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL INTERCAMBIO -->
+<div class="modal-overlay" id="modal-ix">
+  <div class="modal">
+    <h3>🔄 Registrar Intercambio</h3>
+    <div class="form-grid">
+      <div class="form-group">
+        <label>Fecha</label>
+        <input type="date" id="ix-fecha">
+      </div>
+      <div class="form-group">
+        <label>OP #</label>
+        <input type="number" id="ix-op" placeholder="Auto" readonly style="color:var(--text2)">
+      </div>
+    </div>
+    <hr class="divider">
+    <div style="font-size:11px;color:var(--gold);font-weight:700;margin-bottom:10px;text-transform:uppercase;letter-spacing:1px">Operador 1 (Yo)</div>
+    <div class="form-grid">
+      <div class="form-group">
+        <label>Caja que EGRESA (da)</label>
+        <select id="ix-egresa1"><option value="">-- Seleccionar --</option></select>
+      </div>
+      <div class="form-group">
+        <label>Caja que INGRESA (recibe)</label>
+        <select id="ix-ingresa1"><option value="">-- Seleccionar --</option></select>
+      </div>
+      <div class="form-group span2">
+        <label>Monto</label>
+        <input type="number" id="ix-monto1" placeholder="0" min="0">
+      </div>
+    </div>
+    <hr class="divider">
+    <div style="font-size:11px;color:var(--blue);font-weight:700;margin-bottom:10px;text-transform:uppercase;letter-spacing:1px">Operador 2 (Contraparte)</div>
+    <div class="form-grid">
+      <div class="form-group">
+        <label>Operador 2</label>
+        <select id="ix-op2"><option value="Propio">Propio</option></select>
+      </div>
+      <div class="form-group">
+        <label>Monto 2</label>
+        <input type="number" id="ix-monto2" placeholder="Igual al monto 1">
+      </div>
+      <div class="form-group">
+        <label>Caja que INGRESA 2 (recibe)</label>
+        <select id="ix-ingresa2"><option value="">-- Seleccionar --</option></select>
+      </div>
+      <div class="form-group">
+        <label>Caja que EGRESA 2 (da)</label>
+        <select id="ix-egresa2"><option value="">-- Seleccionar --</option></select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModalIX()">Cancelar</button>
+      <button class="btn btn-gold" onclick="saveIntercambio()">💾 Guardar</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+// ── CONFIG ──
+const firebaseConfig = {
+  apiKey: "AIzaSyBQ42PzffxkEUEJVaPIVxHPKDqA_wk6IS0",
+  authDomain: "portal-patriarca-aj16.firebaseapp.com",
+  projectId: "portal-patriarca-aj16",
+  storageBucket: "portal-patriarca-aj16.firebasestorage.app",
+  messagingSenderId: "1073575698338",
+  appId: "1:1073575698338:web:f014083b3092c6dc245cfb"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+
+// ── CONSTANTES ── (fallback hardcoded; se sobreescribe desde Firestore)
+let METODOS = []; // se carga desde admin_config — no hardcodear
+// Límites diarios de recarga por método (normMetodo() como clave)
+// Se carga desde admin_config/limites_diarios; si no existe, queda vacío
+let LIMITES_DIARIOS = {};
+
+// Normalización de nombres de método (igual que patriarca.html)
+const METODO_ALIAS = {
+  'SUPERGIROS UNITY'       : 'SUPER GIROS UNITY',
+  'SUPER GIROS UNITY '     : 'SUPER GIROS UNITY',
+  'BEMOVIL'                : 'BE MOVIL CAJA',
+  'BE MOVIL'               : 'BE MOVIL CAJA',
+  'WPLAY POS'              : 'WPLAY UNITY',
+  'EFECTIVO'               : 'EFECTIVO OPERADOR',
+  'SALDO CLIENTES ANTERIOR': 'SALDO CLIENTES',
+};
+function normMetodo(m) {
+  return METODO_ALIAS[(m||'').trim().toUpperCase()] || (m||'').trim().toUpperCase();
+}
+
+// Cargar métodos (y límites diarios incluidos) desde Firestore en tiempo real
+db.collection('admin_config').doc('metodos').onSnapshot(snap => {
+  if (!snap.exists) return;
+  const lista = snap.data().lista || [];
+  if (!lista.length) return;
+  // Poblar límites diarios desde el mismo documento (campo limite_diario por método)
+  LIMITES_DIARIOS = {};
+  lista.forEach(m => {
+    if (m.nombre && m.limite_diario) LIMITES_DIARIOS[normMetodo(m.nombre)] = m.limite_diario;
+  });
+  METODOS = lista.map(m => m.nombre);
+  populateMetodoSelects();
+  // Re-renderizar todas las vistas que dependen de los métodos
+  if (operadores.length) {
+    renderCupoInicial();
+    renderCupoActual();
+    renderSaldoCajas();
+    renderDashboard();
+    if (document.getElementById('sec-mapa-capital')?.classList.contains('active')) renderMapaCapital();
+  }
+  if (document.getElementById('sec-cajas')?.classList.contains('active')) renderCajas();
+  if (hojaOpUid) renderHojaOp();
+}, err => console.warn('metodos config:', err));
+
+// ── STATE ──
+let opId = null;
+let opNombre = '';
+let cajeroOficina = '';   // oficina del cajero logueado (ej. 'Unity')
+let comisionesMap = {};   // "CASA_METODO" → [tasaRecarga%, tasaPago%]
+let cupoInicial = {};   // { metodo: amount }
+let intercambios = [];  // array de docs
+let unsubIX = null;
+let unsubOpsGlobal = null; // listener global de operadores para cupo
+
+// ── Correos autorizados como cajero ──
+const CAJERO_EMAILS = ['paola@aj16.com'];
+
+// ── AUTH ──
+auth.onAuthStateChanged(user => {
+  if (user) {
+    if (!CAJERO_EMAILS.includes(user.email.toLowerCase())) {
+      auth.signOut();
+      const err = document.getElementById('auth-err');
+      err.style.display = 'block';
+      err.textContent = 'Este correo no tiene acceso al módulo de Cajero.';
+      return;
+    }
+    opId = user.uid;
+    opNombre = user.displayName || user.email;
+    document.getElementById('auth-overlay').style.display = 'none';
+    document.getElementById('app').style.display = 'flex';
+    document.getElementById('hdr-user').textContent = opNombre;
+    initMesSelect();
+    // Obtener oficina del cajero primero, luego arrancar
+    db.collection('admin_usuarios').where('email','==', user.email).limit(1).get().then(s => {
+      cajeroOficina = s.empty ? '' : (s.docs[0].data().oficinaNombre || '');
+      if (cajeroOficina) document.getElementById('hdr-user').textContent = opNombre + ' · ' + cajeroOficina;
+      loadComisiones();
+      initData();
+      // Listener en tiempo real: si admin agrega/elimina operador de esta oficina, recarga cupo
+      if (unsubOpsGlobal) unsubOpsGlobal();
+      let opsQuery = db.collection('admin_usuarios').where('rol','==','operador');
+      if (cajeroOficina) opsQuery = opsQuery.where('oficinaNombre','==', cajeroOficina);
+      unsubOpsGlobal = opsQuery.onSnapshot(() => { loadCupoInicial(); });
+    });
+  } else {
+    document.getElementById('auth-overlay').style.display = 'flex';
+    document.getElementById('app').style.display = 'none';
+  }
+});
+
+function doLogin() {
+  const e = document.getElementById('email-in').value.trim();
+  const p = document.getElementById('pass-in').value;
+  const err = document.getElementById('auth-err');
+  err.style.display = 'none';
+  auth.signInWithEmailAndPassword(e, p).catch(ex => {
+    err.style.display = 'block';
+    err.textContent = 'Credenciales incorrectas';
+  });
+}
+function doLogout(){ auth.signOut(); }
+
+// ── INIT ──
+function initData() {
+  populateMetodoSelects();
+  loadOperadoresTab();
+  loadCupoInicial();
+  loadIntercambios();
+  loadCorrecciones();
+  loadCajas();
+  loadGastosGlobal();
+}
+
+// ── CUPO INICIAL (MATRIZ) ──
+// cupoPozo = { metodo: totalPozo }
+// cupoAsignado = { uid: { metodo: amount } }
+let cupoPozo = {};
+let operadores = []; // [{uid, nombre}]
+let cupoAsignado = {};
+let _unsubCupoPozo = null;
+let _unsubCupoOps = [];
+
+function loadCupoInicial() {
+  // Limpiar listeners anteriores
+  if (_unsubCupoPozo) { _unsubCupoPozo(); _unsubCupoPozo = null; }
+  _unsubCupoOps.forEach(u => u()); _unsubCupoOps = [];
+
+  // Primero cargar operadores (una vez), luego poner listeners en tiempo real
+  let opsQ = db.collection('admin_usuarios').where('rol','==','operador');
+  if (cajeroOficina) opsQ = opsQ.where('oficinaNombre','==', cajeroOficina);
+
+  opsQ.get().then(async opsSnap => {
+    operadores = opsSnap.docs
+      .filter(d => d.data().estado !== 'inactivo')
+      .map(d => ({
+        docId: d.id,
+        uid:   d.data().uid || d.id,
+        nombre: d.data().nombre || d.data().email || d.id,
+        email:  d.data().email || ''
+      }));
+    if (!operadores.length) operadores = [{ uid: opId, docId: opId, nombre: opNombre }];
+    cupoAsignado = {};
+
+    // Garantizar que METODOS esté cargado antes de renderizar
+    // (el listener global puede haberse registrado antes del login y fallado)
+    if (!METODOS.length) {
+      try {
+        const ms = await db.collection('admin_config').doc('metodos').get();
+        if (ms.exists) {
+          METODOS = (ms.data().lista || []).map(m => m.nombre);
+          populateMetodoSelects();
+        }
+      } catch(e) { console.warn('loadMetodos fallback:', e); }
+    }
+
+    // Listener en tiempo real para CAJA GENERAL
+    _unsubCupoPozo = db.collection('cajero_config').doc('main').onSnapshot(snap => {
+      const d = snap.exists ? snap.data() : {};
+      window._cajeroConfigRaw = d; // guardar para cambiarMes
+      cupoPozo = d.cupo_por_mes ? (d.cupo_por_mes[mesActivo] || {}) : (d.cupo_pozo || {});
+      renderCupoInicial();
+      renderDashboard();
+      renderSaldoCajas();
+    });
+
+    // Listener en tiempo real para cada operador
+    operadores.forEach(op => {
+      const unsub = db.collection('patriarca_config').doc(op.uid).onSnapshot(s => {
+        const sData = s.exists ? s.data() : {};
+        if (!window._patriarcaConfigRaw) window._patriarcaConfigRaw = {};
+        window._patriarcaConfigRaw[op.uid] = sData; // guardar para cambiarMes
+        cupoAsignado[op.uid] = sData.cupos_por_mes ? (sData.cupos_por_mes[mesActivo] || {}) : (sData.cupos_cajero || {});
+        cupoInicial = cupoAsignado[opId] || {};
+        renderCupoInicial();
+        renderDashboard();
+        renderCupoActual();
+        renderSaldoCajas();
+        if (document.getElementById('sec-mapa-capital')?.classList.contains('active')) renderMapaCapital();
+      });
+      _unsubCupoOps.push(unsub);
+    });
+    // Cargar SC actual de todos los operadores una vez que la lista está lista
+    _allScData = {};
+    loadAllSaldoClientesData();
+  });
+}
+
+function renderCupoInicial() {
+  const wrap = document.getElementById('ci-matrix-wrap');
+  if (!operadores.length || !METODOS.length) {
+    wrap.innerHTML = '<div style="padding:24px;color:var(--text2);text-align:center">Cargando datos...</div>';
+    return;
+  }
+
+  // Cabecera — MÉTODO | CAJA GENERAL | operadores... | DIFERENCIA
+  let thead = '<thead><tr><th>MÉTODO</th>';
+  thead += `<th style="text-align:right;min-width:160px;color:var(--gold)">🏦 CAJA GENERAL</th>`;
+  operadores.forEach(op => { thead += `<th style="text-align:right;min-width:160px">${op.nombre}</th>`; });
+  thead += `<th style="text-align:right;min-width:140px;color:var(--purple)">⚖️ DIFERENCIA</th>`;
+  thead += '</tr></thead>';
+
+  let tbody = '<tbody>';
+  const totOp = {};
+  operadores.forEach(op => totOp[op.uid] = 0);
+  let totPozo = 0, totDiff = 0;
+
+  METODOS.forEach(m => {
+    const pv = cupoPozo[m] || 0;
+    totPozo += pv;
+    tbody += `<tr>`;
+    tbody += `<td class="td-metodo">${m}</td>`;
+    // CAJA GENERAL
+    const pvCls = pv < 0 ? 'td-neg' : pv > 0 ? 'td-pos' : 'td-zero';
+    tbody += `<td class="${pvCls}" style="font-weight:600">${pv ? pesos(pv) : '—'}</td>`;
+    // Operadores
+    let sumOps = 0;
+    operadores.forEach(op => {
+      const v = cupoAsignado[op.uid]?.[m] || 0;
+      totOp[op.uid] += v;
+      sumOps += v;
+      const cls = v < 0 ? 'td-neg' : v > 0 ? 'td-pos' : 'td-zero';
+      tbody += `<td class="${cls}">${v ? pesos(v) : '—'}</td>`;
+    });
+    // DIFERENCIA por fila
+    const diff = pv - sumOps;
+    totDiff += diff;
+    const dcls = diff < 0 ? 'td-neg' : 'td-pos';
+    tbody += `<td class="${dcls}" style="font-weight:600">${pesos(diff)}</td>`;
+    tbody += '</tr>';
+  });
+  tbody += '</tbody>';
+
+  let tfoot = '<tfoot><tr class="tfoot-row"><td>TOTAL</td>';
+  tfoot += `<td class="${totPozo < 0 ? 'td-neg' : 'td-pos'}">${pesos(totPozo)}</td>`;
+  operadores.forEach(op => {
+    const t = totOp[op.uid];
+    tfoot += `<td class="${t < 0 ? 'td-neg' : 'td-pos'}">${pesos(t)}</td>`;
+  });
+  tfoot += `<td class="${totDiff < 0 ? 'td-neg' : 'td-pos'}">${pesos(totDiff)}</td>`;
+  tfoot += '</tr></tfoot>';
+
+  wrap.innerHTML = `<table>${thead}${tbody}${tfoot}</table>`;
+}
+
+function updateResto(metodo) {
+  const mk = metodo.replace(/ /g,'_');
+  const pozo = parseCOP(document.getElementById('pozo-'+mk)?.value);
+  let sumAsig = 0;
+  operadores.forEach(op => { sumAsig += parseCOP(document.getElementById('op-'+op.uid+'-'+mk)?.value); });
+  const resto = pozo - sumAsig;
+  const el = document.getElementById('resto-'+mk);
+  if (el) {
+    el.textContent = pesos(resto);
+    el.className = resto < 0 ? 'td-neg' : resto === 0 && pozo > 0 ? 'td-pos' : 'td-zero';
+    el.style.textAlign = 'right'; el.style.fontWeight = '700';
+  }
+  // update totals
+  let totPozo = 0, totResto = 0;
+  const totOp = {};
+  operadores.forEach(op => totOp[op.uid] = 0);
+  METODOS.forEach(m => {
+    const k = m.replace(/ /g,'_');
+    const p = parseCOP(document.getElementById('pozo-'+k)?.value);
+    totPozo += p;
+    let s = 0;
+    operadores.forEach(op => { const v = parseCOP(document.getElementById('op-'+op.uid+'-'+k)?.value); s+=v; totOp[op.uid]+=v; });
+    totResto += p - s;
+  });
+  const tp = document.getElementById('ci-tot-pozo');
+  if (tp) tp.textContent = pesos(totPozo);
+  operadores.forEach(op => { const te = document.getElementById('ci-tot-op-'+op.uid); if(te) te.textContent = pesos(totOp[op.uid]); });
+  const tr2 = document.getElementById('ci-tot-resto');
+  if (tr2) { tr2.textContent = pesos(totResto); tr2.className = totResto<0?'td-neg':totResto===0?'td-pos':'td-zero'; }
+}
+
+async function saveCupoInicial() {
+  // Collect pozo
+  const newPozo = {};
+  METODOS.forEach(m => {
+    const v = parseCOP(document.getElementById('pozo-'+m.replace(/ /g,'_'))?.value);
+    newPozo[m] = v; // guarda 0 también para borrar valores anteriores
+  });
+  // Collect per-operator
+  const newAsig = {};
+  operadores.forEach(op => {
+    newAsig[op.uid] = {};
+    METODOS.forEach(m => {
+      const v = parseCOP(document.getElementById('op-'+op.uid+'-'+m.replace(/ /g,'_'))?.value);
+      newAsig[op.uid][m] = v; // guarda 0 también para borrar valores anteriores
+    });
+  });
+  try {
+    const batch = db.batch();
+    // Guardar plano (backward compat) + por mes
+    const pozoUpd = { cupo_pozo: newPozo };
+    pozoUpd[`cupo_por_mes.${mesActivo}`] = newPozo;
+    batch.set(db.collection('cajero_config').doc('main'), pozoUpd, { merge: true });
+    operadores.forEach(op => {
+      const opUpd = { cupos_cajero: newAsig[op.uid] };
+      opUpd[`cupos_por_mes.${mesActivo}`] = newAsig[op.uid];
+      batch.set(db.collection('patriarca_config').doc(op.uid), opUpd, { merge: true });
+    });
+    await batch.commit();
+    _cupoVersion++; // cancela cualquier loadCupoInicial en vuelo para evitar que sobreescriba los 0s
+    cupoPozo = newPozo;
+    cupoAsignado = newAsig;
+    cupoInicial = newAsig[opId] || {};
+    toast('✅ Cupo inicial guardado', 'success');
+    renderCupoInicial();
+    renderDashboard();
+    renderCupoActual();
+    renderSaldoCajas();
+  } catch(e) { toast('⚠ Error: '+e.message,'error'); }
+}
+
+// ── INTERCAMBIOS (nuevo sistema global) ──
+let ixGlobal = [];  // todos los intercambios del global
+let _ixSort  = { col: 'id', dir: 'asc' };  // col: 'id' | 'fecha'
+
+function _ixSortFn(a, b) {
+  const d = _ixSort.dir === 'asc' ? 1 : -1;
+  if (_ixSort.col === 'fecha') {
+    const fa = a.fecha||'', fb = b.fecha||'';
+    if (fa !== fb) return fa.localeCompare(fb) * d;
+    // desempate por ID
+    const na = parseInt((a.op1_ix_id||'0')) || 0;
+    const nb = parseInt((b.op1_ix_id||'0')) || 0;
+    return (na - nb) * d;
+  } else {
+    const na = parseInt((a.op1_ix_id||'0').split('-')[0]) || 0;
+    const nb = parseInt((b.op1_ix_id||'0').split('-')[0]) || 0;
+    if (na !== nb) return (na - nb) * d;
+    // desempate por fecha
+    return (a.fecha||'').localeCompare(b.fecha||'') * d;
+  }
+}
+
+function toggleIxSort(col) {
+  if (_ixSort.col === col) {
+    _ixSort.dir = _ixSort.dir === 'asc' ? 'desc' : 'asc';
+  } else {
+    _ixSort.col = col;
+    _ixSort.dir = 'asc';
+  }
+  // Actualizar flechas en headers
+  document.getElementById('th-fecha-arrow').textContent = _ixSort.col==='fecha' ? (_ixSort.dir==='asc'?'▲':'▼') : '';
+  document.getElementById('th-id-arrow').textContent    = _ixSort.col==='id'    ? (_ixSort.dir==='asc'?'▲':'▼') : '';
+  // Re-ordenar y re-renderizar
+  ixGlobal.sort(_ixSortFn);
+  renderIntercambios();
+}
+
+function loadIntercambios() {
+  if (unsubIX) unsubIX();
+  // Sin orderBy: Firestore excluye documentos con ts nulo; ordenamos en JS
+  const _onData = snap => {
+    ixGlobal = snap.docs
+      .map(d => ({id: d.id, ...d.data()}))
+      .sort(_ixSortFn);
+    intercambios = ixGlobal.filter(ix => ix.estado === 'completado'); // para calcNetIX
+    renderIntercambios();
+    renderDashboard();
+    renderCupoActual();
+    renderSaldoCajas();
+    if (document.getElementById('sec-mapa-capital')?.classList.contains('active')) renderMapaCapital();
+  };
+  unsubIX = db.collection('patriarca_ix_global').onSnapshot(_onData, () => {
+    db.collection('patriarca_ix_global').get().then(_onData);
+  });
+}
+
+function renderIntercambios() {
+  // ── Pendientes de confirmar (estado: pendiente_cajera) ──
+  const pendientes = ixGlobal.filter(ix => ix.estado === 'pendiente_cajera' || ix.estado === 'pendiente_op2');
+  const pendList   = document.getElementById('caj-ix-pendientes-list');
+  if (pendList) {
+    if (!pendientes.length) {
+      pendList.innerHTML = '<div class="empty"><div class="empty-icon">✅</div>Sin intercambios pendientes</div>';
+    } else {
+      pendList.innerHTML = pendientes.map(ix => {
+        const ck = ix.checkmarks || 1;
+        const needsOp2 = ix.estado === 'pendiente_op2';
+        return `
+        <div style="background:var(--bg3);border:1px solid ${needsOp2?'var(--orange)':'var(--gold)'};border-radius:8px;padding:12px 14px;margin-bottom:8px">
+          <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
+            <div style="flex:1;min-width:220px">
+              <div style="font-size:12px;font-weight:700;color:${needsOp2?'var(--orange)':'var(--gold)'};margin-bottom:6px">
+                ${'✅'.repeat(ck)}${'⬜'.repeat((ix.tipo==='C'?3:2)-ck)}
+                &nbsp; ${ix.tipo==='C'?'Cruzado':'Interno'} — ${needsOp2?'Esperando Op2':'Listo para confirmar'}
+              </div>
+              <div style="font-size:12px;margin-bottom:4px">
+                <b>${ix.op1_nombre||'—'}</b>
+                <span style="color:var(--red)"> sale ${ix.op1_egresa||'—'}</span>
+                <span style="color:var(--text2)"> → </span>
+                <span style="color:var(--green)">entra ${ix.op1_ingresa||'—'}</span>
+                <span style="color:var(--gold);font-weight:600"> ${pesos(ix.monto)}</span>
+              </div>
+              ${ix.tipo==='C'?`<div style="font-size:12px;color:var(--text2)">
+                <b>${ix.op2_nombre||'—'}</b>
+                sale ${ix.op2_egresa||'—'} → entra ${ix.op2_ingresa||'—'}
+              </div>`:''}
+              <div style="font-size:11px;color:var(--text2);margin-top:4px">
+                ID Op1: <b>${ix.op1_ix_id||'—'}</b>
+                ${ix.op2_ix_id?`· ID Op2: <b>${ix.op2_ix_id}</b>`:''}
+                · ${fmtDate(ix.fecha)}
+              </div>
+            </div>
+            ${!needsOp2?`<button class="btn btn-gold btn-sm" onclick="confirmarIX('${ix.id}')">Confirmar ✅</button>`:'<span style="font-size:11px;color:var(--orange)">Esperando aceptación del Op2</span>'}
+          </div>
+        </div>`;
+      }).join('');
+    }
+  }
+
+  // ── Historial (filtrado por mes activo) ──
+  const tbody = document.getElementById('ix-tbody');
+  if (!tbody) return;
+
+  const historial = ixGlobal.filter(ix =>
+    (ix.estado === 'completado' || ix.estado === 'cancelado') &&
+    (!mesActivo || getMesKey(ix) === mesActivo)
+  );
+
+  // Poblar dropdowns de egresa/ingresa con valores únicos
+  const egresaEl  = document.getElementById('ix-f-egresa');
+  const ingressaEl = document.getElementById('ix-f-ingresa');
+  if (egresaEl && ingressaEl) {
+    const egVal  = egresaEl.value;
+    const inVal  = ingressaEl.value;
+    const cajas  = [...new Set(historial.map(ix => ix.op1_egresa).filter(Boolean))].sort();
+    const injas  = [...new Set(historial.map(ix => ix.op1_ingresa).filter(Boolean))].sort();
+    egresaEl.innerHTML  = '<option value="">Egresa: Todas</option>'  + cajas.map(c=>`<option value="${c}">${c}</option>`).join('');
+    ingressaEl.innerHTML = '<option value="">Ingresa: Todas</option>' + injas.map(c=>`<option value="${c}">${c}</option>`).join('');
+    egresaEl.value  = egVal;
+    ingressaEl.value = inVal;
+  }
+
+  // Leer valores de filtros
+  const buscar  = (document.getElementById('ix-f-buscar')?.value  || '').toLowerCase().trim();
+  const fTipo   = document.getElementById('ix-f-tipo')?.value    || '';
+  const fDesde  = document.getElementById('ix-f-desde')?.value   || '';
+  const fHasta  = document.getElementById('ix-f-hasta')?.value   || '';
+  const fEgresa = document.getElementById('ix-f-egresa')?.value  || '';
+  const fIngresa= document.getElementById('ix-f-ingresa')?.value || '';
+  const fMontoRaw = document.getElementById('ix-f-monto')?.value.trim() || '';
+  const fMonto  = fMontoRaw !== '' ? Number(fMontoRaw) : null;
+
+  let filtrado = historial;
+  if (buscar)   filtrado = filtrado.filter(ix =>
+    (ix.op1_ix_id||'').toLowerCase().includes(buscar) ||
+    (ix.op2_ix_id||'').toLowerCase().includes(buscar) ||
+    (ix.op1_nombre||'').toLowerCase().includes(buscar) ||
+    (ix.op2_nombre||'').toLowerCase().includes(buscar)
+  );
+  if (fTipo)    filtrado = filtrado.filter(ix => ix.tipo === fTipo);
+  if (fDesde)   filtrado = filtrado.filter(ix => (ix.fecha||'') >= fDesde);
+  if (fHasta)   filtrado = filtrado.filter(ix => (ix.fecha||'') <= fHasta);
+  if (fEgresa)  filtrado = filtrado.filter(ix => ix.op1_egresa  === fEgresa);
+  if (fIngresa) filtrado = filtrado.filter(ix => ix.op1_ingresa === fIngresa);
+  if (fMonto !== null) filtrado = filtrado.filter(ix => Number(ix.monto) === fMonto);
+
+  // Contador
+  const countEl = document.getElementById('ix-count');
+  if (countEl) countEl.textContent = filtrado.length < historial.length
+    ? `${filtrado.length} de ${historial.length} intercambios`
+    : `${historial.length} intercambios`;
+
+  if (!filtrado.length) {
+    tbody.innerHTML = '<tr><td colspan="11"><div class="empty"><div class="empty-icon">🔄</div>Sin resultados para los filtros aplicados</div></td></tr>';
+    return;
+  }
+  tbody.innerHTML = filtrado.map((ix, i) => {
+    const esCancelado = ix.estado === 'cancelado';
+    const estBadge = esCancelado
+      ? '<span class="badge badge-red">Cancelado</span>'
+      : `✅✅${ix.tipo==='C'?'✅':''}`;
+    return `
+    <tr style="${esCancelado?'opacity:.5;text-decoration:line-through':''}">
+      <td style="text-align:center;color:var(--text2);font-size:11px">${i+1}</td>
+      <td>${estBadge}</td>
+      <td>${fmtDate(ix.fecha)}</td>
+      <td><span class="badge" style="background:var(--bg3)">${ix.tipo==='C'?'Cruzado':'Interno'}</span></td>
+      <td style="font-size:11px;color:var(--text2)">${ix.op1_ix_id||'—'}</td>
+      <td style="font-size:11px">${ix.op1_nombre||'—'}</td>
+      <td><span class="badge badge-red">${ix.op1_egresa||'—'}</span></td>
+      <td><span class="badge badge-green">${ix.op1_ingresa||'—'}</span></td>
+      <td class="td-num">${pesos(ix.monto)}</td>
+      <td style="font-size:11px;color:var(--text2)">${ix.op2_ix_id||'—'}</td>
+      <td style="font-size:11px">${ix.op2_nombre||'Propio'}</td>
+      <td><button class="btn btn-red btn-sm" onclick="eliminarIX('${ix.id}')" title="Eliminar intercambio">🗑</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function limpiarFiltrosIX() {
+  ['ix-f-buscar','ix-f-tipo','ix-f-desde','ix-f-hasta','ix-f-egresa','ix-f-ingresa','ix-f-monto']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  renderIntercambios();
+}
+
+async function eliminarIX(globalId) {
+  const ix = ixGlobal.find(x => x.id === globalId);
+  if (!ix) return;
+  const detalle = `${ix.op1_nombre||'Op1'} | ${ix.op1_egresa||'—'} → ${ix.op1_ingresa||'—'} | ${pesos(ix.monto)} | ${fmtDate(ix.fecha)}`;
+  if (!confirm(`¿Eliminar este intercambio?\n\n${detalle}\n\nEsta acción no se puede deshacer.`)) return;
+  try {
+    const batch = db.batch();
+    batch.delete(db.collection('patriarca_ix_global').doc(globalId));
+    if (ix.op1_doc_id) batch.delete(db.collection('patriarca_intercambios').doc(ix.op1_doc_id));
+    if (ix.op2_doc_id) batch.delete(db.collection('patriarca_intercambios').doc(ix.op2_doc_id));
+    await batch.commit();
+    toast('🗑 Intercambio eliminado', 'success');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+// ── Cajera confirma (3er checkmark) ──
+async function confirmarIX(globalId) {
+  try {
+    const ref   = db.collection('patriarca_ix_global').doc(globalId);
+    const snap  = await ref.get();
+    const g     = snap.data();
+    const ts    = firebase.firestore.FieldValue.serverTimestamp();
+    const total = g.tipo === 'C' ? 3 : 2;
+
+    const batch = db.batch();
+    batch.set(ref, { estado:'completado', checkmarks: total, confirmado_cajera_at: ts }, { merge: true });
+
+    for (const docId of [g.op1_doc_id, g.op2_doc_id].filter(Boolean)) {
+      const docRef  = db.collection('patriarca_intercambios').doc(docId);
+      const docSnap = await docRef.get();
+      if (docSnap.exists) {
+        batch.update(docRef, { estado:'completado', checkmarks: total });
+      }
+    }
+    await batch.commit();
+    toast('✅ Intercambio confirmado y completado', 'success');
+  } catch(e) { toast('⚠ Error: '+e.message,'error'); }
+}
+
+// ── Solicitudes de corrección/autorización ──
+let unsubCorrecciones = null;
+let allCorrecciones   = [];
+
+function loadCorrecciones() {
+  if (unsubCorrecciones) unsubCorrecciones();
+  unsubCorrecciones = db.collection('patriarca_ix_correcciones')
+    .where('estado','==','pendiente')
+    .orderBy('ts','desc')
+    .onSnapshot(snap => {
+      allCorrecciones = snap.docs.map(d => ({id: d.id, ...d.data()}));
+      renderCorrecciones();
+    }, () => {
+      // Fallback sin orderBy
+      db.collection('patriarca_ix_correcciones')
+        .where('estado','==','pendiente').get()
+        .then(s => {
+          allCorrecciones = s.docs.map(d => ({id: d.id, ...d.data()}));
+          renderCorrecciones();
+        });
+    });
+}
+
+function renderCorrecciones() {
+  const wrap = document.getElementById('caj-correcciones-wrap');
+  const list = document.getElementById('caj-correcciones-list');
+  if (!wrap || !list) return;
+  if (!allCorrecciones.length) { wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  list.innerHTML = allCorrecciones.map(c => {
+    const va = c.valoresActuales   || {};
+    const vp = c.valoresPropuestos || {};
+    const hayCambios = Object.keys(vp).length > 0;
+
+    const diffRow = (label, campo) => {
+      if (!vp[campo]) return '';
+      return `<div style="font-size:11px;margin-top:3px">
+        ${label}: <span style="text-decoration:line-through;color:var(--red)">${va[campo]||'—'}</span>
+        → <span style="color:var(--green);font-weight:600">${campo==='monto'?pesos(vp[campo]):vp[campo]}</span>
+      </div>`;
+    };
+
+    return `
+    <div style="background:var(--bg3);border:1px solid var(--orange);border-radius:8px;padding:12px 14px;margin-bottom:8px">
+      <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
+        <div style="flex:1;min-width:240px">
+          <div style="font-size:12px;font-weight:700;color:var(--orange);margin-bottom:6px">
+            📝 Solicitud de Corrección — <span style="font-weight:400;color:var(--text2)">${c.solicitante_nombre||'Operador'}</span>
+          </div>
+          <div style="font-size:12px;margin-bottom:8px;background:var(--bg2);padding:8px 10px;border-radius:6px;border-left:3px solid var(--orange)">
+            <b>Motivo:</b> ${c.motivo}
+          </div>
+          ${hayCambios ? `
+          <div style="background:rgba(53,204,47,.06);border:1px solid rgba(53,204,47,.2);border-radius:6px;padding:8px 10px;font-size:12px;margin-bottom:6px">
+            <div style="font-weight:700;color:var(--gold);margin-bottom:4px;font-size:11px">CAMBIOS PROPUESTOS</div>
+            ${diffRow('Fecha',   'fecha')}
+            ${diffRow('Monto',   'monto')}
+            ${diffRow('Egresa',  'caja_egresa')}
+            ${diffRow('Ingresa', 'caja_ingresa')}
+          </div>` : ''}
+          ${c.cambio_op2 ? `
+          <div style="background:rgba(74,158,255,.06);border:1px solid rgba(74,158,255,.25);border-radius:6px;padding:8px 10px;font-size:12px">
+            <div style="font-weight:700;color:var(--blue);margin-bottom:4px;font-size:11px">🔄 REASIGNACIÓN DE OP2</div>
+            <div>Op2 actual: <span style="text-decoration:line-through;color:var(--red)">${va.operador2||'—'}</span>
+            → Nuevo Op2: <span style="color:var(--green);font-weight:600">${c.cambio_op2.nombre||'Propio'}</span></div>
+            ${c.cambio_op2.nuevo_tipo==='I'?'<div style="color:var(--orange);font-size:11px;margin-top:3px">⚠ Se convertirá a intercambio Interno</div>':'<div style="color:var(--text2);font-size:11px;margin-top:3px">El nuevo Op2 deberá aceptar y el Cajero confirmar de nuevo</div>'}
+          </div>` : (!hayCambios ? '<div style="font-size:11px;color:var(--text2)">Sin cambios de campos especificados</div>' : '')}
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;min-width:100px">
+          <button class="btn btn-gold btn-sm" onclick="aprobarCorreccion('${c.id}','${c.globalId||''}')">✅ Aprobar</button>
+          <button class="btn btn-ghost btn-sm" onclick="rechazarCorreccion('${c.id}')">❌ Rechazar</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function aprobarCorreccion(corrId, globalId) {
+  const nota = prompt('Nota de aprobación (opcional):') ?? '';
+  try {
+    const ts      = firebase.firestore.FieldValue.serverTimestamp();
+    const corrRef = db.collection('patriarca_ix_correcciones').doc(corrId);
+    const corrSnap= await corrRef.get();
+    if (!corrSnap.exists) { toast('⚠ Solicitud no encontrada','error'); return; }
+
+    const c      = corrSnap.data();
+    const vp     = c.valoresPropuestos || {};
+    const co2    = c.cambio_op2;          // reasignación de Op2 (puede ser null)
+    const batch  = db.batch();
+
+    // 1. Marcar solicitud como aprobada
+    batch.update(corrRef, { estado:'aprobado', nota_cajero: nota||'', revisado_at: ts });
+
+    // ── CASO A: Reasignación de Op2 ──
+    if (co2 && co2.uid) {
+      if (!globalId) { toast('⚠ globalId faltante','error'); return; }
+      const gRef  = db.collection('patriarca_ix_global').doc(globalId);
+      const gSnap = await gRef.get();
+      if (!gSnap.exists) { toast('⚠ Global doc no encontrado','error'); return; }
+      const g = gSnap.data();
+
+      // a. ELIMINAR doc del Op2 viejo y renumerar sus IDs restantes
+      if (g.op2_doc_id) {
+        const oldOp2Snap = await db.collection('patriarca_intercambios').doc(g.op2_doc_id).get();
+        if (oldOp2Snap.exists) {
+          const oldOp2Data = oldOp2Snap.data();
+          batch.delete(oldOp2Snap.ref);
+
+          // Renumerar docs restantes del mismo operador
+          const oldOpId    = oldOp2Data.opId;
+          const deletedNum = parseInt((oldOp2Data.ix_id||'').match(/^(\d+)/)?.[1] || 0);
+          if (oldOpId && deletedNum > 0) {
+            const remainingSnap = await db.collection('patriarca_intercambios')
+              .where('opId','==',oldOpId).get();
+            const toRename = remainingSnap.docs.filter(d => {
+              const n = parseInt((d.data().ix_id||'').match(/^(\d+)/)?.[1] || 0);
+              return n > deletedNum;
+            });
+            toRename.forEach(doc => {
+              const data   = doc.data();
+              const num    = parseInt((data.ix_id||'').match(/^(\d+)/)?.[1] || 0);
+              const newId  = data.ix_id.replace(/^\d+/, (num - 1).toString());
+              batch.update(doc.ref, { ix_id: newId });
+              if (data.global_id) {
+                batch.update(db.collection('patriarca_ix_global').doc(data.global_id), { op2_ix_id: newId });
+              }
+            });
+            // Ajustar contador del operador
+            const cntRestantes = remainingSnap.docs.filter(d => d.id !== g.op2_doc_id).length;
+            batch.set(db.collection('patriarca_intercambios').doc('_cnt_' + oldOpId),
+              { cnt_ix: cntRestantes }, { merge: true });
+          }
+        }
+      }
+
+      // Aplicar también cambios de campos si los hay
+      const camposBase = {};
+      if (vp.fecha)  camposBase.fecha  = vp.fecha;
+      if (vp.monto)  camposBase.monto  = vp.monto;
+
+      if (co2.nuevo_tipo === 'I') {
+        // b1. Convertir a Interno → pendiente_cajera
+        batch.update(gRef, {
+          ...camposBase, tipo:'I', estado:'pendiente_cajera', checkmarks:1,
+          op2_uid:null, op2_nombre:'Propio', op2_doc_id:null, op2_ix_id:null,
+          op2_egresa:null, op2_ingresa:null, confirmado_op2_at:null,
+        });
+        if (g.op1_doc_id) {
+          const d1Snap = await db.collection('patriarca_intercambios').doc(g.op1_doc_id).get();
+          if (d1Snap.exists) batch.update(d1Snap.ref, {
+            ...camposBase, tipo:'I', estado:'pendiente_cajera', checkmarks:1,
+            operador2:'Propio', operador2_uid:null,
+          });
+        }
+        await batch.commit();
+        toast('✅ Convertido a Interno — pendiente tu confirmación', 'success');
+
+      } else {
+        // b2. Reasignar a nuevo Op2 (Cruzado) → reiniciar flujo desde pendiente_op2
+        batch.update(gRef, {
+          ...camposBase, estado:'pendiente_op2', checkmarks:1,
+          op2_uid: co2.uid, op2_nombre: co2.nombre,
+          op2_doc_id:null, op2_ix_id:null,
+          op2_egresa: g.op1_ingresa, op2_ingresa: g.op1_egresa,
+          confirmado_op2_at:null, confirmado_cajera_at:null,
+        });
+        if (g.op1_doc_id) {
+          const d1Snap = await db.collection('patriarca_intercambios').doc(g.op1_doc_id).get();
+          if (d1Snap.exists) batch.update(d1Snap.ref, {
+            ...camposBase, estado:'pendiente_op2', checkmarks:1,
+            operador2: co2.nombre, operador2_uid: co2.uid,
+          });
+        }
+        await batch.commit();
+        // Crear incoming para el nuevo Op2
+        await db.collection('patriarca_ix_incoming').add({
+          destinatario_uid:   co2.uid,
+          destinatario_email: co2.email || '',
+          global_id:   globalId,
+          op1_doc_id:  g.op1_doc_id || null,
+          op1_ix_id:   g.op1_ix_id,
+          fecha: vp.fecha || g.fecha, monto: vp.monto || g.monto,
+          operador1: g.op1_nombre, operador1_uid: g.op1_uid,
+          caja_egresa: g.op1_ingresa, caja_ingresa: g.op1_egresa,
+          estado: 'pendiente_aceptar', ts,
+        });
+        toast(`✅ Reasignado a ${co2.nombre} — esperando su aceptación`, 'success');
+      }
+      return;
+    }
+
+    // ── CASO B: Corrección de campos (fecha, monto, cajas) sin cambio de Op2 ──
+    if (globalId && Object.keys(vp).length > 0) {
+      const gRef  = db.collection('patriarca_ix_global').doc(globalId);
+      const gSnap = await gRef.get();
+      if (gSnap.exists) {
+        const g = gSnap.data();
+        const gUp = {};
+        if (vp.fecha)        gUp.fecha       = vp.fecha;
+        if (vp.monto)        gUp.monto       = vp.monto;
+        if (vp.caja_egresa)  { gUp.op1_egresa = vp.caja_egresa;  gUp.op2_ingresa = vp.caja_egresa; }
+        if (vp.caja_ingresa) { gUp.op1_ingresa= vp.caja_ingresa; gUp.op2_egresa  = vp.caja_ingresa; }
+        batch.update(gRef, gUp);
+
+        for (const [docId, esOp2] of [[g.op1_doc_id,false],[g.op2_doc_id,true]].filter(([d])=>d)) {
+          const dSnap = await db.collection('patriarca_intercambios').doc(docId).get();
+          if (!dSnap.exists) continue;
+          const u = {};
+          if (vp.fecha)        u.fecha        = vp.fecha;
+          if (vp.monto)        u.monto        = vp.monto;
+          if (vp.caja_egresa)  u[esOp2?'caja_ingresa':'caja_egresa']  = vp.caja_egresa;
+          if (vp.caja_ingresa) u[esOp2?'caja_egresa' :'caja_ingresa'] = vp.caja_ingresa;
+          batch.update(dSnap.ref, u);
+        }
+      }
+    }
+
+    await batch.commit();
+    toast('✅ Corrección aprobada y cambios aplicados', 'success');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+async function rechazarCorreccion(corrId) {
+  const nota = prompt('Motivo del rechazo (obligatorio):');
+  if (!nota || !nota.trim()) { toast('⚠ Escribe el motivo del rechazo','error'); return; }
+  try {
+    const ts = firebase.firestore.FieldValue.serverTimestamp();
+    await db.collection('patriarca_ix_correcciones').doc(corrId).update({
+      estado: 'rechazado', nota_cajero: nota.trim(), revisado_at: ts,
+    });
+    toast('❌ Solicitud rechazada', 'info');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+// calcular neto de intercambios por método (completados del mes activo)
+function calcNetIX() {
+  const net = {};
+  METODOS.forEach(m => net[normMetodo(m)] = 0);
+
+  ixDelMes().forEach(ix => {
+    const m = ix.monto || 0;
+    const add = (rawMet, delta) => {
+      if (!rawMet) return;
+      const met = normMetodo(rawMet);
+      if (!(met in net)) net[met] = 0;
+      net[met] += delta;
+    };
+    if (ix.tipo === 'I') {
+      add(ix.op1_egresa,  -m);
+      add(ix.op1_ingresa, +m);
+    }
+    // Cruzados: op1 y op2 se cancelan entre sí por método (net 0), se omiten del saldo global
+  });
+  return net;
+}
+
+// ── CUPO ACTUAL ──
+function renderCupoActual() {
+  // Cupo Actual = Cupo Inicial + Pagos - Recargas ± Intercambios (por operador por método)
+  const netPorOp = {};
+
+  const addNet = (uid, rawMet, delta) => {
+    const met = normMetodo(rawMet);
+    if (!uid || !met || met === '—') return;
+    if (!netPorOp[uid]) netPorOp[uid] = {};
+    if (!netPorOp[uid][met]) netPorOp[uid][met] = 0;
+    netPorOp[uid][met] += delta;
+  };
+
+  // Movimientos del mes (excluir BONIFICACION y SALDO CLIENTES — se manejan aparte)
+  movsDelMes().forEach(mv => {
+    const uid = mv.opId || 'desconocido';
+    const met = normMetodo(mv.metodo || '');
+    if (!met || met === 'BONIFICACION' || met === 'SALDO CLIENTES') return;
+    if (mv.tipo === 'PAGOS')    addNet(uid, met, +(mv.monto || 0));
+    if (mv.tipo === 'RECARGAS') addNet(uid, met, -(mv.monto || 0));
+  });
+
+  // Gastos del mes (reducen el cupo del método en que se pagaron)
+  allGastosGlobal.forEach(g => {
+    if (getMesKey(g) !== mesActivo) return;
+    const met = normMetodo(g.metodo || '');
+    if (!met || met === 'BONIFICACION' || met === 'SALDO CLIENTES') return;
+    addNet(g.opId, met, -(parseFloat(g.valor) || 0));
+  });
+
+  // Intercambios completados del mes: egresa resta, ingresa suma
+  ixDelMes().forEach(ix => {
+    const m = ix.monto || 0;
+    addNet(ix.op1_uid, ix.op1_egresa, -m);
+    addNet(ix.op1_uid, ix.op1_ingresa, +m);
+    if (ix.tipo === 'C' && ix.op2_uid) {
+      addNet(ix.op2_uid, ix.op2_egresa, -m);
+      addNet(ix.op2_uid, ix.op2_ingresa, +m);
+    }
+  });
+
+  // Usar todos los métodos configurados — excluir SALDO CLIENTES (va en sección aparte)
+  const metodos = (METODOS.length ? METODOS : [...new Set(movsDelMes().map(m => m.metodo).filter(Boolean))])
+    .filter(m => normMetodo(m) !== 'SALDO CLIENTES');
+  // Todos los operadores activos
+  const cols = operadores.filter(o => {
+    const tieneIni = Object.values(cupoAsignado[o.uid] || {}).some(v => v);
+    const tieneMovs = !!netPorOp[o.uid];
+    return tieneIni || tieneMovs;
+  });
+
+  if (!metodos.length) {
+    document.getElementById('ca-thead').innerHTML = '<tr><th style="position:sticky;left:0;background:var(--bg3);z-index:3">MÉTODO</th><th>Sin datos</th></tr>';
+    document.getElementById('ca-tbody').innerHTML =
+      '<tr><td colspan="2"><div class="empty">Sin movimientos registrados</div></td></tr>';
+    document.getElementById('ca-tfoot-row').innerHTML = '<td>TOTAL</td><td>—</td>';
+    return;
+  }
+
+  // Encabezado dinámico
+  const thOps = cols.map(o =>
+    `<th style="text-align:right;font-size:11px">${o.nombre.split(' ')[0]}<br><span style="color:var(--text2);font-weight:400">${o.nombre.split(' ').slice(1,2).join(' ')}</span></th>`
+  ).join('');
+  const thTotal = cols.length > 1 ? '<th style="text-align:right;border-left:1px solid var(--border)">TOTAL AJ1.6</th>' : '';
+  document.getElementById('ca-thead').innerHTML =
+    `<tr><th style="position:sticky;left:0;background:var(--bg3);z-index:3">MÉTODO</th>${thOps}${thTotal}</tr>`;
+
+  // Filas por método
+  const totPorOp = {};
+  cols.forEach(o => totPorOp[o.uid] = 0);
+  let totGeneral = 0;
+
+  const rows = metodos.map(met => {
+    const metNorm = normMetodo(met);
+    let totMet = 0;
+    const celdas = cols.map(o => {
+      // cupoAsignado puede tener claves en distintas capitalizaciones — buscar por normMetodo
+      const ini = Object.entries(cupoAsignado[o.uid] || {})
+        .reduce((acc, [k, v]) => normMetodo(k) === metNorm && v !== undefined && v !== null && v !== 0 ? v : acc, 0);
+      const net = (netPorOp[o.uid] || {})[metNorm] || 0;
+      const val = ini + net; // Cupo Actual = Inicial + Movimientos netos
+      totPorOp[o.uid] += val;
+      totMet += val;
+      const cls = val > 0 ? 'td-pos' : val < 0 ? 'td-neg' : 'td-zero';
+      return `<td class="${cls}" style="text-align:right">${val ? pesos(val) : '—'}</td>`;
+    }).join('');
+    totGeneral += totMet;
+    const totCls = totMet > 0 ? 'td-pos' : totMet < 0 ? 'td-neg' : 'td-zero';
+    const totCell = cols.length > 1
+      ? `<td class="${totCls}" style="text-align:right;font-weight:700;border-left:1px solid var(--border)">${totMet ? pesos(Math.abs(totMet))+(totMet<0?' (-)':'') : '—'}</td>`
+      : '';
+    return `<tr><td class="td-metodo">${met}</td>${celdas}${totCell}</tr>`;
+  }).join('');
+
+  // ── Fila 1: TOTAL sin SC ──
+  const totCeldas = cols.map(o => {
+    const v = totPorOp[o.uid] || 0;
+    const cls = v >= 0 ? 'td-pos' : 'td-neg';
+    return `<td class="${cls}" style="text-align:right;font-weight:700">${pesos(v)}</td>`;
+  }).join('');
+  const totGenCell = cols.length > 1
+    ? `<td class="${totGeneral>=0?'td-pos':'td-neg'}" style="text-align:right;font-weight:700;border-left:1px solid var(--border)">${pesos(Math.abs(totGeneral))}${totGeneral<0?' (-)':''}</td>`
+    : '';
+  const rowTotSinSC = `<tr style="border-top:2px solid var(--border);background:var(--bg3)">
+    <td style="position:sticky;left:0;background:var(--bg3);font-weight:700;font-size:12px;color:var(--text2);letter-spacing:.5px">SUBTOTAL MÉTODOS</td>
+    ${totCeldas}${totGenCell}
+  </tr>`;
+
+  // ── Fila 2: SALDO CLIENTES ACTUAL ──
+  if (!Object.keys(_allScData).length) loadAllSaldoClientesData();
+  let scTot = 0;
+  const scCeldas = cols.map(o => {
+    const sc = _allScData[o.uid];
+    if (!sc) return `<td style="text-align:right;color:var(--text2);font-size:11px">…</td>`;
+    const actual = sc.si + sc.rec - sc.pag - sc.inv + sc.ret;
+    scTot += actual;
+    const cls = actual >= 0 ? 'td-pos' : 'td-neg';
+    return `<td class="${cls}" style="text-align:right;font-weight:600">${actual ? pesos(actual) : '—'}</td>`;
+  }).join('');
+  const scTotCell = cols.length > 1
+    ? `<td class="${scTot>=0?'td-pos':'td-neg'}" style="text-align:right;font-weight:700;border-left:1px solid var(--border)">${scTot ? pesos(Math.abs(scTot))+(scTot<0?' (-)':'') : '—'}</td>`
+    : '';
+  const rowSC = `<tr style="background:rgba(53,204,47,.08);border-top:2px dashed rgba(53,204,47,.4)">
+    <td style="position:sticky;left:0;background:rgba(20,40,20,.95);font-weight:700;font-size:12px;color:var(--green)">💰 SALDO CLIENTES ACTUAL</td>
+    ${scCeldas}${scTotCell}
+  </tr>`;
+
+  // ── Fila 3: COMISIONES POR COBRAR (campo 'comision' guardado, igual que el portal) ──
+  const comPorOp = {};
+  movsDelMes().forEach(mv => {
+    const com = parseFloat(mv.comision) || 0;
+    if (com > 0) comPorOp[mv.opId] = (comPorOp[mv.opId] || 0) + com;
+  });
+  let comTot = 0;
+  const comCeldas = cols.map(o => {
+    const v = comPorOp[o.uid] || 0;
+    comTot += v;
+    return v
+      ? `<td class="td-pos" style="text-align:right;font-weight:600;color:var(--green)">+${pesos(v)}</td>`
+      : `<td style="text-align:right;color:var(--text2)">—</td>`;
+  }).join('');
+  const comTotCell = cols.length > 1
+    ? `<td class="td-pos" style="text-align:right;font-weight:700;border-left:1px solid var(--border);color:var(--green)">${comTot ? '+'+pesos(comTot) : '—'}</td>`
+    : '';
+  const rowCom = comTot > 0 ? `<tr style="background:rgba(36,191,98,.06);border-top:2px dashed rgba(36,191,98,.3)">
+    <td style="position:sticky;left:0;background:rgba(10,30,15,.95);font-weight:700;font-size:12px;color:var(--green)">💰 COMISIONES POR COBRAR</td>
+    ${comCeldas}${comTotCell}
+  </tr>` : '';
+
+  // ── Fila 4: TOTAL GENERAL ──
+  const totConScGen = totGeneral + scTot + comTot;
+  const totConScCeldas = cols.map(o => {
+    const sc = _allScData[o.uid];
+    const scAct = sc ? sc.si + sc.rec - sc.pag - sc.inv + sc.ret : 0;
+    const v = (totPorOp[o.uid] || 0) + scAct + (comPorOp[o.uid] || 0);
+    const cls = v >= 0 ? 'td-pos' : 'td-neg';
+    return `<td class="${cls}" style="text-align:right;font-weight:700">${pesos(v)}</td>`;
+  }).join('');
+  const totConScGenCell = cols.length > 1
+    ? `<td class="${totConScGen>=0?'td-pos':'td-neg'}" style="text-align:right;font-weight:700;border-left:1px solid var(--border)">${pesos(Math.abs(totConScGen))}${totConScGen<0?' (-)':''}</td>`
+    : '';
+  const rowTotGeneral = `<tr style="background:rgba(53,204,47,.15);border-top:2px solid var(--gold)">
+    <td style="position:sticky;left:0;background:rgba(10,10,10,.97);font-weight:800;font-size:13px;color:var(--gold);letter-spacing:.5px">⚡ TOTAL GENERAL</td>
+    ${totConScCeldas}${totConScGenCell}
+  </tr>`;
+
+  document.getElementById('ca-tbody').innerHTML = rows + rowTotSinSC + rowSC + rowCom + rowTotGeneral;
+}
+
+// ── SALDO CAJAS ──
+function renderSaldoCajas() {
+  const net = calcNetIX();
+
+  // Recargas y pagos globales por método (todos los operadores, mes activo)
+  const recPorMet = {}, pagPorMet = {};
+  movsDelMes().forEach(mv => {
+    const met = mv.metodo;
+    if (!met || normMetodo(met) === 'SALDO CLIENTES' || normMetodo(met) === 'BONIFICACION') return;
+    // Buscar el método en METODOS (por normalización)
+    const key = METODOS.find(m => normMetodo(m) === normMetodo(met)) || met;
+    if (mv.tipo === 'RECARGAS') recPorMet[key] = (recPorMet[key] || 0) + (+(mv.monto || 0));
+    if (mv.tipo === 'PAGOS')    pagPorMet[key] = (pagPorMet[key] || 0) + (+(mv.monto || 0));
+  });
+
+  let html = '', totIni = 0, totIX = 0, totRec = 0, totPag = 0, totFin = 0;
+  METODOS.forEach((m, i) => {
+    const ini = cupoPozo[m] || 0;
+    const ix  = net[normMetodo(m)] || 0;
+    const rec = recPorMet[m] || 0;
+    const pag = pagPorMet[m] || 0;
+    const fin = ini + ix - rec + pag;
+    totIni += ini; totIX += ix; totRec += rec; totPag += pag; totFin += fin;
+    html += `<tr>
+      <td style="color:var(--text2)">${String(i+1).padStart(2,'0')}</td>
+      <td class="td-metodo">${m}</td>
+      <td class="td-num">${ini ? pesos(ini) : '$0'}</td>
+      <td class="${ix>0?'td-pos':ix<0?'td-neg':'td-zero'}">${ix>=0?'+':''}${pesos(ix)}</td>
+      <td class="${rec?'td-neg':'td-zero'}">${rec ? '-'+pesos(rec) : '$0'}</td>
+      <td class="${pag?'td-pos':'td-zero'}">${pag ? '+'+pesos(pag) : '$0'}</td>
+      <td class="${fin>=0?'td-pos':'td-neg'}">${pesos(fin)}</td>
+    </tr>`;
+  });
+  document.getElementById('sc-tbody').innerHTML = html;
+  document.getElementById('sc-tot-ini').textContent = pesos(totIni);
+  document.getElementById('sc-tot-ix').textContent = (totIX>=0?'+':'') + pesos(totIX);
+  document.getElementById('sc-tot-rec').textContent = '-' + pesos(totRec);
+  document.getElementById('sc-tot-pag').textContent = '+' + pesos(totPag);
+  document.getElementById('sc-tot-fin').textContent = pesos(totFin);
+}
+
+// ── DASHBOARD ──
+function renderDashboard() {
+  if (!METODOS.length) return;
+  const net = calcNetIX();
+
+  // ── Recargas y pagos del mes por método (todos los operadores) ──
+  const recPorMet = {}, pagPorMet = {};
+  movsDelMes().forEach(mv => {
+    const met = mv.metodo;
+    if (!met || normMetodo(met) === 'SALDO CLIENTES' || normMetodo(met) === 'BONIFICACION') return;
+    const key = METODOS.find(m => normMetodo(m) === normMetodo(met)) || met;
+    if (mv.tipo === 'RECARGAS') recPorMet[key] = (recPorMet[key] || 0) + +(mv.monto || 0);
+    if (mv.tipo === 'PAGOS')    pagPorMet[key] = (pagPorMet[key] || 0) + +(mv.monto || 0);
+  });
+
+  // ── Recargas de HOY por método (para alerta de límite diario) ──
+  const hoyStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD local podría diferir — usar fecha del mov
+  const dNow = new Date();
+  const hoyLocal = dNow.getFullYear() + '-' + String(dNow.getMonth()+1).padStart(2,'0') + '-' + String(dNow.getDate()).padStart(2,'0');
+  const recHoy = {};
+  allMovsGlobal.forEach(mv => {
+    if (mv.fecha !== hoyLocal || mv.tipo !== 'RECARGAS') return;
+    const met = mv.metodo;
+    if (!met || normMetodo(met) === 'SALDO CLIENTES' || normMetodo(met) === 'BONIFICACION') return;
+    const key = METODOS.find(m => normMetodo(m) === normMetodo(met)) || met;
+    recHoy[key] = (recHoy[key] || 0) + +(mv.monto || 0);
+  });
+
+  // ── Totales de cajas (cupoPozo = saldo inicial global real) ──
+  let totIni = 0, totIX = 0, totRec = 0, totPag = 0, totFin = 0;
+  METODOS.forEach(m => {
+    const ini = cupoPozo[m] || 0;
+    const ix  = net[normMetodo(m)] || 0;
+    const rec = recPorMet[m] || 0;
+    const pag = pagPorMet[m] || 0;
+    const fin = ini + ix - rec + pag;
+    totIni += ini; totIX += ix; totRec += rec; totPag += pag; totFin += fin;
+  });
+
+  // ── Comisiones del mes (campo guardado en cada movimiento) ──
+  let totComisiones = 0;
+  movsDelMes().forEach(mv => { totComisiones += parseFloat(mv.comision) || 0; });
+
+  // ── Intercambios pendientes ──
+  const pendientes = ixGlobal.filter(ix => ix.estado === 'pendiente_cajera' || ix.estado === 'pendiente_op2');
+
+  // ── Label del mes ──
+  const mesNombres = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  const [anyo, mes] = (mesActivo || '').split('-');
+  const mesLabel = (anyo && mes) ? `${mesNombres[parseInt(mes)-1]} ${anyo}` : '';
+  // ── KPIs ──
+  document.getElementById('dash-sub').textContent = opNombre;
+  document.getElementById('dash-kpis').innerHTML = `
+    <div class="kpi ${totFin<0?'red':''}">
+      <div class="kpi-label">Saldo Total Cajas</div>
+      <div class="kpi-value ${totFin>=0?'':'red'}">${pesos(totFin)}</div>
+      <div class="kpi-sub">Capital en circulación</div>
+    </div>
+    <div class="kpi blue">
+      <div class="kpi-label">Recargas ${mesLabel}</div>
+      <div class="kpi-value">${pesos(totRec)}</div>
+      <div class="kpi-sub">Salidas de caja</div>
+    </div>
+    <div class="kpi green">
+      <div class="kpi-label">Pagos ${mesLabel}</div>
+      <div class="kpi-value">${pesos(totPag)}</div>
+      <div class="kpi-sub">Entradas de caja</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Comisiones ${mesLabel}</div>
+      <div class="kpi-value" style="color:var(--gold)">${pesos(totComisiones)}</div>
+      <div class="kpi-sub">Por cobrar</div>
+    </div>
+    <div class="kpi ${pendientes.length?'red':'green'}">
+      <div class="kpi-label">IXs Pendientes</div>
+      <div class="kpi-value">${pendientes.length}</div>
+      <div class="kpi-sub">${pendientes.length ? '⚠ Requieren atención' : 'Al día'}</div>
+    </div>`;
+
+  // ── Alertas ──
+  const alertas = [];
+  METODOS.forEach(m => {
+    const ini = cupoPozo[m] || 0;
+    const ix  = net[normMetodo(m)] || 0;
+    const rec = recPorMet[m] || 0;
+    const pag = pagPorMet[m] || 0;
+    const fin = ini + ix - rec + pag;
+    if (fin < 0) alertas.push({ tipo: 'neg', txt: `<strong>${m}</strong> — saldo negativo: ${pesos(fin)}` });
+    // Límite diario
+    const lim = LIMITES_DIARIOS[normMetodo(m)];
+    if (lim) {
+      const hRec = recHoy[m] || 0;
+      const pct = hRec / lim;
+      if (pct >= 1)   alertas.push({ tipo: 'crit', txt: `<strong>${m}</strong> — límite diario superado: ${pesos(hRec)} / ${pesos(lim)}` });
+      else if (pct >= 0.8) alertas.push({ tipo: 'warn', txt: `<strong>${m}</strong> — cerca del límite diario: ${pesos(hRec)} / ${pesos(lim)} (${Math.round(pct*100)}%)` });
+    }
+  });
+  if (pendientes.length) alertas.push({ tipo: 'ix', txt: `<strong>${pendientes.length} intercambio${pendientes.length>1?'s':''} pendiente${pendientes.length>1?'s':''}</strong> de confirmar — <a href="#" onclick="showTab('intercambios');return false" style="color:inherit">Ver</a>` });
+
+  const alertaColors = { neg:'var(--red)', warn:'var(--orange)', crit:'var(--red)', ix:'var(--blue)' };
+  const alertaIcons  = { neg:'📉', warn:'⚠️', crit:'🚨', ix:'🔄' };
+  const alertaEl = document.getElementById('dash-alertas');
+  if (alertaEl) {
+    alertaEl.innerHTML = alertas.length
+      ? `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px">${
+          alertas.map(a => `<div style="background:rgba(0,0,0,.25);border:1px solid ${alertaColors[a.tipo]};border-radius:8px;padding:8px 14px;font-size:12px;color:${alertaColors[a.tipo]};display:flex;align-items:center;gap:8px"><span>${alertaIcons[a.tipo]}</span><span>${a.txt}</span></div>`).join('')
+        }</div>`
+      : '';
+  }
+
+  // ── Cards de saldo final por método ──
+  const cards = [];
+  METODOS.forEach(m => {
+    const metNorm = normMetodo(m);
+    if (metNorm === 'BONIFICACION' || metNorm === 'SALDO CLIENTES') return;
+    const ini = cupoPozo[m] || 0;
+    const ix  = net[metNorm] || 0;
+    const rec = recPorMet[m] || 0;
+    const pag = pagPorMet[m] || 0;
+    const fin = ini + ix - rec + pag;
+    if (ini === 0 && ix === 0 && rec === 0 && pag === 0) return; // omitir métodos sin datos
+    cards.push({ m, fin });
+  });
+
+  const grid = document.getElementById('dash-metodos-grid');
+  if (grid) {
+    grid.innerHTML = cards.map(({ m, fin }) => {
+      const color = fin < 0 ? 'var(--red)' : 'var(--green)';
+      const bg    = fin < 0 ? 'rgba(224,80,80,.07)' : '';
+      const border= fin < 0 ? '1px solid rgba(224,80,80,.3)' : '1px solid var(--border)';
+      return `<div style="background:var(--bg2);${bg ? 'background:'+bg+';' : ''}border:${border};border-radius:var(--radius);padding:14px 14px 12px">
+        <div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px;line-height:1.3">${m}</div>
+        <div style="font-size:18px;font-weight:700;color:${color}">${pesos(fin)}</div>
+      </div>`;
+    }).join('');
+  }
+}
+
+// ── MODAL INTERCAMBIO ──
+function populateMetodoSelects() {
+  const ids = ['ix-egresa1','ix-ingresa1','ix-ingresa2','ix-egresa2'];
+  ids.forEach(id => {
+    const sel = document.getElementById(id);
+    sel.innerHTML = '<option value="">-- Seleccionar --</option>';
+    METODOS.forEach(m => sel.innerHTML += `<option value="${m}">${m}</option>`);
+  });
+}
+
+async function openModalIX() {
+  // auto OP number
+  const snap = await db.collection('cajero_intercambios').get();
+  document.getElementById('ix-op').value = snap.size + 1;
+  // today
+  const _d = new Date();
+  const hoy = _d.getFullYear()+'-'+String(_d.getMonth()+1).padStart(2,'0')+'-'+String(_d.getDate()).padStart(2,'0');
+  document.getElementById('ix-fecha').value = hoy;
+  document.getElementById('ix-monto1').value = '';
+  document.getElementById('ix-monto2').value = '';
+  ['ix-egresa1','ix-ingresa1','ix-ingresa2','ix-egresa2'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('modal-ix').classList.add('open');
+}
+function closeModalIX() { document.getElementById('modal-ix').classList.remove('open'); }
+
+async function saveIntercambio() {
+  const op     = parseInt(document.getElementById('ix-op').value) || 1;
+  const fecha  = document.getElementById('ix-fecha').value;
+  const egresa1= document.getElementById('ix-egresa1').value;
+  const ingresa1=document.getElementById('ix-ingresa1').value;
+  const monto1 = parseFloat(document.getElementById('ix-monto1').value) || 0;
+  const op2    = document.getElementById('ix-op2').value;
+  const ingresa2=document.getElementById('ix-ingresa2').value;
+  const egresa2= document.getElementById('ix-egresa2').value;
+  const monto2 = parseFloat(document.getElementById('ix-monto2').value) || monto1;
+
+  if (!fecha||!egresa1||!ingresa1||!monto1) { toast('⚠ Completa los campos obligatorios','error'); return; }
+
+  try {
+    await db.collection('cajero_intercambios').add({
+      opId1: opId, op1_nombre: opNombre,
+      op2_nombre: op2,
+      op, fecha, egresa1, ingresa1, monto1,
+      ingresa2: ingresa2||egresa1, egresa2: egresa2||ingresa1, monto2,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    closeModalIX();
+    toast('✅ Intercambio registrado','success');
+  } catch(e) { toast('⚠ Error: '+e.message,'error'); }
+}
+
+async function deleteIX(id) {
+  if (!confirm('¿Eliminar este intercambio?')) return;
+  try {
+    await db.collection('cajero_intercambios').doc(id).delete();
+    toast('🗑 Eliminado','success');
+  } catch(e) { toast('⚠ '+e.message,'error'); }
+}
+
+// ── OPERADORES (desde admin_usuarios) ──
+let allAdminOps = [];
+let unsubOps = null;
+
+function loadOperadoresTab() {
+  if (unsubOps) return;
+  // Primero obtenemos la oficina del cajero logueado
+  const email = firebase.auth().currentUser?.email || '';
+  db.collection('admin_usuarios').where('email', '==', email).limit(1).get().then(snap => {
+    const cajeroOficina = snap.empty ? '' : (snap.docs[0].data().oficinaNombre || '');
+    let query = db.collection('admin_usuarios').where('rol', '==', 'operador');
+    if (cajeroOficina) query = query.where('oficinaNombre', '==', cajeroOficina);
+    unsubOps = query.onSnapshot(s => {
+      allAdminOps = s.docs.map(d => ({ docId: d.id, ...d.data() }));
+      renderOperadoresTab();
+    });
+  });
+}
+
+function renderOperadoresTab() {
+  const tbody = document.getElementById('op-tbody');
+  if (!tbody) return;
+  const lista = allAdminOps.sort((a,b) => {
+    // activos primero, luego por nombre
+    if ((a.estado||'activo') !== (b.estado||'activo')) return a.estado === 'inactivo' ? 1 : -1;
+    return (a.nombre||'').localeCompare(b.nombre||'');
+  });
+  if (!lista.length) {
+    tbody.innerHTML = '<tr><td colspan="5"><div class="empty"><div class="empty-icon">👥</div>Sin operadores registrados.</div></td></tr>';
+    return;
+  }
+  const activos = lista.filter(o => o.estado !== 'inactivo').length;
+  document.getElementById('op-sub').textContent =
+    `${activos} activo${activos!==1?'s':''} de ${lista.length} — administrado desde el portal de administrador`;
+  tbody.innerHTML = lista.map((op, i) => {
+    const activo = op.estado !== 'inactivo';
+    return `<tr style="opacity:${activo?1:0.5}">
+      <td style="color:var(--text2)">${i+1}</td>
+      <td><b>${op.nombre||op.email||op.docId}</b></td>
+      <td><span class="badge badge-blue">${op.oficinaNombre||op.oficina||'—'}</span></td>
+      <td><span class="badge ${activo?'badge-green':'badge-gray'}">${activo?'Activo':'Inactivo'}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+function openModalOp() {
+  document.getElementById('op-edit-id').value = '';
+  document.getElementById('op-unidad').value = '';
+  document.getElementById('op-nombre').value = '';
+  document.getElementById('op-email').value = '';
+  document.getElementById('op-tipo').value = 'Oficina';
+  document.getElementById('op-estado').value = 'Activo';
+  document.getElementById('modal-op-title').textContent = '👥 Agregar Operador';
+  document.getElementById('modal-op').classList.add('open');
+}
+
+function editOperador(docId) {
+  const op = allOps.find(o => o.docId === docId);
+  if (!op) return;
+  document.getElementById('op-edit-id').value = docId;
+  document.getElementById('op-unidad').value = op.unidad||'';
+  document.getElementById('op-nombre').value = op.nombre||'';
+  document.getElementById('op-email').value = op.email||'';
+  document.getElementById('op-tipo').value = op.tipo||'Oficina';
+  document.getElementById('op-estado').value = op.estado||'Activo';
+  document.getElementById('modal-op-title').textContent = '✏️ Editar Operador';
+  document.getElementById('modal-op').classList.add('open');
+}
+
+function closeModalOp() { document.getElementById('modal-op').classList.remove('open'); }
+
+async function saveOperador() {
+  const editId = document.getElementById('op-edit-id').value;
+  const nombre = document.getElementById('op-nombre').value.trim();
+  const email  = document.getElementById('op-email').value.trim();
+  const unidad = document.getElementById('op-unidad').value.trim();
+  const tipo   = document.getElementById('op-tipo').value;
+  const estado = document.getElementById('op-estado').value;
+  if (!nombre) { toast('⚠ El nombre es obligatorio','error'); return; }
+  const data = { nombre, email, unidad, tipo, estado, updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
+  try {
+    if (editId) {
+      await db.collection('patriarca_operadores').doc(editId).update(data);
+    } else {
+      data.createdByCajero = true;
+      data.cajeroId = opId;
+      data.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+      await db.collection('patriarca_operadores').add(data);
+    }
+    closeModalOp();
+    toast('✅ Operador guardado','success');
+  } catch(e) { toast('⚠ '+e.message,'error'); }
+}
+
+async function deleteOperador(docId) {
+  if (!confirm('¿Eliminar este operador?')) return;
+  try {
+    await db.collection('patriarca_operadores').doc(docId).delete();
+    toast('🗑 Eliminado','success');
+  } catch(e) { toast('⚠ '+e.message,'error'); }
+}
+
+// ── UI HELPERS ──
+const _capitalOpsGroup = ['cupo-inicial', 'hoja-op', 'cupo-actual', 'mapa-capital'];
+
+function _hideSubNav() {
+  const sn = document.getElementById('sub-nav-capital');
+  if (sn) sn.style.display = 'none';
+}
+function _showSubNav() {
+  const sn = document.getElementById('sub-nav-capital');
+  if (sn) sn.style.display = 'block';
+}
+
+function showTab(name) {
+  // Si es uno del grupo, redirigir al grupo
+  if (_capitalOpsGroup.includes(name)) { showTabGroup(name); return; }
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  const sec = document.getElementById('sec-'+name);
+  if (sec) sec.classList.add('active');
+  if (event && event.currentTarget) event.currentTarget.classList.add('active');
+  _hideSubNav();
+  if (name === 'cajas') renderCajas();
+  if (name === 'saldo-cajas') renderSaldoCajas();
+}
+
+// Mostrar el grupo Capital Ops con un sub-tab específico activo
+function showTabGroup(subName) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-capital-ops')?.classList.add('active');
+  _showSubNav();
+  showSubSection(subName || 'cupo-actual');
+}
+
+// Cambiar sub-sección dentro de Capital Ops
+function showSubSection(name) {
+  _capitalOpsGroup.forEach(s => document.getElementById('sec-'+s)?.classList.remove('active'));
+  document.getElementById('sec-'+name)?.classList.add('active');
+  document.querySelectorAll('.sub-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('subtab-'+name)?.classList.add('active');
+  if (name === 'hoja-op') initHojaOp();
+  if (name === 'mapa-capital') initMapaCapital();
+  if (name === 'cupo-actual') renderCupoActual();
+}
+
+// ── CAJAS ──
+let allMovsGlobal = [];
+let allGastosGlobal = [];
+let cajasMetodo = null;
+let cajasFilter = { operador:'', tipo:'', estado:'', fechaDesde:'', fechaHasta:'', cliente:'' };
+let _cajasSearchTimeout = null;
+let cajasVista = 'detalle'; // 'detalle' | 'dias'
+let mesActivo = '';
+
+function initMesSelect() {
+  const now = new Date();
+  const currentKey = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0');
+  mesActivo = currentKey;
+  const sel = document.getElementById('sel-mes');
+  const nombres = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  sel.innerHTML = '';
+  [2025,2026,2027].forEach(yr => {
+    for (let m = 0; m < 12; m++) {
+      const key = yr + '-' + String(m+1).padStart(2,'0');
+      const opt = document.createElement('option');
+      opt.value = key;
+      opt.textContent = nombres[m] + ' ' + yr;
+      if (key === currentKey) opt.selected = true;
+      sel.appendChild(opt);
+    }
+  });
+}
+
+function getMesKey(doc) {
+  // 1. fecha string 'YYYY-MM-DD'
+  if (doc.fecha && /^\d{4}-\d{2}/.test(doc.fecha)) return doc.fecha.slice(0, 7);
+  // 2. ts Firestore timestamp
+  if (doc.ts?.toDate) {
+    const d = doc.ts.toDate();
+    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+  }
+  // 3. ts como objeto {seconds}
+  if (doc.ts?.seconds) {
+    const d = new Date(doc.ts.seconds * 1000);
+    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+  }
+  return '';
+}
+
+function movsDelMes() {
+  return allMovsGlobal.filter(mv => getMesKey(mv) === mesActivo);
+}
+
+function ixDelMes() {
+  return ixGlobal.filter(ix => ix.estado === 'completado' && getMesKey(ix) === mesActivo);
+}
+
+function cambiarMes() {
+  mesActivo = document.getElementById('sel-mes').value;
+  _scData = null; _scOpUid = null; // invalidar cache de saldo clientes al cambiar mes
+  _allScData = {};                  // invalidar cache de todos los operadores
+
+  // Recalcular cupos por mes desde datos cacheados
+  const rawPozo = window._cajeroConfigRaw || {};
+  cupoPozo = rawPozo.cupo_por_mes ? (rawPozo.cupo_por_mes[mesActivo] || {}) : (rawPozo.cupo_pozo || {});
+  const rawPat = window._patriarcaConfigRaw || {};
+  operadores.forEach(op => {
+    const d = rawPat[op.uid] || {};
+    cupoAsignado[op.uid] = d.cupos_por_mes ? (d.cupos_por_mes[mesActivo] || {}) : (d.cupos_cajero || {});
+  });
+  cupoInicial = cupoAsignado[opId] || {};
+
+  loadAllSaldoClientesData();       // recargar para el nuevo mes
+  renderCupoInicial();
+  renderCupoActual();
+  renderIntercambios();
+  renderSaldoCajas();
+  if (document.getElementById('sec-dashboard')?.classList.contains('active')) renderDashboard();
+  if (cajasMetodo) renderCajas();
+  if (hojaOpUid) renderHojaOp();
+  if (document.getElementById('sec-mapa-capital')?.classList.contains('active')) renderMapaCapital();
+}
+
+function loadCajas() {
+  // Sin orderBy: Firestore excluye documentos con ts nulo; ordenamos en JS
+  db.collection('patriarca_movimientos').onSnapshot(snap => {
+    allMovsGlobal = snap.docs.map(d => ({id: d.id, ...d.data()}))
+      .sort((a,b) => (a.ts?.seconds||0) - (b.ts?.seconds||0));
+    if (document.getElementById('sec-cajas')?.classList.contains('active')) renderCajas();
+    renderCupoActual();
+    if (hojaOpUid) renderHojaOp();
+    if (document.getElementById('sec-mapa-capital')?.classList.contains('active')) renderMapaCapital();
+  }, err => console.warn('cajas global:', err));
+}
+
+function loadGastosGlobal() {
+  db.collection('patriarca_gastos').onSnapshot(snap => {
+    allGastosGlobal = snap.docs.map(d => ({id: d.id, ...d.data()}));
+    if (document.getElementById('sec-mapa-capital')?.classList.contains('active')) renderMapaCapital();
+  }, err => console.warn('gastos global:', err));
+}
+
+// ── DATOS DE SALDO CLIENTES (async, cargado al seleccionar operador) ──
+let _scData    = null;   // { si, recargasClientes, pagosClientes, invertido, retornado } — para Mapa Capital (1 op)
+let _scOpUid   = null;   // operador para el que está cargado _scData
+let _allScData = {};     // { [opUid]: { si, rec, pag, inv, ret } } — para Cupo Actual (todos los ops)
+
+async function loadSaldoClientesData(opUid) {
+  if (_scOpUid === opUid && _scData) return; // ya cargado para este op
+  _scData  = null;
+  _scOpUid = opUid;
+
+  // 1. Saldo inicial del mes activo
+  let si = 0;
+  try {
+    const snap = await db.collection('patriarca_saldo_inicial').doc(`${opUid}_${mesActivo}`).get();
+    if (snap.exists) {
+      const saldos = snap.data().saldos || {};
+      Object.values(saldos).forEach(casaMap => {
+        if (casaMap && typeof casaMap === 'object')
+          Object.values(casaMap).forEach(v => { si += parseFloat(v) || 0; });
+        else
+          si += parseFloat(casaMap) || 0;
+      });
+    }
+  } catch(e) { console.warn('sc saldo_inicial:', e); }
+
+  // 2. Recargas y pagos de clientes — ya en allMovsGlobal (sin filtro de mes, igual que operador)
+  let recargasClientes = 0, pagosClientes = 0;
+  allMovsGlobal.forEach(mv => {
+    if (mv.opId !== opUid || !mv.cliente) return;
+    if (mv.tipo === 'RECARGAS') recargasClientes += +(mv.monto || 0);
+    if (mv.tipo === 'PAGOS')    pagosClientes    += +(mv.monto || 0);
+  });
+
+  // 3. Inversiones (patriarca_inversiones, sin filtro de mes igual que operador)
+  let invertido = 0, retornado = 0;
+  try {
+    const snap = await db.collection('patriarca_inversiones').where('opId', '==', opUid).get();
+    snap.docs.forEach(d => {
+      const inv = d.data();
+      invertido += parseFloat(inv.monto) || 0;
+      const ret = parseFloat(inv.retorno_cliente) || 0;
+      if (ret > 0) retornado += ret;
+    });
+  } catch(e) { console.warn('sc inversiones:', e); }
+
+  if (_scOpUid === opUid) { // guard contra race condition
+    _scData = { si, recargasClientes, pagosClientes, invertido, retornado };
+    if (document.getElementById('sec-mapa-capital')?.classList.contains('active')) renderMapaCapital();
+  }
+}
+
+// ── MAPA DE CAPITAL ──
+// Carga el saldo clientes actual para TODOS los operadores (usado en Cupo Actual)
+// Trabaja sobre un objeto LOCAL para evitar race conditions si se llama en paralelo
+let _allScLoading = false;
+async function loadAllSaldoClientesData() {
+  if (_allScLoading || !operadores.length || !mesActivo) return;
+  _allScLoading = true;
+  const local = {};
+  operadores.forEach(o => { local[o.uid] = { si: 0, rec: 0, pag: 0, inv: 0, ret: 0 }; });
+
+  try {
+    // 1. Saldo inicial del mes activo
+    const siSnaps = await Promise.all(
+      operadores.map(o => db.collection('patriarca_saldo_inicial').doc(`${o.uid}_${mesActivo}`).get().catch(()=>null))
+    );
+    operadores.forEach((o, idx) => {
+      const snap = siSnaps[idx];
+      if (snap && snap.exists) {
+        const saldos = snap.data().saldos || {};
+        Object.values(saldos).forEach(casaMap => {
+          if (casaMap && typeof casaMap === 'object')
+            Object.values(casaMap).forEach(v => { local[o.uid].si += parseFloat(v)||0; });
+          else local[o.uid].si += parseFloat(casaMap)||0;
+        });
+      }
+    });
+
+    // 2. Recargas/pagos de clientes (allMovsGlobal, sin filtro mes)
+    allMovsGlobal.forEach(mv => {
+      if (!mv.cliente || !mv.opId || !local[mv.opId]) return;
+      if (mv.tipo === 'RECARGAS') local[mv.opId].rec += +(mv.monto||0);
+      if (mv.tipo === 'PAGOS')    local[mv.opId].pag += +(mv.monto||0);
+    });
+
+    // 3. Inversiones
+    const invSnap = await db.collection('patriarca_inversiones').get();
+    invSnap.docs.forEach(d => {
+      const inv = d.data();
+      if (!inv.opId || !local[inv.opId]) return;
+      local[inv.opId].inv += parseFloat(inv.monto)||0;
+      const ret = parseFloat(inv.retorno_cliente)||0;
+      if (ret > 0) local[inv.opId].ret += ret;
+    });
+  } catch(e) { console.warn('loadAllSC:', e); }
+
+  // Asignación atómica al final — evita mezcla entre llamadas concurrentes
+  _allScData = local;
+  _allScLoading = false;
+  if (document.getElementById('sec-cupo-actual')?.classList.contains('active')) renderCupoActual();
+}
+
+// ── COMISIONES DE LA OFICINA ──
+async function loadComisiones() {
+  if (!cajeroOficina) return;
+  try {
+    const ofSnap = await db.collection('admin_oficinas')
+      .where('nombre','==', cajeroOficina).limit(1).get();
+    if (ofSnap.empty) return;
+    const ofId = ofSnap.docs[0].id;
+    const comSnap = await db.collection('admin_comisiones').doc(ofId).get();
+    if (!comSnap.exists) return;
+    comisionesMap = {};
+    (comSnap.data().lista || []).forEach(c => {
+      if (c.casa && c.metodo) {
+        comisionesMap[`${c.casa.toUpperCase()}_${normMetodo(c.metodo)}`] = [
+          (c.tasaRecarga || 0) / 100,
+          (c.tasaPago    || 0) / 100
+        ];
+      }
+    });
+  } catch(e) { console.error('loadComisiones:', e); }
+}
+
+function getComision(casa, metodo, tipo) {
+  const key = `${(casa||'').trim().toUpperCase()}_${normMetodo(metodo)}`;
+  const r = comisionesMap[key];
+  if (!r) return 0;
+  return tipo === 'PAGOS' ? r[1] : r[0];
+}
+
+function initMapaCapital() {
+  const sel = document.getElementById('mc-sel-op');
+  // Repoblar selector con operadores actuales
+  const current = sel.value;
+  sel.innerHTML = '<option value="">— Seleccionar —</option>';
+  operadores.forEach(op => {
+    const opt = document.createElement('option');
+    opt.value = op.uid;
+    opt.textContent = op.nombre;
+    if (op.uid === current) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  renderMapaCapital();
+  // Cargar datos de clientes si ya hay operador seleccionado
+  const opUid = sel.value;
+  if (opUid) { _scData = null; loadSaldoClientesData(opUid); }
+}
+
+function renderMapaCapital() {
+  const opUid = document.getElementById('mc-sel-op')?.value;
+  const tbody  = document.getElementById('mc-tbody');
+  const COLS   = 9; // total columnas incluidas INVERTIDO y RETORNADO
+
+  if (!opUid) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="${COLS}"><div class="empty">Selecciona un operador</div></td></tr>`;
+    return;
+  }
+
+
+  // Disparar carga de datos de clientes si es necesario
+  if (_scOpUid !== opUid) { _scData = null; loadSaldoClientesData(opUid); }
+
+  const ensure = met => { if (!data[met]) data[met] = { ini:0, ix:0, rec:0, pag:0, gas:0 }; };
+
+  // Métodos base (excluir SALDO CLIENTES — se maneja aparte)
+  const metSet = new Set(METODOS.map(normMetodo));
+  Object.keys(cupoAsignado[opUid] || {}).forEach(m => {
+    const n = normMetodo(m);
+    if (n !== 'BONIFICACION' && n !== 'SALDO CLIENTES') metSet.add(n);
+  });
+  movsDelMes().filter(mv => mv.opId === opUid && mv.metodo)
+    .forEach(mv => { const n=normMetodo(mv.metodo); if(n!=='BONIFICACION'&&n!=='SALDO CLIENTES') metSet.add(n); });
+  ixDelMes().forEach(ix => {
+    if (ix.op1_uid === opUid) {
+      if(ix.op1_egresa)  { const n=normMetodo(ix.op1_egresa);  if(n!=='SALDO CLIENTES') metSet.add(n); }
+      if(ix.op1_ingresa) { const n=normMetodo(ix.op1_ingresa); if(n!=='SALDO CLIENTES') metSet.add(n); }
+    }
+    if (ix.tipo === 'C' && ix.op2_uid === opUid) {
+      if(ix.op2_egresa)  { const n=normMetodo(ix.op2_egresa);  if(n!=='SALDO CLIENTES') metSet.add(n); }
+      if(ix.op2_ingresa) { const n=normMetodo(ix.op2_ingresa); if(n!=='SALDO CLIENTES') metSet.add(n); }
+    }
+  });
+  metSet.delete('BONIFICACION');
+  metSet.delete('SALDO CLIENTES');
+
+  const data = {};
+  [...metSet].forEach(met => { data[met] = { ini:0, ix:0, rec:0, pag:0, gas:0 }; });
+
+  // Cupo Inicial (normMetodo deduplica capitalización; asignar si hay valor)
+  Object.entries(cupoAsignado[opUid] || {}).forEach(([rawMet, v]) => {
+    const met = normMetodo(rawMet);
+    if (met === 'BONIFICACION' || met === 'SALDO CLIENTES') return;
+    ensure(met);
+    if (v !== undefined && v !== null && v !== 0) data[met].ini = v;
+  });
+
+  // Movimientos del mes por método (incluye los que tienen cliente — son la misma transacción)
+  movsDelMes().forEach(mv => {
+    if (mv.opId !== opUid) return;
+    const met = normMetodo(mv.metodo);
+    if (!met || met === 'BONIFICACION' || met === 'SALDO CLIENTES') return;
+    ensure(met);
+    const monto = +(mv.monto || 0);
+    if (mv.tipo === 'PAGOS')    data[met].pag += monto;
+    if (mv.tipo === 'RECARGAS') data[met].rec += monto;
+  });
+
+  // Intercambios del mes
+  ixDelMes().forEach(ix => {
+    const m   = ix.monto || 0;
+    const add = (rawMet, delta) => {
+      if (!rawMet) return;
+      const met = normMetodo(rawMet);
+      if (met === 'SALDO CLIENTES') return;
+      ensure(met);
+      data[met].ix += delta;
+    };
+    if (ix.op1_uid === opUid) { add(ix.op1_egresa, -m); add(ix.op1_ingresa, +m); }
+    if (ix.tipo === 'C' && ix.op2_uid === opUid) { add(ix.op2_egresa, -m); add(ix.op2_ingresa, +m); }
+  });
+
+  // Gastos del mes
+  allGastosGlobal.forEach(g => {
+    if (g.opId !== opUid || getMesKey(g) !== mesActivo) return;
+    const met = normMetodo(g.metodo);
+    if (!met || met === 'SALDO CLIENTES') return;
+    ensure(met);
+    data[met].gas += parseFloat(g.valor) || 0;
+  });
+
+  // Comisiones por cobrar (campo 'comision' guardado en el movimiento, igual que el portal)
+  let totalComisiones = 0;
+  movsDelMes().forEach(mv => {
+    if (mv.opId !== opUid) return;
+    totalComisiones += parseFloat(mv.comision) || 0;
+  });
+
+  // Métodos con actividad
+  const mets = METODOS.length
+    ? METODOS.map(normMetodo).filter(m => m !== 'BONIFICACION' && m !== 'SALDO CLIENTES' && data[m]
+        && (data[m].ini||data[m].ix||data[m].rec||data[m].pag||data[m].gas))
+    : Object.keys(data).filter(m => { const d=data[m]; return d.ini||d.ix||d.rec||d.pag||d.gas; });
+
+  let totIni=0, totIx=0, totRec=0, totPag=0, totGas=0, totAct=0;
+
+  // Filas de métodos normales (INVERTIDO y RETORNADO = — )
+  let rowsHtml = mets.map(met => {
+    const d   = data[met] || { ini:0, ix:0, rec:0, pag:0, gas:0 };
+    const act = d.ini + d.pag - d.rec + d.ix - d.gas;
+    totIni += d.ini; totIx += d.ix; totRec += d.rec; totPag += d.pag; totGas += d.gas; totAct += act;
+    const actCls = act > 0 ? 'td-pos' : act < 0 ? 'td-neg' : 'td-zero';
+    const ixSty  = d.ix > 0 ? 'color:var(--green)' : d.ix < 0 ? 'color:var(--red)' : '';
+    return `<tr>
+      <td class="td-metodo" style="position:sticky;left:0;background:var(--bg2);z-index:2">${met}</td>
+      <td style="text-align:right">${d.ini ? pesos(d.ini) : '—'}</td>
+      <td style="text-align:right;${ixSty}">${d.ix ? (d.ix>0?'+':'')+pesos(Math.abs(d.ix)) : '—'}</td>
+      <td style="text-align:right;color:var(--blue)">${d.rec ? pesos(d.rec) : '—'}</td>
+      <td style="text-align:right;color:var(--green)">${d.pag ? pesos(d.pag) : '—'}</td>
+      <td style="text-align:right;color:var(--text2)">—</td>
+      <td style="text-align:right;color:var(--text2)">—</td>
+      <td style="text-align:right;color:var(--red)">${d.gas ? pesos(d.gas) : '—'}</td>
+      <td class="${actCls}" style="text-align:right;font-weight:700">${pesos(act)}</td>
+    </tr>`;
+  }).join('');
+
+  // Fila especial SALDO CLIENTES
+  // Convención: en cajero, PAGOS(+) = recargas_clientes (entra), RECARGAS(-) = pagos_a_clientes (sale)
+  // Cupo Actual = si + recargasClientes - pagosClientes - invertido + retornado
+  if (_scData) {
+    const sc  = _scData;
+    const act = sc.si + sc.recargasClientes - sc.pagosClientes - sc.invertido + sc.retornado;
+    const cls = act >= 0 ? 'td-pos' : 'td-neg';
+    rowsHtml += `<tr style="border-top:2px dashed var(--border)">
+      <td class="td-metodo" style="position:sticky;left:0;background:var(--bg2);z-index:2;color:var(--gold)">SALDO CLIENTES</td>
+      <td style="text-align:right;color:var(--gold)">${sc.si ? pesos(sc.si) : '—'}</td>
+      <td style="text-align:right;color:var(--text2)">—</td>
+      <td style="text-align:right;color:var(--blue)">${sc.pagosClientes ? pesos(sc.pagosClientes) : '—'}</td>
+      <td style="text-align:right;color:var(--green)">${sc.recargasClientes ? pesos(sc.recargasClientes) : '—'}</td>
+      <td style="text-align:right;color:var(--orange)">${sc.invertido ? pesos(sc.invertido) : '—'}</td>
+      <td style="text-align:right;color:var(--gold)">${sc.retornado ? pesos(sc.retornado) : '—'}</td>
+      <td style="text-align:right;color:var(--text2)">—</td>
+      <td class="${cls}" style="text-align:right;font-weight:700">${pesos(act)}</td>
+    </tr>`;
+  } else {
+    rowsHtml += `<tr style="border-top:2px dashed var(--border)">
+      <td class="td-metodo" style="position:sticky;left:0;background:var(--bg2);z-index:2;color:var(--gold)">SALDO CLIENTES</td>
+      <td colspan="${COLS-1}" style="text-align:center;color:var(--text2);font-size:11px">Cargando datos de clientes…</td>
+    </tr>`;
+  }
+
+  // Fila especial COMISIONES POR COBRAR
+  if (totalComisiones > 0) {
+    rowsHtml += `<tr style="border-top:2px dashed var(--border)">
+      <td class="td-metodo" style="position:sticky;left:0;background:var(--bg2);z-index:2;color:var(--green)">COMISIONES POR COBRAR</td>
+      <td style="text-align:right;color:var(--text2)">—</td>
+      <td style="text-align:right;color:var(--text2)">—</td>
+      <td style="text-align:right;color:var(--text2)">—</td>
+      <td style="text-align:right;color:var(--green);font-weight:600">+${pesos(totalComisiones)}</td>
+      <td style="text-align:right;color:var(--text2)">—</td>
+      <td style="text-align:right;color:var(--text2)">—</td>
+      <td style="text-align:right;color:var(--text2)">—</td>
+      <td class="td-pos" style="text-align:right;font-weight:700">${pesos(totalComisiones)}</td>
+    </tr>`;
+  }
+
+  if (!mets.length && !_scData) {
+    tbody.innerHTML = `<tr><td colspan="${COLS}"><div class="empty">Sin movimientos para este operador en el mes seleccionado</div></td></tr>`;
+  } else {
+    tbody.innerHTML = rowsHtml;
+  }
+
+  // Totales = métodos normales + SALDO CLIENTES + COMISIONES
+  let gIni = totIni, gRec = totRec, gPag = totPag, gInv = 0, gRet = 0, gAct = totAct + totalComisiones;
+  if (_scData) {
+    const sc = _scData;
+    gIni += sc.si || 0;
+    gRec += sc.pagosClientes || 0;      // pagos a clientes = salida de SC
+    gPag += sc.recargasClientes || 0;   // recargas de clientes = entrada a SC
+    gInv  = sc.invertido || 0;
+    gRet  = sc.retornado || 0;
+    gAct += (sc.si||0) + (sc.recargasClientes||0) - (sc.pagosClientes||0) - (sc.invertido||0) + (sc.retornado||0);
+  }
+
+  const ixColor   = totIx > 0 ? 'var(--green)' : totIx < 0 ? 'var(--red)' : 'inherit';
+  const $ini = document.getElementById('mc-tot-ini');
+  const $ix  = document.getElementById('mc-tot-ix');
+  const $rec = document.getElementById('mc-tot-rec');
+  const $pag = document.getElementById('mc-tot-pag');
+  const $inv = document.getElementById('mc-tot-inv');
+  const $ret = document.getElementById('mc-tot-ret');
+  const $gas = document.getElementById('mc-tot-gas');
+  const $act = document.getElementById('mc-tot-act');
+  if ($ini) $ini.textContent = gIni ? pesos(gIni) : '—';
+  if ($ix)  { $ix.textContent = totIx ? (totIx>0?'+':'')+pesos(Math.abs(totIx)) : '—'; $ix.style.color = ixColor; }
+  if ($rec) $rec.textContent = gRec ? pesos(gRec) : '—';
+  if ($pag) $pag.textContent = gPag ? pesos(gPag) : '—';
+  if ($inv) { $inv.textContent = gInv ? pesos(gInv) : '—'; $inv.style.color = gInv ? 'var(--orange)' : ''; }
+  if ($ret) { $ret.textContent = gRet ? pesos(gRet) : '—'; $ret.style.color = gRet ? 'var(--gold)' : ''; }
+  if ($gas) $gas.textContent = totGas ? pesos(totGas) : '—';
+  if ($act) { $act.textContent = pesos(gAct); $act.className = gAct >= 0 ? 'td-pos' : 'td-neg'; }
+}
+
+function renderCajas() {
+  const navEl = document.getElementById('cajas-method-nav');
+  if (!navEl) return;
+
+  // Si METODOS aún no cargó desde admin_config, derivar métodos de los movimientos conocidos
+  const methodsToShow = METODOS.length
+    ? METODOS
+    : [...new Set(allMovsGlobal
+        .map(mv => normMetodo(mv.metodo))
+        .filter(n => n && n !== 'BONIFICACION' && n !== 'SALDO CLIENTES')
+      )].sort();
+
+  if (!cajasMetodo && methodsToShow.length) cajasMetodo = methodsToShow[0];
+
+  const pendingCount = {};
+  methodsToShow.forEach(m => {
+    pendingCount[m] = movsDelMes().filter(mv =>
+      normMetodo(mv.metodo) === normMetodo(m) && mv.canal !== 'I-OP' &&
+      (!mv.estado_cajero || mv.estado_cajero === 'Pendiente')
+    ).length;
+  });
+
+  navEl.innerHTML = methodsToShow.map(m => {
+    const p = pendingCount[m] || 0;
+    const badge = p > 0 ? ` <span style="background:var(--orange);color:#000;border-radius:10px;padding:1px 5px;font-size:10px">${p}</span>` : '';
+    return `<div class="method-tab${m===cajasMetodo?' active':''}" onclick="setCajasMetodo('${m.replace(/'/g,"\\'")}')">${m}${badge}</div>`;
+  }).join('');
+
+  renderCajasMetodo(cajasMetodo);
+}
+
+function setCajasMetodo(m) {
+  cajasMetodo = m;
+  renderCajas();
+}
+
+function updateCajasFilter(key, val) {
+  cajasFilter[key] = val;
+  if (key === 'cliente') {
+    clearTimeout(_cajasSearchTimeout);
+    _cajasSearchTimeout = setTimeout(() => {
+      renderCajasMetodo(cajasMetodo);
+      requestAnimationFrame(() => {
+        const el = document.getElementById('cajas-search');
+        if (el) { const p = el.value.length; el.focus(); el.setSelectionRange(p, p); }
+      });
+    }, 350);
+  } else {
+    renderCajasMetodo(cajasMetodo);
+  }
+}
+
+function limpiarCajasFilter() {
+  cajasFilter = { operador:'', tipo:'', estado:'', fechaDesde:'', fechaHasta:'', cliente:'' };
+  renderCajasMetodo(cajasMetodo);
+}
+
+function renderCajasMetodo(metodo) {
+  const contentEl = document.getElementById('cajas-content');
+  if (!contentEl) return;
+
+  const fStyle = 'background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text1);font-size:12px;padding:5px 8px;outline:none;font-family:inherit;cursor:pointer';
+
+  // Todos los movimientos del mes para este método (sin filtro)
+  const allMovs = movsDelMes()
+    .filter(mv => normMetodo(mv.metodo) === normMetodo(metodo))
+    .sort((a,b) => {
+      const fa = a.fecha || '', fb = b.fecha || '';
+      if (fa !== fb) return fa.localeCompare(fb);
+      const na = parseInt((a.op_id||'').match(/\d+/)?.[0] || (a.id||'').match(/\d+/)?.[0] || 0);
+      const nb = parseInt((b.op_id||'').match(/\d+/)?.[0] || (b.id||'').match(/\d+/)?.[0] || 0);
+      if (na !== nb) return na - nb;
+      return (a.ts?.seconds||0) - (b.ts?.seconds||0);
+    });
+
+  // Pre-calcular saldo corriente y posición global para TODOS los movimientos
+  const saldoInicial = cupoPozo[metodo] || 0;
+  const saldoMap = new Map();
+  const posMap = new Map();
+  let runSaldo = saldoInicial;
+  let totalRecargas = 0, totalPagos = 0;
+  allMovs.forEach((mv, i) => {
+    const monto = mv.monto_cajero ?? mv.monto ?? 0;
+    if (mv.tipo === 'RECARGAS') { totalRecargas += monto; runSaldo -= monto; }
+    else { totalPagos += monto; runSaldo += monto; }
+    saldoMap.set(mv.id, runSaldo);
+    posMap.set(mv.id, i + 1);
+  });
+  const saldoFinal = saldoInicial - totalRecargas + totalPagos;
+
+  // Aplicar filtros
+  let movsF = allMovs;
+  if (cajasFilter.operador) movsF = movsF.filter(mv => mv.opId === cajasFilter.operador);
+  if (cajasFilter.tipo) movsF = movsF.filter(mv => mv.tipo === cajasFilter.tipo);
+  if (cajasFilter.estado) movsF = movsF.filter(mv => {
+    const est = mv.estado_cajero || (mv.canal === 'I-OP' ? 'Realizada' : 'Pendiente');
+    return est === cajasFilter.estado;
+  });
+  if (cajasFilter.fechaDesde) movsF = movsF.filter(mv => (mv.fecha||'') >= cajasFilter.fechaDesde);
+  if (cajasFilter.fechaHasta) movsF = movsF.filter(mv => (mv.fecha||'') <= cajasFilter.fechaHasta);
+  if (cajasFilter.cliente) {
+    const q = cajasFilter.cliente.toLowerCase();
+    movsF = movsF.filter(mv => (mv.cliente||'').toLowerCase().includes(q));
+  }
+
+  const hayFiltros = Object.values(cajasFilter).some(v => v !== '');
+  const pendientes = movsF.filter(mv => mv.canal !== 'I-OP' && (!mv.estado_cajero || mv.estado_cajero === 'Pendiente')).length;
+
+  // Totales del conjunto filtrado
+  let filtRecargas = 0, filtPagos = 0;
+  movsF.forEach(mv => {
+    const m = mv.monto_cajero ?? mv.monto ?? 0;
+    if (mv.tipo === 'RECARGAS') filtRecargas += m;
+    else filtPagos += m;
+  });
+
+  // Opciones de operadores para el select
+  const opOptions = operadores.map(o =>
+    `<option value="${o.uid}"${cajasFilter.operador===o.uid?' selected':''}>${o.nombre.split(' ')[0]}</option>`
+  ).join('');
+
+  // Toggle de vista
+  const btnBase = 'border:none;padding:5px 12px;font-size:12px;cursor:pointer;font-family:inherit;transition:all .15s';
+  const vistaToggle = `
+    <div style="display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;margin-right:4px;flex-shrink:0">
+      <button onclick="cajasVista='detalle';renderCajasMetodo(cajasMetodo)" style="${btnBase};${cajasVista==='detalle'?'background:var(--gold);color:#000;font-weight:700':'background:var(--bg2);color:var(--text2)'}">📋 Detalle</button>
+      <button onclick="cajasVista='dias';renderCajasMetodo(cajasMetodo)" style="${btnBase};border-left:1px solid var(--border);${cajasVista==='dias'?'background:var(--gold);color:#000;font-weight:700':'background:var(--bg2);color:var(--text2)'}">📅 Por Días</button>
+    </div>`;
+
+  // Barra de filtros
+  const filterBar = `
+    <div style="display:flex;gap:8px;padding:10px 14px;background:var(--bg);border-bottom:1px solid var(--border);flex-wrap:wrap;align-items:center">
+      ${vistaToggle}
+      ${cajasVista==='detalle' ? `
+      <select style="${fStyle}" onchange="updateCajasFilter('operador',this.value)">
+        <option value="">👤 Todos los operadores</option>
+        ${opOptions}
+      </select>
+      <select style="${fStyle}" onchange="updateCajasFilter('tipo',this.value)">
+        <option value="">📋 Todos los tipos</option>
+        <option value="RECARGAS"${cajasFilter.tipo==='RECARGAS'?' selected':''}>RECARGAS</option>
+        <option value="PAGOS"${cajasFilter.tipo==='PAGOS'?' selected':''}>PAGOS</option>
+      </select>
+      <select style="${fStyle}" onchange="updateCajasFilter('estado',this.value)">
+        <option value="">🔘 Todos los estados</option>
+        <option value="Realizada"${cajasFilter.estado==='Realizada'?' selected':''}>✅ Realizada</option>
+        <option value="Pendiente"${cajasFilter.estado==='Pendiente'?' selected':''}>⏳ Pendiente</option>
+        <option value="Rechazada"${cajasFilter.estado==='Rechazada'?' selected':''}>❌ Rechazada</option>
+      </select>
+      <input type="date" style="${fStyle}" value="${cajasFilter.fechaDesde}" onchange="updateCajasFilter('fechaDesde',this.value)" title="Desde">
+      <span style="color:var(--text2);font-size:11px">—</span>
+      <input type="date" style="${fStyle}" value="${cajasFilter.fechaHasta}" onchange="updateCajasFilter('fechaHasta',this.value)" title="Hasta">
+      <input id="cajas-search" type="text" style="${fStyle};min-width:160px" value="${cajasFilter.cliente.replace(/"/g,'&quot;')}" oninput="updateCajasFilter('cliente',this.value)" placeholder="🔍 Buscar cliente...">
+      ${hayFiltros ? `<button onclick="limpiarCajasFilter()" style="background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.3);border-radius:6px;color:var(--red);font-size:12px;padding:5px 10px;cursor:pointer;font-family:inherit">✕ Limpiar</button>` : ''}
+      ${hayFiltros ? `<span style="color:var(--text2);font-size:11px">${movsF.length} de ${allMovs.length}</span>` : ''}
+      ` : ''}
+    </div>`;
+
+  // Filas de la tabla
+  const rows = movsF.map(mv => {
+    const monto = mv.monto_cajero ?? mv.monto ?? 0;
+    const opNom = operadores.find(o => o.uid === mv.opId)?.nombre || mv.opId || '—';
+    const esInterna = mv.canal === 'I-OP';
+    const estado = mv.estado_cajero || (esInterna ? 'Realizada' : 'Pendiente');
+    const estadoBadge = estado === 'Realizada'
+      ? `<span class="badge badge-green">Realizada</span>`
+      : estado === 'Rechazada'
+        ? `<span class="badge badge-red">Rechazada</span>`
+        : `<span class="badge badge-yellow">⏳ Pendiente</span>`;
+
+    const accion = !esInterna && estado === 'Pendiente'
+      ? `<button class="btn btn-gold btn-sm" onclick="realizarMov('${mv.id}',${monto})">✓</button>
+         <button class="btn btn-red btn-sm" onclick="rechazarMov('${mv.id}')">✗</button>`
+      : estado === 'Realizada'
+        ? `<button class="btn btn-ghost btn-sm" onclick="editarMontoCaja('${mv.id}',${monto})">✏</button>`
+        : '';
+
+    const sc = saldoMap.get(mv.id) ?? 0;
+    const pos = posMap.get(mv.id) ?? 0;
+    return `<tr style="${esInterna?'background:rgba(74,158,255,.04)':''}">
+      <td style="color:var(--text2)">${pos}</td>
+      <td style="color:var(--text2);font-size:11px">${pos} ${metodo}</td>
+      <td style="text-align:right;font-weight:600">${pesos(monto)}</td>
+      <td><span class="badge ${mv.tipo==='RECARGAS'?'badge-green':'badge-red'}">${mv.tipo}</span></td>
+      <td>${estadoBadge}</td>
+      <td style="color:var(--text2)">${mv.fecha||'—'}</td>
+      <td style="max-width:130px;overflow:hidden;text-overflow:ellipsis;color:var(--text2)">${mv.cliente||'—'}</td>
+      <td style="color:var(--text2)">${opNom.split(' ')[0]}</td>
+      <td style="text-align:right;font-weight:700;color:${sc>=0?'var(--green)':'var(--red)'}">${pesos(sc)}</td>
+      <td style="white-space:nowrap">${accion}</td>
+    </tr>`;
+  });
+
+  // Resumen: cuando hay filtros, mostrar totales filtrados; sin filtros, totales reales
+  const showRecargas = hayFiltros ? filtRecargas : totalRecargas;
+  const showPagos    = hayFiltros ? filtPagos    : totalPagos;
+
+  const summaryBar = `
+    <div class="cajas-summary">
+      <div><div class="cajas-kpi-label">Saldo Inicial</div><div class="cajas-kpi-value" style="color:var(--gold)">${pesos(saldoInicial)}</div></div>
+      <div><div class="cajas-kpi-label">Recargas${hayFiltros&&cajasVista==='detalle'?' ·filtro':''}</div><div class="cajas-kpi-value" style="color:var(--red)">-${pesos(cajasVista==='dias'?totalRecargas:showRecargas)}</div></div>
+      <div><div class="cajas-kpi-label">Pagos${hayFiltros&&cajasVista==='detalle'?' ·filtro':''}</div><div class="cajas-kpi-value" style="color:var(--green)">+${pesos(cajasVista==='dias'?totalPagos:showPagos)}</div></div>
+      <div><div class="cajas-kpi-label">Saldo Final</div><div class="cajas-kpi-value" style="color:${saldoFinal>=0?'var(--green)':'var(--red)'}">${pesos(saldoFinal)}</div></div>
+      ${pendientes>0?`<div style="margin-left:auto"><span class="badge badge-yellow">⏳ ${pendientes} pendiente${pendientes>1?'s':''}</span></div>`:''}
+    </div>`;
+
+  const tableHtml = cajasVista === 'dias'
+    ? buildCajasDiasTable(metodo, allMovs, saldoInicial)
+    : `<div class="tbl-wrap"><table>
+        <thead><tr>
+          <th>OP-C</th><th>CONCATENAR</th><th style="text-align:right">MONTO</th>
+          <th>OPCIÓN</th><th>ESTADO</th><th>FECHA</th><th>CLIENTE</th><th>OPERADOR</th>
+          <th style="text-align:right">SALDO</th><th></th>
+        </tr></thead>
+        <tbody>${rows.length?rows.join(''):'<tr><td colspan="10"><div class="empty"><div class="empty-icon">📋</div>Sin movimientos</div></td></tr>'}</tbody>
+      </table></div>`;
+
+  contentEl.innerHTML = filterBar + summaryBar + tableHtml;
+}
+
+function buildCajasDiasTable(metodo, allMovs, saldoInicial) {
+  // Agrupar movimientos por día
+  const porDia = {};
+  allMovs.forEach(mv => {
+    const f = mv.fecha || '?';
+    if (!porDia[f]) porDia[f] = { recargas: 0, pagos: 0 };
+    const monto = mv.monto_cajero ?? mv.monto ?? 0;
+    if (mv.tipo === 'RECARGAS') porDia[f].recargas += monto;
+    else porDia[f].pagos += monto;
+  });
+
+  // Intercambios internos (tipo=I) que afectan este método
+  const ixPorDia = {};
+  const mn = normMetodo(metodo);
+  ixDelMes().filter(ix => ix.tipo === 'I' && ix.estado === 'completado').forEach(ix => {
+    let delta = 0;
+    if (normMetodo(ix.op1_egresa)  === mn) delta -= ix.monto || 0;
+    if (normMetodo(ix.op1_ingresa) === mn) delta += ix.monto || 0;
+    if (delta !== 0) {
+      const f = ix.fecha || '?';
+      ixPorDia[f] = (ixPorDia[f] || 0) + delta;
+    }
+  });
+
+  // Unir todas las fechas con actividad y ordenar
+  const fechas = [...new Set([...Object.keys(porDia), ...Object.keys(ixPorDia)])].sort();
+
+  let saldo = saldoInicial;
+  let totRec = 0, totPag = 0, totIx = 0;
+
+  const rows = fechas.map(f => {
+    const d  = porDia[f]  || { recargas: 0, pagos: 0 };
+    const ix = ixPorDia[f] || 0;
+    const si = saldo;
+    saldo = saldo - d.recargas + d.pagos + ix;
+    const sf = saldo;
+    totRec += d.recargas;
+    totPag += d.pagos;
+    totIx  += ix;
+
+    const recCell = d.recargas
+      ? `<span style="color:var(--red)">-${pesos(d.recargas)}</span>` : '<span style="color:var(--text2)">—</span>';
+    const pagCell = d.pagos
+      ? `<span style="color:var(--green)">+${pesos(d.pagos)}</span>` : '<span style="color:var(--text2)">—</span>';
+    const ixCell  = ix !== 0
+      ? `<span style="color:${ix>0?'var(--green)':'var(--red)'}">${ix>0?'+':''}${pesos(ix)}</span>`
+      : '<span style="color:var(--text2)">—</span>';
+
+    return `<tr>
+      <td style="font-weight:600;color:var(--text1)">${fmtDate(f)}</td>
+      <td style="text-align:right;font-weight:600;color:${si>=0?'var(--green)':'var(--red)'}">${pesos(si)}</td>
+      <td style="text-align:right">${recCell}</td>
+      <td style="text-align:right">${pagCell}</td>
+      <td style="text-align:right">${ixCell}</td>
+      <td style="text-align:right;font-weight:700;color:${sf>=0?'var(--green)':'var(--red)'}">${pesos(sf)}</td>
+    </tr>`;
+  });
+
+  // Fila de totales
+  const sfinal = saldoInicial - totRec + totPag + totIx;
+  const totalsRow = `<tr style="border-top:2px solid var(--border);background:var(--bg2)">
+    <td style="font-weight:700;color:var(--text1)">TOTAL</td>
+    <td style="text-align:right;font-weight:700;color:var(--gold)">${pesos(saldoInicial)}</td>
+    <td style="text-align:right;font-weight:700;color:${totRec?'var(--red)':'var(--text2)'}">${totRec?'-'+pesos(totRec):'—'}</td>
+    <td style="text-align:right;font-weight:700;color:${totPag?'var(--green)':'var(--text2)'}">${totPag?'+'+pesos(totPag):'—'}</td>
+    <td style="text-align:right;font-weight:700;color:${totIx>0?'var(--green)':totIx<0?'var(--red)':'var(--text2)'}">${totIx!==0?(totIx>0?'+':'')+pesos(totIx):'—'}</td>
+    <td style="text-align:right;font-weight:700;color:${sfinal>=0?'var(--green)':'var(--red)'}">${pesos(sfinal)}</td>
+  </tr>`;
+
+  return `<div class="tbl-wrap"><table>
+    <thead><tr>
+      <th>FECHA</th>
+      <th style="text-align:right">SALDO INICIAL</th>
+      <th style="text-align:right">RECARGAS</th>
+      <th style="text-align:right">PAGOS</th>
+      <th style="text-align:right">INTERCAMBIOS</th>
+      <th style="text-align:right">SALDO FINAL</th>
+    </tr></thead>
+    <tbody>
+      ${fechas.length ? rows.join('') + totalsRow : '<tr><td colspan="6"><div class="empty"><div class="empty-icon">📅</div>Sin movimientos</div></td></tr>'}
+    </tbody>
+  </table></div>`;
+}
+
+// ── MODAL MONTO ──
+let _montoResolve = null;
+function promptMonto(titulo, label, valorDefault) {
+  return new Promise(resolve => {
+    _montoResolve = resolve;
+    document.getElementById('modal-monto-title').textContent = titulo;
+    document.getElementById('modal-monto-label').textContent = label;
+    const inp = document.getElementById('modal-monto-input');
+    inp.value = valorDefault ? numToCOP(valorDefault) : '';
+    document.getElementById('modal-monto').classList.add('open');
+    setTimeout(() => { inp.focus(); inp.select(); }, 50);
+  });
+}
+function _montoAceptar() {
+  const raw = document.getElementById('modal-monto-input').value.trim();
+  document.getElementById('modal-monto').classList.remove('open');
+  if (_montoResolve) { _montoResolve(raw || null); _montoResolve = null; }
+}
+function _montoCancelar() {
+  document.getElementById('modal-monto').classList.remove('open');
+  if (_montoResolve) { _montoResolve(null); _montoResolve = null; }
+}
+
+async function realizarMov(id, montoOriginal) {
+  const input = await promptMonto('✓ Confirmar operación', `Monto realizado (vacío = ${pesos(montoOriginal)}):`, montoOriginal);
+  if (input === null) return;
+  const monto = parseCOP(input) || montoOriginal;
+  try {
+    await db.collection('patriarca_movimientos').doc(id).update({ estado_cajero: 'Realizada', monto_cajero: monto });
+    toast('✅ Operación realizada', 'success');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+async function rechazarMov(id) {
+  if (!confirm('¿Rechazar esta operación?')) return;
+  try {
+    await db.collection('patriarca_movimientos').doc(id).update({ estado_cajero: 'Rechazada' });
+    toast('Operación rechazada', 'info');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+async function editarMontoCaja(id, montoActual) {
+  const input = await promptMonto('✏ Editar monto', `Monto actual: ${pesos(montoActual)}`, montoActual);
+  if (!input?.trim()) return;
+  const monto = parseCOP(input);
+  if (!monto) { toast('Monto inválido', 'error'); return; }
+  try {
+    await db.collection('patriarca_movimientos').doc(id).update({ monto_cajero: monto });
+    toast('✅ Monto actualizado', 'success');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+function pesos(v) {
+  if (v === undefined || v === null || isNaN(v)) return '$0';
+  return '$' + Math.round(v).toLocaleString('es-CO');
+}
+
+// Convierte número a string COP con puntos de miles y coma decimal (soporta negativos)
+function numToCOP(n) {
+  if (!n) return '';
+  const neg = n < 0;
+  const fixed = Math.abs(n).toFixed(2);
+  const [int, dec] = fixed.split('.');
+  const intFmt = int.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return (neg ? '-' : '') + (dec === '00' ? intFmt : intFmt + ',' + dec);
+}
+
+// Formatea string mientras el usuario escribe — puntos miles, coma decimal (soporta negativos)
+function formatCOP(raw) {
+  const neg = raw.startsWith('-');
+  raw = raw.replace(/[^\d,]/g, '');
+  const lastComma = raw.lastIndexOf(',');
+  let result;
+  if (lastComma !== -1) {
+    let intPart = raw.substring(0, lastComma);
+    let decPart = raw.substring(lastComma + 1).replace(/,/g, '').substring(0, 2);
+    intPart = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    result = intPart + ',' + decPart;
+  } else {
+    result = raw.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  }
+  return (neg ? '-' : '') + result;
+}
+
+// Parsea string formateado (1.234.567,89 o -1.234.567,89) a número
+function parseCOP(str) {
+  if (!str) return 0;
+  const neg = str.startsWith('-');
+  const val = parseFloat(str.replace(/-/g, '').replace(/\./g, '').replace(',', '.')) || 0;
+  return neg ? -val : val;
+}
+
+// Handler oninput para campos de cupo
+function onCupoInput(el, metodo) {
+  const oldLen = el.value.length;
+  const pos = el.selectionStart;
+  el.value = formatCOP(el.value);
+  const diff = el.value.length - oldLen;
+  el.selectionStart = el.selectionEnd = Math.max(0, pos + diff);
+  if (metodo) updateResto(metodo);
+}
+
+function fmtDate(s) {
+  if (!s) return '—';
+  try {
+    const d = new Date(s.includes('T') ? s : s + 'T00:00:00');
+    return d.toLocaleDateString('es-CO', { day:'2-digit', month:'2-digit', year:'numeric' });
+  } catch { return s; }
+}
+
+let toastTimer;
+function toast(msg, type='') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'show' + (type?' '+type:'');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.className = '', 3000);
+}
+
+// ── HOJA OPERADOR ──────────────────────────────────────────────────────────
+let hojaOpUid = null;
+let hojaFilter = 'todos';
+
+function initHojaOp() {
+  const sel = document.getElementById('ho-selector');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">— Seleccionar operador —</option>';
+  operadores.forEach(op => {
+    sel.innerHTML += `<option value="${op.uid}"${op.uid===cur?' selected':''}>${op.nombre}</option>`;
+  });
+  if (hojaOpUid) renderHojaOp();
+}
+
+function setHojaOp(uid) {
+  hojaOpUid = uid;
+  renderHojaOp();
+}
+
+function setHojaFilter(f, btn) {
+  hojaFilter = f;
+  document.querySelectorAll('#ho-filters .btn-filter').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  renderHojaOpTabla();
+}
+
+function renderHojaOp() {
+  const op = operadores.find(o => o.uid === hojaOpUid);
+  if (!op) {
+    document.getElementById('ho-sub').textContent = 'Selecciona un operador para ver su resumen';
+    document.getElementById('ho-metodos-wrap').innerHTML = '<div class="ho-card" style="border-style:dashed;color:var(--text2)">Selecciona un operador</div>';
+    document.getElementById('ho-tbody').innerHTML = '<tr><td colspan="8" class="empty">Selecciona un operador</td></tr>';
+    return;
+  }
+  document.getElementById('ho-sub').textContent = op.nombre;
+  renderHojaOpMetodos(op);
+  renderHojaOpTabla();
+}
+
+function renderHojaOpMetodos(op) {
+  const wrap = document.getElementById('ho-metodos-wrap');
+  const movs = movsDelMes().filter(mv => mv.opId === op.uid);
+  const cupo = cupoAsignado[op.uid] || {};
+
+  // Usar METODOS si está cargado; si no, construir desde cupoAsignado + movimientos
+  const metodosOrden = METODOS.length ? METODOS : [
+    ...new Set([
+      ...Object.keys(cupo).filter(k => cupo[k] !== 0),
+      ...movs.map(mv => mv.metodo).filter(Boolean)
+    ])
+  ];
+
+  const cards = metodosOrden.map(m => {
+    const ini = cupo[m] || 0;
+    const net = movs.filter(mv => mv.metodo === m).reduce((s, mv) => {
+      return s + (mv.tipo === 'PAGOS' ? (mv.monto||0) : mv.tipo === 'RECARGAS' ? -(mv.monto||0) : 0);
+    }, 0);
+    const saldo = ini + net;
+    const count = movs.filter(mv => mv.metodo === m).length;
+    if (ini === 0 && count === 0) return '';
+    const color = saldo < 0 ? 'var(--red)' : 'var(--green)';
+    return `<div class="ho-card">
+      <div class="ho-card-label" title="${m}">${m}</div>
+      <div class="ho-card-value" style="color:${color}">${pesos(saldo)}</div>
+      <div class="ho-card-count">${count} op${count!==1?'s':''}</div>
+    </div>`;
+  }).filter(Boolean).join('');
+
+  wrap.innerHTML = cards || '<div class="ho-card" style="border-style:dashed;color:var(--text2)">Sin cupo ni operaciones</div>';
+}
+
+function renderHojaOpTabla() {
+  if (!hojaOpUid) return;
+
+  let movs = movsDelMes().filter(mv => mv.opId === hojaOpUid);
+
+  if (hojaFilter === 'c-op')      movs = movs.filter(mv => (mv.canal || 'C-OP') !== 'I-OP');
+  if (hojaFilter === 'i-op')      movs = movs.filter(mv => mv.canal === 'I-OP');
+  if (hojaFilter === 'pagos')     movs = movs.filter(mv => mv.tipo === 'PAGOS');
+  if (hojaFilter === 'recargas')  movs = movs.filter(mv => mv.tipo === 'RECARGAS');
+
+  movs = [...movs].sort((a,b) => {
+    const fa = a.fecha || '', fb = b.fecha || '';
+    if (fa !== fb) return fa.localeCompare(fb);
+    const na = parseInt((a.op_id||'').match(/\d+/)?.[0] || 0);
+    const nb = parseInt((b.op_id||'').match(/\d+/)?.[0] || 0);
+    if (na !== nb) return na - nb;
+    return (a.ts?.seconds||0) - (b.ts?.seconds||0);
+  });
+
+  if (!movs.length) {
+    document.getElementById('ho-tbody').innerHTML = '<tr><td colspan="8" class="empty">Sin operaciones con este filtro</td></tr>';
+    return;
+  }
+
+  let n = 0;
+  const rows = movs.map(mv => {
+    n++;
+    const esRecarga = mv.tipo === 'RECARGAS';
+    const fecha = mv.fecha || (mv.ts?.toDate ? mv.ts.toDate().toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit',year:'2-digit'}) : '—');
+    const canal = mv.canal || 'C-OP';
+    const estado = mv.estado_cajero || mv.estado || 'Realizada';
+    const opCNum = mv.op_id || '—';
+    const badge = esRecarga
+      ? `<span style="background:rgba(36,191,98,.15);color:var(--green);border-radius:4px;padding:2px 8px;font-size:11px;font-weight:600">Recarga</span>`
+      : `<span style="background:rgba(224,80,80,.15);color:var(--red);border-radius:4px;padding:2px 8px;font-size:11px;font-weight:600">Pago</span>`;
+    return `<tr>
+      <td style="color:var(--text2);font-size:11px">${n}</td>
+      <td style="text-align:right;color:var(--text2);font-size:11px">${opCNum}</td>
+      <td class="${esRecarga?'td-pos':'td-neg'}" style="text-align:right;font-weight:600">${pesos(mv.monto||0)}</td>
+      <td>${badge}</td>
+      <td style="font-size:12px">${mv.metodo||'—'}</td>
+      <td style="font-size:11px;color:var(--text2)">${canal}</td>
+      <td style="font-size:11px;color:var(--green)">${estado}</td>
+      <td style="font-size:11px;color:var(--text2)">${fecha}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('ho-tbody').innerHTML = rows;
+}
+// ───────────────────────────────────────────────────────────────────────────
+
+// ── TEMA CLARO / OSCURO ──────────────────────────────────────────────────────
+function _themeStored() { return localStorage.getItem('aj16-theme') || 'auto'; }
+function _isLight() {
+  const t = _themeStored();
+  if (t === 'light') return true;
+  if (t === 'dark')  return false;
+  return window.matchMedia('(prefers-color-scheme: light)').matches;
+}
+function toggleTheme() {
+  const t = _themeStored();
+  const next = t === 'auto' ? 'light' : t === 'light' ? 'dark' : 'auto';
+  if (next === 'auto') {
+    document.documentElement.removeAttribute('data-theme');
+    localStorage.removeItem('aj16-theme');
+  } else {
+    document.documentElement.setAttribute('data-theme', next);
+    localStorage.setItem('aj16-theme', next);
+  }
+  _updateThemeBtn();
+}
+function _updateThemeBtn() {
+  const btn = document.getElementById('btn-theme');
+  if (!btn) return;
+  const t = _themeStored();
+  if (t === 'auto')       { btn.textContent = '🌗'; btn.title = 'Automático (según sistema) — clic para modo claro'; }
+  else if (t === 'light') { btn.textContent = '🌙'; btn.title = 'Modo claro — clic para modo oscuro'; }
+  else                    { btn.textContent = '☀️'; btn.title = 'Modo oscuro — clic para automático'; }
+}
+window.addEventListener('DOMContentLoaded', _updateThemeBtn);
+window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', _updateThemeBtn);
+</script>
+</body>
+</html>

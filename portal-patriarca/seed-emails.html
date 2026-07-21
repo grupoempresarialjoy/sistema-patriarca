@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Actualizar Correos — Portal Patriarca</title>
+<style>
+  body { font-family: monospace; background:#111; color:#0f0; padding:24px; }
+  button { background:#2a6; color:#fff; border:none; padding:12px 24px; font-size:16px; cursor:pointer; border-radius:6px; margin-bottom:16px; }
+  button:disabled { background:#444; color:#888; cursor:not-allowed; }
+  input { display:block; padding:10px 14px; margin-bottom:10px; background:#1a1a1a; border:1px solid #444; color:#fff; border-radius:6px; font-size:14px; width:320px; }
+  label { font-size:12px; color:#aaa; margin-bottom:4px; display:block; }
+  #login-box { background:#1a2a1a; border:1px solid #2a6; border-radius:8px; padding:20px; margin-bottom:20px; max-width:360px; }
+  #log { white-space:pre-wrap; font-size:13px; line-height:1.8; margin-top:12px; }
+  .ok  { color:#0f0; }
+  .err { color:#f44; }
+  .inf { color:#ff0; }
+  .skip{ color:#888; }
+</style>
+</head>
+<body>
+<h2>📧 Portal Patriarca — Asignar Correos a Operadores</h2>
+<p>Actualiza el campo <code>email</code> de 6 operadores en Firestore.<br>
+<strong>Ejecutar UNA SOLA VEZ. Borrar el archivo después.</strong></p>
+
+<div id="login-box">
+  <label>Tu correo de administrador</label>
+  <input id="email-inp" type="email" value="ronaldo@aj16.com" placeholder="correo@aj16.com">
+  <label>Contraseña</label>
+  <input id="pass-inp" type="password" placeholder="Contraseña">
+  <button id="btn" onclick="run()">▶ Iniciar sesión y actualizar correos</button>
+</div>
+<div id="log"></div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyBQ42PzffxkEUEJVaPIVxHPKDqA_wk6IS0",
+  authDomain: "portal-patriarca-aj16.firebaseapp.com",
+  projectId: "portal-patriarca-aj16",
+  storageBucket: "portal-patriarca-aj16.firebasestorage.app",
+  messagingSenderId: "1073575698338",
+  appId: "1:1073575698338:web:f014083b3092c6dc245cfb",
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db   = firebase.firestore();
+
+// Fragmento del nombre (minúsculas, sin tildes) → correo
+const UPDATES = [
+  { clave: 'brandol',  email: 'aj1.6rosse6@gmail.com'   },
+  { clave: 'juan mig', email: 'aj1.6rosse3@gmail.com'   },
+  { clave: 'nelson',   email: 'aj1.6rosse4@gmail.com'   },
+  { clave: 'youfrens', email: 'aj1.6rosse5@gmail.com'   },
+  { clave: 'richar',   email: 'aj1.6romi3@gmail.com'    },
+  { clave: 'annyer',   email: 'unidad0nueve@gmail.com'  },
+];
+
+const log = document.getElementById('log');
+function L(msg, cls='') { log.innerHTML += `<span class="${cls}">${msg}</span>\n`; }
+
+function normalizar(s) {
+  return (s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').trim();
+}
+
+async function run() {
+  const emailVal = document.getElementById('email-inp').value.trim();
+  const passVal  = document.getElementById('pass-inp').value;
+  if (!emailVal || !passVal) { L('⚠ Ingresa correo y contraseña', 'err'); return; }
+
+  document.getElementById('btn').disabled = true;
+  L('🔐 Iniciando sesión...', 'inf');
+
+  try {
+    await auth.signInWithEmailAndPassword(emailVal, passVal);
+    L('✅ Sesión iniciada como ' + emailVal, 'ok');
+  } catch(e) {
+    L('❌ Error de login: ' + e.message, 'err');
+    document.getElementById('btn').disabled = false;
+    return;
+  }
+
+  L('🔍 Leyendo admin_usuarios...', 'inf');
+  const snap = await db.collection('admin_usuarios').get();
+  L(`   → ${snap.size} documentos encontrados`, 'inf');
+
+  const actualizados = [];
+
+  for (const doc of snap.docs) {
+    const data    = doc.data();
+    const nomNorm = normalizar(data.nombre || '');
+    const match   = UPDATES.find(u => nomNorm.includes(u.clave));
+    if (!match) continue;
+
+    const emailActual = (data.email || '').toLowerCase();
+    if (emailActual === match.email.toLowerCase()) {
+      L(`   ↷ ${data.nombre} — ya tiene correo: ${emailActual}`, 'skip');
+      continue;
+    }
+
+    L(`   ✏ ${data.nombre} → ${match.email}`, 'ok');
+    await doc.ref.update({ email: match.email.toLowerCase() });
+
+    // Actualizar también en patriarca_operadores
+    if (data.uid) {
+      const opRef  = db.collection('patriarca_operadores').doc(data.uid);
+      const opSnap = await opRef.get();
+      if (opSnap.exists) {
+        await opRef.update({ email: match.email.toLowerCase() });
+        L(`      ↪ patriarca_operadores actualizado`, 'ok');
+      }
+    } else {
+      const opByNom = await db.collection('patriarca_operadores').where('nombre','==',data.nombre).get();
+      if (!opByNom.empty) {
+        for (const opDoc of opByNom.docs) {
+          await opDoc.ref.update({ email: match.email.toLowerCase() });
+          L(`      ↪ patriarca_operadores actualizado`, 'ok');
+        }
+      }
+    }
+    actualizados.push(data.nombre);
+  }
+
+  // Revisar faltantes
+  UPDATES.forEach(u => {
+    if (!actualizados.some(n => normalizar(n).includes(u.clave))) {
+      L(`   ❌ No se encontró: "${u.clave}" → ${u.email}`, 'err');
+    }
+  });
+
+  await auth.signOut();
+
+  L('', '');
+  if (actualizados.length) {
+    L(`✅ ${actualizados.length} usuario(s) actualizados:`, 'ok');
+    actualizados.forEach(n => L(`   • ${n}`, 'ok'));
+  } else {
+    L('⚠ No se actualizó ningún usuario.', 'err');
+  }
+  L('', '');
+  L('Listo. Puedes cerrar esta página y borrar seed-emails.html.', 'inf');
+}
+</script>
+</body>
+</html>

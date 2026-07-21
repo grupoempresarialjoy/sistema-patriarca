@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Seed Operadores — Portal Patriarca</title>
+<style>
+  body { font-family: monospace; background:#111; color:#0f0; padding:24px; }
+  button { background:#2a6; color:#fff; border:none; padding:12px 24px; font-size:16px; cursor:pointer; border-radius:6px; margin-bottom:16px; }
+  button:disabled { background:#444; color:#888; cursor:not-allowed; }
+  #log { white-space:pre-wrap; font-size:13px; line-height:1.6; }
+  .ok  { color:#0f0; }
+  .err { color:#f44; }
+  .inf { color:#ff0; }
+</style>
+</head>
+<body>
+<h2>🔧 Crear Operadores en admin_usuarios</h2>
+<p>Crea los registros de operadores Unity sin necesitar cuenta de Firebase Auth.<br>
+<strong>Ejecutar UNA SOLA VEZ.</strong></p>
+<button id="btn" onclick="seedOperadores()">▶ Crear Operadores</button>
+<div id="log"></div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyBQ42PzffxkEUEJVaPIVxHPKDqA_wk6IS0",
+  authDomain: "portal-patriarca-aj16.firebaseapp.com",
+  projectId: "portal-patriarca-aj16",
+  storageBucket: "portal-patriarca-aj16.firebasestorage.app",
+  messagingSenderId: "1073575698338",
+  appId: "1:1073575698338:web:f014083b3092c6dc245cfb",
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db   = firebase.firestore();
+
+// ─── LISTA DE OPERADORES ───────────────────────────────────────────────────
+// Para asignar correo a un operador, pon el email en el campo "email".
+// Cuando tengas el correo de cada uno, edita aquí y vuelve a ejecutar —
+// el script lo detecta por nombre y solo actualiza el email.
+const OPERADORES = [
+  { nombre: 'Ronaldo Pedraza Sarabia',            email: 'ronaldo@aj16.com',  estado: 'activo'   },
+  { nombre: 'Annyer Eslian Ruiz Garcia',           email: '',                  estado: 'activo'   },
+  { nombre: 'Oficina Golden Bets',                email: '',                  estado: 'activo'   },
+  { nombre: 'Brandol Jhoan Gaviria Gonzalez',     email: '',                  estado: 'activo'   },
+  { nombre: 'Diana Mallerly Sanchez Ovallos',     email: '',                  estado: 'activo'   },
+  { nombre: 'Juan Miguel Antonio Garzon',         email: '',                  estado: 'activo'   },
+  { nombre: 'Nelson Yair Esparza Ortiz',          email: '',                  estado: 'activo'   },
+  { nombre: 'Youfrens Alexandra Duarte Penaloza', email: '',                  estado: 'activo'   },
+  { nombre: 'Richar Duvan Guerrero Gonzalez',     email: '',                  estado: 'inactivo' },
+];
+// ───────────────────────────────────────────────────────────────────────────
+
+function log(msg, cls='ok') {
+  const div = document.getElementById('log');
+  div.innerHTML += `<span class="${cls}">${msg}</span>\n`;
+}
+
+async function seedOperadores() {
+  const btn = document.getElementById('btn');
+  btn.disabled = true;
+  log('🔑 Iniciando sesión como admin...', 'inf');
+
+  try {
+    await auth.signInWithEmailAndPassword('vanlly.admin@admin.aj16.com', 'Admin_2026');
+    log('✅ Login OK: ' + auth.currentUser.email);
+  } catch(e) {
+    log('❌ Error login: ' + e.message, 'err');
+    btn.disabled = false;
+    return;
+  }
+
+  // Buscar ID de oficina Unity
+  log('🔍 Buscando oficina Unity...', 'inf');
+  let unityId = '', unityNombre = 'Unity';
+  try {
+    const ofSnap = await db.collection('admin_oficinas').get();
+    const unity = ofSnap.docs.find(d => d.data().nombre === 'Unity');
+    if (unity) { unityId = unity.id; log('✅ Unity ID encontrado'); }
+    else { log('⚠ Unity no encontrada, continuando sin ID de oficina', 'inf'); }
+  } catch(e) {
+    log('⚠ No se pudo leer oficinas: ' + e.message, 'inf');
+  }
+
+  // Verificar existentes
+  log('🔍 Verificando operadores existentes...', 'inf');
+  const existSnap = await db.collection('admin_usuarios').where('rol','==','operador').get();
+  const existentes = existSnap.docs.map(d => ({
+    id: d.id,
+    nombre: d.data().nombre,
+    email: d.data().email
+  }));
+  log(`ℹ ${existentes.length} operadores ya existen`, 'inf');
+
+  const ts = firebase.firestore.FieldValue.serverTimestamp();
+
+  for (const op of OPERADORES) {
+    // Verificar si ya existe por nombre o email
+    const yaExiste = existentes.find(e =>
+      e.nombre === op.nombre || (op.email && e.email === op.email)
+    );
+
+    if (yaExiste) {
+      // Actualizar datos si ya existe
+      try {
+        const upd = { nombre: op.nombre, oficina: unityId, oficinaNombre: unityNombre, estado: op.estado };
+        if (op.email) upd.email = op.email;   // solo sobreescribe si tiene email definido
+        await db.collection('admin_usuarios').doc(yaExiste.id).update(upd);
+        log(`🔄 Actualizado: ${op.nombre}`);
+      } catch(e) {
+        log(`❌ Error actualizando ${op.nombre}: ${e.message}`, 'err');
+      }
+    } else {
+      // Crear nuevo
+      try {
+        await db.collection('admin_usuarios').add({
+          nombre: op.nombre,
+          email: op.email || '',
+          rol: 'operador',
+          tipo: 'oficina',
+          oficina: unityId,
+          oficinaNombre: unityNombre,
+          estado: op.estado,
+          importado: true,
+          creadoEn: ts,
+        });
+        log(`✅ Creado: ${op.nombre}`);
+      } catch(e) {
+        log(`❌ Error creando ${op.nombre}: ${e.message}`, 'err');
+      }
+    }
+  }
+
+  await auth.signOut();
+  log('\n🎉 Listo. Ya puedes cerrar esta página.', 'inf');
+  btn.disabled = false;
+}
+</script>
+</body>
+</html>

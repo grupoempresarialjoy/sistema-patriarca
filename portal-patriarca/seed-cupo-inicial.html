@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Seed Cupo Inicial — Patriarca</title>
+<style>
+  body { font-family: monospace; background:#111; color:#0f0; padding:24px; }
+  button { background:#2a6; color:#fff; border:none; padding:12px 24px; font-size:16px; cursor:pointer; border-radius:6px; margin-bottom:16px; }
+  button:disabled { background:#444; color:#888; cursor:not-allowed; }
+  #log { white-space:pre-wrap; font-size:13px; line-height:1.7; }
+  .ok  { color:#0f0; }
+  .err { color:#f44; }
+  .inf { color:#ff0; }
+  .ski { color:#888; }
+</style>
+</head>
+<body>
+<h2>💼 Seed Cupo Inicial por Operador</h2>
+<p>Lee los operadores de <code>admin_usuarios</code> y escribe sus saldos iniciales en <code>patriarca_config</code>.<br>
+<strong>Ejecutar UNA SOLA VEZ.</strong></p>
+<button id="btn" onclick="seedCupo()">▶ Cargar Cupo Inicial</button>
+<div id="log"></div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+firebase.initializeApp({
+  apiKey: "AIzaSyBQ42PzffxkEUEJVaPIVxHPKDqA_wk6IS0",
+  authDomain: "portal-patriarca-aj16.firebaseapp.com",
+  projectId: "portal-patriarca-aj16",
+  storageBucket: "portal-patriarca-aj16.firebasestorage.app",
+  messagingSenderId: "1073575698338",
+  appId: "1:1073575698338:web:f014083b3092c6dc245cfb",
+});
+const auth = firebase.auth();
+const db   = firebase.firestore();
+
+// ─── CUPO INICIAL POR NOMBRE DE OPERADOR ────────────────────────────────────
+// Claves = nombre exacto en admin_usuarios
+// Valores = { "NOMBRE MÉTODO EN FIRESTORE": monto }
+const CUPO = {
+  'Ronaldo Pedraza Sarabia': {
+    'SALDO CLIENTES ANTERIOR': 1918109.86,
+    'BE MOVIL CAJA':           5894237.00,
+    'WPLAY UNITY':              187653.14,
+  },
+  'Vanily Nataly Pedraza Sarabia': {
+    'SALDO CLIENTES ANTERIOR': 2546498.21,
+    'BE MOVIL CAJA':               802.00,
+    'MEGA RED':                   6894.00,
+    'WPLAY UNITY':              283248.89,
+    'EFECTY 1 DE MAYO':        1031776.24,
+    'SUPER GIROS MAQUINA':      183088.66,
+    'EASY CHANGER':              13692.00,
+  },
+  'Annyer Eslian Ruiz Garcia': {
+    'SALDO CLIENTES ANTERIOR': 6736766.00,
+    'BE MOVIL CAJA':             85700.00,
+    'CORRESPONSAL EL PARAMO': -1822466.00,
+  },
+  'Oficina Golden Bets': {
+    'SUPER GIROS MAQUINA': 339400.00,
+  },
+  'Brandol Jhoan Gaviria Gonzalez': {
+    'SALDO CLIENTES ANTERIOR': 8226141.97,
+    'BE MOVIL CAJA':             57300.00,
+    'BE MOVIL MASTER':           35000.00,
+    'EFECTY 1 DE MAYO':        1681558.03,
+  },
+  'Diana Mallerly Sanchez Ovallos': {
+    'EFECTY 1 DE MAYO':        1676400.00,
+    'CORRESPONSAL EL PARAMO':   574000.00,
+  },
+  'Juan Miguel Antonio Garzon': {
+    'SALDO CLIENTES ANTERIOR': 2908705.70,
+    'WPLAY UNITY':             3500000.00,
+    'SUPER GIROS UNITY':       3591294.30,
+  },
+  'Nelson Yair Esparza Ortiz': {
+    'SALDO CLIENTES ANTERIOR': 12313427.40,
+    'BE MOVIL CAJA':             161312.00,
+    'BE MOVIL MASTER':            60080.00,
+    'CORRESPONSAL EL PARAMO':    339400.00,
+  },
+  'Youfrens Alexandra Duarte Penaloza': {
+    'SALDO CLIENTES ANTERIOR': 6839011.03,
+    'BE MOVIL CAJA':                100.00,
+    'WPLAY UNITY':              660888.97,
+    'CORRESPONSAL EL PARAMO':    30630.74,
+  },
+  'Richar Duvan Guerrero Gonzalez': {
+    'SALDO CLIENTES ANTERIOR': 5748146.56,
+    'BE MOVIL CAJA':              5300.00,
+    'WPLAY UNITY':             2000000.00,
+    'SUPER GIROS UNITY':        215922.70,
+  },
+};
+// ────────────────────────────────────────────────────────────────────────────
+
+function log(msg, cls='ok') {
+  document.getElementById('log').innerHTML += `<span class="${cls}">${msg}</span>\n`;
+}
+
+async function seedCupo() {
+  const btn = document.getElementById('btn');
+  btn.disabled = true;
+  log('🔑 Iniciando sesión como admin...', 'inf');
+
+  try {
+    await auth.signInWithEmailAndPassword('vanlly.admin@admin.aj16.com', 'Admin_2026');
+    log('✅ Login OK');
+  } catch(e) {
+    log('❌ Login fallido: ' + e.message, 'err');
+    btn.disabled = false; return;
+  }
+
+  // Cargar operadores de admin_usuarios
+  log('🔍 Leyendo operadores de Unity...', 'inf');
+  const opsSnap = await db.collection('admin_usuarios')
+    .where('rol','==','operador')
+    .get();
+
+  const ops = opsSnap.docs.map(d => ({
+    docId: d.id,
+    uid:   d.data().uid || d.id,
+    nombre: d.data().nombre || '',
+  }));
+  log(`ℹ ${ops.length} operadores encontrados`, 'inf');
+
+  // Cargar nombres de métodos desde Firestore para normalizar
+  const metSnap = await db.collection('admin_config').doc('metodos').get();
+  const metodos = (metSnap.exists ? (metSnap.data().lista || []) : []).map(m => m.nombre);
+  log(`ℹ ${metodos.length} métodos cargados: ${metodos.join(', ')}`, 'inf');
+
+  // Para cada operador con datos, escribir su cupo
+  for (const op of ops) {
+    const dataNombre = Object.keys(CUPO).find(n =>
+      n.toLowerCase() === op.nombre.toLowerCase() ||
+      op.nombre.toLowerCase().includes(n.split(' ')[0].toLowerCase())
+    );
+
+    if (!dataNombre) {
+      log(`⚠ Sin datos para: ${op.nombre}`, 'ski');
+      continue;
+    }
+
+    const rawCupo = CUPO[dataNombre];
+    // Normalizar claves al formato exacto de Firestore
+    const cupos_cajero = {};
+    for (const [clave, valor] of Object.entries(rawCupo)) {
+      // Buscar el método en la lista de Firestore (case-insensitive)
+      const metodoDB = metodos.find(m => m.toUpperCase() === clave.toUpperCase()) || clave;
+      cupos_cajero[metodoDB] = valor;
+    }
+
+    try {
+      await db.collection('patriarca_config').doc(op.uid).set(
+        { cupos_cajero },
+        { merge: true }
+      );
+      const resumen = Object.entries(cupos_cajero)
+        .map(([m,v]) => `${m}: ${v.toLocaleString('es-CO')}`)
+        .join(' | ');
+      log(`✅ ${op.nombre}: ${resumen}`);
+    } catch(e) {
+      log(`❌ Error en ${op.nombre}: ${e.message}`, 'err');
+    }
+  }
+
+  await auth.signOut();
+  log('\n🎉 Listo. Recarga el cajero para ver los cupos.', 'inf');
+  btn.disabled = false;
+}
+</script>
+</body>
+</html>

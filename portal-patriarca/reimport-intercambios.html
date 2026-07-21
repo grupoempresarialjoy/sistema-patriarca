@@ -1,0 +1,821 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reimport Intercambios — AJ1.6</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{--bg:#0d0f14;--bg2:#13161d;--bg3:#1a1e28;--border:#2a2f3f;--text:#e8eaf0;--text2:#8890a8;--green:#24BF62;--red:#e05050;--orange:#f0a050;--blue:#4a9eff;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,sans-serif;font-size:13px;padding:24px;max-width:1100px;margin:0 auto;}
+h1{font-size:18px;margin-bottom:4px;}
+.sub{color:var(--text2);font-size:12px;margin-bottom:20px;line-height:1.6;}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:14px;}
+.card h2{font-size:14px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:8px;}
+.phase-num{background:var(--bg3);border:1px solid var(--border);border-radius:50%;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;}
+.phase-done .phase-num{background:#166534;border-color:var(--green);color:var(--green);}
+.phase-active .phase-num{background:#1e3a5f;border-color:var(--blue);color:var(--blue);}
+button{border:none;border-radius:7px;padding:9px 18px;font-size:13px;font-weight:600;cursor:pointer;transition:opacity .15s;}
+.btn-blue{background:#1e40af;color:#fff;}
+.btn-green{background:#166534;color:#fff;}
+.btn-red{background:#7f1d1d;color:#fff;}
+.btn-ghost{background:var(--bg3);color:var(--text);border:1px solid var(--border);}
+.btn-orange{background:#7c3400;color:#fff;}
+button:disabled{opacity:.4;cursor:not-allowed;}
+input[type=text],input[type=email],input[type=password],input[type=file]{background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:9px 12px;font-size:13px;width:100%;margin-bottom:10px;}
+input[type=file]{cursor:pointer;}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+.stat{background:var(--bg3);border-radius:8px;padding:10px 16px;text-align:center;min-width:120px;}
+.stat-val{font-size:20px;font-weight:700;}
+.stat-lbl{font-size:10px;color:var(--text2);margin-top:2px;}
+.green{color:var(--green);}.red{color:var(--red);}.orange{color:var(--orange);}.blue{color:var(--blue);}
+progress{width:100%;height:8px;border-radius:4px;overflow:hidden;appearance:none;margin:8px 0;}
+progress::-webkit-progress-bar{background:var(--bg3);border-radius:4px;}
+progress::-webkit-progress-value{background:var(--blue);border-radius:4px;}
+#log-box{font-family:monospace;font-size:11px;line-height:1.8;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px;max-height:300px;overflow-y:auto;margin-top:10px;}
+table{width:100%;border-collapse:collapse;font-size:11px;}
+th{text-align:left;color:var(--text2);font-weight:600;padding:5px 8px;border-bottom:1px solid var(--border);white-space:nowrap;}
+td{padding:4px 8px;border-bottom:1px solid var(--border);vertical-align:top;}
+tr:hover td{background:rgba(255,255,255,.02);}
+.badge{display:inline-block;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600;}
+.bc{background:#0f2b1a;color:var(--green);}
+.bi{background:#1f1a0f;color:var(--orange);}
+.br{background:#2b0f0f;color:var(--red);}
+.bb{background:#0f1a2b;color:var(--blue);}
+.login-box{max-width:320px;margin:60px auto;text-align:center;}
+.warn-box{background:#2b1500;border:1px solid var(--orange);border-radius:8px;padding:12px 16px;font-size:12px;color:var(--orange);margin-bottom:12px;}
+.err-box{background:#2b0808;border:1px solid var(--red);border-radius:8px;padding:12px 16px;font-size:12px;color:var(--red);margin-bottom:12px;}
+.ok-box{background:#082b12;border:1px solid var(--green);border-radius:8px;padding:12px 16px;font-size:12px;color:var(--green);margin-bottom:12px;}
+code{background:var(--bg3);padding:1px 5px;border-radius:4px;font-size:10px;}
+.confirm-input{border:2px solid var(--red)!important;font-weight:700;text-align:center;}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login-wrap">
+  <div class="login-box">
+    <h1 style="margin-bottom:6px">📦 Reimport Intercambios</h1>
+    <p style="color:var(--text2);font-size:12px;margin-bottom:20px">Borrar todo y reimportar limpio desde Excel</p>
+    <input type="email" id="email" placeholder="Email">
+    <input type="password" id="pwd" placeholder="Contraseña">
+    <div id="lerr" style="color:var(--red);font-size:11px;margin-bottom:8px;display:none"></div>
+    <button class="btn-blue" style="width:100%" onclick="doLogin()">Ingresar</button>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div id="main-wrap" style="display:none">
+  <h1>📦 Reimport Intercambios — AJ1.6</h1>
+  <p class="sub">Herramienta de 3 fases: borra todo → importa desde Excel → asigna IDs limpios.<br>
+  <strong style="color:var(--red)">⚠ Irreversible.</strong> Leer toda la pantalla antes de confirmar cualquier fase.</p>
+
+  <!-- ESTADO GLOBAL -->
+  <div class="card">
+    <div class="row" style="margin-bottom:12px">
+      <div class="stat"><div class="stat-val blue" id="st-ops">—</div><div class="stat-lbl">Operadores</div></div>
+      <div class="stat"><div class="stat-val orange" id="st-cajero">—</div><div class="stat-lbl">Filas cajero</div></div>
+      <div class="stat"><div class="stat-val orange" id="st-iops">—</div><div class="stat-lbl">I-OPs extra</div></div>
+      <div class="stat"><div class="stat-val red" id="st-ix">—</div><div class="stat-lbl">ix_global actual</div></div>
+      <div class="stat"><div class="stat-val red" id="st-pix">—</div><div class="stat-lbl">intercambios actual</div></div>
+      <div class="stat"><div class="stat-val green" id="st-match">—</div><div class="stat-lbl">Nombres OK</div></div>
+    </div>
+    <div class="row" style="gap:8px">
+      <button class="btn-ghost" onclick="cargarEstado()">🔄 Recargar estado</button>
+    </div>
+  </div>
+
+  <!-- OPERADORES CARGADOS -->
+  <div class="card" id="ops-card" style="display:none">
+    <h2><span class="phase-num">👥</span> Operadores detectados</h2>
+    <div id="ops-table-wrap" style="overflow-x:auto"></div>
+    <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+      <div style="font-size:12px;color:var(--text2);margin-bottom:8px">¿Falta un operador? Agrégalo aquí sin ir a Firebase:</div>
+      <div class="row" style="gap:8px">
+        <input type="text" id="new-op-nombre" placeholder="Nombre exacto (ej: Oficina Golden Bets)" style="margin:0;flex:1;min-width:220px">
+        <button class="btn-blue" onclick="agregarOperador()">+ Agregar operador</button>
+      </div>
+      <div id="new-op-msg" style="margin-top:6px;font-size:12px"></div>
+    </div>
+  </div>
+
+  <!-- FASE 0: SUBIR EXCEL -->
+  <div class="card">
+    <h2><span class="phase-num phase-active">0</span> Subir Excel con todos los intercambios</h2>
+    <p style="color:var(--text2);font-size:12px;margin-bottom:12px">
+      El mismo archivo que ya tienes: primera sección = cajero (204 filas), después cada operador.
+    </p>
+    <input type="file" id="excel-file" accept=".xlsx,.xls" onchange="parsearExcel(this)">
+    <div id="excel-preview" style="display:none"></div>
+  </div>
+
+  <!-- FASE 1: BORRAR -->
+  <div class="card" id="fase1-card" style="display:none">
+    <h2><span class="phase-num" id="f1-num">1</span> Borrar todos los intercambios existentes</h2>
+    <div class="warn-box">
+      ⚠ Esto elimina <strong id="f1-count-ix">0</strong> docs de <code>patriarca_ix_global</code> y
+      <strong id="f1-count-pix">0</strong> docs de <code>patriarca_intercambios</code>.
+      <strong>No se puede deshacer.</strong>
+    </div>
+    <div style="margin-bottom:10px">
+      <label style="color:var(--text2);font-size:11px;display:block;margin-bottom:4px">Escribe BORRAR para confirmar:</label>
+      <input type="text" id="confirm-borrar" class="confirm-input" placeholder="BORRAR" style="width:180px;margin:0">
+    </div>
+    <button class="btn-red" id="btn-borrar" onclick="ejecutarBorrar()">🗑 Borrar todo</button>
+    <progress id="prog-borrar" value="0" max="100" style="display:none"></progress>
+    <div id="log-borrar" class="ok-box" style="display:none"></div>
+  </div>
+
+  <!-- FASE 2: IMPORTAR -->
+  <div class="card" id="fase2-card" style="display:none">
+    <h2><span class="phase-num" id="f2-num">2</span> Importar desde Excel</h2>
+    <div id="f2-preview"></div>
+    <div class="row" style="gap:8px;margin-top:12px">
+      <button class="btn-green" id="btn-importar" onclick="ejecutarImportar()">⬆ Importar todo</button>
+    </div>
+    <progress id="prog-importar" value="0" max="100" style="display:none"></progress>
+    <div id="log-importar" style="display:none" class="ok-box"></div>
+  </div>
+
+  <!-- FASE 3: ASIGNAR IDs -->
+  <div class="card" id="fase3-card" style="display:none">
+    <h2><span class="phase-num" id="f3-num">3</span> Asignar ix_ids limpios</h2>
+    <p style="color:var(--text2);font-size:12px;margin-bottom:12px">
+      Asigna <code>N-C-OP-INTERCAMBIO</code> e <code>N-I-OP-INTERCAMBIO</code> secuenciales por operador (ordenados por fecha).<br>
+      Actualiza tanto <code>patriarca_intercambios</code> como <code>patriarca_ix_global</code>.
+    </p>
+    <button class="btn-orange" id="btn-ids" onclick="ejecutarAsignarIds()">🔢 Asignar IDs</button>
+    <progress id="prog-ids" value="0" max="100" style="display:none"></progress>
+    <div id="log-ids" style="display:none" class="ok-box"></div>
+  </div>
+
+  <!-- LOG GENERAL -->
+  <div class="card">
+    <h2>📋 Log</h2>
+    <div id="log-box">Esperando acciones...</div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+firebase.initializeApp({
+  apiKey:"AIzaSyBQ42PzffxkEUEJVaPIVxHPKDqA_wk6IS0",
+  authDomain:"portal-patriarca-aj16.firebaseapp.com",
+  projectId:"portal-patriarca-aj16",
+  storageBucket:"portal-patriarca-aj16.firebasestorage.app",
+  messagingSenderId:"1073575698338",
+  appId:"1:1073575698338:web:f014083b3092c6dc245cfb"
+});
+const auth = firebase.auth(), db = firebase.firestore();
+
+// ── Login ──
+function doLogin(){
+  const e=document.getElementById('email').value.trim(), p=document.getElementById('pwd').value;
+  const err=document.getElementById('lerr'); err.style.display='none';
+  auth.signInWithEmailAndPassword(e,p).catch(ex=>{err.textContent=ex.message;err.style.display='block';});
+}
+document.addEventListener('keydown',ev=>{if(ev.key==='Enter'&&document.getElementById('login-wrap').style.display!=='none')doLogin();});
+auth.onAuthStateChanged(u=>{
+  document.getElementById('login-wrap').style.display=u?'none':'block';
+  document.getElementById('main-wrap').style.display=u?'block':'none';
+  if(u) init();
+});
+
+// ── Normalización de métodos ──
+const ALIAS = {
+  // Be Movil
+  'BEMOVIL'                  : 'BE MOVIL CAJA',
+  'BE MOVIL'                 : 'BE MOVIL CAJA',
+  'BE MOVIL CAJA'            : 'BE MOVIL CAJA',
+  // Super Giros Unity
+  'SUPERGIROS'               : 'SUPER GIROS UNITY',
+  'SUPERGIROS UNITY'         : 'SUPER GIROS UNITY',
+  'SUPER GIROS UNITY'        : 'SUPER GIROS UNITY',
+  'SUPER GIROS UNITY '       : 'SUPER GIROS UNITY',  // trailing space
+  // Wplay
+  'WPLAY POS'                : 'WPLAY UNITY',
+  'WPLAY UNITY'              : 'WPLAY UNITY',
+  // Efectivo
+  'EFECTIVO'                 : 'EFECTIVO OPERADOR',
+  'EFECTIVO OPERADOR'        : 'EFECTIVO OPERADOR',
+  // Efecty
+  'EFECTY'                   : 'EFECTY 1 DE MAYO',
+  'EFECTY 1 DE MAYO'         : 'EFECTY 1 DE MAYO',
+  // Corresponsal
+  'CORRESPONSAL'             : 'CORRESPONSAL EL PARAMO',
+  'CORRESPONSAL EL PARAMO'   : 'CORRESPONSAL EL PARAMO',
+  // Easy Changer
+  'EASYCHANGER'              : 'EASY CHANGER',
+  'EASY CHANGER'             : 'EASY CHANGER',
+  // Saldo clientes (legacy)
+  'SALDO CLIENTES ANTERIOR'  : 'SALDO CLIENTES',
+  // Bet Red
+  'BET RED'                  : 'BET RED',
+  'BET ROJO'                 : 'BET RED',
+  // Cuenta bancaria (I-OPs internos)
+  'CUENTA BANCARIA'          : 'CUENTA BANCARIA',
+  // Super Giros Maquina (ya correcto, no alias necesario pero por si acaso)
+  'SUPER GIROS MAQUINA'      : 'SUPER GIROS MAQUINA',
+};
+function normM(m){ if(!m||m==='nan') return null; const u=(m+'').trim().toUpperCase(); return ALIAS[u]||m.trim(); }
+
+// Capitaliza: "BE MOVIL CAJA" → "Be Movil Caja"
+function titleCase(s){ return (s||'').replace(/\w\S*/g, t=>t.charAt(0).toUpperCase()+t.slice(1).toLowerCase()); }
+
+// ── Estado global ──
+let operadores = []; // [{uid, nombre, nombreNorm}]
+let cajeroRows = []; // parsed from excel
+let iOpRows   = []; // parsed from excel (I-OPs extra)
+let borradoHecho = false;
+let importadoHecho = false;
+
+// ── Alias de nombres de operadores (Excel → nombre real en sistema) ──
+const OP_ALIAS = {
+  'OFICINA GOLDEN BETS' : 'GOLDEN BETS',
+};
+function resolveOpNombre(n){
+  const u=(n||'').trim().toUpperCase();
+  return OP_ALIAS[u]||n;
+}
+
+// ── Normalizar nombre para matching ──
+function normNombre(n){
+  return (n||'').toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g,'')
+    .replace(/[^a-z0-9 ]/g,'').trim();
+}
+
+function getUid(nombre){
+  const nn = normNombre(resolveOpNombre(nombre));
+  // Exact match
+  let op = operadores.find(o=>o.nombreNorm===nn);
+  if(op) return {uid:op.uid, nombre:op.nombre};
+  // Partial match (first+last word)
+  const parts = nn.split(' ').filter(Boolean);
+  if(parts.length>=2){
+    op = operadores.find(o=>{
+      const op_parts = o.nombreNorm.split(' ').filter(Boolean);
+      return parts[0]===op_parts[0] && parts[parts.length-1]===op_parts[op_parts.length-1];
+    });
+    if(op) return {uid:op.uid, nombre:op.nombre};
+    // First word match only
+    op = operadores.find(o=>o.nombreNorm.startsWith(parts[0]));
+    if(op) return {uid:op.uid, nombre:op.nombre};
+  }
+  return null;
+}
+
+function esPropio(op2){
+  if(!op2||op2==='nan'||op2==='NaN') return true;
+  const n = normNombre(op2);
+  return n===''||n==='propio'||n==='operador aj1 6'||n==='operador aj16'||n==='operador aj1.6';
+}
+
+// ── LOG ──
+const logEl = ()=>document.getElementById('log-box');
+function log(msg,cls=''){
+  const el=logEl(); if(!el) return;
+  const d=document.createElement('div');
+  d.style.color=cls==='ok'?'var(--green)':cls==='err'?'var(--red)':cls==='warn'?'var(--orange)':cls==='gray'?'var(--text2)':'var(--text)';
+  d.textContent=msg; el.appendChild(d); el.scrollTop=el.scrollHeight;
+}
+
+// ── Formato fecha ──
+function fmtFecha(v){
+  if(!v||v==='nan'||v==='NaT') return null;
+  if(typeof v==='string'&&v.match(/^\d{4}-\d{2}-\d{2}/)) return v.slice(0,10);
+  if(v instanceof Date||typeof v==='number'){
+    const d = v instanceof Date ? v : new Date(Math.round((v-25569)*86400*1000));
+    return d.toISOString().slice(0,10);
+  }
+  const s=String(v);
+  const m=s.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if(m) return `${m[1]}-${m[2]}-${m[3]}`;
+  return null;
+}
+
+// ── INIT ──
+async function init(){
+  log('Cargando operadores desde admin_usuarios...');
+  try{
+    const snap=await db.collection('admin_usuarios').where('rol','==','operador').get();
+    operadores=snap.docs.map(d=>({
+      uid: d.data().uid||d.id,
+      nombre: d.data().nombre||d.data().name||'',
+      nombreNorm: normNombre(d.data().nombre||d.data().name||'')
+    }));
+    document.getElementById('st-ops').textContent=operadores.length;
+    log(`✓ ${operadores.length} operadores cargados`,'ok');
+    renderOpsTable();
+    await cargarEstado();
+  }catch(e){log('Error cargando operadores: '+e.message,'err');}
+}
+
+async function cargarEstado(){
+  try{
+    const [ix,pix]=await Promise.all([
+      db.collection('patriarca_ix_global').get(),
+      db.collection('patriarca_intercambios').get()
+    ]);
+    document.getElementById('st-ix').textContent=ix.size;
+    document.getElementById('st-pix').textContent=pix.size;
+    document.getElementById('f1-count-ix').textContent=ix.size;
+    document.getElementById('f1-count-pix').textContent=pix.size;
+  }catch(e){log('Error cargando estado: '+e.message,'err');}
+}
+
+async function agregarOperador(){
+  const nombre = document.getElementById('new-op-nombre').value.trim();
+  const msg = document.getElementById('new-op-msg');
+  if(!nombre){ msg.style.color='var(--red)'; msg.textContent='Escribe el nombre del operador.'; return; }
+  msg.style.color='var(--text2)'; msg.textContent='Guardando...';
+  try{
+    const ref = db.collection('admin_usuarios').doc();
+    await ref.set({ uid: ref.id, nombre: nombre, rol: 'operador' });
+    msg.style.color='var(--green)';
+    msg.textContent=`✓ "${nombre}" creado con UID: ${ref.id}. Recargando lista...`;
+    document.getElementById('new-op-nombre').value='';
+    await cargarOperadores();
+    msg.textContent=`✓ "${nombre}" agregado. Vuelve a subir el Excel.`;
+  }catch(e){
+    msg.style.color='var(--red)';
+    msg.textContent='Error: '+e.message;
+  }
+}
+
+function renderOpsTable(){
+  const wrap=document.getElementById('ops-table-wrap');
+  let html=`<table><thead><tr><th>#</th><th>Nombre</th><th>UID</th><th>Nombre normalizado</th></tr></thead><tbody>`;
+  operadores.forEach((op,i)=>{
+    html+=`<tr><td>${i+1}</td><td>${op.nombre}</td><td><code>${op.uid.slice(0,16)}...</code></td><td style="color:var(--text2)">${op.nombreNorm}</td></tr>`;
+  });
+  html+=`</tbody></table>`;
+  wrap.innerHTML=html;
+  document.getElementById('ops-card').style.display='block';
+}
+
+// ── PARSEAR EXCEL ──
+async function parsearExcel(input){
+  const file=input.files[0]; if(!file) return;
+
+  if(typeof XLSX==='undefined'){
+    alert('La librería XLSX no cargó. Verifica conexión a internet y recarga la página.');
+    return;
+  }
+
+  log(`Leyendo ${file.name}...`);
+
+  try{
+    const buf=await file.arrayBuffer();
+    // raw:true → fechas llegan como número serial de Excel, no como Date objects
+    const wb=XLSX.read(buf,{type:'array'});
+    const ws=wb.Sheets[wb.SheetNames[0]];
+    const raw=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:''});
+
+    log(`SheetJS detectó ${raw.length} filas en total`);
+
+    cajeroRows=[];
+    iOpRows=[];
+    let seccion='cajero';
+    let sinNombreCount=0;
+
+    for(let i=0;i<raw.length;i++){
+      const row=raw[i];
+      if(!row||row.length===0) continue;
+      const c0=String(row[0]||'').trim();
+
+      // Saltar fila de encabezado del cajero
+      if(c0.toUpperCase()==='OP') continue;
+
+      // Detectar inicio de sección operadores
+      if(c0.toUpperCase().includes('INTERCAMBIO')){
+        seccion='operadores';
+      }
+
+      if(seccion==='cajero'){
+        const num=parseInt(c0);
+        if(isNaN(num)||num<=0) continue; // saltar vacíos y encabezados
+        const op1 = String(row[2]||'').trim();
+        const egresa = String(row[3]||'').trim();
+        const ingresa = String(row[4]||'').trim();
+        const monto = parseFloat(String(row[5]||'0').replace(/[^0-9.]/g,''))||0;
+        const op2 = String(row[7]||'').trim();
+        const fecha = fmtFecha(row[1]);
+
+        if(!op1||op1==='nan'||op1===''||!fecha||!egresa||monto===0){
+          sinNombreCount++; continue;
+        }
+
+        cajeroRows.push({op:num,fecha,op1,egresa,ingresa,monto,op2});
+      } else {
+        // Sección operadores — solo I-OPs (internos bancarios no en cajero)
+        if(!c0.toUpperCase().includes('- I -')) continue;
+        const op = String(row[2]||'').trim();
+        const egresa = String(row[3]||'').trim();
+        const ingresa = String(row[4]||'').trim();
+        const monto = parseFloat(String(row[5]||'0').replace(/[^0-9.]/g,''))||0;
+        const fecha = fmtFecha(row[1]);
+        if(!op||op==='nan'||op===''||!fecha||monto===0) continue;
+        iOpRows.push({ix_id:c0,fecha,operador:op,egresa,ingresa,monto,op2:'Propio'});
+      }
+    }
+
+  log(`✓ Cajero: ${cajeroRows.length} filas (${sinNombreCount} filas vacías ignoradas)`,'ok');
+  log(`✓ I-OPs extra: ${iOpRows.length}`,'ok');
+  document.getElementById('st-cajero').textContent=cajeroRows.length;
+  document.getElementById('st-iops').textContent=iOpRows.length;
+
+  // Verificar matching de nombres
+  const nombresUsados=new Set();
+  cajeroRows.forEach(r=>{ nombresUsados.add(r.op1); if(!esPropio(r.op2)) nombresUsados.add(r.op2); });
+  iOpRows.forEach(r=>nombresUsados.add(r.operador));
+
+  let matchOk=0, sinMatch=[];
+  nombresUsados.forEach(n=>{
+    if(esPropio(n)){matchOk++;return;}
+    const r=getUid(n);
+    if(r) matchOk++;
+    else sinMatch.push(n);
+  });
+  document.getElementById('st-match').textContent=`${matchOk}/${nombresUsados.size}`;
+
+  // Mostrar preview
+  const internos=cajeroRows.filter(r=>esPropio(r.op2)).length;
+  const cruzados=cajeroRows.filter(r=>!esPropio(r.op2)).length;
+  let html=`
+    <div class="row" style="gap:8px;margin-bottom:12px">
+      <div class="stat"><div class="stat-val green">${cajeroRows.length}</div><div class="stat-lbl">Filas cajero</div></div>
+      <div class="stat"><div class="stat-val orange">${internos}</div><div class="stat-lbl">Internos (Propio)</div></div>
+      <div class="stat"><div class="stat-val blue">${cruzados}</div><div class="stat-lbl">Cruzados</div></div>
+      <div class="stat"><div class="stat-val orange">${iOpRows.length}</div><div class="stat-lbl">I-OPs extra</div></div>
+    </div>`;
+
+  if(sinMatch.length>0){
+    html+=`<div class="err-box">⚠ ${sinMatch.length} nombre(s) sin UID en sistema:<br>${sinMatch.map(n=>`<code>${n}</code>`).join(', ')}<br><br>Estos intercambios se importarán con uid="DESCONOCIDO". Verifica en Firebase Console.</div>`;
+    sinMatch.forEach(n=>log(`⚠ Sin UID: "${n}"`, 'warn'));
+  }
+
+  // Tabla muestra de cajero
+  html+=`<div style="overflow-x:auto;max-height:250px;overflow-y:auto"><table>
+    <thead><tr><th>OP#</th><th>Fecha</th><th>Operador 1</th><th>Egresa→Ingresa</th><th>Monto</th><th>Tipo</th><th>Operador 2</th></tr></thead><tbody>`;
+  cajeroRows.slice(0,20).forEach(r=>{
+    const tipo=esPropio(r.op2)?'I':'C';
+    html+=`<tr>
+      <td>${r.op}</td>
+      <td>${r.fecha}</td>
+      <td style="font-size:10px">${r.op1.split(' ')[0]}</td>
+      <td><span style="color:var(--red);font-size:10px">${normM(r.egresa)||'?'}</span> → <span style="color:var(--green);font-size:10px">${normM(r.ingresa)||'?'}</span></td>
+      <td>$${Number(r.monto).toLocaleString('es-CO')}</td>
+      <td><span class="badge ${tipo==='C'?'bc':'bi'}">${tipo}</span></td>
+      <td style="font-size:10px">${tipo==='C'?r.op2:'Propio'}</td>
+    </tr>`;
+  });
+  if(cajeroRows.length>20) html+=`<tr><td colspan="7" style="color:var(--text2);text-align:center">... ${cajeroRows.length-20} más</td></tr>`;
+  html+=`</tbody></table></div>`;
+
+  document.getElementById('excel-preview').innerHTML=html;
+  document.getElementById('excel-preview').style.display='block';
+
+  // Mostrar fases
+  document.getElementById('fase1-card').style.display='block';
+  document.getElementById('fase2-card').style.display='block';
+  document.getElementById('f2-preview').innerHTML=`<div class="warn-box">Se crearán: <strong>${cajeroRows.length + iOpRows.length} ix_global</strong> y hasta <strong>${cajeroRows.length + cruzados + iOpRows.length} patriarca_intercambios</strong> (1 o 2 por intercambio).</div>`;
+
+  }catch(e){
+    log('❌ ERROR parseando Excel: '+e.message,'err');
+    console.error(e);
+    alert('Error al leer el archivo: '+e.message);
+  }
+}
+
+// ── FASE 1: BORRAR TODO ──
+async function ejecutarBorrar(){
+  const confirmVal=document.getElementById('confirm-borrar').value.trim();
+  if(confirmVal!=='BORRAR'){alert('Escribe exactamente: BORRAR');return;}
+  if(!confirm('¿Seguro? Esto elimina TODOS los ix_global y patriarca_intercambios. No se puede deshacer.')) return;
+
+  document.getElementById('btn-borrar').disabled=true;
+  const prog=document.getElementById('prog-borrar'); prog.style.display='block';
+  log('\n🗑 Iniciando borrado...');
+
+  let total=0, done=0;
+  try{
+    // Cargar todo
+    const [ixSnap,pixSnap]=await Promise.all([
+      db.collection('patriarca_ix_global').get(),
+      db.collection('patriarca_intercambios').get()
+    ]);
+    total=ixSnap.size+pixSnap.size;
+    log(`Eliminando ${ixSnap.size} ix_global + ${pixSnap.size} intercambios = ${total} docs`);
+
+    const allDocs=[
+      ...ixSnap.docs.map(d=>db.collection('patriarca_ix_global').doc(d.id)),
+      ...pixSnap.docs.map(d=>db.collection('patriarca_intercambios').doc(d.id))
+    ];
+
+    // Eliminar en lotes de 400
+    for(let i=0;i<allDocs.length;i+=400){
+      const batch=db.batch();
+      allDocs.slice(i,i+400).forEach(ref=>batch.delete(ref));
+      await batch.commit();
+      done+=Math.min(400,allDocs.length-i);
+      prog.value=Math.round(done/total*100);
+    }
+
+    document.getElementById('log-borrar').textContent=`✓ Borrado completo: ${total} docs eliminados.`;
+    document.getElementById('log-borrar').style.display='block';
+    document.getElementById('f1-num').className='phase-num phase-done';
+    log(`✓ Borrado completo: ${total} docs`,'ok');
+    borradoHecho=true;
+    await cargarEstado();
+  }catch(e){
+    log('Error borrando: '+e.message,'err');
+    document.getElementById('btn-borrar').disabled=false;
+  }
+}
+
+// ── FASE 2: IMPORTAR ──
+async function ejecutarImportar(){
+  if(!cajeroRows.length){alert('Primero sube el Excel (Fase 0).');return;}
+  if(!confirm(`Importar ${cajeroRows.length} filas del cajero + ${iOpRows.length} I-OPs extra?`)) return;
+
+  document.getElementById('btn-importar').disabled=true;
+  const prog=document.getElementById('prog-importar'); prog.style.display='block';
+  log('\n⬆ Iniciando importación...');
+
+  const ops=[];        // operaciones para batch
+  const globalIds={};  // op_num → globalId (para cajero rows)
+
+  // ── Procesar filas del cajero ──
+  for(const row of cajeroRows){
+    const op1info = getUid(row.op1);
+    const op1uid  = op1info?op1info.uid:'DESCONOCIDO';
+    const op1nom  = op1info?op1info.nombre:row.op1;
+    const esProp  = esPropio(row.op2);
+    const tipo    = esProp?'I':'C';
+
+    const egresaN  = normM(row.egresa);
+    const ingresaN = normM(row.ingresa);
+    const egresaTC = titleCase(egresaN||row.egresa);
+    const ingresaTC = titleCase(ingresaN||row.ingresa);
+
+    const globalRef = db.collection('patriarca_ix_global').doc();
+    const gid = globalRef.id;
+    globalIds[row.op] = gid;
+
+    // op1 patriarca_intercambios
+    const op1docRef = db.collection('patriarca_intercambios').doc();
+
+    const globalData = {
+      op1_uid:   op1uid,
+      op1_nombre: op1nom,
+      op1_egresa: egresaTC,
+      op1_ingresa: ingresaTC,
+      op1_doc_id: op1docRef.id,
+      op1_ix_id:  null,
+      tipo,
+      monto: row.monto,
+      fecha: row.fecha,
+      estado: 'completado',
+      checkmarks: {op1:true, cajero:true, op2: tipo==='C'},
+      creadoEn: new Date().toISOString(),
+    };
+
+    const op1data = {
+      opId: op1uid,
+      fecha: row.fecha,
+      monto: row.monto,
+      caja_egresa: egresaTC,
+      caja_ingresa: ingresaTC,
+      tipo,
+      es_creador: true,
+      global_id: gid,
+      operador2: 'Propio',
+      operador2_uid: op1uid,
+      ix_id: null,
+      estado: 'completado',
+      checkmarks: {op1:true, cajero:true},
+    };
+
+    if(tipo==='C'){
+      const op2info = getUid(row.op2);
+      const op2uid  = op2info?op2info.uid:'DESCONOCIDO';
+      const op2nom  = op2info?op2info.nombre:row.op2;
+
+      // op2 ve egresa/ingresa invertido
+      const op2docRef = db.collection('patriarca_intercambios').doc();
+
+      globalData.op2_uid    = op2uid;
+      globalData.op2_nombre = op2nom;
+      globalData.op2_egresa = ingresaTC;  // invertido
+      globalData.op2_ingresa= egresaTC;   // invertido
+      globalData.op2_doc_id = op2docRef.id;
+      globalData.op2_ix_id  = null;
+
+      op1data.operador2     = op2nom;
+      op1data.operador2_uid = op2uid;
+
+      const op2data = {
+        opId: op2uid,
+        fecha: row.fecha,
+        monto: row.monto,
+        caja_egresa:  ingresaTC,  // invertido
+        caja_ingresa: egresaTC,   // invertido
+        tipo: 'C',
+        es_creador: false,
+        global_id: gid,
+        operador2: op1nom,
+        operador2_uid: op1uid,
+        ix_id: null,
+        estado: 'completado',
+        checkmarks: {op2:true, cajero:true},
+      };
+
+      ops.push({ref:globalRef, data:globalData});
+      ops.push({ref:op1docRef, data:op1data});
+      ops.push({ref:op2docRef, data:op2data});
+    } else {
+      // Interno
+      globalData.op2_uid    = op1uid;
+      globalData.op2_nombre = 'Propio';
+      globalData.op2_egresa = null;
+      globalData.op2_ingresa= null;
+      globalData.op2_doc_id = null;
+      globalData.op2_ix_id  = null;
+
+      ops.push({ref:globalRef, data:globalData});
+      ops.push({ref:op1docRef, data:op1data});
+    }
+  }
+
+  // ── Procesar I-OPs extra (internos bancarios por operador) ──
+  for(const row of iOpRows){
+    const opinfo = getUid(row.operador);
+    const opuid  = opinfo?opinfo.uid:'DESCONOCIDO';
+    const opnom  = opinfo?opinfo.nombre:row.operador;
+
+    const egresaN  = normM(row.egresa);
+    const ingresaN = normM(row.ingresa);
+    const egresaTC = titleCase(egresaN||row.egresa);
+    const ingresaTC = titleCase(ingresaN||row.ingresa);
+
+    const globalRef = db.collection('patriarca_ix_global').doc();
+    const gid = globalRef.id;
+    const opdocRef = db.collection('patriarca_intercambios').doc();
+
+    ops.push({ref:globalRef, data:{
+      op1_uid: opuid, op1_nombre: opnom,
+      op1_egresa: egresaTC, op1_ingresa: ingresaTC,
+      op1_doc_id: opdocRef.id, op1_ix_id: null,
+      op2_uid: opuid, op2_nombre: 'Propio',
+      op2_egresa: null, op2_ingresa: null,
+      op2_doc_id: null, op2_ix_id: null,
+      tipo: 'I', monto: row.monto, fecha: row.fecha,
+      estado: 'completado',
+      checkmarks: {op1:true, cajero:true},
+      creadoEn: new Date().toISOString(),
+    }});
+    ops.push({ref:opdocRef, data:{
+      opId: opuid, fecha: row.fecha, monto: row.monto,
+      caja_egresa: egresaTC, caja_ingresa: ingresaTC,
+      tipo: 'I', es_creador: true, global_id: gid,
+      operador2: 'Propio', operador2_uid: opuid,
+      ix_id: null, estado: 'completado',
+      checkmarks: {op1:true, cajero:true},
+    }});
+  }
+
+  log(`Total operaciones a escribir: ${ops.length}`);
+
+  // Ejecutar en batches de 400
+  let done=0;
+  for(let i=0;i<ops.length;i+=400){
+    const chunk=ops.slice(i,i+400);
+    const batch=db.batch();
+    chunk.forEach(op=>batch.set(op.ref, op.data));
+    await batch.commit();
+    done+=chunk.length;
+    prog.value=Math.round(done/ops.length*100);
+    log(`Lote ${Math.ceil(done/400)}: ${done}/${ops.length} ops`,'gray');
+  }
+
+  prog.value=100;
+  const resumen=document.getElementById('log-importar');
+  resumen.textContent=`✓ Importación completa: ${ops.length} documentos creados.`;
+  resumen.style.display='block';
+  document.getElementById('f2-num').className='phase-num phase-done';
+  log(`✓ Importación completa: ${ops.length} docs creados`,'ok');
+  importadoHecho=true;
+  document.getElementById('fase3-card').style.display='block';
+  await cargarEstado();
+}
+
+// ── FASE 3: ASIGNAR IX_IDs ──
+async function ejecutarAsignarIds(){
+  document.getElementById('btn-ids').disabled=true;
+  const prog=document.getElementById('prog-ids'); prog.style.display='block';
+  log('\n🔢 Asignando ix_ids...');
+
+  try{
+    // Cargar todos los patriarca_intercambios
+    const snap=await db.collection('patriarca_intercambios').get();
+    log(`Cargados ${snap.size} docs de patriarca_intercambios`);
+
+    // Agrupar por operador
+    const porOp={};
+    snap.docs.forEach(d=>{
+      const dat=d.data();
+      const uid=dat.opId||'DESCONOCIDO';
+      if(!porOp[uid]) porOp[uid]=[];
+      porOp[uid].push({id:d.id, ...dat});
+    });
+
+    const updateOps=[]; // {type:'update', ref, data}
+
+    // Para cada operador: asignar N-C-OP y N-I-OP secuenciales por fecha
+    for(const [uid, docs] of Object.entries(porOp)){
+      // Ordenar por fecha ASC
+      docs.sort((a,b)=>(a.fecha||'').localeCompare(b.fecha||''));
+
+      let cCount=0, iCount=0;
+      for(const doc of docs){
+        const tipo=doc.tipo||'I';
+        const n = tipo==='C'?(++cCount):(++iCount);
+        const ix_id=`${n} - ${tipo} - OP - INTERCAMBIO`;
+
+        if(doc.ix_id!==ix_id){
+          updateOps.push({
+            ref: db.collection('patriarca_intercambios').doc(doc.id),
+            data: {ix_id},
+            globalId: doc.global_id,
+            esCreador: doc.es_creador,
+          });
+        }
+      }
+    }
+
+    log(`${updateOps.length} docs de patriarca_intercambios a actualizar`);
+    prog.value=20;
+
+    // Actualizar patriarca_intercambios
+    for(let i=0;i<updateOps.length;i+=400){
+      const batch=db.batch();
+      updateOps.slice(i,i+400).forEach(op=>batch.update(op.ref, {ix_id:op.data.ix_id}));
+      await batch.commit();
+      prog.value=20+Math.round(i/updateOps.length*40);
+    }
+    prog.value=60;
+    log('✓ patriarca_intercambios actualizados','ok');
+
+    // Ahora actualizar ix_global con op1_ix_id y op2_ix_id
+    // Construir mapa: doc_id → ix_id
+    const docIdToIxId={};
+    updateOps.forEach(op=>{
+      docIdToIxId[op.ref.id]=op.data.ix_id;
+    });
+    // También incluir docs que no necesitaron update (ix_id ya era correcto)
+    // Re-leer todos para completar el mapa
+    snap.docs.forEach(d=>{
+      if(!docIdToIxId[d.id]) docIdToIxId[d.id]=d.data().ix_id;
+    });
+
+    // Cargar ix_global y actualizar
+    const ixSnap=await db.collection('patriarca_ix_global').get();
+    log(`Cargados ${ixSnap.size} ix_global para actualizar IDs`);
+
+    const ixOps=[];
+    ixSnap.docs.forEach(d=>{
+      const dat=d.data();
+      const upd={};
+      if(dat.op1_doc_id && docIdToIxId[dat.op1_doc_id]) upd.op1_ix_id=docIdToIxId[dat.op1_doc_id];
+      if(dat.op2_doc_id && docIdToIxId[dat.op2_doc_id]) upd.op2_ix_id=docIdToIxId[dat.op2_doc_id];
+      if(Object.keys(upd).length){
+        ixOps.push({ref:db.collection('patriarca_ix_global').doc(d.id), data:upd});
+      }
+    });
+
+    for(let i=0;i<ixOps.length;i+=400){
+      const batch=db.batch();
+      ixOps.slice(i,i+400).forEach(op=>batch.update(op.ref, op.data));
+      await batch.commit();
+      prog.value=60+Math.round(i/ixOps.length*38);
+    }
+    prog.value=100;
+
+    const resumen=document.getElementById('log-ids');
+    resumen.textContent=`✓ IDs asignados: ${updateOps.length} intercambios + ${ixOps.length} ix_global actualizados.`;
+    resumen.style.display='block';
+    document.getElementById('f3-num').className='phase-num phase-done';
+    log(`✓ Fase 3 completa. ${updateOps.length} IDs de intercambios + ${ixOps.length} ix_global actualizados.`,'ok');
+    log('\n🎉 Todo listo. Recarga cajero.html y los portales de operadores.','ok');
+  }catch(e){
+    log('Error en Fase 3: '+e.message,'err');
+    document.getElementById('btn-ids').disabled=false;
+  }
+}
+</script>
+</body>
+</html>

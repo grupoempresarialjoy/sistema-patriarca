@@ -1,0 +1,995 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AJ1.6 — Trixi Calculator</title>
+<script>(function(){var t=localStorage.getItem('aj16-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)})();</script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<style>
+:root{
+  --bg:#0d1117;--bg2:#161b22;--bg3:#21262d;--bg4:#2a2f3d;
+  --green:#24BF62;--red:#ff5555;--gold:#f0a050;--blue:#4db6f7;
+  --text:#e0e4f0;--text2:#8890a8;--border:rgba(255,255,255,0.08);
+  --radius:10px;--row-hover:rgba(255,255,255,.03);
+}
+[data-theme="light"]{--bg:#f0f2f8;--bg2:#ffffff;--bg3:#e8eaf2;--bg4:#d8daea;--border:rgba(0,0,0,0.12);--text:#1a1e2e;--text2:#5a6480;--row-hover:rgba(0,0,0,.04)}
+@media(prefers-color-scheme:light){:root:not([data-theme="dark"]){--bg:#f0f2f8;--bg2:#ffffff;--bg3:#e8eaf2;--bg4:#d8daea;--border:rgba(0,0,0,0.12);--text:#1a1e2e;--text2:#5a6480;--row-hover:rgba(0,0,0,.04)}}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',sans-serif;min-height:100vh}
+
+/* TEMA */
+.btn-theme{background:transparent;border:1px solid var(--border);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:15px;line-height:1.2;margin-left:auto;transition:border-color .15s}
+.btn-theme:hover{border-color:var(--text2)}
+/* NAV */
+.nav{display:flex;align-items:center;gap:0;background:var(--bg2);border-bottom:1px solid var(--border);padding:0 20px;height:52px}
+.nav-logo{display:flex;align-items:center;gap:8px;margin-right:24px;text-decoration:none}
+.nav-logo svg{color:var(--green)}
+.nav-logo .brand{font-weight:900;font-size:16px;letter-spacing:1px;color:var(--green)}
+.nav-logo .brand span{color:var(--text2)}
+.nav-tab{padding:0 18px;height:52px;display:flex;align-items:center;font-size:13px;font-weight:600;color:var(--text2);cursor:pointer;border-bottom:2px solid transparent;text-decoration:none;transition:color .2s}
+.nav-tab:hover{color:var(--text)}
+.nav-tab.active{color:var(--green);border-bottom-color:var(--green)}
+
+/* MAIN */
+.main{padding:20px;max-width:1400px;margin:0 auto}
+.page-title{font-size:22px;font-weight:800;letter-spacing:1px;margin-bottom:20px;color:var(--green);text-transform:uppercase}
+
+/* GRID 2 cols */
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:900px){.two-col{grid-template-columns:1fr}}
+
+/* PANEL */
+.panel{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.table-wrap{overflow-x:auto}
+.panel-head{background:var(--bg3);padding:10px 16px;font-size:12px;font-weight:700;letter-spacing:1px;color:var(--text2);text-transform:uppercase}
+.panel-body{padding:16px}
+
+/* INPUTS */
+.field{margin-bottom:12px}
+.field label{display:block;font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+.field input{width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-size:14px;font-weight:600;outline:none;transition:border-color .2s}
+.field input:focus{border-color:var(--green)}
+.field input.bono-input{border-color:rgba(77,182,247,0.4)}
+
+/* EVENTO */
+.evento-row{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;margin-bottom:12px;align-items:center}
+.vs-badge{text-align:center;font-size:11px;color:var(--text2);font-weight:700}
+
+/* HOUSES TABLE */
+.houses{width:100%;border-collapse:collapse;font-size:13px;margin-top:4px;min-width:480px}
+.houses th{background:var(--bg3);color:var(--text2);font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;padding:7px 8px;text-align:center;white-space:nowrap}
+.houses th:first-child{text-align:left}
+.houses td{padding:6px 8px;border-bottom:1px solid var(--border);text-align:center;vertical-align:middle;white-space:nowrap}
+.houses td:first-child{text-align:left;font-weight:600;font-size:12px}
+.houses td input{background:var(--bg4);border:1px solid var(--border);border-radius:5px;padding:5px 6px;color:var(--text);font-size:13px;font-weight:600;outline:none;text-align:center;width:72px}
+.houses td input:focus{border-color:var(--green);box-shadow:0 0 0 2px rgba(36,191,98,0.25)}
+.houses td input.name-input{text-align:left;width:110px}
+.houses td input.free-cuota{border-color:rgba(77,182,247,0.5);color:var(--blue)}
+.stake-cell{font-weight:700;color:var(--text)}
+.stake-inp{background:transparent;border:none;border-bottom:1px dashed rgba(255,255,255,0.15);color:var(--text);font-weight:700;font-size:13px;text-align:center;width:100%;padding:2px 4px;font-family:inherit;cursor:text}
+.stake-inp:focus{outline:none;border-bottom-color:var(--gold);color:var(--gold);background:rgba(255,193,7,0.06)}
+.stake-inp::placeholder{color:var(--text2);font-weight:400}
+.retorno-cell{color:var(--green);font-weight:700}
+.com-input{width:52px!important;border-color:rgba(240,160,80,0.4)!important;color:var(--gold)!important}
+.com-cell{color:var(--gold);font-weight:600;font-size:12px}
+.met-select{display:block;width:100%;min-width:80px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text2);font-size:10px;padding:2px 4px;outline:none;transition:border-color .15s}
+.met-select:focus{border-color:var(--green);box-shadow:0 0 0 2px rgba(36,191,98,0.25)}
+.row-label{color:var(--text2);font-size:11px;font-weight:600;text-transform:uppercase;white-space:nowrap;padding-right:8px}
+.row-hidden{display:none}
+.houses td,.houses th{text-align:center}
+
+/* SUB-TABS (3/2 opciones) */
+.sub-tabs{display:flex;gap:8px;margin-bottom:16px}
+.sub-tab{background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text2);padding:8px 22px;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:.5px;transition:all .15s}
+.sub-tab.active{background:var(--green);color:#000;border-color:var(--green)}
+.sub-page{display:none}
+.sub-page.active{display:block}
+
+/* CASA SELECT */
+.casa-select{background:var(--bg4);border:1px solid var(--border);border-radius:5px;color:var(--text);font-size:12px;font-weight:700;padding:5px 6px;outline:none;width:100%;cursor:pointer}
+.casa-select:focus{border-color:var(--green);box-shadow:0 0 0 2px rgba(36,191,98,0.25)}
+
+/* RESULTADO */
+.resultado{margin-top:14px;padding:12px 14px;background:var(--bg3);border-radius:8px;display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px}
+.res-item{text-align:center}
+.res-label{font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px}
+.res-val{font-size:16px;font-weight:800}
+.res-val.pos{color:var(--green)}
+.res-val.neg{color:var(--red)}
+.res-val.gold{color:var(--gold)}
+
+/* FREE BET badge */
+.free-badge{display:inline-block;font-size:9px;font-weight:700;background:rgba(77,182,247,0.15);color:var(--blue);border:1px solid rgba(77,182,247,0.3);border-radius:10px;padding:2px 6px;margin-left:4px;vertical-align:middle}
+/* FREE toggle button en columna */
+.free-toggle-btn{background:var(--bg3);border:1px solid var(--border);border-radius:10px;color:var(--text2);font-size:9px;font-weight:700;padding:2px 7px;cursor:pointer;margin-top:3px;display:inline-block;transition:all .15s;letter-spacing:.3px}
+.free-toggle-btn.active{background:rgba(77,182,247,0.2);border-color:var(--blue);color:var(--blue)}
+
+/* Bono summary */
+.bono-summary{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+.bono-card{background:var(--bg3);border-radius:8px;padding:10px 12px}
+.bono-card .bc-label{font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px}
+.bono-card .bc-val{font-size:15px;font-weight:800;color:var(--green)}
+.bono-card .bc-pct{font-size:11px;color:var(--text2)}
+
+/* DIVIDER */
+hr{border:none;border-top:1px solid var(--border);margin:16px 0}
+
+/* INVERSION HEADER */
+.inv-row{display:flex;align-items:center;justify-content:space-between;background:rgba(36,191,98,0.06);border:1px solid rgba(36,191,98,0.2);border-radius:8px;padding:8px 14px;margin-bottom:12px}
+.inv-row .ir-label{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px}
+.inv-row .ir-val{font-size:18px;font-weight:800;color:var(--green)}
+
+.page{display:none}
+.page.active{display:block}
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav class="nav">
+  <a class="nav-logo" href="patriarca.html">
+    <img src="data:image/png;base64,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" style="height:36px;width:auto" alt="AJ1.6 logo">
+    <div class="brand">AJ1.6 <span>PATRIARCA</span></div>
+  </a>
+  <a class="nav-tab active" onclick="showPage('general',this)">Trixie General</a>
+  <a class="nav-tab" onclick="showPage('bono',this)">Trixie Bono Free</a>
+  <button class="btn-theme" id="btn-theme" onclick="toggleTheme()" title="Cambiar tema">☀️</button>
+</nav>
+
+<div class="main">
+
+<!-- ═══════════════════ TRIXIE GENERAL ═══════════════════ -->
+<div id="page-general" class="page active">
+  <div class="page-title">Trixie General</div>
+
+  <div class="sub-tabs">
+    <button class="sub-tab active" onclick="showSub('general','3',this)">3 Opciones — 1 · X · 2</button>
+    <button class="sub-tab" onclick="showSub('general','2',this)">2 Opciones — 1 · 2</button>
+  </div>
+
+  <div id="general-3" class="sub-page active"><div class="panel"><div class="panel-body">
+
+        <div class="inv-row">
+          <div class="ir-label">Retorno objetivo</div>
+          <div class="ir-val" id="g3-inv-display">$0</div>
+        </div>
+
+        <div class="field">
+          <label>Inversión (retorno a garantizar)</label>
+          <input type="text" id="g3-inv" value="3.365.000" oninput="calcGeneral3()" placeholder="0">
+        </div>
+
+        <div class="evento-row">
+          <input type="text" id="g3-equipo1" value="Equipo Local" oninput="calcGeneral3()" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:13px;outline:none;width:100%">
+          <div class="vs-badge">VS</div>
+          <input type="text" id="g3-equipo2" value="Equipo Visitante" oninput="calcGeneral3()" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:13px;outline:none;width:100%">
+        </div>
+
+        <div class="table-wrap"><table class="houses">
+          <tr>
+            <th style="text-align:left"></th>
+            <th style="color:var(--gold);font-size:16px">1</th>
+            <th style="color:var(--text2);font-size:16px">X</th>
+            <th style="color:var(--blue);font-size:16px">2</th>
+          </tr>
+          <tr>
+            <td class="row-label">Casa</td>
+            <td><select class="casa-select" id="g3-n0" onchange="updMet('g3-n0','g3-met0','g3-com0');calcGeneral3()"><option value="">— casa —</option></select></td>
+            <td><select class="casa-select" id="g3-n1" onchange="updMet('g3-n1','g3-met1','g3-com1');calcGeneral3()"><option value="">— casa —</option></select></td>
+            <td><select class="casa-select" id="g3-n2" onchange="updMet('g3-n2','g3-met2','g3-com2');calcGeneral3()"><option value="">— casa —</option></select></td>
+          </tr>
+          <tr>
+            <td class="row-label">Método</td>
+            <td><select class="met-select" id="g3-met0" onchange="lkp('g3-n0','g3-met0','g3-com0');calcGeneral3()"><option value="">— método —</option></select></td>
+            <td><select class="met-select" id="g3-met1" onchange="lkp('g3-n1','g3-met1','g3-com1');calcGeneral3()"><option value="">— método —</option></select></td>
+            <td><select class="met-select" id="g3-met2" onchange="lkp('g3-n2','g3-met2','g3-com2');calcGeneral3()"><option value="">— método —</option></select></td>
+          </tr>
+          <tr>
+            <td class="row-label">Cuota</td>
+            <td><input type="number" id="g3-c0" value="1.44" step="0.01" min="1" oninput="calcGeneral3()"></td>
+            <td><input type="number" id="g3-c1" value="4.50" step="0.01" min="1" oninput="calcGeneral3()"></td>
+            <td><input type="number" id="g3-c2" value="8.20" step="0.01" min="1" oninput="calcGeneral3()"></td>
+          </tr>
+          <tr class="row-hidden">
+            <td class="row-label">% Com</td>
+            <td><input type="number" class="com-input" id="g3-com0" value="0" step="0.01" min="0" max="100" oninput="calcGeneral3()"></td>
+            <td><input type="number" class="com-input" id="g3-com1" value="0" step="0.01" min="0" max="100" oninput="calcGeneral3()"></td>
+            <td><input type="number" class="com-input" id="g3-com2" value="0" step="0.01" min="0" max="100" oninput="calcGeneral3()"></td>
+          </tr>
+          <tr>
+            <td class="row-label">Inversión</td>
+            <td><input class="stake-inp" id="g3-s0" placeholder="—" oninput="gStakeInput('g3',0,3)" onfocus="this.select()"></td>
+            <td><input class="stake-inp" id="g3-s1" placeholder="—" oninput="gStakeInput('g3',1,3)" onfocus="this.select()"></td>
+            <td><input class="stake-inp" id="g3-s2" placeholder="—" oninput="gStakeInput('g3',2,3)" onfocus="this.select()"></td>
+          </tr>
+          <tr class="row-hidden">
+            <td class="row-label">Com $</td>
+            <td class="com-cell" id="g3-cv0">—</td>
+            <td class="com-cell" id="g3-cv1">—</td>
+            <td class="com-cell" id="g3-cv2">—</td>
+          </tr>
+          <tr>
+            <td class="row-label">Retorno</td>
+            <td class="retorno-cell" id="g3-r0">—</td>
+            <td class="retorno-cell" id="g3-r1">—</td>
+            <td class="retorno-cell" id="g3-r2">—</td>
+          </tr>
+        </table></div>
+        <div class="resultado">
+          <div class="res-item">
+            <div class="res-label">Total apostado</div>
+            <div class="res-val gold" id="g3-total">—</div>
+          </div>
+          <div class="res-item">
+            <div class="res-label">Com. ganada</div>
+            <div class="res-val" style="color:#6fcf97" id="g3-total-com">$0</div>
+          </div>
+          <div class="res-item">
+            <div class="res-label">Util. neta $</div>
+            <div class="res-val" id="g3-roi-money">—</div>
+          </div>
+          <div class="res-item">
+            <div class="res-label">Util. neta %</div>
+            <div class="res-val" id="g3-roi-pct">—</div>
+          </div>
+        </div>
+  </div></div></div><!-- /general-3 -->
+
+  <div id="general-2" class="sub-page"><div class="panel"><div class="panel-body">
+
+        <div class="inv-row">
+          <div class="ir-label">Retorno objetivo</div>
+          <div class="ir-val" id="g2-inv-display">$0</div>
+        </div>
+
+        <div class="field">
+          <label>Inversión (retorno a garantizar)</label>
+          <input type="text" id="g2-inv" value="3.365.000" oninput="calcGeneral2()" placeholder="0">
+        </div>
+
+        <div class="evento-row">
+          <input type="text" id="g2-equipo1" value="Equipo Local" oninput="calcGeneral2()" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:13px;outline:none;width:100%">
+          <div class="vs-badge">VS</div>
+          <input type="text" id="g2-equipo2" value="Equipo Visitante" oninput="calcGeneral2()" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:13px;outline:none;width:100%">
+        </div>
+
+        <div class="table-wrap"><table class="houses">
+          <tr>
+            <th style="text-align:left"></th>
+            <th style="color:var(--gold);font-size:16px">1</th>
+            <th style="color:var(--blue);font-size:16px">2</th>
+          </tr>
+          <tr>
+            <td class="row-label">Casa</td>
+            <td><select class="casa-select" id="g2-n0" onchange="updMet('g2-n0','g2-met0','g2-com0');calcGeneral2()"><option value="">— casa —</option></select></td>
+            <td><select class="casa-select" id="g2-n1" onchange="updMet('g2-n1','g2-met1','g2-com1');calcGeneral2()"><option value="">— casa —</option></select></td>
+          </tr>
+          <tr>
+            <td class="row-label">Método</td>
+            <td><select class="met-select" id="g2-met0" onchange="lkp('g2-n0','g2-met0','g2-com0');calcGeneral2()"><option value="">— método —</option></select></td>
+            <td><select class="met-select" id="g2-met1" onchange="lkp('g2-n1','g2-met1','g2-com1');calcGeneral2()"><option value="">— método —</option></select></td>
+          </tr>
+          <tr>
+            <td class="row-label">Cuota</td>
+            <td><input type="number" id="g2-c0" value="1.44" step="0.01" min="1" oninput="calcGeneral2()"></td>
+            <td><input type="number" id="g2-c1" value="2.90" step="0.01" min="1" oninput="calcGeneral2()"></td>
+          </tr>
+          <tr class="row-hidden">
+            <td class="row-label">% Com</td>
+            <td><input type="number" class="com-input" id="g2-com0" value="0" step="0.01" min="0" max="100" oninput="calcGeneral2()"></td>
+            <td><input type="number" class="com-input" id="g2-com1" value="0" step="0.01" min="0" max="100" oninput="calcGeneral2()"></td>
+          </tr>
+          <tr>
+            <td class="row-label">Inversión</td>
+            <td><input class="stake-inp" id="g2-s0" placeholder="—" oninput="gStakeInput('g2',0,2)" onfocus="this.select()"></td>
+            <td><input class="stake-inp" id="g2-s1" placeholder="—" oninput="gStakeInput('g2',1,2)" onfocus="this.select()"></td>
+          </tr>
+          <tr class="row-hidden">
+            <td class="row-label">Com $</td>
+            <td class="com-cell" id="g2-cv0">—</td>
+            <td class="com-cell" id="g2-cv1">—</td>
+          </tr>
+          <tr>
+            <td class="row-label">Retorno</td>
+            <td class="retorno-cell" id="g2-r0">—</td>
+            <td class="retorno-cell" id="g2-r1">—</td>
+          </tr>
+        </table></div>
+        <div class="resultado">
+          <div class="res-item">
+            <div class="res-label">Total apostado</div>
+            <div class="res-val gold" id="g2-total">—</div>
+          </div>
+          <div class="res-item">
+            <div class="res-label">Com. ganada</div>
+            <div class="res-val" style="color:#6fcf97" id="g2-total-com">$0</div>
+          </div>
+          <div class="res-item">
+            <div class="res-label">Util. neta $</div>
+            <div class="res-val" id="g2-roi-money">—</div>
+          </div>
+          <div class="res-item">
+            <div class="res-label">Util. neta %</div>
+            <div class="res-val" id="g2-roi-pct">—</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div></div></div><!-- /general-2 -->
+</div><!-- /page-general -->
+
+
+<!-- ═══════════════════ TRIXIE BONO FREE ═══════════════════ -->
+<div id="page-bono" class="page">
+  <div class="page-title">Trixie Bono Free</div>
+
+  <div class="sub-tabs">
+    <button class="sub-tab active" onclick="showSub('bono','3',this)">3 Opciones <span class="free-badge">FREE BET</span></button>
+    <button class="sub-tab" onclick="showSub('bono','2',this)">2 Opciones <span class="free-badge">FREE BET</span></button>
+  </div>
+
+  <div id="bono-3" class="sub-page active"><div class="panel">
+      <div class="panel-head">3 Opciones — Bono Free <span class="free-badge">FREE BET</span></div>
+      <div class="panel-body">
+
+        <div class="bono-summary">
+          <div class="bono-card">
+            <div class="bc-label">G/ Bono Anotar</div>
+            <div class="bc-val" id="b3-g-anotar">—</div>
+            <div class="bc-pct" id="b3-g-anotar-pct">del bono</div>
+          </div>
+          <div class="bono-card">
+            <div class="bc-label">G/ Bono + Com</div>
+            <div class="bc-val" id="b3-apuesta-bono" style="color:var(--green)">—</div>
+            <div class="bc-pct" id="b3-retorno-libre-lbl">ganancia real</div>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Bono (free bet) $</label>
+          <input type="text" class="bono-input" id="b3-bono" value="304.260" oninput="calcBono3()">
+        </div>
+
+        <div class="inv-row" style="margin-bottom:12px">
+          <div class="ir-label">Retorno libre (bono × cuota neta)</div>
+          <div class="ir-val" id="b3-retorno-display">$0</div>
+        </div>
+
+        <div class="evento-row">
+          <input type="text" id="b3-equipo1" value="Equipo Local" oninput="calcBono3()" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:13px;outline:none;width:100%">
+          <div class="vs-badge">VS</div>
+          <input type="text" id="b3-equipo2" value="Equipo Visitante" oninput="calcBono3()" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:13px;outline:none;width:100%">
+        </div>
+
+        <div class="table-wrap"><table class="houses">
+          <tr>
+            <th style="text-align:left"></th>
+            <th style="color:var(--gold);font-size:16px">1<br><button class="free-toggle-btn" id="b3-fb0" onclick="b3SetFree(0)">FREE</button></th>
+            <th style="color:var(--text2);font-size:16px">X<br><button class="free-toggle-btn active" id="b3-fb1" onclick="b3SetFree(1)">FREE</button></th>
+            <th style="color:var(--blue);font-size:16px">2<br><button class="free-toggle-btn" id="b3-fb2" onclick="b3SetFree(2)">FREE</button></th>
+          </tr>
+          <tr>
+            <td class="row-label">Casa</td>
+            <td>
+              <select class="casa-select" id="b3-n0" onchange="updMet('b3-n0','b3-met0','b3-com0');calcBono3()"><option value="">— casa —</option></select>
+              <input class="name-input free-cuota" type="text" id="b3-n0-txt" value="BWIN" style="width:100%;display:none">
+            </td>
+            <td>
+              <select class="casa-select" id="b3-n1" onchange="updMet('b3-n1','b3-met1','b3-com1');calcBono3()" style="display:none"><option value="">— casa —</option></select>
+              <input class="name-input free-cuota" type="text" id="b3-n1-txt" value="BWIN" style="width:100%">
+            </td>
+            <td>
+              <select class="casa-select" id="b3-n2" onchange="updMet('b3-n2','b3-met2','b3-com2');calcBono3()"><option value="">— casa —</option></select>
+              <input class="name-input free-cuota" type="text" id="b3-n2-txt" value="BWIN" style="width:100%;display:none">
+            </td>
+          </tr>
+          <tr>
+            <td class="row-label">Método</td>
+            <td>
+              <select class="met-select" id="b3-met0" onchange="lkp('b3-n0','b3-met0','b3-com0');calcBono3()"><option value="">— método —</option></select>
+              <span id="b3-met0-dash" style="color:var(--text2);font-size:11px;display:none">—</span>
+            </td>
+            <td>
+              <select class="met-select" id="b3-met1" onchange="lkp('b3-n1','b3-met1','b3-com1');calcBono3()" style="display:none"><option value="">— método —</option></select>
+              <span id="b3-met1-dash" style="color:var(--text2);font-size:11px">—</span>
+            </td>
+            <td>
+              <select class="met-select" id="b3-met2" onchange="lkp('b3-n2','b3-met2','b3-com2');calcBono3()"><option value="">— método —</option></select>
+              <span id="b3-met2-dash" style="color:var(--text2);font-size:11px;display:none">—</span>
+            </td>
+          </tr>
+          <tr>
+            <td class="row-label">Cuota</td>
+            <td><input type="number" id="b3-c0" value="1.15" step="0.01" min="1" oninput="calcBono3()"></td>
+            <td><input type="number" class="free-cuota" id="b3-c1" value="3.00" step="0.01" min="1" oninput="calcBono3()"></td>
+            <td><input type="number" id="b3-c2" value="5.00" step="0.01" min="1" oninput="calcBono3()"></td>
+          </tr>
+          <tr class="row-hidden">
+            <td class="row-label">% Com</td>
+            <td><input type="number" class="com-input" id="b3-com0" value="0" step="0.01" min="0" max="100" oninput="calcBono3()"></td>
+            <td><input type="number" class="com-input" id="b3-com1" value="0" step="0.01" min="0" max="100" disabled oninput="calcBono3()"></td>
+            <td><input type="number" class="com-input" id="b3-com2" value="0" step="0.01" min="0" max="100" oninput="calcBono3()"></td>
+          </tr>
+          <tr>
+            <td class="row-label">Inversión</td>
+            <td class="stake-cell" id="b3-s0">—</td>
+            <td class="stake-cell" id="b3-s1" style="color:var(--blue)">—</td>
+            <td class="stake-cell" id="b3-s2">—</td>
+          </tr>
+          <tr class="row-hidden">
+            <td class="row-label">Com $</td>
+            <td class="com-cell" id="b3-cv0">—</td>
+            <td class="com-cell" id="b3-cv1">—</td>
+            <td class="com-cell" id="b3-cv2">—</td>
+          </tr>
+          <tr>
+            <td class="row-label">Retorno</td>
+            <td class="retorno-cell" id="b3-r0">—</td>
+            <td class="retorno-cell" id="b3-r1">—</td>
+            <td class="retorno-cell" id="b3-r2">—</td>
+          </tr>
+        </table></div>
+        <div class="resultado" style="grid-template-columns:1fr 1fr 1fr 1fr">
+          <div class="res-item">
+            <div class="res-label">G/Bono Anotar</div>
+            <div class="res-val" style="color:var(--blue)" id="b3-total">—</div>
+          </div>
+          <div class="res-item">
+            <div class="res-label">Real invertido</div>
+            <div class="res-val gold" id="b3-total-com">—</div>
+          </div>
+          <div class="res-item">
+            <div class="res-label">G/Bono + Com</div>
+            <div class="res-val" id="b3-roi-money">—</div>
+          </div>
+          <div class="res-item">
+            <div class="res-label">% del Bono</div>
+            <div class="res-val" id="b3-roi-pct">—</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div></div><!-- /bono-3 -->
+
+  <div id="bono-2" class="sub-page"><div class="panel"><div class="panel-body">
+
+        <div class="bono-summary">
+          <div class="bono-card">
+            <div class="bc-label">G/ Bono Anotar</div>
+            <div class="bc-val" id="b2-g-anotar">—</div>
+            <div class="bc-pct" id="b2-g-anotar-pct">del bono</div>
+          </div>
+          <div class="bono-card">
+            <div class="bc-label">G/ Bono + Com</div>
+            <div class="bc-val" id="b2-apuesta-bono" style="color:var(--green)">—</div>
+            <div class="bc-pct" id="b2-retorno-libre-lbl">ganancia real</div>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Bono (free bet) $</label>
+          <input type="text" class="bono-input" id="b2-bono" value="250.000" oninput="calcBono2()">
+        </div>
+
+        <div class="inv-row" style="margin-bottom:12px">
+          <div class="ir-label">Retorno libre (bono × cuota neta)</div>
+          <div class="ir-val" id="b2-retorno-display">$0</div>
+        </div>
+
+        <div class="evento-row">
+          <input type="text" id="b2-equipo1" value="Equipo Local" oninput="calcBono2()" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:13px;outline:none;width:100%">
+          <div class="vs-badge">VS</div>
+          <input type="text" id="b2-equipo2" value="Equipo Visitante" oninput="calcBono2()" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:13px;outline:none;width:100%">
+        </div>
+
+        <div class="table-wrap"><table class="houses">
+          <tr>
+            <th style="text-align:left"></th>
+            <th style="color:var(--gold);font-size:16px">1<br><button class="free-toggle-btn" id="b2-fb0" onclick="b2SetFree(0)">FREE</button></th>
+            <th style="color:var(--blue);font-size:16px">2<br><button class="free-toggle-btn active" id="b2-fb1" onclick="b2SetFree(1)">FREE</button></th>
+          </tr>
+          <tr>
+            <td class="row-label">Casa</td>
+            <td>
+              <select class="casa-select" id="b2-n0" onchange="updMet('b2-n0','b2-met0','b2-com0');calcBono2()"><option value="">— casa —</option></select>
+              <input class="name-input free-cuota" type="text" id="b2-n0-txt" value="BWIN" style="width:100%;display:none">
+            </td>
+            <td>
+              <select class="casa-select" id="b2-n1" onchange="updMet('b2-n1','b2-met1','b2-com1');calcBono2()" style="display:none"><option value="">— casa —</option></select>
+              <input class="name-input free-cuota" type="text" id="b2-n1-txt" value="BWIN" style="width:100%">
+            </td>
+          </tr>
+          <tr>
+            <td class="row-label">Método</td>
+            <td>
+              <select class="met-select" id="b2-met0" onchange="lkp('b2-n0','b2-met0','b2-com0');calcBono2()"><option value="">— método —</option></select>
+              <span id="b2-met0-dash" style="color:var(--text2);font-size:11px;display:none">—</span>
+            </td>
+            <td>
+              <select class="met-select" id="b2-met1" onchange="lkp('b2-n1','b2-met1','b2-com1');calcBono2()" style="display:none"><option value="">— método —</option></select>
+              <span id="b2-met1-dash" style="color:var(--text2);font-size:11px">—</span>
+            </td>
+          </tr>
+          <tr>
+            <td class="row-label">Cuota</td>
+            <td><input type="number" id="b2-c0" value="1.95" step="0.01" min="1" oninput="calcBono2()"></td>
+            <td><input type="number" class="free-cuota" id="b2-c1" value="1.93" step="0.01" min="1" oninput="calcBono2()"></td>
+          </tr>
+          <tr class="row-hidden">
+            <td class="row-label">% Com</td>
+            <td><input type="number" class="com-input" id="b2-com0" value="0" step="0.01" min="0" max="100" oninput="calcBono2()"></td>
+            <td><input type="number" class="com-input" id="b2-com1" value="0" step="0.01" min="0" max="100" disabled oninput="calcBono2()"></td>
+          </tr>
+          <tr>
+            <td class="row-label">Inversión</td>
+            <td class="stake-cell" id="b2-s0">—</td>
+            <td class="stake-cell" id="b2-s1" style="color:var(--blue)">—</td>
+          </tr>
+          <tr class="row-hidden">
+            <td class="row-label">Com $</td>
+            <td class="com-cell" id="b2-cv0">—</td>
+            <td class="com-cell" id="b2-cv1">—</td>
+          </tr>
+          <tr>
+            <td class="row-label">Retorno</td>
+            <td class="retorno-cell" id="b2-r0">—</td>
+            <td class="retorno-cell" id="b2-r1">—</td>
+          </tr>
+        </table></div>
+        <div class="resultado" style="grid-template-columns:1fr 1fr 1fr 1fr">
+          <div class="res-item">
+            <div class="res-label">G/Bono Anotar</div>
+            <div class="res-val" style="color:var(--blue)" id="b2-total">—</div>
+          </div>
+          <div class="res-item">
+            <div class="res-label">Real invertido</div>
+            <div class="res-val gold" id="b2-total-com">—</div>
+          </div>
+          <div class="res-item">
+            <div class="res-label">G/Bono + Com</div>
+            <div class="res-val" id="b2-roi-money">—</div>
+          </div>
+          <div class="res-item">
+            <div class="res-label">% del Bono</div>
+            <div class="res-val" id="b2-roi-pct">—</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div></div></div><!-- /bono-2 -->
+</div><!-- /page-bono -->
+
+</div><!-- /main -->
+
+<script>
+// ── Comisiones: Casa|Método → % recarga ──
+const COM_TABLE = {
+  'BET PLAY|SUPER GIROS UNITY':    2,
+  'BET PLAY|SUPER GIROS MAQUINA':  2,
+  'BETSSON|BE MOVIL CAJA':         2,
+  'BETSSON|BE MOVIL MASTER':       2,
+  'BETSSON|PTM PROPIO':            1.68,
+  'BETSSON|MEGA RED':              1.6,
+  'BWIN|BE MOVIL CAJA':            2.5,
+  'BWIN|BE MOVIL MASTER':          2.5,
+  'LUCKIA|BE MOVIL CAJA':          2,
+  'LUCKIA|BE MOVIL MASTER':        2,
+  'LUCKIA|PTM PROPIO':             1.93,
+  'LUCKIA|MEGA RED':               1.68,
+  'RUSHBET|BE MOVIL CAJA':         3,
+  'RUSHBET|BE MOVIL MASTER':       3,
+  'RUSHBET|PTM PROPIO':            2.1,
+  'RUSHBET|MEGA RED':              2.1,
+  'SPORTIUM|BE MOVIL CAJA':        3,
+  'SPORTIUM|BE MOVIL MASTER':      3,
+  'SPORTIUM|PTM PROPIO':           1.85,
+  'SPORTIUM|MEGA RED':             1.68,
+  'WPLAY|WPLAY UNITY':             3,
+  'WPLAY|EASY CHANGER':            3,
+  'YA JUEGOS|BE MOVIL CAJA':       3,
+  'YA JUEGOS|BE MOVIL MASTER':     3,
+  'YA JUEGOS|PTM PROPIO':          1.68
+};
+const METODOS = ['BE MOVIL CAJA','BE MOVIL MASTER','PTM PROPIO','MEGA RED',
+                 'SUPER GIROS UNITY','SUPER GIROS MAQUINA','WPLAY UNITY','EASY CHANGER'];
+// Lista de casas — fallback hasta que Firebase responda
+let CASAS = ['AQUI JUEGOS','BET ALFA','BET PLAY','BETFAIR','BETSSON','BWIN','CODERE',
+             'FULL RETO','LUCKIA','RIVALO','RUSHBET','SPORTIUM','STAKE',
+             'WPLAY','YA JUEGOS','ZAMBA','BETANO'];
+
+// ── Firebase: cargar casas desde admin_config/casas ──
+// El token del operador persiste en localStorage desde patriarca.html
+(function() {
+  try {
+    const fb = firebase.initializeApp({
+      apiKey: "AIzaSyBQ42PzffxkEUEJVaPIVxHPKDqA_wk6IS0",
+      authDomain: "portal-patriarca-aj16.firebaseapp.com",
+      projectId: "portal-patriarca-aj16",
+      storageBucket: "portal-patriarca-aj16.firebasestorage.app",
+      messagingSenderId: "1073575698338",
+      appId: "1:1073575698338:web:f014083b3092c6dc245cfb"
+    }, "trixi");
+    const auth = firebase.auth(fb);
+    const db   = firebase.firestore(fb);
+
+    function actualizarSelectsCasas() {
+      document.querySelectorAll('.casa-select').forEach(sel => {
+        const prev = sel.value;
+        sel.innerHTML = '<option value="">— casa —</option>';
+        CASAS.forEach(c => { const o = document.createElement('option'); o.value=c; o.textContent=c; sel.appendChild(o); });
+        if (CASAS.includes(prev)) sel.value = prev;
+      });
+    }
+
+    // Escuchar cambios en tiempo real; arranca cuando el operador tiene auth
+    auth.onAuthStateChanged(user => {
+      if (!user) return;
+      db.collection('admin_config').doc('casas').onSnapshot(snap => {
+        const lista = snap.exists && snap.data().lista;
+        if (lista && lista.length) {
+          CASAS = lista;
+          actualizarSelectsCasas();
+        }
+      }, () => {});
+    });
+  } catch(e) {}
+})();
+
+// Poblar todos los selects de casa
+function fillCasas() {
+  document.querySelectorAll('.casa-select').forEach(sel => {
+    CASAS.forEach(c => {
+      const o = document.createElement('option');
+      o.value = c; o.textContent = c;
+      sel.appendChild(o);
+    });
+  });
+}
+
+// Poblar selects de método (todos los métodos al inicio)
+function fillMethods() {
+  document.querySelectorAll('.met-select').forEach(sel => {
+    METODOS.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m; opt.textContent = m;
+      sel.appendChild(opt);
+    });
+  });
+}
+
+// Actualiza métodos filtrados por casa y auto-rellena % Com
+function updMet(casaId, metId, comId) {
+  const casa = document.getElementById(casaId)?.value || '';
+  const sel  = document.getElementById(metId);
+  if (!sel) return;
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">— método —</option><option value="__sin_com__">SIN COMISIÓN (0%)</option>';
+  // Si la casa no tiene datos en COM_TABLE mostramos todos los métodos (com manual)
+  const casaEnTabla = casa && METODOS.some(m => COM_TABLE[casa + '|' + m] !== undefined);
+  METODOS.filter(m => !casa || !casaEnTabla || COM_TABLE[casa + '|' + m] !== undefined).forEach(m => {
+    const o = document.createElement('option');
+    o.value = m; o.textContent = m;
+    sel.appendChild(o);
+  });
+  sel.value = [...sel.options].some(o => o.value === prev) ? prev : '';
+  lkp(casaId, metId, comId);
+}
+
+// Lookup comisión: actualiza el campo % Com según Casa+Método
+function lkp(nameId, metId, comId) {
+  const casa = (document.getElementById(nameId)?.value || '').toUpperCase().trim();
+  const met  = document.getElementById(metId)?.value || '';
+  if (!met) return;
+  const el = document.getElementById(comId);
+  if (!el) return;
+  if (met === '__sin_com__') { el.value = 0; return; }
+  const rate = COM_TABLE[casa + '|' + met];
+  if (rate !== undefined) el.value = rate;
+}
+
+// Sub-tabs (3/2 opciones dentro de cada página)
+function showSub(page, n, el) {
+  document.querySelectorAll('#page-' + page + ' .sub-page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('#page-' + page + ' .sub-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById(page + '-' + n).classList.add('active');
+  el.classList.add('active');
+}
+
+// ── Helpers ──
+function parseCOP(v) {
+  if (typeof v === 'number') return v;
+  return parseFloat((v||'').replace(/\./g,'').replace(',','.')) || 0;
+}
+function fmt(n) {
+  if (!isFinite(n) || isNaN(n)) return '—';
+  const abs = Math.abs(n);
+  const sign = n < 0 ? '-' : '';
+  if (abs >= 1e9) return sign + '$' + (abs/1e9).toFixed(2) + 'B';
+  return sign + '$' + Math.round(abs).toLocaleString('es-CO');
+}
+function fmtPct(n) {
+  if (!isFinite(n) || isNaN(n)) return '—';
+  return (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
+}
+function setROI(elMoney, elPct, roi, total) {
+  const pct = total > 0 ? (roi / total * 100) : 0;
+  elMoney.textContent = fmt(roi);
+  elMoney.className = 'res-val ' + (roi >= 0 ? 'pos' : 'neg');
+  elPct.textContent = fmtPct(pct);
+  elPct.className = 'res-val ' + (roi >= 0 ? 'pos' : 'neg');
+}
+function getCom(id) { return parseFloat(document.getElementById(id)?.value) || 0; }
+
+// ── STAKE DIRECTO: escribe inversión en una opción → calcula retorno y ajusta las demás ──
+let _stakeEditingPrefix = null;
+let _stakeEditingIdx    = -1;
+
+function gStakeInput(prefix, idx, total) {
+  const stakeVal = parseCOP(document.getElementById(prefix+'-s'+idx).value);
+  const cuota    = parseFloat(document.getElementById(prefix+'-c'+idx).value) || 0;
+  if (stakeVal > 0 && cuota > 0) {
+    const retorno = stakeVal * cuota;
+    _stakeEditingPrefix = prefix;
+    _stakeEditingIdx    = idx;
+    document.getElementById(prefix+'-inv').value = retorno.toLocaleString('es-CO');
+    if (prefix === 'g3') calcGeneral3();
+    else if (prefix === 'g2') calcGeneral2();
+    _stakeEditingPrefix = null;
+    _stakeEditingIdx    = -1;
+  }
+}
+
+// ── TRIXIE GENERAL 3 OPCIONES ──
+function calcGeneral3() {
+  const inv = parseCOP(document.getElementById('g3-inv').value);
+  const c   = [0,1,2].map(i => parseFloat(document.getElementById('g3-c'+i).value)||0);
+  document.getElementById('g3-inv-display').textContent = fmt(inv);
+
+  let totalStake = 0, totalCom = 0;
+  c.forEach((cuota, i) => {
+    const stake = cuota > 0 ? inv / cuota : 0;
+    const pct   = getCom('g3-com'+i);
+    const com   = stake * pct / 100;
+    totalStake += stake;
+    totalCom   += com;
+    // No sobreescribir la celda que el usuario está editando
+    if (!(_stakeEditingPrefix === 'g3' && _stakeEditingIdx === i)) {
+      document.getElementById('g3-s'+i).value = stake > 0 ? fmt(stake) : '';
+    }
+    document.getElementById('g3-cv'+i).textContent = com > 0 ? fmt(com) : '—';
+    document.getElementById('g3-r'+i).textContent  = fmt(stake * cuota);
+  });
+
+  const utilBruta = inv - totalStake;
+  const utilNeta  = utilBruta + totalCom;
+  document.getElementById('g3-total').textContent     = fmt(totalStake);
+  document.getElementById('g3-total-com').textContent = totalCom > 0 ? fmt(totalCom) : '$0';
+  setROI(document.getElementById('g3-roi-money'), document.getElementById('g3-roi-pct'), utilNeta, totalStake);
+}
+
+// ── TRIXIE GENERAL 2 OPCIONES ──
+function calcGeneral2() {
+  const inv = parseCOP(document.getElementById('g2-inv').value);
+  const c   = [0,1].map(i => parseFloat(document.getElementById('g2-c'+i).value)||0);
+  document.getElementById('g2-inv-display').textContent = fmt(inv);
+
+  let totalStake = 0, totalCom = 0;
+  c.forEach((cuota, i) => {
+    const stake = cuota > 0 ? inv / cuota : 0;
+    const pct   = getCom('g2-com'+i);
+    const com   = stake * pct / 100;
+    totalStake += stake;
+    totalCom   += com;
+    if (!(_stakeEditingPrefix === 'g2' && _stakeEditingIdx === i)) {
+      document.getElementById('g2-s'+i).value = stake > 0 ? fmt(stake) : '';
+    }
+    document.getElementById('g2-cv'+i).textContent = com > 0 ? fmt(com) : '—';
+    document.getElementById('g2-r'+i).textContent  = fmt(stake * cuota);
+  });
+
+  const utilBruta = inv - totalStake;
+  const utilNeta  = utilBruta + totalCom;
+  document.getElementById('g2-total').textContent     = fmt(totalStake);
+  document.getElementById('g2-total-com').textContent = totalCom > 0 ? fmt(totalCom) : '$0';
+  setROI(document.getElementById('g2-roi-money'), document.getElementById('g2-roi-pct'), utilNeta, totalStake);
+}
+
+// ── BONO FREE: estado FREE por calculadora ──
+let b3FreeIdx = 1; // 0=col1, 1=colX, 2=col2
+let b2FreeIdx = 1; // 0=col1, 1=col2
+
+function b3SetFree(idx) {
+  b3FreeIdx = idx;
+  [0,1,2].forEach(i => {
+    const f = (i === idx);
+    document.getElementById('b3-fb'+i).classList.toggle('active', f);
+    document.getElementById('b3-n'+i).style.display         = f ? 'none' : '';
+    document.getElementById('b3-n'+i+'-txt').style.display   = f ? '' : 'none';
+    document.getElementById('b3-met'+i).style.display        = f ? 'none' : '';
+    document.getElementById('b3-met'+i+'-dash').style.display = f ? '' : 'none';
+    document.getElementById('b3-c'+i).classList.toggle('free-cuota', f);
+    document.getElementById('b3-s'+i).style.color = f ? 'var(--blue)' : '';
+    const comEl = document.getElementById('b3-com'+i);
+    comEl.disabled = f; if (f) comEl.value = '0';
+  });
+  calcBono3();
+}
+
+function b2SetFree(idx) {
+  b2FreeIdx = idx;
+  [0,1].forEach(i => {
+    const f = (i === idx);
+    document.getElementById('b2-fb'+i).classList.toggle('active', f);
+    document.getElementById('b2-n'+i).style.display         = f ? 'none' : '';
+    document.getElementById('b2-n'+i+'-txt').style.display   = f ? '' : 'none';
+    document.getElementById('b2-met'+i).style.display        = f ? 'none' : '';
+    document.getElementById('b2-met'+i+'-dash').style.display = f ? '' : 'none';
+    document.getElementById('b2-c'+i).classList.toggle('free-cuota', f);
+    document.getElementById('b2-s'+i).style.color = f ? 'var(--blue)' : '';
+    const comEl = document.getElementById('b2-com'+i);
+    comEl.disabled = f; if (f) comEl.value = '0';
+  });
+  calcBono2();
+}
+
+// ── BONO FREE 3 OPCIONES ──
+function calcBono3() {
+  const bono   = parseCOP(document.getElementById('b3-bono').value);
+  const fi     = b3FreeIdx;
+  const c_free = parseFloat(document.getElementById('b3-c'+fi).value) || 0;
+
+  // Retorno libre = bono x (c_free - 1)
+  const retorno = c_free > 1 ? bono * (c_free - 1) : 0;
+  document.getElementById('b3-retorno-display').textContent = fmt(retorno);
+
+  // Columnas normales: stakes + comisiones
+  let totalReal = 0, totalCom = 0;
+  [0,1,2].forEach(i => {
+    if (i === fi) {
+      document.getElementById('b3-s'+i).textContent  = fmt(bono) + ' (free)';
+      document.getElementById('b3-cv'+i).textContent = '—';
+      document.getElementById('b3-r'+i).textContent  = fmt(retorno);
+    } else {
+      const c  = parseFloat(document.getElementById('b3-c'+i).value) || 0;
+      const s  = c > 0 ? retorno / c : 0;
+      const cv = s * getCom('b3-com'+i) / 100;
+      totalReal += s; totalCom += cv;
+      document.getElementById('b3-s'+i).textContent  = fmt(s);
+      document.getElementById('b3-cv'+i).textContent = cv > 0 ? fmt(cv) : '—';
+      document.getElementById('b3-r'+i).textContent  = fmt(s * c);
+    }
+  });
+
+  // G/BONO ANOTAR = retorno / c_free (valor teórico extraído del bono)
+  const gBonoAnotar   = c_free > 0 ? retorno / c_free : 0;
+  // G/BONO + COM = ganancia real = retorno − stakes normales + com ganada
+  const gBonoComision = retorno - totalReal + totalCom;
+  const gPct = bono > 0 ? (gBonoComision / bono * 100) : 0;
+
+  // Cards superiores
+  document.getElementById('b3-g-anotar').textContent     = fmt(gBonoAnotar);
+  document.getElementById('b3-g-anotar-pct').textContent = fmtPct(bono > 0 ? gBonoAnotar / bono * 100 : 0) + ' del bono';
+  document.getElementById('b3-apuesta-bono').textContent = fmt(gBonoComision);
+
+  // Resultado
+  document.getElementById('b3-total').textContent     = fmt(gBonoAnotar);
+  document.getElementById('b3-total-com').textContent = fmt(totalReal);
+  const rMon3 = document.getElementById('b3-roi-money');
+  const rPct3 = document.getElementById('b3-roi-pct');
+  rMon3.textContent = fmt(gBonoComision);
+  rMon3.className = 'res-val ' + (gBonoComision >= 0 ? 'pos' : 'neg');
+  rPct3.textContent = fmtPct(gPct);
+  rPct3.className = 'res-val ' + (gBonoComision >= 0 ? 'pos' : 'neg');
+}
+
+// ── BONO FREE 2 OPCIONES ──
+function calcBono2() {
+  const bono   = parseCOP(document.getElementById('b2-bono').value);
+  const fi     = b2FreeIdx;
+  const c_free = parseFloat(document.getElementById('b2-c'+fi).value) || 0;
+
+  // Retorno libre = bono x (c_free - 1)
+  const retorno = c_free > 1 ? bono * (c_free - 1) : 0;
+  document.getElementById('b2-retorno-display').textContent = fmt(retorno);
+
+  // Columnas normales
+  let totalReal = 0, totalCom = 0;
+  [0,1].forEach(i => {
+    if (i === fi) {
+      document.getElementById('b2-s'+i).textContent  = fmt(bono) + ' (free)';
+      document.getElementById('b2-cv'+i).textContent = '—';
+      document.getElementById('b2-r'+i).textContent  = fmt(retorno);
+    } else {
+      const c  = parseFloat(document.getElementById('b2-c'+i).value) || 0;
+      const s  = c > 0 ? retorno / c : 0;
+      const cv = s * getCom('b2-com'+i) / 100;
+      totalReal += s; totalCom += cv;
+      document.getElementById('b2-s'+i).textContent  = fmt(s);
+      document.getElementById('b2-cv'+i).textContent = cv > 0 ? fmt(cv) : '—';
+      document.getElementById('b2-r'+i).textContent  = fmt(s * c);
+    }
+  });
+
+  // G/BONO ANOTAR = retorno / c_free
+  const gBonoAnotar   = c_free > 0 ? retorno / c_free : 0;
+  const gBonoComision = retorno - totalReal + totalCom;
+  const gPct = bono > 0 ? (gBonoComision / bono * 100) : 0;
+
+  // Cards superiores
+  document.getElementById('b2-g-anotar').textContent     = fmt(gBonoAnotar);
+  document.getElementById('b2-g-anotar-pct').textContent = fmtPct(bono > 0 ? gBonoAnotar / bono * 100 : 0) + ' del bono';
+  document.getElementById('b2-apuesta-bono').textContent = fmt(gBonoComision);
+
+  // Resultado
+  document.getElementById('b2-total').textContent     = fmt(gBonoAnotar);
+  document.getElementById('b2-total-com').textContent = fmt(totalReal);
+  const rMon2 = document.getElementById('b2-roi-money');
+  const rPct2 = document.getElementById('b2-roi-pct');
+  rMon2.textContent = fmt(gBonoComision);
+  rMon2.className = 'res-val ' + (gBonoComision >= 0 ? 'pos' : 'neg');
+  rPct2.textContent = fmtPct(gPct);
+  rPct2.className = 'res-val ' + (gBonoComision >= 0 ? 'pos' : 'neg');
+}
+
+// ── TAB NAV ──
+function showPage(name, el) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  el.classList.add('active');
+}
+
+// ── INIT ──
+fillCasas();
+fillMethods();
+calcGeneral3();
+calcGeneral2();
+b3SetFree(1); // FREE en X por defecto (bono-3)
+b2SetFree(1); // FREE en 2 por defecto (bono-2)
+
+// Auto-cierre: si el portal (opener) se cierra, esta ventana también se cierra
+if (window.opener) {
+  setInterval(() => {
+    if (window.opener.closed) window.close();
+  }, 1000);
+}
+
+// ── TEMA CLARO / OSCURO ──────────────────────────────────────────────────────
+function _themeStored() { return localStorage.getItem('aj16-theme') || 'auto'; }
+function _isLight() {
+  const t = _themeStored();
+  if (t === 'light') return true;
+  if (t === 'dark')  return false;
+  return window.matchMedia('(prefers-color-scheme: light)').matches;
+}
+function toggleTheme() {
+  const t = _themeStored();
+  const next = t === 'auto' ? 'light' : t === 'light' ? 'dark' : 'auto';
+  if (next === 'auto') {
+    document.documentElement.removeAttribute('data-theme');
+    localStorage.removeItem('aj16-theme');
+  } else {
+    document.documentElement.setAttribute('data-theme', next);
+    localStorage.setItem('aj16-theme', next);
+  }
+  _updateThemeBtn();
+}
+function _updateThemeBtn() {
+  const btn = document.getElementById('btn-theme');
+  if (!btn) return;
+  const t = _themeStored();
+  if (t === 'auto')       { btn.textContent = '🌗'; btn.title = 'Automático (según sistema) — clic para modo claro'; }
+  else if (t === 'light') { btn.textContent = '🌙'; btn.title = 'Modo claro — clic para modo oscuro'; }
+  else                    { btn.textContent = '☀️'; btn.title = 'Modo oscuro — clic para automático'; }
+}
+window.addEventListener('DOMContentLoaded', _updateThemeBtn);
+window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', _updateThemeBtn);
+</script>
+</body>
+</html>

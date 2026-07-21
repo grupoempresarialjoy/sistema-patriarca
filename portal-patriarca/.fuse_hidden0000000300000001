@@ -1,0 +1,64 @@
+[debug] [2026-07-07T16:06:21.917Z] ----------------------------------------------------------------------
+[debug] [2026-07-07T16:06:21.918Z] Command:       /usr/bin/node /sessions/youthful-friendly-curie/node_modules/.bin/firebase deploy --only hosting --project portal-patriarca-aj16
+[debug] [2026-07-07T16:06:21.918Z] CLI Version:   15.22.3
+[debug] [2026-07-07T16:06:21.918Z] Platform:      linux
+[debug] [2026-07-07T16:06:21.918Z] Node Version:  v22.22.3
+[debug] [2026-07-07T16:06:21.919Z] Detected Agent: unknown
+[debug] [2026-07-07T16:06:21.919Z] Time:          Tue Jul 07 2026 11:06:21 GMT-0500 (Colombia Standard Time)
+[debug] [2026-07-07T16:06:21.919Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-07-07T16:06:21.921Z] >>> [apiv2][query] GET https://firebase-public.firebaseio.com/cli.json [none]
+[debug] [2026-07-07T16:06:22.472Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-07-07T16:06:22.484Z] <<< [apiv2][status] GET https://firebase-public.firebaseio.com/cli.json 403
+[debug] [2026-07-07T16:06:22.484Z] <<< [apiv2][body] GET https://firebase-public.firebaseio.com/cli.json "Connection blocked by network allowlist"
+[warn] ⚠  Unable to fetch the CLI MOTD and remote config. This is not a fatal error, but may indicate an issue with your network connection. 
+[debug] [2026-07-07T16:06:22.484Z] Failed to fetch MOTD FirebaseError: Unable to parse JSON: SyntaxError: Unexpected token 'C', "Connection"... is not valid JSON
+[debug] [2026-07-07T16:06:22.486Z] Error: Could not load the default credentials. Browse to https://cloud.google.com/docs/authentication/getting-started for more information.
+    at GoogleAuth.getApplicationDefaultAsync (/sessions/youthful-friendly-curie/node_modules/google-auth-library/build/src/auth/googleauth.js:287:15)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async GoogleAuth._GoogleAuth_determineClient (/sessions/youthful-friendly-curie/node_modules/google-auth-library/build/src/auth/googleauth.js:834:32)
+    at async GoogleAuth.getClient (/sessions/youthful-friendly-curie/node_modules/google-auth-library/build/src/auth/googleauth.js:698:20)
+    at async GoogleAuth.getAccessToken (/sessions/youthful-friendly-curie/node_modules/google-auth-library/build/src/auth/googleauth.js:722:24)
+    at async autoAuth (/sessions/youthful-friendly-curie/node_modules/firebase-tools/lib/requireAuth.js:38:19)
+    at async requireAuth (/sessions/youthful-friendly-curie/node_modules/firebase-tools/lib/requireAuth.js:100:20)
+    at async requirePermissions (/sessions/youthful-friendly-curie/node_modules/firebase-tools/lib/requirePermissions.js:17:5)
+    at async /sessions/youthful-friendly-curie/node_modules/firebase-tools/lib/command.js:278:17
+[error] 
+[error] Error: Failed to authenticate, have you run firebase login?
+[debug] [2026-07-07T16:06:22.747Z] Error: EBUSY: resource busy or locked, unlink '/sessions/youthful-friendly-curie/mnt/SISTEMA PATRIARCA/portal-patriarca/firebase-debug.log'
+    at Object.unlinkSync (node:fs:1948:11)
+    at process.<anonymous> (/sessions/youthful-friendly-curie/node_modules/firebase-tools/lib/bin/cli.js:69:16)
+    at process.emit (node:events:531:35)
+    at process.exit (node:internal/process/per_thread:240:15)
+    at Timeout._onTimeout (/sessions/youthful-friendly-curie/node_modules/firebase-tools/lib/errorOut.js:20:17)
+    at listOnTimeout (node:internal/timers:585:17)
+    at process.processTimers (node:internal/timers:521:7)
+[error] 
+[error] Error: An unexpected error has occurred.
+[debug] [2026-07-07T16:12:06.173Z] ----------------------------------------------------------------------
+[debug] [2026-07-07T16:12:06.175Z] Command:       /usr/bin/node /sessions/youthful-friendly-curie/node_modules/.bin/firebase deploy --only hosting --project portal-patriarca-aj16
+[debug] [2026-07-07T16:12:06.175Z] CLI Version:   15.22.3
+[debug] [2026-07-07T16:12:06.175Z] Platform:      linux
+[debug] [2026-07-07T16:12:06.175Z] Node Version:  v22.22.3
+[debug] [2026-07-07T16:12:06.175Z] Detected Agent: unknown
+[debug] [2026-07-07T16:12:06.175Z] Time:          Tue Jul 07 2026 11:12:06 GMT-0500 (Colombia Standard Time)
+[debug] [2026-07-07T16:12:06.176Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-07-07T16:12:06.177Z] >>> [apiv2][query] GET https://firebase-public.firebaseio.com/cli.json [none]
+[debug] [2026-07-07T16:12:06.783Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-07-07T16:12:06.796Z] Error: Could not load the default credentials. Browse to https://cloud.google.com/docs/authentication/getting-started for more information.
+    at GoogleAuth.getApplicationDefaultAsync (/sessions/youthful-friendly-curie/node_modules/google-auth-library/build/src/auth/googleauth.js:287:15)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async GoogleAuth._GoogleAuth_determineClient (/sessions/youthful-friendly-curie/node_modules/google-auth-library/build/src/auth/googleauth.js:834:32)
+    at async GoogleAuth.getClient (/sessions/youthful-friendly-curie/node_modules/google-auth-library/build/src/auth/googleauth.js:698:20)
+    at async GoogleAuth.getAccessToken (/sessions/youthful-friendly-curie/node_modules/google-auth-library/build/src/auth/googleauth.js:722:24)
+    at async autoAuth (/sessions/youthful-friendly-curie/node_modules/firebase-tools/lib/requireAuth.js:38:19)
+    at async requireAuth (/sessions/youthful-friendly-curie/node_modules/firebase-tools/lib/requireAuth.js:100:20)
+    at async requirePermissions (/sessions/youthful-friendly-curie/node_modules/firebase-tools/lib/requirePermissions.js:17:5)
+    at async /sessions/youthful-friendly-curie/node_modules/firebase-tools/lib/command.js:278:17
+[error] 
+[error] Error: Failed to authenticate, have you run firebase login?
+[debug] [2026-07-07T16:12:06.799Z] <<< [apiv2][status] GET https://firebase-public.firebaseio.com/cli.json 403
+[debug] [2026-07-07T16:12:06.799Z] <<< [apiv2][body] GET https://firebase-public.firebaseio.com/cli.json "Connection blocked by network allowlist"
+[warn] ⚠  Unable to fetch the CLI MOTD and remote config. This is not a fatal error, but may indicate an issue with your network connection. 
+[debug] [2026-07-07T16:12:06.799Z] Failed to fetch MOTD FirebaseError: Unable to parse JSON: SyntaxError: Unexpected token 'C', "Connection"... is not valid JSON

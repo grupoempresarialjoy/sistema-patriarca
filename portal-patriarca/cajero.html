@@ -1617,9 +1617,10 @@ function renderCupoActual() {
 function renderSaldoCajas() {
   const net = calcNetIX();
 
-  // Recargas y pagos globales por método (todos los operadores, mes activo)
+  // Recargas y pagos globales por método (todos los operadores, mes activo, sin rechazadas)
   const recPorMet = {}, pagPorMet = {};
   movsDelMes().forEach(mv => {
+    if (mv.estado_cajero === 'Rechazada') return;
     const met = mv.metodo;
     if (!met || normMetodo(met) === 'SALDO CLIENTES' || normMetodo(met) === 'BONIFICACION') return;
     // Buscar el método en METODOS (por normalización)
@@ -1659,9 +1660,10 @@ function renderDashboard() {
   if (!METODOS.length) return;
   const net = calcNetIX();
 
-  // ── Recargas y pagos del mes por método (todos los operadores) ──
+  // ── Recargas y pagos del mes por método (todos los operadores, sin rechazadas) ──
   const recPorMet = {}, pagPorMet = {};
   movsDelMes().forEach(mv => {
+    if (mv.estado_cajero === 'Rechazada') return;
     const met = mv.metodo;
     if (!met || normMetodo(met) === 'SALDO CLIENTES' || normMetodo(met) === 'BONIFICACION') return;
     const key = METODOS.find(m => normMetodo(m) === normMetodo(met)) || met;
@@ -2176,9 +2178,10 @@ async function loadAllSaldoClientesData() {
       }
     });
 
-    // 2. Recargas/pagos de clientes (allMovsGlobal, sin filtro mes)
+    // 2. Recargas/pagos de clientes (allMovsGlobal, sin filtro mes, sin rechazadas)
     allMovsGlobal.forEach(mv => {
       if (!mv.cliente || !mv.opId || !local[mv.opId]) return;
+      if (mv.estado_cajero === 'Rechazada') return;
       if (mv.tipo === 'RECARGAS') local[mv.opId].rec += +(mv.monto||0);
       if (mv.tipo === 'PAGOS')    local[mv.opId].pag += +(mv.monto||0);
     });
@@ -2323,9 +2326,10 @@ async function renderMapaCapital() {
     if (v !== undefined && v !== null && v !== 0) data[met].ini = v;
   });
 
-  // Movimientos del mes por método (incluye los que tienen cliente — son la misma transacción)
+  // Movimientos del mes por método (excluye rechazadas — no impactan saldo real)
   movsDelMes().forEach(mv => {
     if (mv.opId !== opUid) return;
+    if (mv.estado_cajero === 'Rechazada') return;
     const met = normMetodo(mv.metodo);
     if (!met || met === 'BONIFICACION' || met === 'SALDO CLIENTES') return;
     ensure(met);

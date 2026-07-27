@@ -206,7 +206,32 @@ select option{background:var(--bg3)}
       <div id="dash-alertas"></div>
 
       <!-- Saldo final por método -->
-      <div id="dash-metodos-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px"></div>
+      <div id="dash-metodos-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-bottom:20px"></div>
+
+      <!-- Cruce de Cajas fijo -->
+      <div id="dash-cruce-panel" style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden">
+        <div style="background:var(--bg3);border-bottom:1px solid var(--border);padding:12px 18px;display:flex;align-items:center;justify-content:space-between">
+          <div style="font-size:13px;font-weight:700;color:var(--gold)">⚖️ Cruce de Cajas</div>
+          <span style="font-size:11px;color:var(--text2)">Ingrese el saldo físico real — la diferencia debe ser $0</span>
+        </div>
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:13px">
+            <thead>
+              <tr>
+                <th style="text-align:left;padding:10px 16px;background:var(--bg3);color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">Método</th>
+                <th style="text-align:right;padding:10px 16px;background:var(--bg3);color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">Sistema</th>
+                <th style="text-align:right;padding:10px 16px;background:var(--bg3);color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">Físico Real</th>
+                <th style="text-align:right;padding:10px 16px;background:var(--bg3);color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">Diferencia</th>
+              </tr>
+            </thead>
+            <tbody id="cruce-tbody"></tbody>
+            <tfoot id="cruce-tfoot"></tfoot>
+          </table>
+        </div>
+        <div style="padding:10px 18px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;background:var(--bg3)">
+          <button class="btn btn-ghost btn-sm" onclick="limpiarCruce()">🔄 Limpiar</button>
+        </div>
+      </div>
     </div>
 
     <!-- OPERADORES -->
@@ -267,24 +292,22 @@ select option{background:var(--bg3)}
           <span class="panel-title">Historial de intercambios</span>
           <span id="ix-count" style="font-size:11px;color:var(--text2)"></span>
         </div>
-        <!-- Filtros -->
-        <div class="ix-filters" id="ix-filters">
-          <input type="text" id="ix-f-buscar" placeholder="🔍 ID / Operador..." oninput="renderIntercambios()" title="Buscar por ID OP1, ID OP2, nombre operador">
+        <!-- Filtros horizontales -->
+        <div class="ix-filters" id="ix-filters" style="overflow-x:auto;flex-wrap:nowrap;padding:8px 14px">
+          <input type="text" id="ix-f-buscar" placeholder="🔍 ID / Operador..." oninput="renderIntercambios()" style="min-width:180px">
           <select id="ix-f-tipo" onchange="renderIntercambios()" title="Tipo">
             <option value="">Tipo: Todos</option>
             <option value="C">Cruzado</option>
             <option value="I">Interno</option>
           </select>
-          <input type="date" id="ix-f-desde" onchange="renderIntercambios()" title="Desde fecha">
-          <input type="date" id="ix-f-hasta" onchange="renderIntercambios()" title="Hasta fecha">
-          <select id="ix-f-egresa" onchange="renderIntercambios()" title="Caja que egresa">
-            <option value="">Egresa: Todas</option>
-          </select>
-          <select id="ix-f-ingresa" onchange="renderIntercambios()" title="Caja que ingresa">
-            <option value="">Ingresa: Todas</option>
-          </select>
-          <input type="number" id="ix-f-monto" placeholder="💰 Monto exacto..." oninput="renderIntercambios()" title="Buscar por monto exacto" min="0" style="width:160px">
-          <button class="btn btn-ghost btn-sm" onclick="limpiarFiltrosIX()">✕ Limpiar</button>
+          <input type="date" id="ix-f-desde" onchange="renderIntercambios()" title="Desde">
+          <input type="date" id="ix-f-hasta" onchange="renderIntercambios()" title="Hasta">
+          <select id="ix-f-egresa" onchange="renderIntercambios()"><option value="">Egresa: Todas</option></select>
+          <select id="ix-f-ingresa" onchange="renderIntercambios()"><option value="">Ingresa: Todas</option></select>
+          <select id="ix-f-op1" onchange="renderIntercambios()"><option value="">OP1: Todos</option></select>
+          <select id="ix-f-op2" onchange="renderIntercambios()"><option value="">OP2: Todos</option></select>
+          <input type="number" id="ix-f-monto" placeholder="💰 Monto exacto..." oninput="renderIntercambios()" min="0" style="width:150px">
+          <button class="btn btn-ghost btn-sm" onclick="limpiarFiltrosIX()" style="white-space:nowrap">✕ Limpiar</button>
         </div>
         <div class="tbl-wrap"><table>
           <thead><tr>
@@ -317,13 +340,29 @@ select option{background:var(--bg3)}
       <div class="panel">
         <div class="panel-header">
           <span class="panel-title">📋 Operaciones</span>
-          <div id="ho-filters" style="display:flex;gap:6px;flex-wrap:wrap">
-            <button class="btn-filter active" onclick="setHojaFilter('todos',this)">Todos</button>
-            <button class="btn-filter" onclick="setHojaFilter('c-op',this)">C-OP</button>
-            <button class="btn-filter" onclick="setHojaFilter('i-op',this)">I-OP</button>
-            <button class="btn-filter pagos" onclick="setHojaFilter('pagos',this)">Pagos</button>
-            <button class="btn-filter recargas" onclick="setHojaFilter('recargas',this)">Recargas</button>
-          </div>
+          <span id="ho-count" style="font-size:11px;color:var(--text2)"></span>
+        </div>
+        <!-- Filtros horizontales con scroll -->
+        <div class="ix-filters" style="overflow-x:auto;flex-wrap:nowrap;padding:8px 14px">
+          <input type="text" id="ho-f-buscar" placeholder="🔍 OP-C, cliente, método..." oninput="renderHojaOpTabla()" style="min-width:200px">
+          <select id="ho-f-tipo" onchange="renderHojaOpTabla()">
+            <option value="">Tipo: Todos</option>
+            <option value="PAGOS">Pagos</option>
+            <option value="RECARGAS">Recargas</option>
+          </select>
+          <select id="ho-f-canal" onchange="renderHojaOpTabla()">
+            <option value="">Canal: Todos</option>
+            <option value="C-OP">C-OP</option>
+            <option value="I-OP">I-OP</option>
+          </select>
+          <select id="ho-f-metodo" onchange="renderHojaOpTabla()"><option value="">Método: Todos</option></select>
+          <select id="ho-f-cliente" onchange="renderHojaOpTabla()"><option value="">Cliente: Todos</option></select>
+          <input type="date" id="ho-f-desde" onchange="renderHojaOpTabla()" title="Desde">
+          <input type="date" id="ho-f-hasta" onchange="renderHojaOpTabla()" title="Hasta">
+          <input type="text" id="ho-f-monto-min" inputmode="numeric" placeholder="$ Mín" oninput="renderHojaOpTabla()" style="width:90px">
+          <input type="text" id="ho-f-monto-max" inputmode="numeric" placeholder="$ Máx" oninput="renderHojaOpTabla()" style="width:90px">
+          <select id="ho-f-estado" onchange="renderHojaOpTabla()"><option value="">Estado: Todos</option></select>
+          <button class="btn btn-ghost btn-sm" onclick="limpiarFiltrosHoja()" style="white-space:nowrap">✕ Limpiar</button>
         </div>
         <div class="tbl-wrap">
           <table>
@@ -383,15 +422,16 @@ select option{background:var(--bg3)}
                 <th style="text-align:right;color:var(--orange)">INVERTIDO (−)</th>
                 <th style="text-align:right;color:var(--gold)">RETORNADO (+)</th>
                 <th style="text-align:right;color:var(--red)">GASTOS (−)</th>
+                <th style="text-align:right;color:var(--orange)">LIQUIDACIÓN (−)</th>
                 <th style="text-align:right;font-weight:700">CUPO ACTUAL</th>
               </tr>
             </thead>
             <tbody id="mc-tbody">
-              <tr><td colspan="9"><div class="empty">Selecciona un operador</div></td></tr>
+              <tr><td colspan="10"><div class="empty">Selecciona un operador</div></td></tr>
             </tbody>
             <tfoot>
-              <tr style="font-weight:700;border-top:2px solid var(--border)">
-                <td style="position:sticky;left:0;background:var(--bg2)">TOTAL</td>
+              <tr style="font-weight:700;border-top:3px solid var(--orange);background:rgba(245,158,11,.07)">
+                <td style="position:sticky;left:0;background:rgba(245,158,11,.07);color:var(--orange);font-size:12px;letter-spacing:.8px">TOTAL AJ1.6</td>
                 <td id="mc-tot-ini" style="text-align:right"></td>
                 <td id="mc-tot-ix"  style="text-align:right"></td>
                 <td id="mc-tot-rec" style="text-align:right;color:var(--blue)"></td>
@@ -399,6 +439,7 @@ select option{background:var(--bg3)}
                 <td id="mc-tot-inv" style="text-align:right;color:var(--orange)"></td>
                 <td id="mc-tot-ret" style="text-align:right;color:var(--gold)"></td>
                 <td id="mc-tot-gas" style="text-align:right;color:var(--red)"></td>
+                <td id="mc-tot-liq" style="text-align:right;color:var(--orange)"></td>
                 <td id="mc-tot-act" style="text-align:right"></td>
               </tr>
             </tfoot>
@@ -554,6 +595,7 @@ select option{background:var(--bg3)}
     </div>
   </div>
 </div>
+
 
 <div id="toast"></div>
 
@@ -998,9 +1040,11 @@ function renderIntercambios() {
     (!mesActivo || getMesKey(ix) === mesActivo)
   );
 
-  // Poblar dropdowns de egresa/ingresa con valores únicos
-  const egresaEl  = document.getElementById('ix-f-egresa');
+  // Poblar dropdowns con valores únicos (preservando selección actual)
+  const egresaEl   = document.getElementById('ix-f-egresa');
   const ingressaEl = document.getElementById('ix-f-ingresa');
+  const op1El      = document.getElementById('ix-f-op1');
+  const op2El      = document.getElementById('ix-f-op2');
   if (egresaEl && ingressaEl) {
     const egVal  = egresaEl.value;
     const inVal  = ingressaEl.value;
@@ -1011,6 +1055,16 @@ function renderIntercambios() {
     egresaEl.value  = egVal;
     ingressaEl.value = inVal;
   }
+  if (op1El && op2El) {
+    const op1Val = op1El.value;
+    const op2Val = op2El.value;
+    const ops1 = [...new Set(historial.map(ix => ix.op1_nombre).filter(Boolean))].sort();
+    const ops2 = [...new Set(historial.map(ix => ix.op2_nombre).filter(Boolean))].sort();
+    op1El.innerHTML = '<option value="">OP1: Todos</option>' + ops1.map(o=>`<option value="${o}">${o}</option>`).join('');
+    op2El.innerHTML = '<option value="">OP2: Todos</option>' + ops2.map(o=>`<option value="${o}">${o}</option>`).join('');
+    op1El.value = op1Val;
+    op2El.value = op2Val;
+  }
 
   // Leer valores de filtros
   const buscar  = (document.getElementById('ix-f-buscar')?.value  || '').toLowerCase().trim();
@@ -1019,6 +1073,8 @@ function renderIntercambios() {
   const fHasta  = document.getElementById('ix-f-hasta')?.value   || '';
   const fEgresa = document.getElementById('ix-f-egresa')?.value  || '';
   const fIngresa= document.getElementById('ix-f-ingresa')?.value || '';
+  const fOp1    = document.getElementById('ix-f-op1')?.value     || '';
+  const fOp2    = document.getElementById('ix-f-op2')?.value     || '';
   const fMontoRaw = document.getElementById('ix-f-monto')?.value.trim() || '';
   const fMonto  = fMontoRaw !== '' ? Number(fMontoRaw) : null;
 
@@ -1034,6 +1090,8 @@ function renderIntercambios() {
   if (fHasta)   filtrado = filtrado.filter(ix => (ix.fecha||'') <= fHasta);
   if (fEgresa)  filtrado = filtrado.filter(ix => ix.op1_egresa  === fEgresa);
   if (fIngresa) filtrado = filtrado.filter(ix => ix.op1_ingresa === fIngresa);
+  if (fOp1)     filtrado = filtrado.filter(ix => (ix.op1_nombre||'') === fOp1);
+  if (fOp2)     filtrado = filtrado.filter(ix => (ix.op2_nombre||'') === fOp2);
   if (fMonto !== null) filtrado = filtrado.filter(ix => Number(ix.monto) === fMonto);
 
   // Contador
@@ -1067,10 +1125,23 @@ function renderIntercambios() {
       <td><button class="btn btn-red btn-sm" onclick="eliminarIX('${ix.id}')" title="Eliminar intercambio">🗑</button></td>
     </tr>`;
   }).join('');
+
+  // ── Fila de totales del filtro activo ──
+  const totMonto = filtrado.filter(ix => ix.estado !== 'cancelado').reduce((s, ix) => s + Number(ix.monto||0), 0);
+  const nCancelados = filtrado.filter(ix => ix.estado === 'cancelado').length;
+  tbody.innerHTML += `
+    <tr style="background:var(--bg3);border-top:2px solid var(--border)">
+      <td colspan="4" style="padding:10px 10px;font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">
+        TOTAL (${filtrado.length} intercambios${nCancelados ? ` · ${nCancelados} cancelados` : ''})
+      </td>
+      <td colspan="4"></td>
+      <td class="td-num" style="font-size:14px;font-weight:800;color:var(--gold)">${pesos(totMonto)}</td>
+      <td colspan="3"></td>
+    </tr>`;
 }
 
 function limpiarFiltrosIX() {
-  ['ix-f-buscar','ix-f-tipo','ix-f-desde','ix-f-hasta','ix-f-egresa','ix-f-ingresa','ix-f-monto']
+  ['ix-f-buscar','ix-f-tipo','ix-f-desde','ix-f-hasta','ix-f-egresa','ix-f-ingresa','ix-f-op1','ix-f-op2','ix-f-monto']
     .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   renderIntercambios();
 }
@@ -1716,6 +1787,9 @@ function renderDashboard() {
       </div>`;
     }).join('');
   }
+
+  // Actualizar cruce inline con los saldos del sistema
+  _renderCruceInline(cards);
 }
 
 // ── MODAL INTERCAMBIO ──
@@ -2170,19 +2244,53 @@ function initMapaCapital() {
   if (opUid) { _scData = null; loadSaldoClientesData(opUid); }
 }
 
-function renderMapaCapital() {
+async function renderMapaCapital() {
   const opUid = document.getElementById('mc-sel-op')?.value;
   const tbody  = document.getElementById('mc-tbody');
-  const COLS   = 9; // total columnas incluidas INVERTIDO y RETORNADO
+  const COLS   = 10; // total columnas incluidas INVERTIDO, RETORNADO y LIQUIDACIÓN
 
   if (!opUid) {
     if (tbody) tbody.innerHTML = `<tr><td colspan="${COLS}"><div class="empty">Selecciona un operador</div></td></tr>`;
     return;
   }
 
-
   // Disparar carga de datos de clientes si es necesario
   if (_scOpUid !== opUid) { _scData = null; loadSaldoClientesData(opUid); }
+
+  // Cargar intercambios del operador desde patriarca_intercambios
+  // (misma fuente que el portal del operador — evita doble-conteo por op1/op2 en ix_global)
+  let ixOp = [];
+  try {
+    const ixSnap = await db.collection('patriarca_intercambios')
+      .where('opId', '==', opUid)
+      .get();
+    ixOp = ixSnap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .filter(ix =>
+        (ix.fecha || '').startsWith(mesActivo) &&
+        ix.estado !== 'pendiente_aceptar' &&
+        ix.estado !== 'cancelado'
+      );
+  } catch(e) { console.warn('renderMapaCapital: ixOp load:', e); }
+
+  // Cargar pagos de liquidación del mes anterior (tipo='saldo', estado='aprobado')
+  const liqPagoMap = {}; // metodo → monto
+  try {
+    const [yk, mk] = mesActivo.split('-').map(Number);
+    const prevKey = new Date(yk, mk - 2, 1).toISOString().slice(0, 7);
+    const liqSnap = await db.collection('patriarca_liquidacion_txs')
+      .where('operadorId', '==', opUid)
+      .where('mesKey',     '==', prevKey)
+      .where('estado',     '==', 'aprobado')
+      .get();
+    liqSnap.docs.forEach(d => {
+      const tx = d.data();
+      if (tx.tipo !== 'saldo') return;
+      const met = normMetodo(tx.metodo || '');
+      if (!met) return;
+      liqPagoMap[met] = (liqPagoMap[met] || 0) + (parseFloat(tx.monto) || 0);
+    });
+  } catch(e) { console.warn('renderMapaCapital: liqPago load:', e); }
 
   const ensure = met => { if (!data[met]) data[met] = { ini:0, ix:0, rec:0, pag:0, gas:0 }; };
 
@@ -2194,21 +2302,15 @@ function renderMapaCapital() {
   });
   movsDelMes().filter(mv => mv.opId === opUid && mv.metodo)
     .forEach(mv => { const n=normMetodo(mv.metodo); if(n!=='BONIFICACION'&&n!=='SALDO CLIENTES') metSet.add(n); });
-  ixDelMes().forEach(ix => {
-    if (ix.op1_uid === opUid) {
-      if(ix.op1_egresa)  { const n=normMetodo(ix.op1_egresa);  if(n!=='SALDO CLIENTES') metSet.add(n); }
-      if(ix.op1_ingresa) { const n=normMetodo(ix.op1_ingresa); if(n!=='SALDO CLIENTES') metSet.add(n); }
-    }
-    if (ix.tipo === 'C' && ix.op2_uid === opUid) {
-      if(ix.op2_egresa)  { const n=normMetodo(ix.op2_egresa);  if(n!=='SALDO CLIENTES') metSet.add(n); }
-      if(ix.op2_ingresa) { const n=normMetodo(ix.op2_ingresa); if(n!=='SALDO CLIENTES') metSet.add(n); }
-    }
+  ixOp.forEach(ix => {
+    if (ix.caja_egresa)  { const n=normMetodo(ix.caja_egresa);  if(n!=='SALDO CLIENTES') metSet.add(n); }
+    if (ix.caja_ingresa) { const n=normMetodo(ix.caja_ingresa); if(n!=='SALDO CLIENTES') metSet.add(n); }
   });
   metSet.delete('BONIFICACION');
   metSet.delete('SALDO CLIENTES');
 
   const data = {};
-  [...metSet].forEach(met => { data[met] = { ini:0, ix:0, rec:0, pag:0, gas:0 }; });
+  [...metSet].forEach(met => { data[met] = { ini:0, ix:0, rec:0, pag:0, gas:0, liq:0 }; });
 
   // Cupo Inicial (normMetodo deduplica capitalización; asignar si hay valor)
   Object.entries(cupoAsignado[opUid] || {}).forEach(([rawMet, v]) => {
@@ -2229,18 +2331,14 @@ function renderMapaCapital() {
     if (mv.tipo === 'RECARGAS') data[met].rec += monto;
   });
 
-  // Intercambios del mes
-  ixDelMes().forEach(ix => {
-    const m   = ix.monto || 0;
-    const add = (rawMet, delta) => {
-      if (!rawMet) return;
-      const met = normMetodo(rawMet);
-      if (met === 'SALDO CLIENTES') return;
-      ensure(met);
-      data[met].ix += delta;
-    };
-    if (ix.op1_uid === opUid) { add(ix.op1_egresa, -m); add(ix.op1_ingresa, +m); }
-    if (ix.tipo === 'C' && ix.op2_uid === opUid) { add(ix.op2_egresa, -m); add(ix.op2_ingresa, +m); }
+  // Intercambios del mes — desde patriarca_intercambios (igual que portal operador)
+  // Usa caja_egresa/caja_ingresa: perspectiva correcta sin doble-conteo por op1/op2
+  ixOp.forEach(ix => {
+    const m   = parseFloat(ix.monto) || 0;
+    const egr = normMetodo(ix.caja_egresa  || '');
+    const ing = normMetodo(ix.caja_ingresa || '');
+    if (egr && egr !== 'SALDO CLIENTES') { ensure(egr); data[egr].ix -= m; }
+    if (ing && ing !== 'SALDO CLIENTES') { ensure(ing); data[ing].ix += m; }
   });
 
   // Gastos del mes
@@ -2250,6 +2348,12 @@ function renderMapaCapital() {
     if (!met || met === 'SALDO CLIENTES') return;
     ensure(met);
     data[met].gas += parseFloat(g.valor) || 0;
+  });
+
+  // Pagos de liquidación del mes anterior — descontar del método correspondiente
+  Object.entries(liqPagoMap).forEach(([met, monto]) => {
+    ensure(met);
+    data[met].liq += monto;
   });
 
   // Comisiones por cobrar (campo 'comision' guardado en el movimiento, igual que el portal)
@@ -2265,13 +2369,13 @@ function renderMapaCapital() {
         && (data[m].ini||data[m].ix||data[m].rec||data[m].pag||data[m].gas))
     : Object.keys(data).filter(m => { const d=data[m]; return d.ini||d.ix||d.rec||d.pag||d.gas; });
 
-  let totIni=0, totIx=0, totRec=0, totPag=0, totGas=0, totAct=0;
+  let totIni=0, totIx=0, totRec=0, totPag=0, totGas=0, totLiq=0, totAct=0;
 
   // Filas de métodos normales (INVERTIDO y RETORNADO = — )
   let rowsHtml = mets.map(met => {
-    const d   = data[met] || { ini:0, ix:0, rec:0, pag:0, gas:0 };
-    const act = d.ini + d.pag - d.rec + d.ix - d.gas;
-    totIni += d.ini; totIx += d.ix; totRec += d.rec; totPag += d.pag; totGas += d.gas; totAct += act;
+    const d   = data[met] || { ini:0, ix:0, rec:0, pag:0, gas:0, liq:0 };
+    const act = d.ini + d.pag - d.rec + d.ix - d.gas - d.liq;
+    totIni += d.ini; totIx += d.ix; totRec += d.rec; totPag += d.pag; totGas += d.gas; totLiq += d.liq; totAct += act;
     const actCls = act > 0 ? 'td-pos' : act < 0 ? 'td-neg' : 'td-zero';
     const ixSty  = d.ix > 0 ? 'color:var(--green)' : d.ix < 0 ? 'color:var(--red)' : '';
     return `<tr>
@@ -2283,9 +2387,26 @@ function renderMapaCapital() {
       <td style="text-align:right;color:var(--text2)">—</td>
       <td style="text-align:right;color:var(--text2)">—</td>
       <td style="text-align:right;color:var(--red)">${d.gas ? pesos(d.gas) : '—'}</td>
+      <td style="text-align:right;color:var(--orange);font-weight:${d.liq?'700':'400'}">${d.liq ? '−'+pesos(d.liq) : '—'}</td>
       <td class="${actCls}" style="text-align:right;font-weight:700">${pesos(act)}</td>
     </tr>`;
   }).join('');
+
+  // ── Subtotal métodos (antes de SC y Comisiones) ──
+  const _subIxClr = totIx > 0 ? 'color:var(--green)' : totIx < 0 ? 'color:var(--red)' : '';
+  const _subActClr = totAct >= 0 ? 'color:var(--green)' : 'color:var(--red)';
+  rowsHtml += `<tr style="border-top:2px solid var(--border);background:var(--bg3)">
+    <td class="td-metodo" style="position:sticky;left:0;background:var(--bg3);z-index:2;color:var(--text2);font-size:11px;letter-spacing:.8px;font-weight:700">SUBTOTAL MÉTODOS</td>
+    <td style="text-align:right;font-weight:600">${totIni ? pesos(totIni) : '—'}</td>
+    <td style="text-align:right;font-weight:600;${_subIxClr}">${totIx ? (totIx>0?'+':'')+pesos(Math.abs(totIx)) : '—'}</td>
+    <td style="text-align:right;font-weight:600;color:var(--blue)">${totRec ? pesos(totRec) : '—'}</td>
+    <td style="text-align:right;font-weight:600;color:var(--green)">${totPag ? pesos(totPag) : '—'}</td>
+    <td style="text-align:right;color:var(--text2)">—</td>
+    <td style="text-align:right;color:var(--text2)">—</td>
+    <td style="text-align:right;font-weight:600;color:var(--red)">${totGas ? pesos(totGas) : '—'}</td>
+    <td style="text-align:right;font-weight:600;color:var(--orange)">${totLiq ? '−'+pesos(totLiq) : '—'}</td>
+    <td style="text-align:right;font-weight:700;${_subActClr}">${pesos(totAct)}</td>
+  </tr>`;
 
   // Fila especial SALDO CLIENTES
   // Convención: en cajero, PAGOS(+) = recargas_clientes (entra), RECARGAS(-) = pagos_a_clientes (sale)
@@ -2302,6 +2423,7 @@ function renderMapaCapital() {
       <td style="text-align:right;color:var(--green)">${sc.recargasClientes ? pesos(sc.recargasClientes) : '—'}</td>
       <td style="text-align:right;color:var(--orange)">${sc.invertido ? pesos(sc.invertido) : '—'}</td>
       <td style="text-align:right;color:var(--gold)">${sc.retornado ? pesos(sc.retornado) : '—'}</td>
+      <td style="text-align:right;color:var(--text2)">—</td>
       <td style="text-align:right;color:var(--text2)">—</td>
       <td class="${cls}" style="text-align:right;font-weight:700">${pesos(act)}</td>
     </tr>`;
@@ -2320,6 +2442,7 @@ function renderMapaCapital() {
       <td style="text-align:right;color:var(--text2)">—</td>
       <td style="text-align:right;color:var(--text2)">—</td>
       <td style="text-align:right;color:var(--green);font-weight:600">+${pesos(totalComisiones)}</td>
+      <td style="text-align:right;color:var(--text2)">—</td>
       <td style="text-align:right;color:var(--text2)">—</td>
       <td style="text-align:right;color:var(--text2)">—</td>
       <td style="text-align:right;color:var(--text2)">—</td>
@@ -2353,6 +2476,7 @@ function renderMapaCapital() {
   const $inv = document.getElementById('mc-tot-inv');
   const $ret = document.getElementById('mc-tot-ret');
   const $gas = document.getElementById('mc-tot-gas');
+  const $liq = document.getElementById('mc-tot-liq');
   const $act = document.getElementById('mc-tot-act');
   if ($ini) $ini.textContent = gIni ? pesos(gIni) : '—';
   if ($ix)  { $ix.textContent = totIx ? (totIx>0?'+':'')+pesos(Math.abs(totIx)) : '—'; $ix.style.color = ixColor; }
@@ -2361,6 +2485,7 @@ function renderMapaCapital() {
   if ($inv) { $inv.textContent = gInv ? pesos(gInv) : '—'; $inv.style.color = gInv ? 'var(--orange)' : ''; }
   if ($ret) { $ret.textContent = gRet ? pesos(gRet) : '—'; $ret.style.color = gRet ? 'var(--gold)' : ''; }
   if ($gas) $gas.textContent = totGas ? pesos(totGas) : '—';
+  if ($liq) { $liq.textContent = totLiq ? '−'+pesos(totLiq) : '—'; $liq.style.color = totLiq ? 'var(--orange)' : ''; }
   if ($act) { $act.textContent = pesos(gAct); $act.className = gAct >= 0 ? 'td-pos' : 'td-neg'; }
 }
 
@@ -2807,9 +2932,14 @@ function setHojaOp(uid) {
 }
 
 function setHojaFilter(f, btn) {
-  hojaFilter = f;
-  document.querySelectorAll('#ho-filters .btn-filter').forEach(b => b.classList.remove('active'));
-  if (btn) btn.classList.add('active');
+  // mantener compatibilidad si algo la llama externamente
+  renderHojaOpTabla();
+}
+
+function limpiarFiltrosHoja() {
+  ['ho-f-buscar','ho-f-tipo','ho-f-canal','ho-f-metodo','ho-f-cliente',
+   'ho-f-desde','ho-f-hasta','ho-f-monto-min','ho-f-monto-max','ho-f-estado']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   renderHojaOpTabla();
 }
 
@@ -2863,10 +2993,66 @@ function renderHojaOpTabla() {
 
   let movs = movsDelMes().filter(mv => mv.opId === hojaOpUid);
 
-  if (hojaFilter === 'c-op')      movs = movs.filter(mv => (mv.canal || 'C-OP') !== 'I-OP');
-  if (hojaFilter === 'i-op')      movs = movs.filter(mv => mv.canal === 'I-OP');
-  if (hojaFilter === 'pagos')     movs = movs.filter(mv => mv.tipo === 'PAGOS');
-  if (hojaFilter === 'recargas')  movs = movs.filter(mv => mv.tipo === 'RECARGAS');
+  // Poblar dropdowns dinámicos (preservando selección)
+  const metodoEl  = document.getElementById('ho-f-metodo');
+  const clienteEl = document.getElementById('ho-f-cliente');
+  const estadoEl  = document.getElementById('ho-f-estado');
+  if (metodoEl) {
+    const cur = metodoEl.value;
+    const uniq = [...new Set(movs.map(mv => mv.metodo).filter(Boolean))].sort();
+    metodoEl.innerHTML = '<option value="">Método: Todos</option>' + uniq.map(m=>`<option value="${m}">${m}</option>`).join('');
+    metodoEl.value = cur;
+  }
+  if (clienteEl) {
+    const cur = clienteEl.value;
+    const uniq = [...new Set(movs.map(mv => mv.cliente).filter(Boolean))].sort();
+    clienteEl.innerHTML = '<option value="">Cliente: Todos</option>' + uniq.map(c=>`<option value="${c}">${c}</option>`).join('');
+    clienteEl.value = cur;
+  }
+  if (estadoEl) {
+    const cur = estadoEl.value;
+    const uniq = [...new Set(movs.map(mv => mv.estado_cajero || mv.estado).filter(Boolean))].sort();
+    estadoEl.innerHTML = '<option value="">Estado: Todos</option>' + uniq.map(e=>`<option value="${e}">${e}</option>`).join('');
+    estadoEl.value = cur;
+  }
+
+  // Leer filtros
+  const fBuscar  = (document.getElementById('ho-f-buscar')?.value || '').toLowerCase().trim();
+  const fTipo    = document.getElementById('ho-f-tipo')?.value    || '';
+  const fCanal   = document.getElementById('ho-f-canal')?.value   || '';
+  const fMetodo  = document.getElementById('ho-f-metodo')?.value  || '';
+  const fCliente = document.getElementById('ho-f-cliente')?.value || '';
+  const fDesde   = document.getElementById('ho-f-desde')?.value   || '';
+  const fHasta   = document.getElementById('ho-f-hasta')?.value   || '';
+  const fMontoMinRaw = document.getElementById('ho-f-monto-min')?.value.replace(/\D/g,'') || '';
+  const fMontoMaxRaw = document.getElementById('ho-f-monto-max')?.value.replace(/\D/g,'') || '';
+  const fMontoMin = fMontoMinRaw !== '' ? Number(fMontoMinRaw) : null;
+  const fMontoMax = fMontoMaxRaw !== '' ? Number(fMontoMaxRaw) : null;
+  const fEstado  = document.getElementById('ho-f-estado')?.value  || '';
+
+  const total = movs.length;
+
+  if (fBuscar)  movs = movs.filter(mv =>
+    (mv.op_id||'').toLowerCase().includes(fBuscar) ||
+    (mv.cliente||'').toLowerCase().includes(fBuscar) ||
+    (mv.metodo||'').toLowerCase().includes(fBuscar) ||
+    (mv.casa||'').toLowerCase().includes(fBuscar)
+  );
+  if (fTipo)    movs = movs.filter(mv => mv.tipo === fTipo);
+  if (fCanal)   movs = movs.filter(mv => (mv.canal || 'C-OP') === fCanal);
+  if (fMetodo)  movs = movs.filter(mv => mv.metodo === fMetodo);
+  if (fCliente) movs = movs.filter(mv => mv.cliente === fCliente);
+  if (fDesde)   movs = movs.filter(mv => (mv.fecha||'') >= fDesde);
+  if (fHasta)   movs = movs.filter(mv => (mv.fecha||'') <= fHasta);
+  if (fMontoMin !== null) movs = movs.filter(mv => (mv.monto||0) >= fMontoMin);
+  if (fMontoMax !== null) movs = movs.filter(mv => (mv.monto||0) <= fMontoMax);
+  if (fEstado)  movs = movs.filter(mv => (mv.estado_cajero || mv.estado) === fEstado);
+
+  // Contador
+  const countEl = document.getElementById('ho-count');
+  if (countEl) countEl.textContent = movs.length < total
+    ? `${movs.length} de ${total} operaciones`
+    : `${total} operaciones`;
 
   movs = [...movs].sort((a,b) => {
     const fa = a.fecha || '', fb = b.fecha || '';
@@ -2905,7 +3091,32 @@ function renderHojaOpTabla() {
     </tr>`;
   }).join('');
 
-  document.getElementById('ho-tbody').innerHTML = rows;
+  // Totales del filtro
+  let totPagos = 0, totRecargas = 0;
+  movs.forEach(mv => {
+    if (mv.tipo === 'PAGOS')    totPagos    += mv.monto || 0;
+    if (mv.tipo === 'RECARGAS') totRecargas += mv.monto || 0;
+  });
+  const neto = totPagos - totRecargas;
+  const filaTotal = `
+    <tr style="background:var(--bg3);border-top:2px solid var(--border)">
+      <td colspan="2" style="padding:10px 10px;font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">
+        TOTAL (${movs.length} ops)
+      </td>
+      <td style="text-align:right;padding:10px 10px;font-size:13px;font-weight:800;color:var(--text)">
+        <div style="font-size:10px;color:var(--text2);font-weight:600">NETO</div>
+        <div style="color:${neto>=0?'var(--green)':'var(--red)'}">${pesos(neto)}</div>
+      </td>
+      <td style="padding:10px 10px">
+        <div style="display:flex;flex-direction:column;gap:3px">
+          <div style="font-size:10px;color:var(--red);font-weight:600">Pagos: <b>${pesos(totPagos)}</b></div>
+          <div style="font-size:10px;color:var(--green);font-weight:600">Recargas: <b>${pesos(totRecargas)}</b></div>
+        </div>
+      </td>
+      <td colspan="4"></td>
+    </tr>`;
+
+  document.getElementById('ho-tbody').innerHTML = rows + filaTotal;
 }
 // ───────────────────────────────────────────────────────────────────────────
 
@@ -2939,6 +3150,256 @@ function _updateThemeBtn() {
 }
 window.addEventListener('DOMContentLoaded', _updateThemeBtn);
 window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', _updateThemeBtn);
+
+// ── CRUCE DE CAJAS INLINE ──
+let _cruceData = []; // [{metodo, sistema}]
+let _cruceFisicoValues = {}; // {metodo: valorIngresado}
+let _cruceUnsub = null;      // listener Firestore activo
+let _cruceSaveTimer = null;  // debounce para writes
+
+function _cruceDocId() {
+  return `${opId || 'x'}_${mesActivo || 'x'}`;
+}
+// localStorage como cache local inmediato
+function _cruceSaveLS() {
+  try { localStorage.setItem('cruce_fisico_' + _cruceDocId(), JSON.stringify(_cruceFisicoValues)); } catch(e) {}
+}
+function _cruceLoadLS() {
+  try {
+    const raw = localStorage.getItem('cruce_fisico_' + _cruceDocId());
+    if (raw) _cruceFisicoValues = JSON.parse(raw);
+  } catch(e) { _cruceFisicoValues = {}; }
+}
+// Firestore: guarda con debounce de 800ms para no saturar en cada tecla
+function _cruceSaveFirestore() {
+  if (_cruceSaveTimer) clearTimeout(_cruceSaveTimer);
+  _cruceSaveTimer = setTimeout(async () => {
+    if (!opId || !mesActivo) return;
+    try {
+      await db.collection('patriarca_cruce_cajas').doc(_cruceDocId()).set({
+        valores: _cruceFisicoValues,
+        opId, mes: mesActivo,
+        ts: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+    } catch(e) { console.warn('cruce save FS:', e); }
+  }, 800);
+}
+// Suscripción en tiempo real — actualiza el UI si otro browser cambia los valores
+function _cruceSuscribir() {
+  if (_cruceUnsub) { _cruceUnsub(); _cruceUnsub = null; }
+  if (!opId || !mesActivo) return;
+  _cruceUnsub = db.collection('patriarca_cruce_cajas').doc(_cruceDocId())
+    .onSnapshot(snap => {
+      if (!snap.exists) return;
+      const remote = snap.data().valores || {};
+      // Fusionar: si el usuario local está editando en este momento, no pisar
+      let changed = false;
+      Object.keys(remote).forEach(k => {
+        if (_cruceFisicoValues[k] !== remote[k]) { _cruceFisicoValues[k] = remote[k]; changed = true; }
+      });
+      if (changed) {
+        _cruceSaveLS();
+        // Refrescar inputs sin re-renderizar toda la tabla
+        _cruceData.forEach((row, i) => {
+          const inp = document.getElementById('cruce-inp-' + i);
+          if (inp && document.activeElement !== inp) {
+            // Solo actualizar si el usuario NO está escribiendo en ese campo ahora mismo
+            const val = _cruceFisicoValues[row.metodo];
+            inp.value = val !== undefined ? val : '';
+          }
+        });
+        _actualizarCruce();
+      }
+    }, err => console.warn('cruce snap err:', err));
+}
+
+// Llamado desde renderDashboard() con los cards ya calculados
+function _renderCruceInline(cards) {
+  _cruceLoadLS(); // Cache local inmediato mientras llega Firestore
+  _cruceSuscribir(); // Suscribir actualizaciones en tiempo real
+  _cruceData = cards.map(c => ({ metodo: c.m, sistema: c.fin }));
+
+  const tbody = document.getElementById('cruce-tbody');
+  if (!tbody) return;
+
+  tbody.innerHTML = _cruceData.map((row, i) => {
+    const valPrevio = _cruceFisicoValues[row.metodo] !== undefined ? _cruceFisicoValues[row.metodo] : '';
+    return `<tr id="cruce-row-${i}">
+      <td style="padding:11px 16px;border-bottom:1px solid var(--border);font-weight:600;white-space:nowrap">${row.metodo}</td>
+      <td style="padding:11px 16px;border-bottom:1px solid var(--border);text-align:right;font-weight:700;color:${row.sistema<0?'var(--red)':'var(--green)'}">
+        <span style="cursor:pointer" title="Clic para copiar al Físico Real" onclick="_copiarSistema(${i})">${pesos(row.sistema)}</span>
+        <button onclick="_copiarSistema(${i})" title="Copiar valor del sistema al físico real"
+          style="margin-left:6px;background:rgba(53,204,47,.12);border:1px solid rgba(53,204,47,.3);border-radius:4px;color:var(--gold);cursor:pointer;font-size:11px;padding:2px 6px;line-height:1">←</button>
+      </td>
+      <td style="padding:7px 16px;border-bottom:1px solid var(--border);text-align:right">
+        <input type="text" class="cruce-fisico" id="cruce-inp-${i}" data-idx="${i}" data-metodo="${row.metodo}"
+          placeholder="0"
+          value="${valPrevio}"
+          oninput="_guardarFisico(${i},this.value);_actualizarCruce()"
+          style="width:150px;text-align:right;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:13px;font-family:inherit;outline:none"
+          onfocus="this.style.borderColor='var(--gold)'"
+          onblur="this.style.borderColor='var(--border)'"
+        >
+      </td>
+      <td id="cruce-dif-${i}" style="padding:11px 16px;border-bottom:1px solid var(--border);text-align:right;font-weight:700;color:var(--text2)">—</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('cruce-tfoot').innerHTML = `
+    <tr style="background:var(--bg3)">
+      <td style="padding:12px 16px;font-weight:800;font-size:13px">
+        TOTAL
+        <button onclick="_copiarTodo()" title="Copiar todos los valores del sistema al físico real"
+          style="margin-left:10px;background:rgba(53,204,47,.12);border:1px solid rgba(53,204,47,.3);border-radius:5px;color:var(--gold);cursor:pointer;font-size:11px;padding:3px 8px;font-weight:600">
+          ← Copiar todo
+        </button>
+      </td>
+      <td id="cruce-tot-sis" style="padding:12px 16px;text-align:right;font-weight:800;font-size:14px"></td>
+      <td id="cruce-tot-fis" style="padding:12px 16px;text-align:right;font-weight:800;font-size:14px;color:var(--text2)">—</td>
+      <td id="cruce-tot-dif" style="padding:12px 16px;text-align:right;font-weight:800;font-size:14px;color:var(--text2)">—</td>
+    </tr>`;
+
+  _actualizarCruce();
+}
+
+function _guardarFisico(idx, val) {
+  const metodo = _cruceData[idx]?.metodo;
+  if (metodo !== undefined) {
+    _cruceFisicoValues[metodo] = val;
+    _cruceSaveLS();
+    _cruceSaveFirestore();
+  }
+}
+
+function _copiarSistema(idx) {
+  const row = _cruceData[idx];
+  if (!row) return;
+  const raw = String(row.sistema);
+  _cruceFisicoValues[row.metodo] = raw;
+  _cruceSaveLS();
+  _cruceSaveFirestore();
+  const inp = document.getElementById('cruce-inp-'+idx);
+  if (inp) inp.value = raw;
+  _actualizarCruce();
+}
+
+function _copiarTodo() {
+  _cruceData.forEach((row, i) => {
+    _cruceFisicoValues[row.metodo] = String(row.sistema);
+    const inp = document.getElementById('cruce-inp-'+i);
+    if (inp) inp.value = String(row.sistema);
+  });
+  _cruceSaveLS();
+  _cruceSaveFirestore();
+  _actualizarCruce();
+}
+
+function limpiarCruce() {
+  _cruceFisicoValues = {};
+  _cruceSaveLS();
+  _cruceSaveFirestore();
+  document.querySelectorAll('.cruce-fisico').forEach(inp => inp.value = '');
+  _actualizarCruce();
+}
+
+function _parsePesosInput(val) {
+  if (!val) return null;
+  let s = val.replace(/[$\s]/g, '').trim();
+  if (!s) return null;
+
+  const hasDot   = s.includes('.');
+  const hasComma = s.includes(',');
+
+  if (hasDot && hasComma) {
+    // Ambos: el último es el separador decimal
+    if (s.lastIndexOf(',') > s.lastIndexOf('.')) {
+      // Formato europeo: 5.927.433,24 → coma=decimal
+      s = s.replace(/\./g, '').replace(',', '.');
+    } else {
+      // Formato US: 5,927,433.24 → punto=decimal
+      s = s.replace(/,/g, '');
+    }
+  } else if (hasComma) {
+    const partes = s.split(',');
+    const ultimo = partes[partes.length - 1];
+    if (partes.length === 2 && ultimo.length <= 2) {
+      // "5927433,24" → coma decimal → convertir a punto
+      s = s.replace(',', '.');
+    } else {
+      // "5,927,433" → comas de miles → eliminar
+      s = s.replace(/,/g, '');
+    }
+  } else if (hasDot) {
+    const partes = s.split('.');
+    const ultimo = partes[partes.length - 1];
+    if (partes.length === 2 && ultimo.length <= 2) {
+      // "5927433.24" → punto decimal → mantener
+    } else {
+      // "5.927.433" → puntos de miles → eliminar
+      s = s.replace(/\./g, '');
+    }
+  }
+
+  const n = parseFloat(s);
+  return isNaN(n) ? null : Math.round(n); // Redondear a pesos enteros
+}
+
+function _actualizarCruce() {
+  let totFis = 0, todosLlenos = true;
+  const totSis = _cruceData.reduce((s,r) => s + r.sistema, 0);
+
+  document.querySelectorAll('.cruce-fisico').forEach(inp => {
+    const i   = parseInt(inp.dataset.idx);
+    const sis = _cruceData[i].sistema;
+    const fis = _parsePesosInput(inp.value);
+    const celDif = document.getElementById('cruce-dif-'+i);
+    const row    = document.getElementById('cruce-row-'+i);
+    if (fis === null) {
+      todosLlenos = false;
+      celDif.textContent = '—';
+      celDif.style.color = 'var(--text2)';
+      row.style.background = '';
+      return;
+    }
+    totFis += fis;
+    const dif = fis - sis;
+    if (dif === 0) {
+      celDif.textContent = '✅ CORRECTO';
+      celDif.style.color = 'var(--green)';
+      celDif.style.fontWeight = '800';
+      row.style.background = 'rgba(36,191,98,.06)';
+    } else {
+      celDif.textContent = (dif > 0 ? '+' : '') + pesos(dif);
+      celDif.style.color = dif > 0 ? 'var(--orange)' : 'var(--red)';
+      celDif.style.fontWeight = '700';
+      row.style.background = 'rgba(224,80,80,.04)';
+    }
+  });
+
+  const totSisEl = document.getElementById('cruce-tot-sis');
+  const totFisEl = document.getElementById('cruce-tot-fis');
+  const totDifEl = document.getElementById('cruce-tot-dif');
+  if (!totSisEl) return;
+
+  totSisEl.textContent = pesos(totSis);
+  totSisEl.style.color = totSis < 0 ? 'var(--red)' : 'var(--green)';
+
+  if (!todosLlenos) {
+    totFisEl.textContent = '—'; totFisEl.style.color = 'var(--text2)';
+    totDifEl.textContent = '—'; totDifEl.style.color = 'var(--text2)';
+    return;
+  }
+  totFisEl.textContent = pesos(totFis);
+  totFisEl.style.color = 'var(--text)';
+  const totDif = totFis - totSis;
+  if (totDif === 0) {
+    totDifEl.textContent = '✅ CORRECTO';
+    totDifEl.style.color = 'var(--green)';
+  } else {
+    totDifEl.textContent = (totDif > 0 ? '+' : '') + pesos(totDif);
+    totDifEl.style.color = totDif > 0 ? 'var(--orange)' : 'var(--red)';
+  }
+}
 </script>
 </body>
 </html>

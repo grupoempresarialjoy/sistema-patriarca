@@ -3982,6 +3982,7 @@ let _esfOpsInited = false;
 let _esfOpsListener = null;   // onSnapshot activo
 let _esfOpsAllOps   = {};     // uid → nombre de todos los operadores
 let _esfOpsMesKey   = null;   // mes actualmente visible
+let _esfProdMap     = {};     // uid → productividad calculada directamente
 
 function initESFOps() {
   const sel = document.getElementById('esf-ops-mes');
@@ -4023,6 +4024,48 @@ async function adminESFAll() {
     } catch(e) { console.warn('esf ops load:', e); }
   }
 
+  // ── Cargar productividad directamente desde movimientos e inversiones ──
+  // Esto funciona aunque el operador no haya recalculado su ESF
+  try {
+    _esfProdMap = {};
+    const [movSnap, invSnap] = await Promise.all([
+      db.collection('patriarca_movimientos').get(),
+      db.collection('patriarca_inversiones').get(),
+    ]);
+    // Filtrar por mes y agrupar por opId
+    movSnap.docs.forEach(d => {
+      const m = d.data();
+      if (!(m.fecha||'').startsWith(mesKey)) return;
+      const uid = m.opId; if (!uid) return;
+      if (!_esfProdMap[uid]) _esfProdMap[uid] = { numRecargas:0,montoRecargas:0,numPagos:0,montoPagos:0,numInversiones:0,_cliSet:new Set() };
+      const t = (m.tipo||'').toUpperCase();
+      if (t==='RECARGAS'||t==='RECARGA') {
+        _esfProdMap[uid].numRecargas++;
+        _esfProdMap[uid].montoRecargas += parseFloat(m.monto)||0;
+        if (m.cliente_id||m.cliente) _esfProdMap[uid]._cliSet.add(m.cliente_id||m.cliente);
+      }
+      if (t==='PAGOS'||t==='PAGO') {
+        _esfProdMap[uid].numPagos++;
+        _esfProdMap[uid].montoPagos += parseFloat(m.monto)||0;
+      }
+    });
+    invSnap.docs.forEach(d => {
+      const i = d.data();
+      if (!(i.fecha||'').startsWith(mesKey)) return;
+      const uid = i.opId; if (!uid) return;
+      if (!_esfProdMap[uid]) _esfProdMap[uid] = { numRecargas:0,montoRecargas:0,numPagos:0,montoPagos:0,numInversiones:0,_cliSet:new Set() };
+      _esfProdMap[uid].numInversiones++;
+      if (i.cliente_id||i.cliente) _esfProdMap[uid]._cliSet.add(i.cliente_id||i.cliente);
+    });
+    // Convertir Set a count
+    Object.values(_esfProdMap).forEach(p => {
+      p.clientesUnicos = p._cliSet.size;
+      p.montoRecargas  = Math.round(p.montoRecargas);
+      p.montoPagos     = Math.round(p.montoPagos);
+      delete p._cliSet;
+    });
+  } catch(e) { console.warn('esf prod:', e); }
+
   // Función que re-renderiza cada vez que Firestore notifica cambio
   function renderCards(esfSnap) {
     const mes = document.getElementById('esf-ops-mes')?.selectedOptions[0]?.text || mesKey;
@@ -4044,7 +4087,12 @@ async function adminESFAll() {
     // Operadores con ESF guardado para este mes (ordenados por nombre)
     Object.values(esfMap)
       .sort((a,b) => (a.nombre||'').localeCompare(b.nombre||''))
-      .forEach(r => { r.mes = r.mes || mes; cards.push(_esfRenderCard(r)); });
+      .forEach(r => {
+        r.mes = r.mes || mes;
+        // Fusionar productividad directa (siempre más fresca que la guardada)
+        if (_esfProdMap[r.uid]) r.productividad = _esfProdMap[r.uid];
+        cards.push(_esfRenderCard(r));
+      });
 
     // Operadores SIN ESF guardado este mes
     Object.entries(_esfOpsAllOps).forEach(([uid, nombre]) => {
@@ -4064,7 +4112,43 @@ async function adminESFAll() {
       container.innerHTML = `<div class="empty"><div class="empty-icon">📋</div><p>No hay ESF para <strong>${mes}</strong>.</p></div>`;
       return;
     }
-    container.innerHTML = `<div class="esf-op-grid">${cards.join('')}</div>`;
+
+    // ── Resumen consolidado CEO ──
+    let totRec=0,totMtoRec=0,totPag=0,totMtoPag=0,totInv=0,totCom=0,totCli=new Set();
+    Object.entries(_esfProdMap).forEach(([uid,p]) => {
+      if (!_esfOpsAllOps[uid]) return;
+      totRec+=p.numRecargas||0; totMtoRec+=p.montoRecargas||0;
+      totPag+=p.numPagos||0;    totMtoPag+=p.montoPagos||0;
+      totInv+=p.numInversiones||0;
+    });
+    Object.values(esfMap).forEach(r => { totCom += (r.totalComisiones||0)+(r.comisionesMesAnt||0); });
+    const pC = n => '$'+Math.round(n).toLocaleString('es-CO');
+    const consolidado = `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px 20px;margin-bottom:20px">
+      <div style="font-size:12px;color:var(--text2);font-weight:700;letter-spacing:.06em;margin-bottom:12px">RESUMEN CONSOLIDADO — ${mes}</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px">
+        <div style="background:var(--bg3);border-radius:8px;padding:10px 14px">
+          <div style="font-size:10px;color:var(--text2)">Recargas totales</div>
+          <div style="font-size:17px;font-weight:800;color:var(--blue)">${totRec.toLocaleString('es-CO')}</div>
+          <div style="font-size:11px;color:var(--text)">${pC(totMtoRec)}</div>
+        </div>
+        <div style="background:var(--bg3);border-radius:8px;padding:10px 14px">
+          <div style="font-size:10px;color:var(--text2)">Pagos totales</div>
+          <div style="font-size:17px;font-weight:800;color:var(--green)">${totPag.toLocaleString('es-CO')}</div>
+          <div style="font-size:11px;color:var(--text)">${pC(totMtoPag)}</div>
+        </div>
+        <div style="background:var(--bg3);border-radius:8px;padding:10px 14px">
+          <div style="font-size:10px;color:var(--text2)">Apuestas registradas</div>
+          <div style="font-size:17px;font-weight:800;color:var(--orange)">${totInv.toLocaleString('es-CO')}</div>
+        </div>
+        <div style="background:rgba(255,160,0,0.08);border:1px solid rgba(255,160,0,0.35);border-radius:8px;padding:10px 14px">
+          <div style="font-size:10px;color:var(--orange)">💰 Comisiones por Cobrar</div>
+          <div style="font-size:17px;font-weight:800;color:var(--orange)">${pC(totCom)}</div>
+          <div style="font-size:10px;color:var(--text2)">Total a pagar a operadores</div>
+        </div>
+      </div>
+    </div>`;
+    container.innerHTML = consolidado + `<div class="esf-op-grid">${cards.join('')}</div>`;
   }
 
   // Suscripción en tiempo real — se actualiza sola cuando un operador recalcula su ESF
@@ -4305,6 +4389,40 @@ function _esfRenderCard(r) {
       ${r.gananciaMesAnt>0?`<div class="esf-op-row"><span>Liquidación por Pagar</span><span>${p(r.gananciaMesAnt)}</span></div>`:''}
       <div class="esf-op-row total"><span>Total Pasivos</span><span>${p(r.totalPasivos)}</span></div>
     </div>
+    ${(() => {
+      const prod = r.productividad || {};
+      const hasData = prod.numRecargas || prod.numPagos || prod.numInversiones;
+      if (!hasData) return '';
+      const pNum = n => (n||0).toLocaleString('es-CO');
+      return `
+    <div style="border-top:2px solid var(--purple);margin-top:10px;padding-top:10px">
+      <div class="esf-op-sec" style="margin-top:0;color:var(--purple)">📊 Productividad del Mes</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:4px">
+        <div style="background:var(--bg2);border-radius:8px;padding:8px 10px;text-align:center">
+          <div style="font-size:18px;font-weight:700;color:var(--blue)">${pNum(prod.numRecargas)}</div>
+          <div style="font-size:10px;color:var(--text2)">Recargas</div>
+          <div style="font-size:11px;color:var(--text);margin-top:2px;font-weight:600">${p(prod.montoRecargas)}</div>
+        </div>
+        <div style="background:var(--bg2);border-radius:8px;padding:8px 10px;text-align:center">
+          <div style="font-size:18px;font-weight:700;color:var(--green)">${pNum(prod.numPagos)}</div>
+          <div style="font-size:10px;color:var(--text2)">Pagos</div>
+          <div style="font-size:11px;color:var(--text);margin-top:2px;font-weight:600">${p(prod.montoPagos)}</div>
+        </div>
+        <div style="background:var(--bg2);border-radius:8px;padding:8px 10px;text-align:center">
+          <div style="font-size:18px;font-weight:700;color:var(--orange)">${pNum(prod.numInversiones)}</div>
+          <div style="font-size:10px;color:var(--text2)">Apuestas</div>
+        </div>
+        <div style="background:var(--bg2);border-radius:8px;padding:8px 10px;text-align:center">
+          <div style="font-size:18px;font-weight:700;color:var(--purple)">${pNum(prod.clientesUnicos)}</div>
+          <div style="font-size:10px;color:var(--text2)">Clientes</div>
+        </div>
+      </div>
+      <div style="margin-top:8px;background:rgba(255,160,0,0.08);border:1px solid rgba(255,160,0,0.35);border-radius:8px;padding:8px 12px;display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:12px;color:var(--orange);font-weight:700">💰 Comisiones por Cobrar</span>
+        <span style="font-size:15px;font-weight:800;color:var(--orange)">${p(r.totalComisiones + (r.comisionesMesAnt||0))}</span>
+      </div>
+    </div>`;
+    })()}
   </div>`;
 }
 

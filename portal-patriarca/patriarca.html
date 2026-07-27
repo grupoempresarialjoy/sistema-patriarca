@@ -5930,6 +5930,20 @@ async function renderESF() {
     if (a.estado==='CERRADO') utilidad += a.ret - a.inv;
   });
 
+  // ── 6b. Productividad ──
+  const _recargasMes  = _movEsf.filter(m => m.tipo === 'RECARGAS' || m.tipo === 'RECARGA');
+  const _pagosMes     = _movEsf.filter(m => m.tipo === 'PAGOS'    || m.tipo === 'PAGO');
+  const numRecargas   = _recargasMes.length;
+  const montoRecargas = Math.round(_recargasMes.reduce((s,m)=>s+(parseFloat(m.monto)||0),0));
+  const numPagos      = _pagosMes.length;
+  const montoPagos    = Math.round(_pagosMes.reduce((s,m)=>s+(parseFloat(m.monto)||0),0));
+  const numInversiones = _invEsf.length;
+  const _cliSet = new Set([
+    ..._recargasMes.map(m=>m.cliente_id||m.cliente),
+    ..._invEsf.map(i=>i.cliente_id||i.cliente)
+  ].filter(Boolean));
+  const clientesUnicos = _cliSet.size;
+
   // ── 7. Cajas por método — solo cajas físicas (excluir virtuales) ──
   const ci = config.cupos_iniciales || {};
   const mapaData = {};
@@ -6096,6 +6110,12 @@ async function renderESF() {
       utilidad:        Math.round(utilidad),
       totalGastos:     Math.round(totalGastos),
       cajas:           cajasGuardar,
+      productividad: {
+        numRecargas,   montoRecargas,
+        numPagos,      montoPagos,
+        numInversiones,
+        clientesUnicos,
+      },
       actualizadoEn:   firebase.firestore.FieldValue.serverTimestamp(),
     }, { merge: true }).catch(e => console.warn('esf-resumen:', e));
   } catch(e) { console.warn('esf-resumen save:', e); }

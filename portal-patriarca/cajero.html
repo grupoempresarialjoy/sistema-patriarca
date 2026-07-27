@@ -2574,11 +2574,12 @@ function renderCajasMetodo(metodo) {
   let runSaldo = saldoInicial;
   let totalRecargas = 0, totalPagos = 0;
   allMovs.forEach((mv, i) => {
+    posMap.set(mv.id, i + 1);
+    if (mv.estado_cajero === 'Rechazada') { saldoMap.set(mv.id, runSaldo); return; } // rechazadas no mueven saldo
     const monto = mv.monto_cajero ?? mv.monto ?? 0;
     if (mv.tipo === 'RECARGAS') { totalRecargas += monto; runSaldo -= monto; }
     else { totalPagos += monto; runSaldo += monto; }
     saldoMap.set(mv.id, runSaldo);
-    posMap.set(mv.id, i + 1);
   });
   const saldoFinal = saldoInicial - totalRecargas + totalPagos;
 
@@ -2600,9 +2601,10 @@ function renderCajasMetodo(metodo) {
   const hayFiltros = Object.values(cajasFilter).some(v => v !== '');
   const pendientes = movsF.filter(mv => mv.canal !== 'I-OP' && (!mv.estado_cajero || mv.estado_cajero === 'Pendiente')).length;
 
-  // Totales del conjunto filtrado
+  // Totales del conjunto filtrado (excluye rechazadas)
   let filtRecargas = 0, filtPagos = 0;
   movsF.forEach(mv => {
+    if (mv.estado_cajero === 'Rechazada') return;
     const m = mv.monto_cajero ?? mv.monto ?? 0;
     if (mv.tipo === 'RECARGAS') filtRecargas += m;
     else filtPagos += m;

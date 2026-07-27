@@ -219,6 +219,9 @@ select option{background:var(--bg3)}
             <thead>
               <tr>
                 <th style="text-align:left;padding:10px 16px;background:var(--bg3);color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">Método</th>
+                <th style="text-align:right;padding:10px 16px;background:var(--bg3);color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">S. Inicial</th>
+                <th style="text-align:right;padding:10px 16px;background:var(--bg3);color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">Intercambios</th>
+                <th style="text-align:right;padding:10px 16px;background:var(--bg3);color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">Saldo Op.</th>
                 <th style="text-align:right;padding:10px 16px;background:var(--bg3);color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">Sistema</th>
                 <th style="text-align:right;padding:10px 16px;background:var(--bg3);color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">Físico Real</th>
                 <th style="text-align:right;padding:10px 16px;background:var(--bg3);color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">Diferencia</th>
@@ -1772,7 +1775,7 @@ function renderDashboard() {
     const pag = pagPorMet[m] || 0;
     const fin = ini + ix - rec + pag;
     if (ini === 0 && ix === 0 && rec === 0 && pag === 0) return; // omitir métodos sin datos
-    cards.push({ m, fin });
+    cards.push({ m, ini, ix, op: pag - rec, fin });
   });
 
   const grid = document.getElementById('dash-metodos-grid');
@@ -3217,16 +3220,30 @@ function _cruceSuscribir() {
 function _renderCruceInline(cards) {
   _cruceLoadLS(); // Cache local inmediato mientras llega Firestore
   _cruceSuscribir(); // Suscribir actualizaciones en tiempo real
-  _cruceData = cards.map(c => ({ metodo: c.m, sistema: c.fin }));
+  _cruceData = cards.map(c => ({
+    metodo:  c.m,
+    ini:     c.ini  || 0,
+    ix:      c.ix   || 0,
+    op:      c.op   || 0,
+    sistema: c.fin
+  }));
 
   const tbody = document.getElementById('cruce-tbody');
   if (!tbody) return;
 
+  const TD = 'padding:11px 16px;border-bottom:1px solid var(--border)';
   tbody.innerHTML = _cruceData.map((row, i) => {
     const valPrevio = _cruceFisicoValues[row.metodo] !== undefined ? _cruceFisicoValues[row.metodo] : '';
+    const ixClr  = row.ix  > 0 ? 'var(--green)' : row.ix  < 0 ? 'var(--red)' : 'var(--text2)';
+    const opClr  = row.op  > 0 ? 'var(--green)' : row.op  < 0 ? 'var(--red)' : 'var(--text2)';
+    const sisClr = row.sistema < 0 ? 'var(--red)' : 'var(--green)';
+    const fmtSigned = v => v === 0 ? '—' : (v > 0 ? '+' : '') + pesos(Math.abs(v));
     return `<tr id="cruce-row-${i}">
-      <td style="padding:11px 16px;border-bottom:1px solid var(--border);font-weight:600;white-space:nowrap">${row.metodo}</td>
-      <td style="padding:11px 16px;border-bottom:1px solid var(--border);text-align:right;font-weight:700;color:${row.sistema<0?'var(--red)':'var(--green)'}">
+      <td style="${TD};font-weight:600;white-space:nowrap">${row.metodo}</td>
+      <td style="${TD};text-align:right;color:var(--text2)">${row.ini ? pesos(row.ini) : '—'}</td>
+      <td style="${TD};text-align:right;font-weight:600;color:${ixClr}">${fmtSigned(row.ix)}</td>
+      <td style="${TD};text-align:right;font-weight:600;color:${opClr}">${fmtSigned(row.op)}</td>
+      <td style="${TD};text-align:right;font-weight:700;color:${sisClr}">
         <span style="cursor:pointer" title="Clic para copiar al Físico Real" onclick="_copiarSistema(${i})">${pesos(row.sistema)}</span>
         <button onclick="_copiarSistema(${i})" title="Copiar valor del sistema al físico real"
           style="margin-left:6px;background:rgba(53,204,47,.12);border:1px solid rgba(53,204,47,.3);border-radius:4px;color:var(--gold);cursor:pointer;font-size:11px;padding:2px 6px;line-height:1">←</button>
@@ -3236,17 +3253,17 @@ function _renderCruceInline(cards) {
           placeholder="0"
           value="${valPrevio}"
           oninput="_guardarFisico(${i},this.value);_actualizarCruce()"
-          style="width:150px;text-align:right;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:13px;font-family:inherit;outline:none"
+          style="width:140px;text-align:right;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:13px;font-family:inherit;outline:none"
           onfocus="this.style.borderColor='var(--gold)'"
           onblur="this.style.borderColor='var(--border)'"
         >
       </td>
-      <td id="cruce-dif-${i}" style="padding:11px 16px;border-bottom:1px solid var(--border);text-align:right;font-weight:700;color:var(--text2)">—</td>
+      <td id="cruce-dif-${i}" style="${TD};text-align:right;font-weight:700;color:var(--text2)">—</td>
     </tr>`;
   }).join('');
 
   document.getElementById('cruce-tfoot').innerHTML = `
-    <tr style="background:var(--bg3)">
+    <tr style="background:var(--bg3);border-top:2px solid var(--border)">
       <td style="padding:12px 16px;font-weight:800;font-size:13px">
         TOTAL
         <button onclick="_copiarTodo()" title="Copiar todos los valores del sistema al físico real"
@@ -3254,6 +3271,9 @@ function _renderCruceInline(cards) {
           ← Copiar todo
         </button>
       </td>
+      <td id="cruce-tot-ini" style="padding:12px 16px;text-align:right;font-weight:700;color:var(--text2)">—</td>
+      <td id="cruce-tot-ix"  style="padding:12px 16px;text-align:right;font-weight:700">—</td>
+      <td id="cruce-tot-op"  style="padding:12px 16px;text-align:right;font-weight:700">—</td>
       <td id="cruce-tot-sis" style="padding:12px 16px;text-align:right;font-weight:800;font-size:14px"></td>
       <td id="cruce-tot-fis" style="padding:12px 16px;text-align:right;font-weight:800;font-size:14px;color:var(--text2)">—</td>
       <td id="cruce-tot-dif" style="padding:12px 16px;text-align:right;font-weight:800;font-size:14px;color:var(--text2)">—</td>
@@ -3347,6 +3367,9 @@ function _parsePesosInput(val) {
 function _actualizarCruce() {
   let totFis = 0, todosLlenos = true;
   const totSis = _cruceData.reduce((s,r) => s + r.sistema, 0);
+  const totIni = _cruceData.reduce((s,r) => s + (r.ini||0), 0);
+  const totIx  = _cruceData.reduce((s,r) => s + (r.ix||0),  0);
+  const totOp  = _cruceData.reduce((s,r) => s + (r.op||0),  0);
 
   document.querySelectorAll('.cruce-fisico').forEach(inp => {
     const i   = parseInt(inp.dataset.idx);
@@ -3379,7 +3402,21 @@ function _actualizarCruce() {
   const totSisEl = document.getElementById('cruce-tot-sis');
   const totFisEl = document.getElementById('cruce-tot-fis');
   const totDifEl = document.getElementById('cruce-tot-dif');
+  const totIniEl = document.getElementById('cruce-tot-ini');
+  const totIxEl  = document.getElementById('cruce-tot-ix');
+  const totOpEl  = document.getElementById('cruce-tot-op');
   if (!totSisEl) return;
+
+  // Nuevos totales: S. Inicial, Intercambios, Saldo Op.
+  if (totIniEl) { totIniEl.textContent = totIni ? pesos(totIni) : '—'; totIniEl.style.color = 'var(--text2)'; }
+  if (totIxEl)  {
+    totIxEl.textContent = totIx ? (totIx>0?'+':'')+pesos(Math.abs(totIx)) : '—';
+    totIxEl.style.color = totIx > 0 ? 'var(--green)' : totIx < 0 ? 'var(--red)' : 'var(--text2)';
+  }
+  if (totOpEl)  {
+    totOpEl.textContent = totOp ? (totOp>0?'+':'')+pesos(Math.abs(totOp)) : '—';
+    totOpEl.style.color = totOp > 0 ? 'var(--green)' : totOp < 0 ? 'var(--red)' : 'var(--text2)';
+  }
 
   totSisEl.textContent = pesos(totSis);
   totSisEl.style.color = totSis < 0 ? 'var(--red)' : 'var(--green)';

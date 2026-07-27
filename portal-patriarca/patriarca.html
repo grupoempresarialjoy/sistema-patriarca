@@ -245,6 +245,7 @@ select option { background: var(--bg3); }
     <div class="tab" onclick="showTab('esf')">📋 ESF</div>
     <div class="tab" onclick="showTab('gastos')">💳 Gastos</div>
     <div class="tab" id="tab-comisiones" onclick="showTab('comisiones')">💱 Comisiones</div>
+    <div class="tab" id="tab-liquidacion" onclick="showTab('liquidacion')">💳 Liquidación</div>
     <div class="tab" onclick="showTab('equipo')">👥 Equipo</div>
   </nav>
 
@@ -286,6 +287,12 @@ select option { background: var(--bg3); }
     display:none;position:fixed;inset:0;z-index:8999;
     background:rgba(0,0,0,0.35);backdrop-filter:blur(2px);
   "></div>
+
+  <!-- Banner mes cerrado — visible cuando el mes está cerrado -->
+  <div id="banner-mes-cerrado" style="display:none;background:#7f1d1d;color:#fca5a5;padding:10px 20px;font-size:13px;font-weight:600;text-align:center;border-bottom:2px solid #dc2626;position:sticky;top:0;z-index:999">
+    🔒 MES CERRADO — Este mes ya fue cerrado por el administrador. No puedes registrar nuevos movimientos.
+    <span id="banner-mes-autorizado" style="display:none;color:#fde68a"> · ✅ Autorizado para editar por el administrador</span>
+  </div>
 
   <main>
 
@@ -562,6 +569,7 @@ select option { background: var(--bg3); }
               <th>ID</th><th>Fecha</th><th>Cliente</th><th>Monto</th><th>Casa</th><th>Tipo</th><th>Método</th><th>Comisión</th><th>Impacto</th><th>Cajero</th><th></th>
             </tr></thead>
             <tbody id="movimientos-tbody"><tr><td colspan="11"><div class="empty"><div class="empty-icon">💸</div>Sin movimientos</div></td></tr></tbody>
+            <tfoot id="movimientos-tfoot"></tfoot>
           </table>
         </div>
       </div>
@@ -640,15 +648,17 @@ select option { background: var(--bg3); }
         </select>
         <input id="filtro-inv-desde" type="date" oninput="renderInversiones()" title="Desde" style="width:145px">
         <input id="filtro-inv-hasta" type="date" oninput="renderInversiones()" title="Hasta" style="width:145px">
+        <input id="filtro-inv-monto-min" type="text" inputmode="numeric" placeholder="$ Monto mín" oninput="renderInversiones()" style="width:120px" title="Monto mínimo">
+        <input id="filtro-inv-monto-max" type="text" inputmode="numeric" placeholder="$ Monto máx" oninput="renderInversiones()" style="width:120px" title="Monto máximo">
         <button class="btn btn-ghost btn-sm" onclick="limpiarFiltrosInv()">✕ Limpiar</button>
       </div>
       <div class="panel">
         <div class="tbl-wrap">
           <table>
             <thead><tr>
-              <th>Fecha</th><th>Ap#</th><th>Evento</th><th>Cliente</th><th>Monto</th><th>Casa</th><th>Op</th><th>Cuota</th><th>Fondos</th><th>Origen Com.</th><th>Comisión</th><th>Control</th><th>P.Retorno</th><th>Estado</th><th>Ret.Cliente</th><th>Impacto</th><th></th>
+              <th>Fecha</th><th>Ap#</th><th>Evento</th><th>Cliente</th><th>Monto</th><th>Casa</th><th>Op</th><th>Cuota</th><th>Fondos</th><th>Origen Com.</th><th>Comisión</th><th>Control</th><th>P.Retorno</th><th>Estado</th><th>Ret.Cliente</th><th>Impacto</th><th title="Fecha y hora exacta en que se guardó el registro">Registrado</th><th></th>
             </tr></thead>
-            <tbody id="inversiones-tbody"><tr><td colspan="17"><div class="empty"><div class="empty-icon">🎯</div>Sin inversiones</div></td></tr></tbody>
+            <tbody id="inversiones-tbody"><tr><td colspan="18"><div class="empty"><div class="empty-icon">🎯</div>Sin inversiones</div></td></tr></tbody>
           </table>
         </div>
       </div>
@@ -660,7 +670,7 @@ select option { background: var(--bg3); }
       <div class="sec-header">
         <div><div class="sec-title">Intercambios</div><div class="sec-subtitle">Movimiento entre cajas/operadores</div></div>
         <div style="display:flex;gap:8px">
-          <button class="btn btn-ghost btn-sm" onclick="toggleImportIx()" style="border-color:#3b82f6;color:#93c5fd">📋 Importar Excel</button>
+          <button id="btn-import-ix" class="btn btn-ghost btn-sm" onclick="toggleImportIx()" style="border-color:#3b82f6;color:#93c5fd">📋 Importar Excel</button>
           <button class="btn btn-gold" onclick="abrirModalIntercambio()">+ Nuevo</button>
         </div>
       </div>
@@ -671,9 +681,10 @@ select option { background: var(--bg3); }
           Los métodos se normalizan automáticamente (BEMOVIL → BE MOVIL CAJA, CORRESPONSAL → CORRESPONSAL EL PARAMO, etc.)
         </p>
         <textarea id="import-ix-txt" rows="8" placeholder="Pega aquí los datos de Excel (Cmd+V)..." style="width:100%;padding:8px;background:var(--bg);border:1px solid #3b82f6;border-radius:6px;color:var(--text);font-size:12px;font-family:monospace;resize:vertical;box-sizing:border-box"></textarea>
-        <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+        <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <button onclick="ejecutarImportIx()" style="padding:7px 18px;background:#2563eb;border:none;border-radius:6px;color:#fff;cursor:pointer;font-size:12px;font-weight:600">⬆ Importar</button>
           <button onclick="toggleImportIx()" style="padding:7px 14px;background:transparent;border:1px solid #475569;border-radius:6px;color:var(--text2);cursor:pointer;font-size:12px">Cancelar</button>
+          <button onclick="migrarIxAlCajero(this)" style="padding:7px 14px;background:transparent;border:1px solid #f59e0b;border-radius:6px;color:#f59e0b;cursor:pointer;font-size:12px" title="Sincroniza intercambios importados previamente al portal cajero">🔄 Migrar al cajero</button>
           <span id="import-ix-status" style="font-size:12px;color:var(--text2)"></span>
         </div>
       </div>
@@ -730,7 +741,7 @@ select option { background: var(--bg3); }
       <div class="sec-header">
         <div><div class="sec-title">Clientes</div><div class="sec-subtitle">Base de datos de clientes y cuentas</div></div>
         <div style="display:flex;gap:8px">
-          <button class="btn btn-ghost btn-sm" onclick="toggleImportCli()" style="border-color:#3b82f6;color:#93c5fd">📋 Importar Excel</button>
+          <button id="btn-import-cli" class="btn btn-ghost btn-sm" onclick="toggleImportCli()" style="border-color:#3b82f6;color:#93c5fd">📋 Importar Excel</button>
           <button class="btn btn-gold" onclick="openModal('modal-cliente')">+ Nuevo Cliente</button>
         </div>
       </div>
@@ -858,9 +869,10 @@ select option { background: var(--bg3); }
                 <th style="text-align:right;color:var(--blue)">RECARGAS (−)</th>
                 <th style="text-align:right;color:var(--green)">PAGOS (+)</th>
                 <th style="text-align:right;color:var(--red)">COSTOS Y GASTOS</th>
+                <th style="text-align:right;color:var(--orange)">LIQUIDACIÓN (−)</th>
                 <th style="text-align:right">CUPO ACTUAL</th>
               </tr></thead>
-              <tbody id="met-tbody"><tr><td colspan="6"><div class="empty">Calculando...</div></td></tr></tbody>
+              <tbody id="met-tbody"><tr><td colspan="7"><div class="empty">Calculando...</div></td></tr></tbody>
             </table>
           </div>
         </div>
@@ -1094,6 +1106,13 @@ select option { background: var(--bg3); }
         <div>
           <div class="esf-card">
             <h4>Patrimonio</h4>
+            <!-- Sección informativa: Cupo Total Asignado vs Clientes Mes Anterior -->
+            <div id="esf-cupo-total-box" style="display:none;background:rgba(139,92,246,.08);border:1px solid rgba(139,92,246,.3);border-radius:8px;padding:10px 12px;margin-bottom:10px">
+              <div class="esf-row" style="font-weight:700;color:#a78bfa"><span>🎯 Cupo Total Asignado</span><span id="esf-cupo-total-val">$0</span></div>
+              <div class="esf-row" style="font-size:12px;color:var(--text2)"><span>Clientes Mes Anterior</span><span id="esf-cupo-total-cma">$0</span></div>
+              <div style="border-top:1px dashed rgba(139,92,246,.3);margin:6px 0"></div>
+              <div class="esf-row" style="font-weight:700"><span>Cupo Residual</span><span id="esf-cupo-total-residual" style="font-weight:800">$0</span></div>
+            </div>
             <div class="esf-row" style="font-weight:600"><span>Clientes Mes Anterior</span><span id="esf-mes-ant">$0</span></div>
             <div class="esf-row" style="font-weight:600"><span id="esf-cupo-label">Cupo</span><span id="esf-cupo">$0</span></div>
             <div style="border-top:1px solid var(--border);margin:10px 0 6px"></div>
@@ -1123,6 +1142,7 @@ select option { background: var(--bg3); }
                 <th style="text-align:right">RECARGAS</th>
                 <th style="text-align:right">PAGOS</th>
                 <th style="text-align:right">GASTOS</th>
+                <th style="text-align:right;color:var(--orange)">LIQUIDACIÓN</th>
                 <th style="text-align:right">CUPO ACTUAL</th>
               </tr>
             </thead>
@@ -1135,6 +1155,7 @@ select option { background: var(--bg3); }
                 <td style="text-align:right;color:var(--blue)" id="esf-map-total-rec">$0</td>
                 <td style="text-align:right;color:var(--green)" id="esf-map-total-pag">$0</td>
                 <td style="text-align:right;color:var(--red)" id="esf-map-total-gas">$0</td>
+                <td style="text-align:right;color:var(--orange)" id="esf-map-total-liq">—</td>
                 <td style="text-align:right;color:var(--gold);font-size:13px" id="esf-map-total-actual">$0</td>
               </tr>
             </tfoot>
@@ -1151,6 +1172,15 @@ select option { background: var(--bg3); }
       </div>
       <div class="kpi-grid" style="margin-bottom:16px">
         <div class="kpi red"><div class="kpi-label">Total Gastos</div><div class="kpi-value" id="gastos-total">$0</div></div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center">
+        <input type="date" id="g-f-desde" onchange="renderGastos()" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:6px 10px;font-size:12px" title="Desde fecha">
+        <input type="date" id="g-f-hasta" onchange="renderGastos()" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:6px 10px;font-size:12px" title="Hasta fecha">
+        <select id="g-f-metodo" onchange="renderGastos()" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:6px 10px;font-size:12px">
+          <option value="">Todos los métodos</option>
+        </select>
+        <input type="text" id="g-f-desc" placeholder="🔍 Buscar descripción..." oninput="renderGastos()" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:6px 10px;font-size:12px;flex:1;min-width:160px">
+        <button onclick="limpiarFiltrosGastos()" style="background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--text2);padding:6px 12px;font-size:12px;cursor:pointer">✕ Limpiar</button>
       </div>
       <div class="panel">
         <div class="tbl-wrap">
@@ -1188,6 +1218,150 @@ select option { background: var(--bg3); }
               <tr><td colspan="4"><div class="empty"><div class="empty-icon">💱</div>Cargando comisiones...</div></td></tr>
             </tbody>
           </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- LIQUIDACIÓN -->
+    <div class="section" id="sec-liquidacion">
+      <div class="sec-header">
+        <div>
+          <div class="sec-title">💳 Liquidación</div>
+          <div class="sec-subtitle" id="liq-subtitle">Hoja de transacciones del mes cerrado</div>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="abrirModalPagoLiq()" id="btn-nuevo-pago" style="display:none">+ Registrar Pago</button>
+      </div>
+
+      <!-- Selector de mes -->
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap">
+        <label style="font-size:12px;font-weight:700;color:var(--text2)">Mes:</label>
+        <select id="liq-mes-sel" onchange="renderLiquidacion()" style="padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:12px"></select>
+        <div id="liq-estado-badge" style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;background:var(--bg3);color:var(--text2)">—</div>
+      </div>
+
+      <!-- SALDOS POR MÉTODO -->
+      <div class="panel" style="margin-bottom:20px">
+        <div class="panel-header"><span class="panel-title">💰 Saldos por Método</span></div>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr>
+              <th style="text-align:left">Método</th>
+              <th>Al Cierre</th>
+              <th style="color:var(--green)">Pagado</th>
+              <th>Pendiente</th>
+            </tr></thead>
+            <tbody id="liq-saldos-tbody">
+              <tr><td colspan="4"><div class="empty">Selecciona un mes</div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- COMISIONES POR MÉTODO -->
+      <div class="panel" style="margin-bottom:20px">
+        <div class="panel-header"><span class="panel-title">📑 Comisiones por Método</span></div>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr>
+              <th style="text-align:left">Método</th>
+              <th>Comisión</th>
+              <th style="color:var(--green)">Pagado</th>
+              <th>Pendiente</th>
+            </tr></thead>
+            <tbody id="liq-coms-tbody">
+              <tr><td colspan="4"><div class="empty">Selecciona un mes</div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- PAGOS REGISTRADOS -->
+      <div class="panel">
+        <div class="panel-header"><span class="panel-title">📋 Pagos Registrados</span></div>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr>
+              <th>Fecha</th>
+              <th>Tipo</th>
+              <th>Método</th>
+              <th>Monto</th>
+              <th>Estado</th>
+              <th>Notas</th>
+              <th></th>
+            </tr></thead>
+            <tbody id="liq-pagos-tbody">
+              <tr><td colspan="7"><div class="empty">Sin pagos registrados</div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL REGISTRAR PAGO LIQUIDACIÓN -->
+    <div class="modal-overlay" id="modal-pago-liq" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.3);z-index:9999;pointer-events:none">
+      <div class="modal-box" id="modal-pago-liq-box" style="background:var(--bg2);border-radius:12px;padding:28px;width:360px;max-width:95vw;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:all;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+        <div class="modal-drag-handle" style="font-size:16px;font-weight:800;margin-bottom:20px;cursor:grab;user-select:none;display:flex;align-items:center;gap:8px">
+          <span style="font-size:11px;color:var(--text2);opacity:.5">⠿</span> Registrar Pago
+        </div>
+        <div class="form-group" style="margin-bottom:14px">
+          <label style="font-size:11px;font-weight:700;color:var(--text2);display:block;margin-bottom:4px">TIPO</label>
+          <select id="pago-liq-tipo" onchange="updatePagoLiqMetodos()" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:13px">
+            <option value="saldo">💰 Saldo de Método</option>
+            <option value="comision">📑 Comisión</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom:14px">
+          <label style="font-size:11px;font-weight:700;color:var(--text2);display:block;margin-bottom:4px">MÉTODO</label>
+          <select id="pago-liq-metodo" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:13px"></select>
+        </div>
+        <div class="form-group" id="pago-liq-destino-group" style="margin-bottom:14px;display:none">
+          <label style="font-size:11px;font-weight:700;color:var(--text2);display:block;margin-bottom:4px">DESTINO <span style="font-size:10px;font-weight:400">(cuenta donde ingresa el dinero)</span></label>
+          <select id="pago-liq-destino" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:13px">
+            <option value="">Cargando cuentas...</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom:14px">
+          <label style="font-size:11px;font-weight:700;color:var(--text2);display:block;margin-bottom:4px">MONTO</label>
+          <input type="number" id="pago-liq-monto" placeholder="0" min="1" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:13px;box-sizing:border-box">
+        </div>
+        <div class="form-group" style="margin-bottom:14px">
+          <label style="font-size:11px;font-weight:700;color:var(--text2);display:block;margin-bottom:4px">FECHA</label>
+          <input type="date" id="pago-liq-fecha" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:13px;box-sizing:border-box">
+        </div>
+        <div class="form-group" style="margin-bottom:20px">
+          <label style="font-size:11px;font-weight:700;color:var(--text2);display:block;margin-bottom:4px">NOTAS (opcional)</label>
+          <textarea id="pago-liq-notas" rows="2" placeholder="Comprobante, referencia..." style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:12px;box-sizing:border-box;resize:vertical"></textarea>
+        </div>
+        <div style="display:flex;gap:10px;justify-content:flex-end">
+          <button onclick="cerrarModalPagoLiq()" style="padding:8px 18px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);color:var(--text);cursor:pointer;font-size:13px">Cancelar</button>
+          <button onclick="guardarPagoLiq()" style="padding:8px 18px;border-radius:6px;border:none;background:var(--green);color:#fff;cursor:pointer;font-size:13px;font-weight:700">Registrar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL SOLICITAR CORRECCIÓN -->
+    <div id="modal-correccion-liq" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.3);z-index:9999;pointer-events:none">
+      <div class="modal-box" id="modal-correccion-box" style="background:var(--bg2);border-radius:12px;padding:28px;width:380px;max-width:95vw;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:all;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+        <div class="modal-drag-handle" style="font-size:15px;font-weight:800;margin-bottom:6px;cursor:grab;user-select:none;display:flex;align-items:center;gap:8px">
+          <span style="font-size:11px;color:var(--text2);opacity:.5">⠿</span> Solicitar Corrección
+        </div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:18px">El administrador revisará y ajustará el asiento contable.</div>
+        <div style="background:var(--bg3);border-radius:6px;padding:10px 12px;margin-bottom:16px;font-size:12px" id="corr-original-info"></div>
+        <div class="form-group" style="margin-bottom:12px">
+          <label style="font-size:11px;font-weight:700;color:var(--text2);display:block;margin-bottom:4px">NUEVO MONTO</label>
+          <input id="liq-corr-nuevo-monto" type="number" min="1" placeholder="0" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:13px">
+        </div>
+        <div class="form-group" style="margin-bottom:12px">
+          <label style="font-size:11px;font-weight:700;color:var(--text2);display:block;margin-bottom:4px">NUEVA FECHA</label>
+          <input id="liq-corr-nueva-fecha" type="date" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:13px">
+        </div>
+        <div class="form-group" style="margin-bottom:18px">
+          <label style="font-size:11px;font-weight:700;color:var(--text2);display:block;margin-bottom:4px">MOTIVO <span style="color:var(--red)">*</span></label>
+          <textarea id="liq-corr-motivo" rows="2" placeholder="Ej: Error de digitación en el monto..." style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:12px;resize:vertical"></textarea>
+        </div>
+        <div style="display:flex;gap:10px;justify-content:flex-end">
+          <button onclick="cerrarModalCorreccion()" style="padding:8px 18px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);color:var(--text);cursor:pointer;font-size:13px">Cancelar</button>
+          <button onclick="enviarSolicitudCorreccion()" style="padding:8px 18px;border-radius:6px;border:none;background:var(--orange);color:#fff;cursor:pointer;font-size:13px;font-weight:700">Enviar Solicitud</button>
         </div>
       </div>
     </div>
@@ -1279,7 +1453,7 @@ select option { background: var(--bg3); }
       </div>
       <div class="form-group">
         <label>Tipo</label>
-        <select id="edit-mov-tipo">
+        <select id="edit-mov-tipo" onchange="_editCalc4x1000()">
           <option value="RECARGAS">RECARGAS</option>
           <option value="PAGOS">PAGOS</option>
         </select>
@@ -1298,7 +1472,17 @@ select option { background: var(--bg3); }
       </div>
       <div class="form-group span2">
         <label>Monto ($)</label>
-        <input type="text" id="edit-mov-monto" inputmode="numeric" oninput="formatMontoInput(this)">
+        <input type="text" id="edit-mov-monto" inputmode="numeric" oninput="formatMontoInput(this);_editCalc4x1000()">
+      </div>
+      <div class="form-group span2" id="edit-4x1000-row" style="display:none;background:rgba(255,160,0,0.07);border:1px dashed var(--orange);border-radius:8px;padding:10px 14px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">
+          <input type="checkbox" id="edit-4x1000-check" onchange="_editCalc4x1000()" style="width:16px;height:16px;accent-color:var(--orange)">
+          📌 Aplicar descuento 4×1000 (GMF)
+        </label>
+        <div id="edit-4x1000-detalle" style="display:none;margin-top:8px;align-items:center;gap:12px">
+          <input type="text" id="edit-4x1000-valor" readonly style="color:var(--orange);flex:1;background:var(--bg2);border:none;padding:6px 10px;border-radius:6px"/>
+          <span id="edit-4x1000-neto" style="font-size:11px;color:var(--text2)"></span>
+        </div>
       </div>
       <div class="form-group span2" style="background:rgba(240,160,80,.08);border:1px solid rgba(240,160,80,.3);border-radius:6px;padding:10px;">
         <label style="color:var(--orange)">⚠ Motivo de la edición (requerido)</label>
@@ -1615,6 +1799,24 @@ select option { background: var(--bg3); }
   </div>
 </div>
 
+<!-- MODAL SOLICITAR ELIMINACIÓN INVERSIÓN -->
+<div class="modal-overlay" id="modal-del-inv">
+  <div class="modal" style="max-width:440px">
+    <h3>🗑 Solicitar Eliminación de Apuesta</h3>
+    <input type="hidden" id="del-inv-id">
+    <div id="del-inv-info" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px 14px;font-size:12px;color:var(--text2);margin-bottom:14px;line-height:1.7"></div>
+    <div class="form-group">
+      <label>¿Por qué deseas eliminarlo? <span style="color:var(--red)">*</span></label>
+      <textarea id="del-inv-motivo" rows="3" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:10px;color:var(--text);font-family:inherit;font-size:13px;resize:vertical" placeholder="Ej: Fue un error de digitación, se duplicó..." oninput="document.getElementById('del-inv-submit').disabled=!this.value.trim()"></textarea>
+      <div style="font-size:11px;color:var(--text2);margin-top:4px">⚠ El administrador revisará la solicitud. El registro no se eliminará hasta que apruebe.</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-del-inv')">Cancelar</button>
+      <button class="btn" id="del-inv-submit" disabled onclick="saveDeleteInvRequest()" style="background:#dc2626;color:#fff;border:none;padding:8px 20px;border-radius:8px;font-weight:700;cursor:pointer">📤 Enviar solicitud</button>
+    </div>
+  </div>
+</div>
+
 <!-- CLIENTE MODAL -->
 <div class="modal-overlay" id="modal-cliente">
   <div class="modal">
@@ -1786,6 +1988,46 @@ let allCuentas = [];
 let allGastos = [];
 let movCnt = 0, intCnt = 0;
 
+// ── Control de mes cerrado ──
+let _mesCerrado = false;      // true si el mes activo fue cerrado por el CEO
+let _mesAutorizado = false;   // true si el admin autorizó edición temporal
+let _mesCerradoUnsub = null;  // listener activo
+
+function _isMesLocked() { return _mesCerrado && !_mesAutorizado; }
+
+function _actualizarBannerMesCerrado() {
+  const banner   = document.getElementById('banner-mes-cerrado');
+  const autSpan  = document.getElementById('banner-mes-autorizado');
+  if (!banner) return;
+  if (_mesCerrado) {
+    banner.style.display = '';
+    if (autSpan) autSpan.style.display = _mesAutorizado ? '' : 'none';
+  } else {
+    banner.style.display = 'none';
+  }
+}
+
+function _suscribirMesCerrado() {
+  const mk = _mesKey(config?.mes);
+  if (_mesCerradoUnsub) { _mesCerradoUnsub(); _mesCerradoUnsub = null; }
+  _mesCerrado = false; _mesAutorizado = false;
+  _actualizarBannerMesCerrado();
+  if (!opId || !mk) return;
+  const docId = `${opId}_${mk}`;
+  _mesCerradoUnsub = db.collection('patriarca_meses_cerrados').doc(docId)
+    .onSnapshot(snap => {
+      _mesCerrado    = snap.exists;
+      _mesAutorizado = snap.exists ? (snap.data().autorizado === true) : false;
+      _actualizarBannerMesCerrado();
+    }, () => { _mesCerrado = false; _actualizarBannerMesCerrado(); });
+}
+
+function _checkLock(accion) {
+  if (!_isMesLocked()) return false; // no bloqueado
+  toast(`🔒 Este mes está cerrado. Pide al administrador que autorice la edición para ${accion}.`, 'error');
+  return true; // bloqueado
+}
+
 // ──────────────────── HELPERS ────────────────────
 const peso = v => v == null ? '$0' : '$' + Math.round(v).toLocaleString('es-CO');
 const pct  = v => (v * 100).toFixed(1) + '%';
@@ -1879,6 +2121,7 @@ auth.onAuthStateChanged(async user => {
     await loadConfig();
     loadActiveOperators();
     subscribeIncoming();
+    _suscribirMesCerrado(); // verificar si el mes activo está cerrado
     reloadDash(); // Render inmediato con nombre y config — los datos llenarán cuando lleguen los listeners
     // Cargar escalera desde Firestore según metodo_participacion del operador
     const metodoNombre = config.metodo_participacion || 'Escalera de Ganancia';
@@ -2004,7 +2247,19 @@ async function loadConfig() {
     // Primer snapshot → resolver promesa (código siguiente ya tiene config correcto)
     // Snapshots siguientes → refrescar dashboard con nuevos valores en tiempo real
     if (!_cfgLoaded) { _cfgLoaded = true; resolve(); }
-    else { reloadDash(); }
+    else {
+      reloadDash();
+      // Re-renderizar TODO lo filtrado por mes activo
+      if (typeof renderEventos       === 'function') renderEventos();
+      if (typeof populateEventSelects=== 'function') populateEventSelects();
+      if (typeof renderMovimientos   === 'function') renderMovimientos();
+      if (typeof renderInversiones   === 'function') renderInversiones();
+      if (typeof renderIntercambios  === 'function') renderIntercambios();
+      if (typeof renderComisionesTab === 'function') renderComisionesTab();
+      if (typeof renderSaldosActivo  === 'function') renderSaldosActivo();
+      if (typeof renderProductividad === 'function') renderProductividad();
+      if (typeof renderGastos        === 'function') renderGastos();
+    }
   });
   }); // end Promise
 }
@@ -2012,12 +2267,19 @@ async function loadConfig() {
 async function cambiarMesSolo() {
   const nuevoMes = document.getElementById('mes-select').value;
   if (!nuevoMes) return;
-  config.mes = nuevoMes;
-  await db.collection('patriarca_config').doc(opId).update({ mes: nuevoMes });
-  closeModal('modal-mes');
-  document.getElementById('mes-badge').textContent = nuevoMes;
-  reloadDash();
-  toast('✅ Mes cambiado a ' + nuevoMes, 'success');
+  try {
+    await db.collection('patriarca_config').doc(opId).set({ mes: nuevoMes }, { merge: true });
+    config.mes = nuevoMes;
+    closeModal('modal-mes');
+    const badge = document.getElementById('mes-badge');
+    if (badge) badge.textContent = nuevoMes;
+    _suscribirMesCerrado(); // verificar si el nuevo mes está cerrado
+    reloadDash();
+    toast('✅ Mes cambiado a ' + nuevoMes, 'success');
+  } catch(e) {
+    console.error('cambiarMesSolo error:', e);
+    toast('⚠ Error al cambiar mes: ' + (e.message || e), 'error');
+  }
 }
 
 async function saveConfig() {
@@ -2070,15 +2332,17 @@ async function loadAllData() {
   }, 'eventos');
 
   safeSnapshot(userColl('movimientos'), snap => {
-    allMovimientos = snap.docs.map(d => ({id:d.id,...d.data()})).sort((a,b) => {
-      // 1. Fecha YYYY-MM-DD (orden cronológico)
-      const fa = a.fecha || '', fb = b.fecha || '';
-      if (fa !== fb) return fa.localeCompare(fb);
-      // 2. Número de op_id dentro de la fecha
-      const na = parseInt((a.op_id||'').match(/\d+/)?.[0]||0);
-      const nb = parseInt((b.op_id||'').match(/\d+/)?.[0]||0);
-      return na - nb;
-    });
+    allMovimientos = snap.docs.map(d => ({id:d.id,...d.data()}))
+      .filter(m => !m.eliminado)  // excluir movimientos eliminados (soft delete)
+      .sort((a,b) => {
+        // 1. Fecha YYYY-MM-DD (orden cronológico)
+        const fa = a.fecha || '', fb = b.fecha || '';
+        if (fa !== fb) return fa.localeCompare(fb);
+        // 2. Número de op_id dentro de la fecha
+        const na = parseInt((a.op_id||'').match(/\d+/)?.[0]||0);
+        const nb = parseInt((b.op_id||'').match(/\d+/)?.[0]||0);
+        return na - nb;
+      });
     movCnt = allMovimientos.length;
     renderMovimientos();
     reloadDash();
@@ -2124,6 +2388,10 @@ async function loadAllData() {
   // Cargar métodos y comisiones desde Firestore (admin)
   await loadAdminConfig();
   populateStaticSelects();
+
+  // Auto-guardar ESF en Firestore al cargar el portal
+  // Así admin/CEO siempre tienen datos frescos sin que el operador haga nada
+  setTimeout(() => { renderESF().catch(() => {}); }, 5000);
 }
 
 // ──────────────────── CONFIG DESDE ADMIN (Firestore) ────────────────────
@@ -2304,6 +2572,7 @@ function showTab(name) {
   if (name==='trixi') { calcTrixi(); calcTrixi2(); }
   if (name==='equipo') loadEquipoTab();
   if (name==='comisiones') renderComisionesTab();
+  if (name==='liquidacion') renderLiquidacion();
   if (name==='inversiones') showInvSubtab('historial');
 }
 
@@ -2332,7 +2601,7 @@ function populateStaticSelects() {
     const el = document.getElementById(id);
     if(el) el.innerHTML = '<option value="">—</option>' + metOpts;
   });
-  document.getElementById('int-op2').innerHTML = '<option value="">Propio</option>' + opOpts;
+  // int-op2 se llena correctamente en loadActiveOperators() con UIDs reales — no sobreescribir aquí
 }
 
 function populateClienteSelects() {
@@ -2406,7 +2675,7 @@ function reloadDash() {
   // ── Filtrar datos por mes activo ──
   const mesKeyDash = _mesKey(config.mes);
   const movMes    = mesKeyDash ? allMovimientos.filter(m   => (m.fecha||'').startsWith(mesKeyDash))  : allMovimientos;
-  const invMes    = mesKeyDash ? allInversiones.filter(inv => (inv.fecha||'').startsWith(mesKeyDash)) : allInversiones;
+  const invMes    = _filtrarInvMes(mesKeyDash);
   const ixMes     = mesKeyDash ? allIntercambios.filter(ix => (ix.fecha||'').startsWith(mesKeyDash))  : allIntercambios;
   const gastosMes = mesKeyDash ? allGastos.filter(g        => (g.fecha||'').startsWith(mesKeyDash))   : allGastos;
 
@@ -2609,6 +2878,13 @@ function _mesKey(mesStr) {
   const año = parseInt(parts[1]);
   if (!num || !año) return null;
   return año + '-' + String(num).padStart(2,'0');
+}
+// Filtrar inversiones por mes: usa mesKey explícito si existe, si no cae a fecha (datos legacy)
+function _filtrarInvMes(mk) {
+  if (!mk) return allInversiones;
+  return allInversiones.filter(inv =>
+    inv.mesKey ? inv.mesKey === mk : (inv.fecha||'').startsWith(mk)
+  );
 }
 
 function _calcBono() {
@@ -2893,6 +3169,7 @@ function renderEventos() {
 }
 
 async function saveEvento() {
+  if (_checkLock('registrar eventos')) return;
   const nombre = document.getElementById('ev-nombre').value.trim();
   if(!nombre) { toast('⚠ Ingresa el nombre del evento','error'); return; }
   const mk = _mesKey(config.mes);
@@ -3002,7 +3279,7 @@ async function updateEvento(id, field, value, sel) {
 
 // ──────────────────── INVERSIONES FILTROS ────────────────────
 function limpiarFiltrosInv() {
-  ['filtro-inv-buscar','filtro-inv-cliente','filtro-inv-fondos','filtro-inv-estado','filtro-inv-desde','filtro-inv-hasta']
+  ['filtro-inv-buscar','filtro-inv-cliente','filtro-inv-fondos','filtro-inv-estado','filtro-inv-desde','filtro-inv-hasta','filtro-inv-monto-min','filtro-inv-monto-max']
     .forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
   renderInversiones();
 }
@@ -3065,6 +3342,31 @@ function renderMovimientos() {
       </td>
     </tr>`;
   }).join('');
+
+  // ── Totales del filtro ──
+  const tfoot = document.getElementById('movimientos-tfoot');
+  if (tfoot) {
+    const totMonto   = data.reduce((s, m) => s + (parseFloat(m.monto)   || 0), 0);
+    const totComis   = data.reduce((s, m) => s + (parseFloat(m.comision)|| 0), 0);
+    const totImpacto = data.reduce((s, m) => s + (parseFloat(m.impacto) || 0), 0);
+    const nRec       = data.filter(m => m.tipo === 'RECARGAS').length;
+    const nPag       = data.filter(m => m.tipo === 'PAGOS').length;
+    const impClr     = totImpacto >= 0 ? 'var(--green)' : 'var(--red)';
+    const TD = 'padding:10px 12px;font-size:12px;font-weight:700';
+    tfoot.innerHTML = `
+      <tr style="background:var(--bg3);border-top:2px solid var(--border)">
+        <td colspan="3" style="${TD};color:var(--text2)">
+          ${data.length} registros
+          ${nRec ? `<span style="margin-left:8px;color:var(--green);font-size:11px">▲ ${nRec} rec.</span>` : ''}
+          ${nPag ? `<span style="margin-left:6px;color:var(--red);font-size:11px">▼ ${nPag} pag.</span>` : ''}
+        </td>
+        <td style="${TD};text-align:right">${peso(totMonto)}</td>
+        <td colspan="3" style="${TD};color:var(--text2);text-align:center;font-weight:400;font-size:11px">— subtotal —</td>
+        <td style="${TD};text-align:right;color:var(--orange)">${totComis ? peso(totComis) : '—'}</td>
+        <td style="${TD};text-align:right;color:${impClr}">${peso(totImpacto)}</td>
+        <td colspan="2"></td>
+      </tr>`;
+  }
 }
 
 function abrirEditarMovimiento(id) {
@@ -3093,7 +3395,36 @@ function abrirEditarMovimiento(id) {
   montoEl.value = m.monto ? m.monto.toLocaleString('es-CO') : '';
   montoEl.dataset.raw = m.monto || 0;
 
+  // Pre-cargar estado 4×1000
+  const chkEdit4 = document.getElementById('edit-4x1000-check');
+  if (chkEdit4) chkEdit4.checked = !!(m.descuento_4x1000 > 0);
+  _editCalc4x1000();
+
   document.getElementById('modal-edit-mov').classList.add('open');
+}
+
+function _editCalc4x1000() {
+  const tipo   = document.getElementById('edit-mov-tipo')?.value;
+  const row4   = document.getElementById('edit-4x1000-row');
+  const chk4   = document.getElementById('edit-4x1000-check');
+  const det4   = document.getElementById('edit-4x1000-detalle');
+  const inp4   = document.getElementById('edit-4x1000-valor');
+  const neto4  = document.getElementById('edit-4x1000-neto');
+  if (!row4) return;
+  row4.style.display = tipo === 'PAGOS' ? '' : 'none';
+  if (tipo !== 'PAGOS' && chk4) chk4.checked = false;
+  const aplicar = chk4?.checked && tipo === 'PAGOS';
+  if (det4) det4.style.display = aplicar ? 'flex' : 'none';
+  if (aplicar) {
+    const montoEl = document.getElementById('edit-mov-monto');
+    const monto = parseFloat((montoEl?.dataset?.raw) || montoEl?.value?.replace(/[^0-9]/g,'')) || 0;
+    const desc = Math.round(monto * 0.004);
+    if (inp4) { inp4.value = '− ' + formatCOP(desc); inp4.dataset.raw = String(desc); }
+    if (neto4) neto4.textContent = 'Cliente recibe: ' + formatCOP(monto - desc);
+  } else {
+    if (inp4) { inp4.value = ''; inp4.dataset.raw = ''; }
+    if (neto4) neto4.textContent = '';
+  }
 }
 
 async function guardarEdicionMovimiento() {
@@ -3145,17 +3476,44 @@ async function guardarEdicionMovimiento() {
     }
   });
 
+  // 4×1000
+  const inp4Edit = document.getElementById('edit-4x1000-valor');
+  const chk4Edit = document.getElementById('edit-4x1000-check');
+  const descuento_4x1000 = (chk4Edit?.checked && tipo === 'PAGOS')
+    ? (parseInt(inp4Edit?.dataset?.raw) || Math.round(monto * 0.004))
+    : 0;
+
   try {
-    await coll('movimientos').doc(id).update({
+    const updateData = {
       cliente: clienteNombre, cliente_id,
       tipo, fecha, casa, metodo, monto, comision, impacto,
       canal: nuevoCanal, estado_cajero: nuevoEstadoCajero, op_id: nuevoOpId,
       editadoEn: firebase.firestore.FieldValue.serverTimestamp(),
       editadoPor: currentUser?.email || 'operador',
-      historial
-    });
+      historial,
+      descuento_4x1000: descuento_4x1000 || firebase.firestore.FieldValue.delete(),
+    };
+    await coll('movimientos').doc(id).update(updateData);
+
+    // Borrar gasto automático anterior vinculado a este movimiento (si lo había)
+    const gastosVinc = await coll('gastos').where('origen_mov_id','==',id).where('auto','==',true).get();
+    const batch = db.batch();
+    gastosVinc.docs.forEach(d => batch.delete(d.ref));
+    // Si hay nuevo descuento, crear gasto
+    if (descuento_4x1000 > 0) {
+      const nuevoGasto = coll('gastos').doc();
+      batch.set(nuevoGasto, {
+        opId, fecha, valor: descuento_4x1000, metodo,
+        descripcion: 'COSTO 4 X MIL',
+        origen_mov_id: id,
+        auto: true,
+        ts: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+    await batch.commit();
+
     closeModal('modal-edit-mov');
-    toast('✅ Movimiento actualizado', 'success');
+    toast('✅ Movimiento actualizado' + (descuento_4x1000 > 0 ? ' con descuento 4×1000' : ''), 'success');
   } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
 }
 
@@ -3181,6 +3539,462 @@ function renderComisionesTab() {
       <td><span class="badge badge-green">${(c.tasaRecarga || 0).toLocaleString('es-CO', {maximumFractionDigits:2})}%</span></td>
       <td><span class="badge badge-blue">${(c.tasaPago || 0).toLocaleString('es-CO', {maximumFractionDigits:2})}%</span></td>
     </tr>`).join('');
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// LIQUIDACIÓN — Hoja de transacciones del mes cerrado
+// ══════════════════════════════════════════════════════════════════════════════
+let _liqVariaciones  = null;
+let _liqTxsListener  = null;
+let _liqTxs          = [];
+let _liqMesKey       = null;
+let _liqSaldosIniciales = {};
+let _liqCorrecciones = [];
+let _liqCorrListener = null;
+
+async function renderLiquidacion() {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return;
+
+  // Poblar selector de meses (últimos 6 meses)
+  const sel = document.getElementById('liq-mes-sel');
+  if (sel && !sel.options.length) {
+    const now = new Date();
+    for (let i = 1; i <= 6; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const val = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+      const lbl = d.toLocaleDateString('es-CO', { month: 'long', year: 'numeric' });
+      const opt = document.createElement('option');
+      opt.value = val;
+      opt.textContent = lbl.charAt(0).toUpperCase() + lbl.slice(1);
+      sel.appendChild(opt);
+    }
+    // Default: mes anterior al actual
+    const curMk = _mesKey(config.mes);
+    if (curMk) {
+      const [y, m] = curMk.split('-').map(Number);
+      const prev = new Date(y, m - 2, 1);
+      const prevMk = `${prev.getFullYear()}-${String(prev.getMonth()+1).padStart(2,'0')}`;
+      if (sel.querySelector(`option[value="${prevMk}"]`)) sel.value = prevMk;
+    }
+  }
+
+  const mesKey = sel?.value;
+  if (!mesKey) return;
+  _liqMesKey = mesKey;
+
+  // Actualizar subtítulo
+  const mesLabel = new Date(mesKey + '-02').toLocaleDateString('es-CO', { month: 'long', year: 'numeric' });
+  document.getElementById('liq-subtitle').textContent = 'Liquidación — ' + mesLabel.charAt(0).toUpperCase() + mesLabel.slice(1);
+
+  // Cupo inicial por método (config global, refleja saldos reales asignados por admin)
+  _liqSaldosIniciales = config.cupos_iniciales || {};
+
+  // Leer variaciones del mes
+  const varSnap = await db.collection('patriarca_variaciones').doc(`${uid}_${mesKey}`).get({ source: 'server' });
+  if (!varSnap.exists) {
+    document.getElementById('liq-saldos-tbody').innerHTML = '<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--text2)">Sin datos de liquidación para este mes. El administrador debe aceptar el cierre primero.</td></tr>';
+    document.getElementById('liq-coms-tbody').innerHTML   = '<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--text2)">—</td></tr>';
+    document.getElementById('liq-pagos-tbody').innerHTML  = '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text2)">—</td></tr>';
+    document.getElementById('liq-estado-badge').textContent = 'Sin datos';
+    document.getElementById('btn-nuevo-pago').style.display = 'none';
+    return;
+  }
+
+  _liqVariaciones = varSnap.data();
+  document.getElementById('btn-nuevo-pago').style.display = '';
+
+  // Escuchar pagos en tiempo real
+  if (_liqTxsListener) { _liqTxsListener(); _liqTxsListener = null; }
+  _liqTxsListener = db.collection('patriarca_liquidacion_txs')
+    .where('operadorId', '==', uid)
+    .where('mesKey',     '==', mesKey)
+    .onSnapshot(snap => {
+      _liqTxs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      _renderLiquidacionTablas();
+    });
+
+  // Escuchar solicitudes de corrección en tiempo real
+  if (_liqCorrListener) { _liqCorrListener(); _liqCorrListener = null; }
+  _liqCorrListener = db.collection('patriarca_liq_correcciones')
+    .where('operadorId', '==', uid)
+    .where('mesKey',     '==', mesKey)
+    .onSnapshot(snap => {
+      _liqCorrecciones = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      _renderLiquidacionTablas();
+    });
+}
+
+function _renderLiquidacionTablas() {
+  const v = _liqVariaciones;
+  if (!v) return;
+  const peso = n => '$' + Math.round(n || 0).toLocaleString('es-CO');
+  const clrP = n => n > 0 ? 'color:var(--red);font-weight:700' : 'color:var(--green)';
+
+  // Calcular pagado por tipo y método (solo aprobados)
+  const pagadoS = {}, pagadoC = {};
+  _liqTxs.filter(t => t.estado === 'aprobado').forEach(t => {
+    if (t.tipo === 'saldo')    pagadoS[t.metodo] = (pagadoS[t.metodo] || 0) + (t.monto || 0);
+    if (t.tipo === 'comision') pagadoC[t.metodo] = (pagadoC[t.metodo] || 0) + (t.monto || 0);
+  });
+
+  // ── SALDOS ── (usa cupo inicial como fuente de verdad en lugar de saldosPorMetodo del cierre)
+  const saldosSrc = Object.keys(_liqSaldosIniciales).length ? _liqSaldosIniciales : (v.saldosPorMetodo || {});
+  let sHtml = '', totCierre = 0, totPS = 0, totPendS = 0;
+  Object.entries(saldosSrc).sort((a,b) => b[1]-a[1]).forEach(([met, val]) => {
+    if (!val) return; // omitir métodos con cupo 0
+    const pag = pagadoS[met] || 0;
+    const pend = val - pag;
+    totCierre += val; totPS += pag; totPendS += pend;
+    const pendCellS = pend === 0
+      ? '<span style="color:var(--green)">✓ Pagado</span>'
+      : `<span style="color:${pend > 0 ? 'var(--red)' : '#3b82f6'};font-weight:600">${peso(pend)}</span>`;
+    sHtml += `<tr>
+      <td>${met}</td>
+      <td style="font-weight:600">${peso(val)}</td>
+      <td style="color:var(--green)">${pag ? peso(pag) : '<span style="color:var(--text2)">—</span>'}</td>
+      <td>${pendCellS}</td>
+    </tr>`;
+  });
+  if (!Object.keys(saldosSrc).length) {
+    sHtml = '<tr><td colspan="4" style="text-align:center;color:var(--text2);padding:16px">Sin saldos registrados</td></tr>';
+  } else {
+    const totPendCellS = totPendS === 0
+      ? '<span style="color:var(--green)">✓</span>'
+      : `<span style="color:${totPendS > 0 ? 'var(--red)' : '#3b82f6'}">${peso(totPendS)}</span>`;
+    sHtml += `<tr style="background:var(--bg3);font-weight:800">
+      <td>TOTAL</td>
+      <td>${peso(totCierre)}</td>
+      <td style="color:var(--green)">${peso(totPS)}</td>
+      <td>${totPendCellS}</td>
+    </tr>`;
+  }
+  document.getElementById('liq-saldos-tbody').innerHTML = sHtml;
+
+  // ── COMISIONES ──
+  let cHtml = '', totCom = 0, totPC = 0, totPendC = 0;
+  Object.entries(v.comisionesPorMetodo || {}).sort((a,b) => b[1]-a[1]).forEach(([met, val]) => {
+    const pag = pagadoC[met] || 0;
+    const pend = val - pag;
+    totCom += val; totPC += pag; totPendC += pend;
+    cHtml += `<tr>
+      <td>Cuenta Por Cobrar comisiones ${met} Operadores</td>
+      <td style="font-weight:600;color:var(--orange)">${peso(val)}</td>
+      <td style="color:var(--green)">${pag ? peso(pag) : '<span style="color:var(--text2)">—</span>'}</td>
+      <td style="${clrP(pend)}">${pend > 0 ? peso(pend) : '✓ Pagado'}</td>
+    </tr>`;
+  });
+  if (!Object.keys(v.comisionesPorMetodo || {}).length) {
+    cHtml = '<tr><td colspan="4" style="text-align:center;color:var(--text2);padding:16px">Sin comisiones registradas</td></tr>';
+  } else {
+    cHtml += `<tr style="background:var(--bg3);font-weight:800">
+      <td>TOTAL</td>
+      <td style="color:var(--orange)">${peso(totCom)}</td>
+      <td style="color:var(--green)">${peso(totPC)}</td>
+      <td style="${clrP(totPendC)}">${totPendC > 0 ? peso(totPendC) : '✓'}</td>
+    </tr>`;
+  }
+  document.getElementById('liq-coms-tbody').innerHTML = cHtml;
+
+  // ── PAGOS ──
+  let pHtml = '';
+  const sorted = [..._liqTxs].sort((a,b) => (b.creadoEn?.seconds||0)-(a.creadoEn?.seconds||0));
+  if (sorted.length) {
+    let totalPagos = 0, totalAprobado = 0, totalPendiente = 0;
+    sorted.forEach(t => {
+      const eColor = t.estado==='aprobado' ? 'var(--green)' : t.estado==='rechazado' ? 'var(--red)' : 'var(--orange)';
+      const eIcon  = t.estado==='aprobado' ? '✅' : t.estado==='rechazado' ? '❌' : '⏳';
+      const corrPend = (_liqCorrecciones||[]).find(c => c.txId === t.id && c.estado === 'pendiente');
+      const btnEdit = t.estado === 'pendiente'
+        ? `<button onclick="editarPagoLiq('${t.id}')" style="background:transparent;border:1px solid var(--border);border-radius:4px;padding:2px 8px;cursor:pointer;font-size:12px;color:var(--text2)" title="Editar pago">✏️</button>`
+        : t.estado === 'aprobado' && !corrPend
+          ? `<button onclick="solicitarCorreccionPago('${t.id}')" style="background:transparent;border:1px solid var(--border);border-radius:4px;padding:2px 8px;cursor:pointer;font-size:11px;color:var(--text2)" title="Solicitar corrección">✏️ Corregir</button>`
+          : t.estado === 'aprobado' && corrPend
+            ? `<span style="font-size:10px;color:var(--orange);font-weight:700">⏳ Corrección pendiente</span>`
+            : '';
+      totalPagos += (t.monto || 0);
+      if (t.estado === 'aprobado')  totalAprobado  += (t.monto || 0);
+      if (t.estado === 'pendiente') totalPendiente += (t.monto || 0);
+      pHtml += `<tr>
+        <td>${t.fecha || '—'}</td>
+        <td>${t.tipo === 'saldo' ? '💰 Saldo' : '📑 Comisión'}</td>
+        <td>${t.metodo || '—'}</td>
+        <td style="font-weight:700">${peso(t.monto)}</td>
+        <td style="color:${eColor};font-weight:700">${eIcon} ${t.estado}</td>
+        <td style="font-size:11px;color:var(--text2)">${t.notas || '—'}</td>
+        <td>${btnEdit}</td>
+      </tr>`;
+    });
+    // Fila total
+    pHtml += `<tr style="border-top:2px solid var(--border);background:rgba(255,255,255,.02)">
+      <td colspan="3" style="font-size:12px;font-weight:700;color:var(--text2);padding-top:10px">TOTAL PAGADO</td>
+      <td style="font-weight:800;font-size:14px;color:var(--green)">${peso(totalPagos)}</td>
+      <td colspan="3" style="font-size:11px;color:var(--text2)">
+        ${totalAprobado  ? `<span style="color:var(--green)">✅ ${peso(totalAprobado)} aprobado</span>` : ''}
+        ${totalPendiente ? `&nbsp;·&nbsp;<span style="color:var(--orange)">⏳ ${peso(totalPendiente)} pendiente</span>` : ''}
+      </td>
+    </tr>`;
+  } else {
+    pHtml = '<tr><td colspan="6" style="text-align:center;color:var(--text2);padding:20px">Sin pagos registrados aún</td></tr>';
+  }
+  document.getElementById('liq-pagos-tbody').innerHTML = pHtml;
+
+  // ── BADGE ESTADO ──
+  const totalPend = totPendS + totPendC;
+  const badge = document.getElementById('liq-estado-badge');
+  if (totalPend <= 0) {
+    badge.textContent = '✅ Liquidado'; badge.style.color = 'var(--green)'; badge.style.background = 'rgba(36,191,98,.12)';
+  } else {
+    badge.textContent = `Pendiente ${peso(totalPend)}`; badge.style.color = 'var(--orange)'; badge.style.background = 'rgba(251,146,60,.12)';
+  }
+}
+
+function abrirModalPagoLiq() {
+  if (!_liqVariaciones) { toast('Primero carga los datos del mes', 'error'); return; }
+  document.getElementById('pago-liq-fecha').value = new Date().toISOString().slice(0,10);
+  document.getElementById('pago-liq-tipo').value  = 'saldo';
+  document.getElementById('pago-liq-monto').value = '';
+  document.getElementById('pago-liq-notas').value = '';
+  updatePagoLiqMetodos();
+  // Resetear posición al centro
+  const box = document.getElementById('modal-pago-liq-box');
+  box.style.transform = 'translate(-50%,-50%)';
+  box.style.top  = '50%';
+  box.style.left = '50%';
+  document.getElementById('modal-pago-liq').style.display = 'block';
+}
+
+function cerrarModalPagoLiq() {
+  document.getElementById('modal-pago-liq').style.display = 'none';
+  delete window._editingPagoId;
+}
+
+let _corrTxId = null;
+
+function solicitarCorreccionPago(txId) {
+  const tx = _liqTxs.find(t => t.id === txId);
+  if (!tx) return;
+  _corrTxId = txId;
+  const peso = n => '$' + Math.round(n||0).toLocaleString('es-CO');
+  document.getElementById('corr-original-info').innerHTML =
+    `<span style="color:var(--text2)">Original:</span> <strong>${tx.tipo==='comision'?'Comisión':'Saldo'} ${tx.metodo}</strong>
+     &nbsp;·&nbsp; <strong>${peso(tx.monto)}</strong> &nbsp;·&nbsp; ${tx.fecha}`;
+  document.getElementById('liq-corr-nuevo-monto').value = tx.monto || '';
+  document.getElementById('liq-corr-nueva-fecha').value = tx.fecha || '';
+  document.getElementById('liq-corr-motivo').value = '';
+  // Resetear posición
+  const box = document.getElementById('modal-correccion-box');
+  box.style.transform = 'translate(-50%,-50%)';
+  box.style.top = '50%'; box.style.left = '50%';
+  document.getElementById('modal-correccion-liq').style.display = 'block';
+}
+
+function cerrarModalCorreccion() {
+  document.getElementById('modal-correccion-liq').style.display = 'none';
+  _corrTxId = null;
+}
+
+async function enviarSolicitudCorreccion() {
+  const motivo    = document.getElementById('liq-corr-motivo').value.trim();
+  const newMonto  = parseInt(document.getElementById('liq-corr-nuevo-monto').value) || 0;
+  const newFecha  = document.getElementById('liq-corr-nueva-fecha').value;
+  if (!motivo)          { toast('Indica el motivo de la corrección', 'error'); return; }
+  if (newMonto <= 0)    { toast('Ingresa el monto correcto', 'error'); return; }
+  if (!newFecha)        { toast('Ingresa la fecha correcta', 'error'); return; }
+  if (!_corrTxId)       return;
+
+  const tx = _liqTxs.find(t => t.id === _corrTxId);
+  if (!tx) return;
+
+  try {
+    await db.collection('patriarca_liq_correcciones').add({
+      txId:           _corrTxId,
+      operadorId:     auth.currentUser?.uid,
+      operadorNombre: auth.currentUser?.displayName || auth.currentUser?.email || '',
+      mesKey:         tx.mesKey,
+      tipo:           tx.tipo,
+      metodo:         tx.metodo,
+      oldMonto:       tx.monto,
+      oldFecha:       tx.fecha,
+      newMonto,
+      newFecha,
+      motivo,
+      opContableOriginal: tx.opContable || null,
+      estado:         'pendiente',
+      creadoEn:       firebase.firestore.FieldValue.serverTimestamp()
+    });
+    toast('✅ Solicitud enviada — el admin la revisará');
+    cerrarModalCorreccion();
+  } catch(e) {
+    toast('❌ Error: ' + e.message, 'error');
+  }
+}
+
+async function editarPagoLiq(txId) {
+  const tx = _liqTxs.find(t => t.id === txId);
+  if (!tx) return;
+  // Reusar el mismo modal, pre-llenado
+  document.getElementById('pago-liq-tipo').value  = tx.tipo;
+  document.getElementById('pago-liq-fecha').value = tx.fecha || '';
+  document.getElementById('pago-liq-monto').value = tx.monto || 0;
+  document.getElementById('pago-liq-notas').value = tx.notas || '';
+  updatePagoLiqMetodos();
+  // Esperar un tick para que los selects se pueblen
+  await new Promise(r => setTimeout(r, 80));
+  document.getElementById('pago-liq-metodo').value = tx.metodo || '';
+  if (tx.tipo === 'saldo' && tx.destino) {
+    await new Promise(r => setTimeout(r, 50));
+    const dsel = document.getElementById('pago-liq-destino');
+    if (dsel) dsel.value = tx.destino;
+  }
+  // Marcar que estamos editando (no creando)
+  window._editingPagoId = txId;
+  // Cambiar título del modal
+  document.querySelector('#modal-pago-liq-box .modal-drag-handle').innerHTML =
+    '<span style="font-size:11px;color:var(--text2);opacity:.5">⠿</span> Editar Pago';
+  // Resetear posición al centro
+  const box = document.getElementById('modal-pago-liq-box');
+  box.style.transform = 'translate(-50%,-50%)';
+  box.style.top  = '50%';
+  box.style.left = '50%';
+  document.getElementById('modal-pago-liq').style.display = 'block';
+}
+
+// ── Modal arrastrable ──
+(function() {
+  let _drag = null;
+  document.addEventListener('mousedown', e => {
+    const handle = e.target.closest('.modal-drag-handle');
+    if (!handle) return;
+    const box = handle.closest('.modal-box');
+    if (!box) return;
+    // Si aún tiene transform centrado, calculamos posición real primero
+    const r = box.getBoundingClientRect();
+    box.style.transform = 'none';
+    box.style.top  = r.top  + 'px';
+    box.style.left = r.left + 'px';
+    _drag = { box, dx: e.clientX - r.left, dy: e.clientY - r.top };
+    handle.style.cursor = 'grabbing';
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', e => {
+    if (!_drag) return;
+    const x = Math.max(0, Math.min(window.innerWidth  - _drag.box.offsetWidth,  e.clientX - _drag.dx));
+    const y = Math.max(0, Math.min(window.innerHeight - _drag.box.offsetHeight, e.clientY - _drag.dy));
+    _drag.box.style.left = x + 'px';
+    _drag.box.style.top  = y + 'px';
+  });
+  document.addEventListener('mouseup', () => {
+    if (_drag) {
+      _drag.box.querySelector('.modal-drag-handle').style.cursor = 'grab';
+      _drag = null;
+    }
+  });
+})();
+
+// ── Cuentas destino habilitadas por el admin ──
+let _destinosLiq = [];
+async function loadDestinosLiq() {
+  try {
+    const snap = await db.collection('patriarca_config_global').doc('liq_destinos').get();
+    _destinosLiq = snap.exists ? (snap.data().activos || []) : [];
+  } catch(e) { _destinosLiq = []; }
+  _renderDestinoSelect();
+}
+function _renderDestinoSelect() {
+  const sel = document.getElementById('pago-liq-destino');
+  if (!sel) return;
+  if (!_destinosLiq.length) {
+    sel.innerHTML = '<option value="">— Sin cuentas habilitadas —</option>';
+  } else {
+    sel.innerHTML = _destinosLiq.map(c => `<option value="${c}">${c}</option>`).join('');
+  }
+}
+
+function updatePagoLiqMetodos() {
+  const tipo = document.getElementById('pago-liq-tipo').value;
+  // Mostrar / ocultar destino según tipo
+  const dg = document.getElementById('pago-liq-destino-group');
+  if (dg) dg.style.display = tipo === 'saldo' ? 'block' : 'none';
+  if (tipo === 'saldo' && !_destinosLiq.length) loadDestinosLiq();
+
+  // Calcular pagado aprobado por método
+  const pagado = {};
+  (_liqTxs || []).filter(t => t.estado === 'aprobado' && t.tipo === tipo).forEach(t => {
+    pagado[t.metodo] = (pagado[t.metodo] || 0) + (t.monto || 0);
+  });
+
+  let fuente;
+  if (tipo === 'saldo') {
+    // Para saldo: mostrar métodos con cupo inicial > 0, o todos los físicos si no hay saldo inicial
+    const saldosSrc = Object.keys(_liqSaldosIniciales).length ? _liqSaldosIniciales : {};
+    const metConSaldo = Object.entries(saldosSrc).filter(([,v]) => v > 0).map(([m]) => m);
+    fuente = metConSaldo.length
+      ? metConSaldo.sort()
+      : METODOS_CAJA.filter(m => !METODOS_VIRTUALES.has(m)).sort();
+  } else {
+    const mapaTotal = _liqVariaciones?.comisionesPorMetodo || {};
+    fuente = Object.entries(mapaTotal)
+      .filter(([met, val]) => (val - (pagado[met] || 0)) > 0)
+      .map(([met]) => met)
+      .sort();
+  }
+
+  if (!fuente.length) {
+    document.getElementById('pago-liq-metodo').innerHTML =
+      `<option value="">— Todo pagado —</option>`;
+    return;
+  }
+
+  document.getElementById('pago-liq-metodo').innerHTML = tipo === 'saldo'
+    ? fuente.map(m => `<option value="${m}">${m}</option>`).join('')
+    : fuente.map(m => `<option value="${m}">Cuenta Por Cobrar comisiones ${m} Operadores</option>`).join('');
+}
+
+async function guardarPagoLiq() {
+  const uid     = auth.currentUser?.uid;
+  const tipo    = document.getElementById('pago-liq-tipo').value;
+  const metodo  = document.getElementById('pago-liq-metodo').value;
+  const destino = tipo === 'saldo' ? (document.getElementById('pago-liq-destino')?.value || '') : '';
+  const monto   = parseInt(document.getElementById('pago-liq-monto').value) || 0;
+  const fecha   = document.getElementById('pago-liq-fecha').value;
+  const notas   = document.getElementById('pago-liq-notas').value.trim();
+
+  if (monto <= 0)              { toast('Ingresa un monto válido', 'error'); return; }
+  if (!fecha)                  { toast('Selecciona una fecha',    'error'); return; }
+  if (!metodo)                 { toast('Selecciona un método',    'error'); return; }
+  if (tipo === 'saldo' && !destino) { toast('Selecciona la cuenta destino', 'error'); return; }
+
+  try {
+    if (window._editingPagoId) {
+      // Modo edición — actualiza campos incluyendo destino
+      await db.collection('patriarca_liquidacion_txs').doc(window._editingPagoId).update({
+        tipo, metodo, destino, monto, fecha, notas,
+        editadoEn: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      toast('✅ Pago actualizado');
+    } else {
+      // Modo creación
+      await db.collection('patriarca_liquidacion_txs').add({
+        operadorId:     uid,
+        operadorNombre: auth.currentUser?.displayName || auth.currentUser?.email || uid,
+        mesKey:         _liqMesKey,
+        tipo, metodo, destino, monto, fecha, notas,
+        estado:         'pendiente',
+        creadoPor:      uid,
+        creadoEn:       firebase.firestore.FieldValue.serverTimestamp()
+      });
+      toast('✅ Pago registrado — pendiente de aprobación');
+      // Limpiar solo monto y notas, mantener modal abierto para registrar más
+      document.getElementById('pago-liq-monto').value = '';
+      document.getElementById('pago-liq-notas').value = '';
+      document.getElementById('pago-liq-monto').focus();
+    }
+    if (window._editingPagoId) cerrarModalPagoLiq(); // En edición sí se cierra
+  } catch(e) {
+    toast('❌ Error: ' + e.message, 'error');
+    console.error('guardarPagoLiq:', e);
+  }
 }
 
 // ── EQUIPO ──────────────────────────────────────────────────────────────────
@@ -3275,6 +4089,7 @@ function calcMovComision() {
 }
 
 async function saveMovimiento() {
+  if (_checkLock('registrar movimientos')) return;
   const tipo    = document.getElementById('mv-tipo').value;
   const cliente_id = document.getElementById('mv-cliente').value;
   const casa    = document.getElementById('mv-casa').value;
@@ -3331,12 +4146,15 @@ async function saveMovimiento() {
 }
 
 async function solicitarEliminarMovimiento(id) {
-  if (!confirm('¿Solicitar al administrador que elimine este movimiento?')) return;
+  const motivo = prompt('¿Por qué deseas eliminar este movimiento?\n(Describe brevemente el motivo — campo obligatorio)');
+  if (motivo === null) return; // canceló
+  if (!motivo.trim()) { toast('⚠ Debes indicar el motivo de la eliminación', 'error'); return; }
   try {
     await coll('movimientos').doc(id).update({
       solicitud_eliminar: true,
       solicitud_eliminar_ts: firebase.firestore.FieldValue.serverTimestamp(),
       solicitud_eliminar_op: operadorNombre || opId,
+      solicitud_eliminar_motivo: motivo.trim(),
     });
     toast('✅ Solicitud enviada — el administrador debe aprobarla', 'info');
   } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
@@ -3517,6 +4335,7 @@ function resolveMetodo(raw) {
 }
 
 async function ejecutarImportMov() {
+  if (_checkLock('importar movimientos')) return;
   const txt    = document.getElementById('import-mov-txt').value.trim();
   const status = document.getElementById('import-mov-status');
   if (!txt) { status.textContent = '⚠ Pega los datos primero'; return; }
@@ -3789,51 +4608,69 @@ async function ejecutarImportEv() {
 
 // ──────────────────── ELIMINAR / RE-VINCULAR INVERSIONES ────────────────────
 async function eliminarTodasInversiones() {
-  const total = allInversiones.length;
-  if (!total) { toast('No hay inversiones para eliminar', 'info'); return; }
-  if (!confirm(`¿Eliminar las ${total} inversiones? Esta acción no se puede deshacer.`)) return;
+  const mk = _mesKey(config?.mes);
+  const mesLabel = config?.mes || 'todos los meses';
+  // SOLO eliminar inversiones del mes activo
+  const invMes = mk ? _filtrarInvMes(mk) : allInversiones;
+  const total = invMes.length;
+  if (!total) { toast(`No hay inversiones en ${mesLabel}`, 'info'); return; }
+  if (!confirm(`¿Eliminar las ${total} inversiones de ${mesLabel}?\n\nEsta acción NO se puede deshacer.`)) return;
   try {
-    const ids = allInversiones.map(inv => inv.id);
+    const ids = invMes.map(inv => inv.id);
     const CHUNK = 400;
     for (let i = 0; i < ids.length; i += CHUNK) {
       const fb = db.batch();
       ids.slice(i, i + CHUNK).forEach(id => fb.delete(coll('inversiones').doc(id)));
       await fb.commit();
     }
-    toast(`🗑 ${total} inversiones eliminadas`, 'info');
+    toast(`🗑 ${total} inversiones de ${mesLabel} eliminadas`, 'info');
   } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
 }
 
 async function revincularOrigenComision() {
   // Construye mapa normalizado de movimientos actuales
   const movByOpId = {};
+  const movDocIds = new Set(allMovimientos.map(m => m.id));
   const normOpId = s => (s||'').replace(/[‐-―−﹘﹣－]/g,'-').replace(/\s*-\s*/g,'-').toUpperCase();
   allMovimientos.forEach(m => {
     if (m.op_id)          movByOpId[normOpId(m.op_id)] = m;
     if (m.op_o_original)  movByOpId[normOpId(m.op_o_original)] = m;
   });
 
-  // Inversiones que tienen label pero no tienen id_recarga (o está vacío)
-  const pendientes = allInversiones.filter(inv =>
-    inv.id_recarga_label && !inv.id_recarga
+  // Solo inversiones del mes activo — evita contaminar meses cruzados
+  const mk = _mesKey(config?.mes);
+  const invsMes = mk
+    ? allInversiones.filter(inv => (inv.mesKey || (inv.fecha||'').slice(0,7)) === mk)
+    : allInversiones;
+
+  // Pendientes: tienen label Y (no tienen id_recarga O su id_recarga apunta a un doc eliminado)
+  const pendientes = invsMes.filter(inv =>
+    inv.id_recarga_label &&
+    inv.id_recarga_label !== 'REJUEGO' &&
+    (!inv.id_recarga || !movDocIds.has(inv.id_recarga))
   );
 
   if (!pendientes.length) {
-    // También busca las que tienen label pero el movimiento podría haber cambiado
-    const conLabel = allInversiones.filter(inv => inv.id_recarga_label);
+    // Todas ya están correctamente vinculadas — ofrecer re-vincular igual
+    const conLabel = invsMes.filter(inv => inv.id_recarga_label && inv.id_recarga_label !== 'REJUEGO');
     if (!conLabel.length) { toast('No hay inversiones con Origen Comisión para vincular', 'info'); return; }
-    if (!confirm(`Todas ya tienen id_recarga. ¿Re-vincular de todas formas los ${conLabel.length} registros con label?`)) return;
+    if (!confirm(`Todo ya está vinculado. ¿Re-vincular de todas formas los ${conLabel.length} registros con label?`)) return;
     pendientes.push(...conLabel);
   }
 
-  if (!confirm(`Re-vincular Origen Comisión para ${pendientes.length} inversiones?`)) return;
+  const rotas = pendientes.filter(inv => inv.id_recarga && !movDocIds.has(inv.id_recarga)).length;
+  const sinRec = pendientes.filter(inv => !inv.id_recarga).length;
+  const msg = rotas > 0
+    ? `Re-vincular ${pendientes.length} inversiones (${rotas} con link roto + ${sinRec} sin link)?`
+    : `Re-vincular Origen Comisión para ${pendientes.length} inversiones?`;
+  if (!confirm(msg)) return;
 
   let actualizadas = 0, noEncontradas = 0;
   const CHUNK = 400;
   const updates = [];
 
   for (const inv of pendientes) {
-    const norm = (inv.id_recarga_label||'').replace(/[‐-―−﹘﹣－]/g,'-').replace(/\s*-\s*/g,'-').toUpperCase();
+    const norm = normOpId(inv.id_recarga_label || '');
     const recMov = movByOpId[norm];
     if (recMov) {
       updates.push({ id: inv.id, id_recarga: recMov.id });
@@ -3852,6 +4689,7 @@ async function revincularOrigenComision() {
   }
 
   toast(`🔗 ${actualizadas} re-vinculadas · ${noEncontradas} sin match`, actualizadas ? 'success' : 'info');
+  if (actualizadas) reloadDash();
 }
 
 // ──────────────────── IMPORTAR INVERSIONES ────────────────────
@@ -4034,18 +4872,27 @@ function _deduplicarEventos(lista) {
   });
 }
 
+function _eventosMesActivo() {
+  const mk = _mesKey(config?.mes);
+  // Solo eventos del mes activo: si tiene mesKey usar eso; si no, inferir de fecha_evento
+  return mk
+    ? allEventos.filter(e => e.mesKey ? e.mesKey === mk : (e.fecha_evento||'').startsWith(mk))
+    : allEventos;
+}
+
 function showEventoDD() {
   const q = (document.getElementById('inv-evento-search')?.value || '').toLowerCase().trim();
-  const base = q ? allEventos.filter(e =>
+  const pool = _eventosMesActivo();
+  const base = q ? pool.filter(e =>
     String(e.num||'').includes(q) || (e.nombre||'').toLowerCase().includes(q)
-  ) : [...allEventos].sort((a,b) => (b.estado==='ABIERTO'?1:0)-(a.estado==='ABIERTO'?1:0));
+  ) : [...pool].sort((a,b) => (b.estado==='ABIERTO'?1:0)-(a.estado==='ABIERTO'?1:0));
   _renderEventoDD(_deduplicarEventos(base));
 }
 
 function filterEventoDD() {
   const q = (document.getElementById('inv-evento-search')?.value || '').toLowerCase().trim();
   if (!q) { showEventoDD(); return; }
-  const list = allEventos.filter(e =>
+  const list = _eventosMesActivo().filter(e =>
     String(e.num||'').includes(q) || (e.nombre||'').toLowerCase().includes(q)
   );
   _renderEventoDD(_deduplicarEventos(list));
@@ -4056,8 +4903,11 @@ function selectEventoItem(id, num, nombre, fecha) {
   document.getElementById('inv-evento-search').value = `#${num} — ${nombre}`;
   const dd = document.getElementById('inv-evento-dd');
   if (dd) dd.style.display = 'none';
-  if (fecha) document.getElementById('inv-fecha').value = fecha;
-  if (num)   document.getElementById('inv-apuesta').value = num;
+  // Solo usar la fecha del evento si es del mes activo; de lo contrario usar hoy
+  const mesMov = _mesKey(config?.mes) || today().slice(0,7);
+  const fechaUsar = (fecha && fecha.startsWith(mesMov)) ? fecha : today();
+  document.getElementById('inv-fecha').value = fechaUsar;
+  if (num) document.getElementById('inv-apuesta').value = num;
 }
 
 // ── Filas dinámicas por opción ──
@@ -4137,14 +4987,37 @@ function onInvRowClienteCasaChange(rowId, preselect) {
   const clienteObj = allClientes.find(c => c.id === clienteId);
   const nombreCorto   = clienteObj?.nombre || '';
   const nombreCompleto = clienteObj?.nombre_completo || '';
-  const recargas = allMovimientos.filter(m =>
-    (m.cliente_id === clienteId || m.cliente === nombreCorto || m.cliente === nombreCompleto) &&
-    m.casa === casa && m.tipo === 'RECARGAS'
-  );
+
+  // 1. Solo mes activo
+  const mesActivo = _mesKey(config?.mes);
+
+  // 2. Monto ya asignado a cada recarga (sumando inversiones guardadas)
+  const asignadoMap = {};
+  allInversiones.forEach(inv => {
+    if (inv.id_recarga) {
+      asignadoMap[inv.id_recarga] = (asignadoMap[inv.id_recarga] || 0) + (parseFloat(inv.monto) || 0);
+    }
+  });
+
+  const recargas = allMovimientos.filter(m => {
+    if (!((m.cliente_id === clienteId || m.cliente === nombreCorto || m.cliente === nombreCompleto) &&
+          m.casa === casa && m.tipo === 'RECARGAS')) return false;
+    // Solo mes activo
+    if (mesActivo && (m.mesKey || (m.fecha||'').slice(0,7)) !== mesActivo) return false;
+    // Ocultar si ya fue totalmente asignada (saldo <= 100 para ignorar diferencias de redondeo)
+    const saldo = (parseFloat(m.monto) || 0) - (asignadoMap[m.id] || 0);
+    return saldo > 100;
+  });
+
   recSel.innerHTML = '<option value="">— Seleccione recarga —</option>' +
-    recargas.map(m => `<option value="${m.id}" data-monto="${m.monto}" data-comision="${m.comision||0}" data-opid="${m.op_id||''}">
-      ${m.op_id||m.id.slice(-5)} | ${m.fecha} | ${peso(m.monto)} | Com:${peso(m.comision||0)}
-    </option>`).join('');
+    recargas.map(m => {
+      const saldo = (parseFloat(m.monto) || 0) - (asignadoMap[m.id] || 0);
+      const parcial = saldo < (parseFloat(m.monto) || 0);
+      const saldoTxt = parcial ? ` · Saldo:${peso(saldo)}` : '';
+      return `<option value="${m.id}" data-monto="${m.monto}" data-comision="${m.comision||0}" data-opid="${m.op_id||''}">
+        ${m.op_id||m.id.slice(-5)} | ${m.fecha} | ${peso(m.monto)}${saldoTxt} | Com:${peso(m.comision||0)}
+      </option>`;
+    }).join('');
   if (preselect) recSel.value = preselect;
 }
 
@@ -4170,6 +5043,7 @@ function fondosBadge(f) {
 // ── Recalcula comisiones desde los movimientos (capped por recarga) ──
 // Úsala en cualquier render que necesite comision correcta en lugar de comision_aplicada
 function buildInvComMap() {
+  const mk = _mesKey(config?.mes);
   const recMap = {};
   allMovimientos.forEach(m => {
     const tipo = (m.tipo||'').toUpperCase();
@@ -4180,8 +5054,12 @@ function buildInvComMap() {
     if (monto > 0) recMap[id] = { comision, rate: comision / monto, remaining: comision };
   });
   const invComMap = {};
-  // allInversiones está ordenado por ts (cronológico) — respeta orden de registro
-  allInversiones.forEach(inv => {
+  // Solo procesar inversiones del mes activo — evita contaminación cross-mes
+  const invsMes = mk
+    ? allInversiones.filter(inv => (inv.mesKey || (inv.fecha||'').slice(0,7)) === mk)
+    : allInversiones;
+  // invsMes está ordenado por ts (cronológico) — respeta orden de registro
+  invsMes.forEach(inv => {
     const idRec = inv.id_recarga;
     if (!idRec || !recMap[idRec]) { invComMap[inv.id] = 0; return; }
     const rec      = recMap[idRec];
@@ -4201,7 +5079,7 @@ function renderInversiones() {
   if (resumenEl) {
     const invComMap = buildInvComMap();
     const _mkRes = _mesKey(config?.mes);
-    const _invRes = _mkRes ? allInversiones.filter(inv => (inv.fecha||'').startsWith(_mkRes)) : allInversiones;
+    const _invRes = _filtrarInvMes(_mkRes);
     const _movRes = _mkRes ? allMovimientos.filter(m   => (m.fecha||'').startsWith(_mkRes))  : allMovimientos;
     const comAsignada = _invRes.reduce((s,inv) => s + (invComMap[inv.id]||0), 0);
     const comMovs = _movRes.reduce((s,m) => {
@@ -4228,9 +5106,9 @@ function renderInversiones() {
 
   // Filtrar por mes activo
   const _mkInv = _mesKey(config?.mes);
-  const _invBase = _mkInv ? allInversiones.filter(inv => (inv.fecha||'').startsWith(_mkInv)) : allInversiones;
+  const _invBase = _filtrarInvMes(_mkInv);
   if (!_invBase.length) {
-    tbody.innerHTML = '<tr><td colspan="17"><div class="empty"><div class="empty-icon">🎯</div>Sin inversiones</div></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="18"><div class="empty"><div class="empty-icon">🎯</div>Sin inversiones</div></td></tr>';
     return;
   }
   // Filtros
@@ -4238,14 +5116,18 @@ function renderInversiones() {
   const fCli    = document.getElementById('filtro-inv-cliente')?.value||'';
   const fFondos = document.getElementById('filtro-inv-fondos')?.value||'';
   const fEstado = document.getElementById('filtro-inv-estado')?.value||'';
-  const fDesde  = document.getElementById('filtro-inv-desde')?.value||'';
-  const fHasta  = document.getElementById('filtro-inv-hasta')?.value||'';
+  const fDesde    = document.getElementById('filtro-inv-desde')?.value||'';
+  const fHasta    = document.getElementById('filtro-inv-hasta')?.value||'';
+  const fMontoMin = parseFloat((document.getElementById('filtro-inv-monto-min')?.value||'').replace(/[^0-9.]/g,''))||0;
+  const fMontoMax = parseFloat((document.getElementById('filtro-inv-monto-max')?.value||'').replace(/[^0-9.]/g,''))||0;
   let data = _invBase;
-  if (fCli)    data = data.filter(i => i.cliente === fCli);
-  if (fFondos) data = data.filter(i => i.fondos === fFondos);
-  if (fEstado) data = data.filter(i => (i.estado_evento||'ABIERTO') === fEstado);
-  if (fDesde)  data = data.filter(i => (i.fecha||'') >= fDesde);
-  if (fHasta)  data = data.filter(i => (i.fecha||'') <= fHasta);
+  if (fCli)      data = data.filter(i => i.cliente === fCli);
+  if (fFondos)   data = data.filter(i => i.fondos === fFondos);
+  if (fEstado)   data = data.filter(i => (i.estado_evento||'ABIERTO') === fEstado);
+  if (fDesde)    data = data.filter(i => (i.fecha||'') >= fDesde);
+  if (fHasta)    data = data.filter(i => (i.fecha||'') <= fHasta);
+  if (fMontoMin) data = data.filter(i => (parseFloat(i.monto)||0) >= fMontoMin);
+  if (fMontoMax) data = data.filter(i => (parseFloat(i.monto)||0) <= fMontoMax);
   if (buscar)  data = data.filter(i =>
     String(i.id_apuesta||'').includes(buscar) ||
     (i.cliente||'').toLowerCase().includes(buscar) ||
@@ -4254,7 +5136,7 @@ function renderInversiones() {
     (i.id_recarga_label||'').toLowerCase().includes(buscar)
   );
   if (!data.length) {
-    tbody.innerHTML = '<tr><td colspan="17"><div class="empty"><div class="empty-icon">🔍</div>Sin resultados</div></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="18"><div class="empty"><div class="empty-icon">🔍</div>Sin resultados</div></td></tr>';
     return;
   }
   // Ordenar por fecha, luego id_apuesta, luego opción (1 < X < 2)
@@ -4271,6 +5153,12 @@ function renderInversiones() {
     const ctrl       = inv.control_recarga || (inv.fondos==='REJUEGO' ? 'REJUEGO' : '');
     const recLabel   = inv.id_recarga_label || inv.id_recarga?.slice(-5) || '—';
     const comisionCalc = invComMap[inv.id] ?? parseFloat(inv.comision_aplicada) ?? 0;
+    // Fecha/hora exacta de registro (campo ts = serverTimestamp de Firestore)
+    const tsDate = inv.ts?.toDate?.();
+    const tsStr  = tsDate
+      ? `${tsDate.getDate().toString().padStart(2,'0')}/${(tsDate.getMonth()+1).toString().padStart(2,'0')} ${tsDate.getHours().toString().padStart(2,'0')}:${tsDate.getMinutes().toString().padStart(2,'0')}`
+      : '—';
+    const tsTitle = tsDate ? tsDate.toLocaleString('es-CO') : 'Sin fecha de registro';
     return `<tr>
       <td>${fmtDate(inv.fecha)}</td>
       <td style="font-weight:700;color:var(--gold)">${inv.id_apuesta||'—'}</td>
@@ -4288,9 +5176,10 @@ function renderInversiones() {
       <td><span class="badge ${inv.estado_evento==='ABIERTO'?'badge-blue':'badge-gray'}">${inv.estado_evento||'ABIERTO'}</span></td>
       <td style="color:${retCliente>0?'var(--green)':'var(--slate)'};font-weight:${retCliente>0?'600':'400'}">${retCliente>0?peso(retCliente):'—'}</td>
       <td style="color:${impacto>0?'var(--green)':impacto<0?'var(--red)':'var(--slate)'};font-weight:600">${impacto!==0?peso(impacto):'—'}</td>
+      <td style="font-size:11px;color:var(--text2);white-space:nowrap" title="${tsTitle}">${tsStr}</td>
       <td style="display:flex;gap:4px;align-items:center">
         <button class="btn-del" title="Editar" onclick="abrirEditarInversion('${inv.id}')">✏️</button>
-        <button class="btn-del" onclick="deleteDoc('inversiones','${inv.id}')" title="Eliminar">🗑</button>
+        <button class="btn-del" onclick="solicitarEliminarInversion('${inv.id}',this)" title="Solicitar eliminación al administrador">🗑</button>
       </td>
     </tr>`;
   }).join('');
@@ -4508,12 +5397,16 @@ async function actualizarInversion() {
 }
 
 async function saveInversion() {
+  if (_checkLock('registrar inversiones')) return;
   _editInvId = null;
   const evId      = document.getElementById('inv-evento').value;
   const ev        = allEventos.find(e=>e.id===evId);
   const idApuesta = parseInt(document.getElementById('inv-apuesta').value)||null;
-  const fecha     = document.getElementById('inv-fecha').value || today();
   if (!evId) { toast('⚠ Selecciona el evento','error'); return; }
+  // Garantizar que la fecha sea del mes activo; si el campo tiene fecha de otro mes → hoy
+  const mesActivo = _mesKey(config?.mes) || today().slice(0,7);
+  const fechaRaw  = document.getElementById('inv-fecha').value || today();
+  const fecha     = fechaRaw.startsWith(mesActivo) ? fechaRaw : today();
 
   // Recolectar todas las filas de las 3 secciones
   const rows = [];
@@ -4569,7 +5462,8 @@ async function saveInversion() {
         impacto_apuesta    = gano ? potencial_retorno - r.monto : -r.monto;
       }
       await coll('inversiones').add({
-        opId, fecha, id_apuesta: idApuesta, id_evento_ref: evId||null,
+        opId, fecha, mesKey: mesActivo,
+        id_apuesta: idApuesta, id_evento_ref: evId||null,
         evento: ev?.nombre||'', cliente: clienteNombre, cliente_id: r.cliente_id,
         monto: r.monto, casa: r.casa, opcion_elegida: r.opcion, cuota: r.cuota, fondos: r.fondos,
         id_recarga: r.id_recarga, id_recarga_label: r.id_recarga_label,
@@ -4619,27 +5513,68 @@ async function loadActiveOperators() {
 // Suscribirse a intercambios entrantes
 function subscribeIncoming() {
   const email = (currentUser?.email || '').toLowerCase();
-  if (!email) return;
+  if (!email && !opId) return;
 
-  // Buscar por email (más confiable que uid que puede estar mal en admin_usuarios)
-  db.collection('patriarca_ix_incoming')
-    .where('destinatario_email','==', email)
-    .onSnapshot(snap => {
-      allIncoming = snap.docs
-        .map(d => ({id: d.id, ...d.data()}))
-        .filter(d => d.estado === 'pendiente_aceptar');
-      renderIncoming();
-    }, () => {
-      // Fallback por uid
-      db.collection('patriarca_ix_incoming')
-        .where('destinatario_uid','==', opId)
-        .onSnapshot(snap2 => {
-          allIncoming = snap2.docs
-            .map(d => ({id: d.id, ...d.data()}))
-            .filter(d => d.estado === 'pendiente_aceptar');
-          renderIncoming();
-        }, () => {});
-    });
+  // Dos listeners en paralelo: por email (normal) y por uid (fallback para registros con email vacío)
+  // Se combinan sin duplicados por doc ID
+  const _incomingByEmail = {};
+  const _incomingByUid   = {};
+
+  const _merge = () => {
+    const combined = { ..._incomingByEmail };
+    Object.entries(_incomingByUid).forEach(([id, d]) => { if (!combined[id]) combined[id] = d; });
+    allIncoming = Object.values(combined).filter(d => d.estado === 'pendiente_aceptar');
+    renderIncoming();
+  };
+
+  if (email) {
+    db.collection('patriarca_ix_incoming')
+      .where('destinatario_email', '==', email)
+      .onSnapshot(snap => {
+        snap.docs.forEach(d => { _incomingByEmail[d.id] = { id: d.id, ...d.data() }; });
+        // Eliminar los que ya no están en este snapshot
+        Object.keys(_incomingByEmail).forEach(id => {
+          if (!snap.docs.find(d => d.id === id)) delete _incomingByEmail[id];
+        });
+        _merge();
+      }, () => {});
+  }
+
+  if (opId) {
+    db.collection('patriarca_ix_incoming')
+      .where('destinatario_uid', '==', opId)
+      .onSnapshot(snap => {
+        snap.docs.forEach(d => { _incomingByUid[d.id] = { id: d.id, ...d.data() }; });
+        Object.keys(_incomingByUid).forEach(id => {
+          if (!snap.docs.find(d => d.id === id)) delete _incomingByUid[id];
+        });
+        _merge();
+      }, () => {});
+  }
+
+  // Fallback extra: buscar por nombre del operador en destinatario_uid
+  // (cubre registros viejos donde se guardó el nombre en vez del UID)
+  if (operadorNombre) {
+    db.collection('patriarca_ix_incoming')
+      .where('destinatario_uid', '==', operadorNombre)
+      .onSnapshot(snap => {
+        snap.docs.forEach(d => {
+          _incomingByUid[d.id] = { id: d.id, ...d.data() };
+          // Autocorregir el documento para futuros reinicios
+          if (d.data().destinatario_email !== (currentUser?.email||'').toLowerCase()) {
+            db.collection('patriarca_ix_incoming').doc(d.id).update({
+              destinatario_uid:   opId,
+              destinatario_email: (currentUser?.email||'').toLowerCase()
+            }).catch(() => {});
+          }
+        });
+        Object.keys(_incomingByUid).forEach(id => {
+          if (!snap.docs.find(d => d.id === id) && _incomingByUid[id]?.destinatario_uid === operadorNombre)
+            delete _incomingByUid[id];
+        });
+        _merge();
+      }, () => {});
+  }
 }
 
 function renderIncoming() {
@@ -4845,7 +5780,37 @@ async function ejecutarImportIx() {
     const CHUNK = 400;
     for (let i = 0; i < batch.length; i += CHUNK) {
       const fb = db.batch();
-      batch.slice(i, i + CHUNK).forEach(doc => fb.set(coll('intercambios').doc(), doc));
+      batch.slice(i, i + CHUNK).forEach(doc => {
+        // Guardar en patriarca_intercambios (operador)
+        const intRef = coll('intercambios').doc();
+        fb.set(intRef, doc);
+
+        // También guardar en patriarca_ix_global para que el cajero lo vea
+        const globalDoc = {
+          tipo:         doc.tipo,
+          oficina:      operadorOficina || '',
+          fecha:        doc.fecha,
+          monto:        doc.monto,
+          op1_uid:      doc.operador1_uid || opId,
+          op1_nombre:   doc.operador1 || operadorNombre,
+          op1_ix_id:    doc.ix_id,
+          op1_egresa:   doc.caja_egresa,
+          op1_ingresa:  doc.caja_ingresa,
+          op1_doc_id:   intRef.id,
+          estado:       'completado',
+          checkmarks:   3,
+          ts:           doc.ts,
+          importado:    true,
+        };
+        // Si tiene Op2 distinto, agregar campos op2
+        if (doc.operador2 && doc.operador2 !== doc.operador1) {
+          globalDoc.op2_uid    = doc.operador2_uid || null;
+          globalDoc.op2_nombre = doc.operador2;
+          globalDoc.op2_egresa = doc.caja_ingresa;
+          globalDoc.op2_ingresa= doc.caja_egresa;
+        }
+        fb.set(db.collection('patriarca_ix_global').doc(), globalDoc);
+      });
       await fb.commit();
     }
     status.textContent = `✅ ${ok} importados · ${dup} duplicados · ${skip} ignorados`;
@@ -4855,6 +5820,99 @@ async function ejecutarImportIx() {
     console.error(e);
     status.textContent = `❌ Error: ${e.message}`;
   }
+}
+
+// Migrar intercambios importados previamente al patriarca_ix_global para que el cajero los vea
+async function migrarIxAlCajero(btn) {
+  const status = document.getElementById('import-ix-status');
+  if (!opId) { status.textContent = '❌ No hay operador activo'; return; }
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⏳ Migrando...';
+  status.textContent = 'Consultando datos...';
+  try {
+    // 1. Obtener TODOS los intercambios completados de este operador
+    //    (sin filtrar por es_creador — versiones antiguas del import no tenían ese campo)
+    const intSnap = await db.collection('patriarca_intercambios')
+      .where('opId', '==', opId)
+      .where('estado', '==', 'completado')
+      .get();
+
+    if (intSnap.empty) {
+      status.textContent = '✅ No hay intercambios completados para migrar.';
+      btn.disabled = false; btn.textContent = originalText; return;
+    }
+
+    // 2. Obtener docs ya presentes en patriarca_ix_global para este operador
+    const globalOp1Snap = await db.collection('patriarca_ix_global')
+      .where('op1_uid', '==', opId).get();
+
+    // Clave única: ix_id + fecha + monto (para detectar colisiones de ix_id)
+    const globalKeys = new Set(
+      globalOp1Snap.docs.map(d => {
+        const g = d.data();
+        return `${g.op1_ix_id}|${g.fecha}|${g.monto}`;
+      }).filter(Boolean)
+    );
+
+    // 3. Filtrar los que faltan — comparando ix_id + fecha + monto
+    const faltantes = intSnap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .filter(doc => {
+        if (!doc.ix_id) return false;
+        const key = `${doc.ix_id}|${doc.fecha}|${doc.monto}`;
+        return !globalKeys.has(key);
+      });
+
+    if (!faltantes.length) {
+      status.textContent = '✅ Todos los intercambios ya están sincronizados con el cajero.';
+      btn.disabled = false; btn.textContent = originalText; return;
+    }
+
+    status.textContent = `Migrando ${faltantes.length} intercambios...`;
+
+    // 4. Escribir los faltantes en patriarca_ix_global
+    const CHUNK = 400;
+    let migrados = 0;
+    for (let i = 0; i < faltantes.length; i += CHUNK) {
+      const fb = db.batch();
+      faltantes.slice(i, i + CHUNK).forEach(doc => {
+        const globalDoc = {
+          tipo:       doc.tipo || 'I',
+          oficina:    operadorOficina || '',
+          fecha:      doc.fecha,
+          monto:      doc.monto,
+          op1_uid:    doc.operador1_uid || opId,
+          op1_nombre: doc.operador1 || operadorNombre,
+          op1_ix_id:  doc.ix_id,
+          op1_egresa: doc.caja_egresa,
+          op1_ingresa:doc.caja_ingresa,
+          op1_doc_id: doc.id,
+          estado:     'completado',
+          checkmarks: 3,
+          ts:         doc.ts || firebase.firestore.FieldValue.serverTimestamp(),
+          importado:  true,
+        };
+        if (doc.operador2 && doc.operador2 !== doc.operador1) {
+          globalDoc.op2_uid    = doc.operador2_uid || null;
+          globalDoc.op2_nombre = doc.operador2;
+          globalDoc.op2_egresa = doc.caja_ingresa;
+          globalDoc.op2_ingresa= doc.caja_egresa;
+        }
+        fb.set(db.collection('patriarca_ix_global').doc(), globalDoc);
+        migrados++;
+      });
+      await fb.commit();
+    }
+
+    status.textContent = `✅ ${migrados} intercambios migrados al cajero correctamente.`;
+    toast(`✅ ${migrados} intercambios sincronizados al cajero`, 'success');
+  } catch(e) {
+    console.error('migrarIxAlCajero error:', e);
+    status.textContent = `❌ Error: ${e.message}`;
+  }
+  btn.disabled = false;
+  btn.textContent = originalText;
 }
 
 function limpiarFiltrosIx() {
@@ -4929,6 +5987,7 @@ async function getNextIxNum(uid, tipo) {
 
 // ── Crear intercambio ──
 async function saveIntercambio() {
+  if (_checkLock('registrar intercambios')) return;
   const tipo   = document.getElementById('ix-tipo').value;
   const monto  = parseFloat(document.getElementById('int-monto').value)||0;
   const egresa = document.getElementById('int-egresa').value;
@@ -5142,6 +6201,51 @@ async function saveDeleteRequest() {
     });
     toast('📤 Solicitud enviada — el administrador revisará y eliminará si aprueba', 'success');
     closeModal('modal-del-ix');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+  finally { btn.disabled = false; btn.textContent = '📤 Enviar solicitud'; }
+}
+
+// ── SOLICITAR ELIMINACIÓN DE INVERSIÓN ──
+function solicitarEliminarInversion(invId, btnEl) {
+  const inv = allInversiones.find(i => i.id === invId);
+  if (!inv) { toast('⚠ No se encontró la apuesta', 'error'); return; }
+  document.getElementById('del-inv-id').value = invId;
+  document.getElementById('del-inv-motivo').value = '';
+  document.getElementById('del-inv-submit').disabled = true;
+  document.getElementById('del-inv-info').innerHTML = `
+    <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Apuesta a eliminar</div>
+    <div><b>Ap# ${inv.op_id||'—'}</b> · 📅 ${inv.fecha||'—'} · 💰 <span style="color:var(--gold)">${peso(inv.monto||0)}</span></div>
+    <div style="margin-top:4px">🎯 ${inv.evento||'—'} &nbsp;·&nbsp; 👤 ${inv.cliente||'—'} &nbsp;·&nbsp; 🏠 ${inv.casa||'—'}</div>
+    <div style="margin-top:2px">📦 Fondos: <b>${inv.fondos||'—'}</b> &nbsp;·&nbsp; Estado: <b>${inv.estado||'—'}</b></div>`;
+  openModal('modal-del-inv');
+}
+
+async function saveDeleteInvRequest() {
+  const invId  = document.getElementById('del-inv-id').value;
+  const motivo = document.getElementById('del-inv-motivo').value.trim();
+  if (!motivo || !invId) return;
+  const inv = allInversiones.find(i => i.id === invId) || {};
+  const btn = document.getElementById('del-inv-submit');
+  btn.disabled = true; btn.textContent = 'Enviando...';
+  try {
+    await db.collection('patriarca_inv_delete_requests').add({
+      invId,
+      ap_num:    inv.op_id   || '',
+      evento:    inv.evento  || '',
+      cliente:   inv.cliente || '',
+      casa:      inv.casa    || '',
+      monto:     inv.monto   || 0,
+      fecha:     inv.fecha   || '',
+      fondos:    inv.fondos  || '',
+      estado_ap: inv.estado  || '',
+      solicitante_uid:    opId,
+      solicitante_nombre: operadorNombre,
+      motivo,
+      estado: 'pendiente',
+      ts: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    toast('📤 Solicitud enviada — el administrador aprobará la eliminación', 'success');
+    closeModal('modal-del-inv');
   } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
   finally { btn.disabled = false; btn.textContent = '📤 Enviar solicitud'; }
 }
@@ -5397,15 +6501,16 @@ function showSaldosSubtab(tab) {
   renderSaldosActivo();
 }
 
-function renderSaldosActivo() {
-  if (_saldosSubtabActual === 'metodos') renderMetodosSaldo();
+async function renderSaldosActivo() {
+  if (_saldosSubtabActual === 'metodos') await renderMetodosSaldo();
   else if (_saldosSubtabActual === 'si') renderSaldoInicial();
   else renderSaldos();
 }
 
 // ──────────────────── SALDO POR MÉTODO ────────────────────
-// Fórmula: actual = inicial + ix - recargas + pagos - gastos  (sin comisiones)
-function renderMetodosSaldo() {
+// Fórmula: actual = inicial + ix - recargas + pagos - gastos - liqPago
+// (Igual que el ESF — liqPago = pagos de liquidación del mes anterior aprobados)
+async function renderMetodosSaldo() {
   const tbody = document.getElementById('met-tbody');
   const grid  = document.getElementById('met-grid');
   if (!tbody || !grid) return;
@@ -5421,7 +6526,7 @@ function renderMetodosSaldo() {
   // Usar METODOS_CAJA como lista maestra, excluyendo métodos virtuales sin saldo real
   const map = {};
   METODOS_CAJA.filter(m => !METODOS_VIRTUALES.has(m)).forEach(m => {
-    map[m] = { inicial: parseFloat(ci[m])||0, ix:0, recargas:0, pagos:0, gastos:0, cnt:0 };
+    map[m] = { inicial: parseFloat(ci[m])||0, ix:0, recargas:0, pagos:0, gastos:0, liqPago:0, cnt:0 };
   });
 
   // 1. Movimientos — solo cajas reales (METODOS_CAJA), ignorar métodos virtuales como BONIFICACION
@@ -5452,23 +6557,48 @@ function renderMetodosSaldo() {
     map[met].gastos += parseFloat(g.valor) || 0;
   });
 
+  // 4. Pagos de liquidación del mes anterior (tipo='saldo') — igual que el ESF
+  try {
+    const uid = auth.currentUser?.uid;
+    const mesKey = siMesActual();
+    if (uid && mesKey) {
+      const [yk, mk] = mesKey.split('-').map(Number);
+      const prevKey = new Date(yk, mk - 2, 1).toISOString().slice(0, 7);
+      const liqSnap = await db.collection('patriarca_liquidacion_txs')
+        .where('operadorId', '==', uid)
+        .where('mesKey',     '==', prevKey)
+        .where('estado',     '==', 'aprobado')
+        .get();
+      liqSnap.docs.forEach(d => {
+        const tx = d.data();
+        if (tx.tipo !== 'saldo') return;
+        const met = normMetodo(tx.metodo);
+        if (met && map[met]) map[met].liqPago += parseFloat(tx.monto) || 0;
+      });
+    }
+  } catch(e) { console.warn('renderMetodosSaldo: liqPago:', e); }
+
   // Solo mostrar métodos con actividad o cupo inicial
   const metodos = Object.keys(map).filter(m => {
     const d = map[m];
-    return d.inicial || d.recargas || d.pagos || d.ix || d.gastos || d.cnt;
+    return d.inicial || d.recargas || d.pagos || d.ix || d.gastos || d.liqPago || d.cnt;
   }).sort();
 
-  let tIni=0, tIx=0, tRec=0, tPag=0, tGas=0, tAct=0;
+  let tIni=0, tIx=0, tRec=0, tPag=0, tGas=0, tLiq=0, tAct=0;
 
   // Cards
   grid.innerHTML = metodos.length
     ? metodos.map(met => {
         const d      = map[met];
-        const actual = d.inicial + d.ix - d.recargas + d.pagos - d.gastos;
-        tIni += d.inicial; tIx += d.ix; tRec += d.recargas; tPag += d.pagos; tGas += d.gastos; tAct += actual;
+        const actual = d.inicial + d.ix - d.recargas + d.pagos - d.gastos - d.liqPago;
+        tIni += d.inicial; tIx += d.ix; tRec += d.recargas; tPag += d.pagos;
+        tGas += d.gastos; tLiq += d.liqPago; tAct += actual;
         const cls    = actual >= 0 ? 'pos' : 'neg';
         const ixLine = d.ix !== 0
           ? `<div style="font-size:10px;color:var(--blue);margin-top:2px">Ix: ${d.ix>0?'+':''}${peso(d.ix)}</div>`
+          : '';
+        const liqLine = d.liqPago
+          ? `<div style="font-size:10px;color:var(--orange);margin-top:2px">Liq: −${peso(d.liqPago)}</div>`
           : '';
         return `<div class="metodo-card">
           <div class="metodo-name">${met}</div>
@@ -5478,21 +6608,22 @@ function renderMetodosSaldo() {
             <span style="color:var(--red)">Rec −${peso(d.recargas)}</span>
           </div>
           ${d.inicial ? `<div style="font-size:10px;color:var(--gold);margin-top:2px">Ini: ${peso(d.inicial)}</div>` : ''}
-          ${ixLine}
+          ${ixLine}${liqLine}
           <div style="font-size:10px;color:var(--muted);margin-top:2px">${d.cnt} movs</div>
         </div>`;
       }).join('')
     : '<div class="empty"><div class="empty-icon">💳</div>Sin movimientos ni cupos registrados</div>';
 
   // Reset totals (se calcularon en el loop de cards)
-  tIni=0; tIx=0; tRec=0; tPag=0; tGas=0; tAct=0;
+  tIni=0; tIx=0; tRec=0; tPag=0; tGas=0; tLiq=0; tAct=0;
 
   // Tabla detalle
   tbody.innerHTML = metodos.length
     ? metodos.map(met => {
         const d      = map[met];
-        const actual = d.inicial + d.ix - d.recargas + d.pagos - d.gastos;
-        tIni+=d.inicial; tIx+=d.ix; tRec+=d.recargas; tPag+=d.pagos; tGas+=d.gastos; tAct+=actual;
+        const actual = d.inicial + d.ix - d.recargas + d.pagos - d.gastos - d.liqPago;
+        tIni+=d.inicial; tIx+=d.ix; tRec+=d.recargas; tPag+=d.pagos;
+        tGas+=d.gastos; tLiq+=d.liqPago; tAct+=actual;
         const cls = actual >= 0 ? 'var(--green)' : 'var(--red)';
         return `<tr>
           <td style="font-weight:600">${met}</td>
@@ -5501,6 +6632,7 @@ function renderMetodosSaldo() {
           <td style="text-align:right;color:var(--blue)">${d.recargas ? peso(d.recargas) : '—'}</td>
           <td style="text-align:right;color:var(--green)">${d.pagos ? peso(d.pagos) : '—'}</td>
           <td style="text-align:right;color:var(--red)">${d.gastos ? peso(d.gastos) : '—'}</td>
+          <td style="text-align:right;color:var(--orange);font-weight:${d.liqPago?'700':'400'}">${d.liqPago ? '−'+peso(d.liqPago) : '—'}</td>
           <td style="text-align:right;font-weight:700;color:${cls}">${peso(actual)}</td>
         </tr>`;
       }).join('') + `<tr style="background:var(--bg3);font-weight:700;border-top:2px solid var(--border)">
@@ -5510,6 +6642,7 @@ function renderMetodosSaldo() {
           <td style="text-align:right;color:var(--blue)">${peso(tRec)}</td>
           <td style="text-align:right;color:var(--green)">${peso(tPag)}</td>
           <td style="text-align:right;color:var(--red)">${tGas?peso(tGas):'—'}</td>
+          <td style="text-align:right;color:var(--orange)">${tLiq?'−'+peso(tLiq):'—'}</td>
           <td style="text-align:right;color:${tAct>=0?'var(--green)':'var(--red)'}">${peso(tAct)}</td>
         </tr>`
     : '<tr><td colspan="7"><div class="empty">Sin datos</div></td></tr>';
@@ -5544,7 +6677,7 @@ async function renderSaldos() {
   // 2. Acumular recargas y pagos por clave "nombre||casa" — solo del mes activo
   // Normalizar por cliente_id para unificar nombre corto vs nombre_completo
   const _movSaldos = mesKey ? allMovimientos.filter(m => (m.fecha||'').startsWith(mesKey)) : allMovimientos;
-  const _invSaldos = mesKey ? allInversiones.filter(inv => (inv.fecha||'').startsWith(mesKey)) : allInversiones;
+  const _invSaldos = _filtrarInvMes(mesKey);
   const movMap = {};
   _movSaldos.forEach(m => {
     if (!m.cliente || !m.casa) return;
@@ -5631,7 +6764,7 @@ async function renderSaldos() {
   }).join('') + `
   <tr style="background:var(--panel-alt,#1a2035);border-top:2px solid var(--border)">
     <td colspan="2" style="padding:8px 10px;font-weight:700">TOTAL</td>
-    <td style="text-align:right;padding:8px 10px;font-weight:700">${peso(totSI)}</td>
+    <td style="text-align:right;padding:8px 10px;font-weight:700;color:var(--gold)">${totSI ? peso(totSI) : '—'}</td>
     <td style="text-align:right;padding:8px 10px;font-weight:700;color:var(--green)">${peso(totRecargas)}</td>
     <td style="text-align:right;padding:8px 10px;font-weight:700;color:var(--red)">${peso(totPagos)}</td>
     <td style="text-align:right;padding:8px 10px;font-weight:700;color:var(--orange)">${peso(rows.reduce((s,r)=>s+r.invertido,0))}</td>
@@ -5656,7 +6789,7 @@ function renderProductividad() {
 
   // ── Agrupar por id_apuesta (solo mes activo) ──
   const _mkProd = _mesKey(config?.mes);
-  const _invProd = _mkProd ? allInversiones.filter(inv => (inv.fecha||'').startsWith(_mkProd)) : allInversiones;
+  const _invProd = _filtrarInvMes(_mkProd);
   const apMap = {};
   _invProd.forEach(inv => {
     const k = inv.id_apuesta;
@@ -5678,33 +6811,38 @@ function renderProductividad() {
     }, 0);
     const retorno   = data.invs.reduce((s,i)=>s+(parseFloat(i.retorno_cliente)||0),0);
     const comision  = data.invs.reduce((s,i)=>s+(invComMap[i.id]||0),0);
-    const utilBruta = retorno - invertido;
-    const utilidad  = utilBruta + comision;
-    const roi       = invertido>0 ? utilidad/invertido : 0;
-    const analisis  = utilidad >= 0 ? 'CORRECTO' : 'PÉRDIDA';
     const estado    = data.estado || 'ABIERTO';
     const fecha     = data.fecha  || '';
+    const abierto   = estado !== 'CERRADO';
+
+    // Solo calcular resultado cuando el evento está CERRADO
+    const utilBruta = abierto ? null : retorno - invertido;
+    const utilidad  = abierto ? null : (utilBruta + comision);
+    const roi       = abierto ? null : (invertido > 0 ? utilidad / invertido : 0);
+    const analisis  = abierto ? '—' : (utilidad >= 0 ? 'CORRECTO' : 'PÉRDIDA');
 
     // ── Aplicar filtros ──
     if (fEstado   && estado   !== fEstado)                        return null;
-    if (fAnalisis && analisis !== fAnalisis)                      return null;
+    if (fAnalisis && (abierto || analisis !== fAnalisis))         return null;
     if (fDesde    && fecha < fDesde)                              return null;
     if (fHasta    && fecha > fHasta)                              return null;
     if (fBuscar && !String(num).includes(fBuscar) && !(data.evento||'').toLowerCase().includes(fBuscar)) return null;
 
-    tFil++; tInv+=invertido; tRet+=retorno; tBruta+=utilBruta; tCom+=comision; tNeta+=utilidad;
+    tFil++; tInv+=invertido; tRet+=retorno;
+    if (!abierto) { tBruta+=utilBruta; tCom+=comision; tNeta+=utilidad; }
+
     return `<tr>
       <td style="font-weight:700;color:var(--gold)">${num}</td>
       <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis">${data.evento||'—'}</td>
       <td>${fmtDate(fecha)}</td>
       <td>${peso(invertido)}</td>
-      <td>${peso(retorno)}</td>
-      <td style="font-weight:600;color:${utilBruta>=0?'var(--green)':'var(--red)'}">${peso(utilBruta)}</td>
-      <td style="color:var(--orange)">${comision ? peso(comision) : '$—'}</td>
-      <td style="font-weight:700;color:${utilidad>=0?'var(--green)':'var(--red)'}">${peso(utilidad)}</td>
-      <td style="color:${roi>=0?'var(--green)':'var(--red)'}">${pct(roi)}</td>
+      <td>${abierto ? '$—' : peso(retorno)}</td>
+      <td style="font-weight:600;color:${abierto?'var(--text2)':utilBruta>=0?'var(--green)':'var(--red)'}">${abierto ? '$—' : peso(utilBruta)}</td>
+      <td style="color:var(--orange)">${(!abierto && comision) ? peso(comision) : '$—'}</td>
+      <td style="font-weight:700;color:${abierto?'var(--text2)':utilidad>=0?'var(--green)':'var(--red)'}">${abierto ? '$—' : peso(utilidad)}</td>
+      <td style="color:${abierto?'var(--text2)':roi>=0?'var(--green)':'var(--red)'}">${abierto ? '—' : pct(roi)}</td>
       <td><span class="badge ${estado==='CERRADO'?'badge-gray':'badge-blue'}">${estado}</span></td>
-      <td style="color:${analisis==='CORRECTO'?'var(--green)':'var(--red)'}"> ${analisis==='CORRECTO'?'✓':'✗'} ${analisis}</td>
+      <td style="color:${analisis==='CORRECTO'?'var(--green)':analisis==='PÉRDIDA'?'var(--red)':'var(--text2)'}"> ${analisis==='CORRECTO'?'✓ ':analisis==='PÉRDIDA'?'✗ ':''}${analisis}</td>
     </tr>`;
   }).filter(Boolean);
 
@@ -5826,7 +6964,7 @@ async function renderESF() {
   let comisionesMesAnt = 0;   // Comisiones del mes anterior por cobrar (nuevas en activos)
   let gananciaMesAnt  = 0;    // Ganancia neta del mes anterior (pasivo: liquidación por pagar)
   try {
-    const snap = await db.collection('patriarca_saldo_inicial').doc(`${uid}_${mesKey}`).get();
+    const snap = await db.collection('patriarca_saldo_inicial').doc(`${uid}_${mesKey}`).get({ source: 'server' });
     if (snap.exists) {
       const siData = snap.data();
       saldoInicial     = siData.saldos || {};
@@ -5834,6 +6972,30 @@ async function renderESF() {
       gananciaMesAnt   = Math.round(siData.gananciaMesAnterior   || 0);
     }
   } catch(e) { console.warn('esf: saldo_inicial:', e); }
+
+  // Restar pagos ya aprobados en la liquidación del mes anterior
+  let _liqPrevDocs = [];
+  try {
+    const [yk, mk] = mesKey.split('-').map(Number);
+    const prevKey = new Date(yk, mk - 2, 1).toISOString().slice(0, 7); // mes anterior
+    if (prevKey) {
+      const liqSnap = await db.collection('patriarca_liquidacion_txs')
+        .where('operadorId', '==', uid)
+        .where('mesKey',     '==', prevKey)
+        .where('estado',     '==', 'aprobado')
+        .get({ source: 'server' });
+      _liqPrevDocs = liqSnap.docs;
+      liqSnap.docs.forEach(d => {
+        const tx = d.data();
+        const monto = Math.round(tx.monto || 0);
+        if (tx.tipo === 'comision') {
+          comisionesMesAnt = Math.max(0, comisionesMesAnt - monto);
+        }
+        // Todo pago aprobado (comisión o saldo) reduce el pasivo Liquidación por Pagar
+        gananciaMesAnt = Math.max(0, gananciaMesAnt - monto);
+      });
+    }
+  } catch(e) { console.warn('esf: liq_pagos:', e); }
 
   let clientesMesAnt = 0;
   Object.values(saldoInicial).forEach(casaMap => {
@@ -5857,7 +7019,7 @@ async function renderESF() {
 
   // Filtrar datos por mes activo
   const _movEsf = mesKey ? allMovimientos.filter(m   => (m.fecha||'').startsWith(mesKey))   : allMovimientos;
-  const _invEsf = mesKey ? allInversiones.filter(inv => (inv.fecha||'').startsWith(mesKey)) : allInversiones;
+  const _invEsf = _filtrarInvMes(mesKey);
   const _ixEsf  = mesKey ? allIntercambios.filter(ix => (ix.fecha||'').startsWith(mesKey))  : allIntercambios;
   const _gEsf   = mesKey ? allGastos.filter(g        => (g.fecha||'').startsWith(mesKey))   : allGastos;
 
@@ -5949,7 +7111,7 @@ async function renderESF() {
   const mapaData = {};
   const metodosFisicos = METODOS_CAJA.filter(m => !METODOS_VIRTUALES.has(m));
   metodosFisicos.forEach(m => {
-    mapaData[m] = { inicial: Math.round(parseFloat(ci[m])||0), ix:0, recargas:0, pagos:0, gastos:0 };
+    mapaData[m] = { inicial: Math.round(parseFloat(ci[m])||0), ix:0, recargas:0, pagos:0, gastos:0, liqPago:0 };
   });
   _movEsf.forEach(mv => {
     const met = normMetodo(mv.metodo);
@@ -5968,10 +7130,18 @@ async function renderESF() {
     if (met && mapaData[met]) mapaData[met].gastos += parseFloat(g.valor)||0;
   });
 
+  // Pagos de liquidación del mes anterior (saldo) — reducen el saldo del método en ESF actual
+  // Usa _liqPrevDocs cargado directamente desde Firestore (no depende del tab de liquidación)
+  _liqPrevDocs.filter(d => d.data().tipo === 'saldo').forEach(d => {
+    const tx = d.data();
+    const met = normMetodo(tx.metodo);
+    if (met && mapaData[met]) mapaData[met].liqPago += parseFloat(tx.monto) || 0;
+  });
+
   let totalCajas = 0;
   const cajasHtml = metodosFisicos.map(m => {
     const d = mapaData[m];
-    const v = d.inicial + d.ix - d.recargas + d.pagos - d.gastos;
+    const v = d.inicial + d.ix - d.recargas + d.pagos - d.gastos - d.liqPago;
     totalCajas += v;
     const col = v > 0 ? 'var(--green)' : v < 0 ? 'var(--red)' : 'var(--text2)';
     return `<div class="esf-row"><span style="color:var(--text2);font-size:12px">${m}</span><span style="color:${col};font-weight:600">${v !== 0 ? peso(v) : '$—'}</span></div>`;
@@ -6023,8 +7193,27 @@ async function renderESF() {
     if (cupoLabelEl) cupoLabelEl.textContent = 'Cupo';
   }
 
+  // ── Sección informativa: Cupo Total Asignado ──────────────────────────────
+  // CUPO TOTAL: guardado explícitamente en cupos_por_mes, o sum de capital_propio + capital_asignado
+  const cupoTotalAsignado = parseFloat(config.cupos_iniciales?.['CUPO TOTAL'])
+    || ((parseFloat(config.capital_propio) || 0) + (parseFloat(config.capital_asignado) || 0));
+  const cupoTotalBox = document.getElementById('esf-cupo-total-box');
+  if (cupoTotalAsignado > 0 && clientesMesAnt > 0) {
+    const residualFijo = cupoTotalAsignado - clientesMesAnt;
+    document.getElementById('esf-cupo-total-val').textContent      = peso(cupoTotalAsignado);
+    document.getElementById('esf-cupo-total-cma').textContent      = peso(clientesMesAnt);
+    const residualEl = document.getElementById('esf-cupo-total-residual');
+    residualEl.textContent  = peso(residualFijo);
+    residualEl.style.color  = residualFijo >= 0 ? 'var(--green)' : 'var(--red)';
+    if (cupoTotalBox) cupoTotalBox.style.display = 'block';
+  } else {
+    if (cupoTotalBox) cupoTotalBox.style.display = 'none';
+  }
+
   document.getElementById('esf-mes-ant').textContent        = peso(clientesMesAnt);
-  document.getElementById('esf-cupo').textContent           = peso(cupoEnCajas);
+  const cupoEl = document.getElementById('esf-cupo');
+  cupoEl.textContent  = peso(cupoEnCajas);
+  cupoEl.style.color  = cupoEnCajas < 0 ? 'var(--red)' : cupoEnCajas > 0 ? '' : 'var(--text2)';
   const utEl = document.getElementById('esf-utilidad');
   utEl.textContent = peso(utilidad);
   utEl.style.color = utilidad >= 0 ? 'var(--green)' : 'var(--red)';
@@ -6056,11 +7245,11 @@ async function renderESF() {
   banner.style.display = 'block';
 
   // ── Mapa de Capital por Método ──
-  let tI=0, tIx=0, tRec=0, tPag=0, tGas=0, tAct=0;
+  let tI=0, tIx=0, tRec=0, tPag=0, tGas=0, tLiq=0, tAct=0;
   const mapaRows = metodosFisicos.map(m => {
     const d = mapaData[m];
-    const actual = d.inicial + d.ix - d.recargas + d.pagos - d.gastos;
-    tI+=d.inicial; tIx+=d.ix; tRec+=d.recargas; tPag+=d.pagos; tGas+=d.gastos; tAct+=actual;
+    const actual = d.inicial + d.ix - d.recargas + d.pagos - d.gastos - d.liqPago;
+    tI+=d.inicial; tIx+=d.ix; tRec+=d.recargas; tPag+=d.pagos; tGas+=d.gastos; tLiq+=d.liqPago; tAct+=actual;
     const actCol = actual >= 0 ? 'var(--green)' : 'var(--red)';
     return `<tr>
       <td style="font-weight:600">${m}</td>
@@ -6069,6 +7258,7 @@ async function renderESF() {
       <td style="text-align:right;color:var(--blue)">${d.recargas?peso(d.recargas):'—'}</td>
       <td style="text-align:right;color:var(--green)">${d.pagos?peso(d.pagos):'—'}</td>
       <td style="text-align:right;color:var(--red)">${d.gastos?peso(d.gastos):'—'}</td>
+      <td style="text-align:right;color:var(--orange)">${d.liqPago?'-'+peso(d.liqPago):'—'}</td>
       <td style="text-align:right;font-weight:700;color:${actCol}">${peso(actual)}</td>
     </tr>`;
   }).join('');
@@ -6078,6 +7268,7 @@ async function renderESF() {
   document.getElementById('esf-map-total-rec').textContent     = peso(tRec);
   document.getElementById('esf-map-total-pag').textContent     = peso(tPag);
   document.getElementById('esf-map-total-gas').textContent     = tGas?peso(tGas):'—';
+  document.getElementById('esf-map-total-liq').textContent     = tLiq?'-'+peso(tLiq):'—';
   document.getElementById('esf-map-total-actual').textContent  = peso(tAct);
 
   // Label período
@@ -6087,7 +7278,7 @@ async function renderESF() {
   try {
     const cajasGuardar = metodosFisicos.map(m => {
       const d = mapaData[m];
-      return { metodo: m, valor: Math.round(d.inicial + d.ix - d.recargas + d.pagos - d.gastos) };
+      return { metodo: m, valor: Math.round(d.inicial + d.ix - d.recargas + d.pagos - d.gastos - (d.liqPago || 0)) };
     }).filter(c => c.valor !== 0);
     db.collection('patriarca_esf_resumen').doc(`${uid}_${mesKey}`).set({
       uid:             uid,
@@ -6095,12 +7286,12 @@ async function renderESF() {
       mes:             config.mes || '',
       mesKey:          mesKey,
       cuadre:          diff <= 1,
-      totalActivos:      Math.round(totalActivos),
-      totalPasivos:      Math.round(totalPasivos),
-      totalPatrimonio:   Math.round(_totPat),
-      totalClientes:     Math.round(totalClientes),
-      invertido:         Math.round(invertido),
-      totalComisiones:   Math.round(totalComisiones),
+      totalActivos:      totalActivos,
+      totalPasivos:      totalPasivos,
+      totalPatrimonio:   _totPat,
+      totalClientes:     totalClientes,
+      invertido:         invertido,
+      totalComisiones:   totalComisiones,
       comisionesMesAnt:  comisionesMesAnt,
       gananciaMesAnt:    gananciaMesAnt,
       comByMetodo,
@@ -6157,17 +7348,48 @@ async function saveCuposIniciales() {
 }
 
 // ──────────────────── GASTOS ────────────────────
+function limpiarFiltrosGastos() {
+  ['g-f-desde','g-f-hasta','g-f-desc'].forEach(id => { const el = document.getElementById(id); if(el) el.value=''; });
+  const sel = document.getElementById('g-f-metodo'); if(sel) sel.value='';
+  renderGastos();
+}
+
 function renderGastos() {
   const tbody = document.getElementById('gastos-tbody');
   const _mkG = _mesKey(config?.mes);
   const _gastosBase = _mkG ? allGastos.filter(g => (g.fecha||'').startsWith(_mkG)) : allGastos;
-  const total = _gastosBase.reduce((s,g)=>s+(parseFloat(g.valor)||0),0);
+
+  // Poblar select de métodos (solo métodos presentes en este mes)
+  const selMet = document.getElementById('g-f-metodo');
+  if (selMet) {
+    const metodos = [...new Set(_gastosBase.map(g => g.metodo).filter(Boolean))].sort();
+    const valActual = selMet.value;
+    selMet.innerHTML = '<option value="">Todos los métodos</option>' +
+      metodos.map(m => `<option value="${m}" ${m===valActual?'selected':''}>${m}</option>`).join('');
+  }
+
+  // Leer filtros
+  const fDesde  = (document.getElementById('g-f-desde')?.value  || '');
+  const fHasta  = (document.getElementById('g-f-hasta')?.value  || '');
+  const fMetodo = (document.getElementById('g-f-metodo')?.value || '');
+  const fDesc   = (document.getElementById('g-f-desc')?.value   || '').toLowerCase();
+
+  const filtrado = _gastosBase.filter(g => {
+    if (fDesde  && (g.fecha||'') < fDesde)  return false;
+    if (fHasta  && (g.fecha||'') > fHasta)  return false;
+    if (fMetodo && g.metodo !== fMetodo)     return false;
+    if (fDesc   && !(g.descripcion||'').toLowerCase().includes(fDesc)) return false;
+    return true;
+  });
+
+  const total = filtrado.reduce((s,g)=>s+(parseFloat(g.valor)||0),0);
   document.getElementById('gastos-total').textContent = peso(total);
-  if (!_gastosBase.length) {
+
+  if (!filtrado.length) {
     tbody.innerHTML='<tr><td colspan="6"><div class="empty"><div class="empty-icon">💳</div>Sin gastos</div></td></tr>';
     return;
   }
-  tbody.innerHTML = _gastosBase.map((g,i)=>`
+  tbody.innerHTML = filtrado.map((g,i)=>`
     <tr>
       <td>${fmtDate(g.fecha)}</td>
       <td>${i+1}</td>
@@ -6221,6 +7443,7 @@ function editGasto(id) {
 }
 
 async function saveGasto() {
+  if (_checkLock('registrar gastos')) return;
   const editId = document.getElementById('gs-edit-id').value;
   const valor  = parseFloat(document.getElementById('gs-valor').value)||0;
   const metodo = document.getElementById('gs-metodo').value;
@@ -6260,18 +7483,24 @@ async function saveGasto() {
 
 // ──────────────────── DELETE ────────────────────
 async function eliminarTodosMovimientos() {
-  const total = allMovimientos.length;
-  if (!total) { toast('No hay movimientos para eliminar', 'info'); return; }
-  if (!confirm(`¿Eliminar los ${total} movimientos? Esta acción no se puede deshacer.`)) return;
+  const mk = _mesKey(config?.mes);
+  const mesLabel = config?.mes || 'todos los meses';
+  // SOLO eliminar movimientos del mes activo para evitar borrar datos de otros meses
+  const movsMes = mk
+    ? allMovimientos.filter(m => m.mesKey ? m.mesKey === mk : (m.fecha||'').startsWith(mk))
+    : allMovimientos;
+  const total = movsMes.length;
+  if (!total) { toast(`No hay movimientos en ${mesLabel}`, 'info'); return; }
+  if (!confirm(`¿Eliminar los ${total} movimientos de ${mesLabel}?\n\nEsta acción NO se puede deshacer.`)) return;
   try {
-    const ids = allMovimientos.map(m => m.id);
+    const ids = movsMes.map(m => m.id);
     const CHUNK = 400;
     for (let i = 0; i < ids.length; i += CHUNK) {
       const fb = db.batch();
       ids.slice(i, i + CHUNK).forEach(id => fb.delete(coll('movimientos').doc(id)));
       await fb.commit();
     }
-    toast(`🗑 ${total} movimientos eliminados`, 'info');
+    toast(`🗑 ${total} movimientos de ${mesLabel} eliminados`, 'info');
   } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
 }
 
@@ -6513,7 +7742,7 @@ async function calcCierreClientes() {
 
   // Acumuladores keyed por "clienteId||casa" — solo movimientos del mes
   const _movCierre = allMovimientos.filter(m   => (m.fecha||'').startsWith(mesKey));
-  const _invCierre = allInversiones.filter(inv => (inv.fecha||'').startsWith(mesKey));
+  const _invCierre = _filtrarInvMes(mesKey);
   const movAcc = {}, invAcc = {};
 
   _movCierre.forEach(m => {
@@ -6598,7 +7827,7 @@ function calcCierreMetodos() {
 // Calcula ganancia neta del mes (mismo cálculo que ESF)
 function calcCierreGanancia() {
   const mk   = siMesActual();
-  const _inv = mk ? allInversiones.filter(inv => (inv.fecha||'').startsWith(mk))  : allInversiones;
+  const _inv = _filtrarInvMes(mk);
   const _mov = mk ? allMovimientos.filter(m   => (m.fecha||'').startsWith(mk))   : allMovimientos;
   const _gx  = mk ? (allGastos||[]).filter(g  => (g.fecha||'').startsWith(mk))   : (allGastos||[]);
 
@@ -6744,6 +7973,8 @@ function aplicarPermisos() {
   show('btn-import-ev',  puedoImportar);
   show('btn-import-mov', puedoImportar);
   show('btn-import-inv', puedoImportar);
+  show('btn-import-ix',  puedoImportar);
+  show('btn-import-cli', puedoImportar);
   // Eliminar todo
   const puedoEliminar = p.eliminarTodo !== false;
   show('btn-elim-mov', puedoEliminar);

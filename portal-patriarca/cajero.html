@@ -2085,6 +2085,7 @@ function loadCajas() {
   // Sin orderBy: Firestore excluye documentos con ts nulo; ordenamos en JS
   db.collection('patriarca_movimientos').onSnapshot(snap => {
     allMovsGlobal = snap.docs.map(d => ({id: d.id, ...d.data()}))
+      .filter(mv => !mv.eliminado)   // excluir movimientos eliminados (soft delete)
       .sort((a,b) => (a.ts?.seconds||0) - (b.ts?.seconds||0));
     if (document.getElementById('sec-cajas')?.classList.contains('active')) renderCajas();
     renderCupoActual();

@@ -3492,6 +3492,8 @@ async function guardarEdicionMovimiento() {
       editadoPor: currentUser?.email || 'operador',
       historial,
       descuento_4x1000: descuento_4x1000 || firebase.firestore.FieldValue.delete(),
+      // Si ya estaba confirmado por el cajero, sincronizar monto_cajero al nuevo monto corregido
+      ...(m.estado_cajero === 'Realizada' && nuevoCanal === 'C-OP' ? { monto_cajero: monto } : {}),
     };
     await coll('movimientos').doc(id).update(updateData);
 

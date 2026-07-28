@@ -1468,7 +1468,7 @@ function calcNetIX() {
 }
 
 // ── CUPO ACTUAL ──
-function renderCupoActual() {
+async function renderCupoActual() {
   // Cupo Actual = Cupo Inicial + Pagos - Recargas ± Intercambios (por operador por método)
   const netPorOp = {};
 
@@ -1497,16 +1497,22 @@ function renderCupoActual() {
     addNet(g.opId, met, -(parseFloat(g.valor) || 0));
   });
 
-  // Intercambios completados del mes: egresa resta, ingresa suma
-  ixDelMes().forEach(ix => {
-    const m = ix.monto || 0;
-    addNet(ix.op1_uid, ix.op1_egresa, -m);
-    addNet(ix.op1_uid, ix.op1_ingresa, +m);
-    if (ix.tipo === 'C' && ix.op2_uid && ix.op2_nombre !== 'Propio') {
-      addNet(ix.op2_uid, ix.op2_egresa, -m);
-      addNet(ix.op2_uid, ix.op2_ingresa, +m);
-    }
-  });
+  // Intercambios del mes — desde patriarca_intercambios por operador
+  // (igual que Mapa de Capital: usa caja_egresa/caja_ingresa, sin doble-conteo de ix_global)
+  try {
+    const ixSnap = await db.collection('patriarca_intercambios').get();
+    ixSnap.docs.forEach(d => {
+      const ix  = d.data();
+      if (!(ix.fecha || '').startsWith(mesActivo)) return;
+      if (ix.estado === 'pendiente_aceptar' || ix.estado === 'cancelado') return;
+      const uid = ix.opId;
+      const m   = parseFloat(ix.monto) || 0;
+      const egr = normMetodo(ix.caja_egresa  || '');
+      const ing = normMetodo(ix.caja_ingresa || '');
+      if (egr && egr !== 'SALDO CLIENTES') addNet(uid, egr, -m);
+      if (ing && ing !== 'SALDO CLIENTES') addNet(uid, ing, +m);
+    });
+  } catch(e) { console.warn('renderCupoActual: ix load:', e); }
 
   // Usar todos los métodos configurados — excluir SALDO CLIENTES (va en sección aparte)
   const metodos = (METODOS.length ? METODOS : [...new Set(movsDelMes().map(m => m.metodo).filter(Boolean))])
@@ -1828,7 +1834,8 @@ async function renderDashboard() {
     const rec = recPorMet[m] || 0;
     const pag = pagPorMet[m] || 0;
     const gas = gasPorMet[m] || 0;
-    const liq = liqPorMet[m] || 0;
+    // Liquidación solo aplica a EFECTIVO OPERADOR (se muestra como columna, no resta del Sistema)
+    const liq = normMetodo(m) === 'EFECTIVO OPERADOR' ? (liqPorMet[m] || 0) : 0;
     const fin = ini + ix - rec + pag - gas - liq;
     if (ini === 0 && ix === 0 && rec === 0 && pag === 0 && gas === 0 && liq === 0) return;
     cards.push({ m, ini, ix, op: pag - rec, gas, liq, fin });
@@ -3489,7 +3496,7 @@ function _actualizarCruce() {
   const totLiqEl = document.getElementById('cruce-tot-liq');
   if (!totSisEl) return;
 
-  // Totales: S. Inicial, Intercambios, Saldo Op., Gastos, Liq.
+  // Totales: S. Inicial, Intercambios, Saldo Op., Gastos
   if (totIniEl) { totIniEl.textContent = totIni ? pesos(totIni) : '—'; totIniEl.style.color = 'var(--text2)'; }
   if (totIxEl)  {
     totIxEl.textContent = totIx ? (totIx>0?'+':'')+pesos(Math.abs(totIx)) : '—';

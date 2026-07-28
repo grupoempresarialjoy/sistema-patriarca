@@ -222,6 +222,7 @@ select option{background:var(--bg3)}
                 <th style="text-align:right;padding:10px 16px;background:var(--bg3);color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">S. Inicial</th>
                 <th style="text-align:right;padding:10px 16px;background:var(--bg3);color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">Intercambios</th>
                 <th style="text-align:right;padding:10px 16px;background:var(--bg3);color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">Saldo Op.</th>
+                <th style="text-align:right;padding:10px 16px;background:var(--bg3);color:var(--red);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">Gastos (−)</th>
                 <th style="text-align:right;padding:10px 16px;background:var(--bg3);color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">Sistema</th>
                 <th style="text-align:right;padding:10px 16px;background:var(--bg3);color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">Físico Real</th>
                 <th style="text-align:right;padding:10px 16px;background:var(--bg3);color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">Diferencia</th>
@@ -295,22 +296,29 @@ select option{background:var(--bg3)}
           <span class="panel-title">Historial de intercambios</span>
           <span id="ix-count" style="font-size:11px;color:var(--text2)"></span>
         </div>
-        <!-- Filtros horizontales -->
-        <div class="ix-filters" id="ix-filters" style="overflow-x:auto;flex-wrap:nowrap;padding:8px 14px">
-          <input type="text" id="ix-f-buscar" placeholder="🔍 ID / Operador..." oninput="renderIntercambios()" style="min-width:180px">
-          <select id="ix-f-tipo" onchange="renderIntercambios()" title="Tipo">
-            <option value="">Tipo: Todos</option>
-            <option value="C">Cruzado</option>
-            <option value="I">Interno</option>
-          </select>
-          <input type="date" id="ix-f-desde" onchange="renderIntercambios()" title="Desde">
-          <input type="date" id="ix-f-hasta" onchange="renderIntercambios()" title="Hasta">
-          <select id="ix-f-egresa" onchange="renderIntercambios()"><option value="">Egresa: Todas</option></select>
-          <select id="ix-f-ingresa" onchange="renderIntercambios()"><option value="">Ingresa: Todas</option></select>
-          <select id="ix-f-op1" onchange="renderIntercambios()"><option value="">OP1: Todos</option></select>
-          <select id="ix-f-op2" onchange="renderIntercambios()"><option value="">OP2: Todos</option></select>
-          <input type="number" id="ix-f-monto" placeholder="💰 Monto exacto..." oninput="renderIntercambios()" min="0" style="width:150px">
-          <button class="btn btn-ghost btn-sm" onclick="limpiarFiltrosIX()" style="white-space:nowrap">✕ Limpiar</button>
+        <!-- Filtros en 2 filas -->
+        <div id="ix-filters" style="display:flex;flex-direction:column;gap:6px;padding:10px 14px;border-bottom:1px solid var(--border)">
+          <!-- Fila 1: búsqueda + fechas + tipo + monto + limpiar -->
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+            <input type="text" id="ix-f-buscar" placeholder="🔍 ID / Operador..." oninput="renderIntercambios()" style="flex:1;min-width:160px">
+            <input type="date" id="ix-f-desde" onchange="renderIntercambios()" title="Desde" style="width:140px">
+            <input type="date" id="ix-f-hasta" onchange="renderIntercambios()" title="Hasta" style="width:140px">
+            <select id="ix-f-tipo" onchange="renderIntercambios()" title="Tipo" style="width:120px">
+              <option value="">Tipo: Todos</option>
+              <option value="C">Cruzado</option>
+              <option value="I">Interno</option>
+            </select>
+            <input type="number" id="ix-f-monto" placeholder="💰 Monto exacto..." oninput="renderIntercambios()" min="0" style="width:150px">
+            <button class="btn btn-ghost btn-sm" onclick="limpiarFiltrosIX()" style="white-space:nowrap">✕ Limpiar</button>
+          </div>
+          <!-- Fila 2: selects de caja y operador -->
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+            <span style="font-size:11px;color:var(--text2);white-space:nowrap">Filtrar por:</span>
+            <select id="ix-f-egresa" onchange="renderIntercambios()" style="flex:1;min-width:130px"><option value="">Egresa: Todas</option></select>
+            <select id="ix-f-ingresa" onchange="renderIntercambios()" style="flex:1;min-width:130px"><option value="">Ingresa: Todas</option></select>
+            <select id="ix-f-op1" onchange="renderIntercambios()" style="flex:1;min-width:130px"><option value="">OP1: Todos</option></select>
+            <select id="ix-f-op2" onchange="renderIntercambios()" style="flex:1;min-width:130px"><option value="">OP2: Todos</option></select>
+          </div>
         </div>
         <div class="tbl-wrap"><table>
           <thead><tr>
@@ -1766,6 +1774,15 @@ function renderDashboard() {
       : '';
   }
 
+  // ── Gastos del mes por método (todos los operadores) ──
+  const gasPorMet = {};
+  allGastosGlobal.forEach(g => {
+    if (getMesKey(g) !== mesActivo) return;
+    const key = METODOS.find(m => normMetodo(m) === normMetodo(g.metodo || '')) || g.metodo;
+    if (!key) return;
+    gasPorMet[key] = (gasPorMet[key] || 0) + (parseFloat(g.valor) || 0);
+  });
+
   // ── Cards de saldo final por método ──
   const cards = [];
   METODOS.forEach(m => {
@@ -1775,9 +1792,10 @@ function renderDashboard() {
     const ix  = net[metNorm] || 0;
     const rec = recPorMet[m] || 0;
     const pag = pagPorMet[m] || 0;
-    const fin = ini + ix - rec + pag;
-    if (ini === 0 && ix === 0 && rec === 0 && pag === 0) return; // omitir métodos sin datos
-    cards.push({ m, ini, ix, op: pag - rec, fin });
+    const gas = gasPorMet[m] || 0;
+    const fin = ini + ix - rec + pag - gas;
+    if (ini === 0 && ix === 0 && rec === 0 && pag === 0 && gas === 0) return; // omitir métodos sin datos
+    cards.push({ m, ini, ix, op: pag - rec, gas, fin });
   });
 
   const grid = document.getElementById('dash-metodos-grid');
@@ -3232,6 +3250,7 @@ function _renderCruceInline(cards) {
     ini:     c.ini  || 0,
     ix:      c.ix   || 0,
     op:      c.op   || 0,
+    gas:     c.gas  || 0,
     sistema: c.fin
   }));
 
@@ -3250,6 +3269,7 @@ function _renderCruceInline(cards) {
       <td style="${TD};text-align:right;color:var(--text2)">${row.ini ? pesos(row.ini) : '—'}</td>
       <td style="${TD};text-align:right;font-weight:600;color:${ixClr}">${fmtSigned(row.ix)}</td>
       <td style="${TD};text-align:right;font-weight:600;color:${opClr}">${fmtSigned(row.op)}</td>
+      <td style="${TD};text-align:right;font-weight:600;color:var(--red)">${row.gas ? '−'+pesos(row.gas) : '—'}</td>
       <td style="${TD};text-align:right;font-weight:700;color:${sisClr}">
         <span style="cursor:pointer" title="Clic para copiar al Físico Real" onclick="_copiarSistema(${i})">${pesos(row.sistema)}</span>
         <button onclick="_copiarSistema(${i})" title="Copiar valor del sistema al físico real"
@@ -3281,6 +3301,7 @@ function _renderCruceInline(cards) {
       <td id="cruce-tot-ini" style="padding:12px 16px;text-align:right;font-weight:700;color:var(--text2)">—</td>
       <td id="cruce-tot-ix"  style="padding:12px 16px;text-align:right;font-weight:700">—</td>
       <td id="cruce-tot-op"  style="padding:12px 16px;text-align:right;font-weight:700">—</td>
+      <td id="cruce-tot-gas" style="padding:12px 16px;text-align:right;font-weight:700;color:var(--red)">—</td>
       <td id="cruce-tot-sis" style="padding:12px 16px;text-align:right;font-weight:800;font-size:14px"></td>
       <td id="cruce-tot-fis" style="padding:12px 16px;text-align:right;font-weight:800;font-size:14px;color:var(--text2)">—</td>
       <td id="cruce-tot-dif" style="padding:12px 16px;text-align:right;font-weight:800;font-size:14px;color:var(--text2)">—</td>
@@ -3377,6 +3398,7 @@ function _actualizarCruce() {
   const totIni = _cruceData.reduce((s,r) => s + (r.ini||0), 0);
   const totIx  = _cruceData.reduce((s,r) => s + (r.ix||0),  0);
   const totOp  = _cruceData.reduce((s,r) => s + (r.op||0),  0);
+  const totGas = _cruceData.reduce((s,r) => s + (r.gas||0),  0);
 
   document.querySelectorAll('.cruce-fisico').forEach(inp => {
     const i   = parseInt(inp.dataset.idx);
@@ -3412,9 +3434,10 @@ function _actualizarCruce() {
   const totIniEl = document.getElementById('cruce-tot-ini');
   const totIxEl  = document.getElementById('cruce-tot-ix');
   const totOpEl  = document.getElementById('cruce-tot-op');
+  const totGasEl = document.getElementById('cruce-tot-gas');
   if (!totSisEl) return;
 
-  // Nuevos totales: S. Inicial, Intercambios, Saldo Op.
+  // Totales: S. Inicial, Intercambios, Saldo Op., Gastos
   if (totIniEl) { totIniEl.textContent = totIni ? pesos(totIni) : '—'; totIniEl.style.color = 'var(--text2)'; }
   if (totIxEl)  {
     totIxEl.textContent = totIx ? (totIx>0?'+':'')+pesos(Math.abs(totIx)) : '—';
@@ -3424,6 +3447,7 @@ function _actualizarCruce() {
     totOpEl.textContent = totOp ? (totOp>0?'+':'')+pesos(Math.abs(totOp)) : '—';
     totOpEl.style.color = totOp > 0 ? 'var(--green)' : totOp < 0 ? 'var(--red)' : 'var(--text2)';
   }
+  if (totGasEl) { totGasEl.textContent = totGas ? '−'+pesos(totGas) : '—'; totGasEl.style.color = totGas ? 'var(--red)' : 'var(--text2)'; }
 
   totSisEl.textContent = pesos(totSis);
   totSisEl.style.color = totSis < 0 ? 'var(--red)' : 'var(--green)';

@@ -5114,20 +5114,29 @@ function initSolicitudes() {
         rechazado: '<span style="background:rgba(224,80,80,.12);color:#e05050;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">❌ RECHAZADO</span>',
       }[e] || e);
 
-      list.innerHTML = docs.map(r => `
+      list.innerHTML = docs.map(r => {
+        // Soporte para solicitudes del cajero (op1_doc_id/op2_doc_id) y del operador (docId)
+        const quienSolicito = r.solicitante === 'cajero' ? '🔐 Cajero' : `👤 ${r.solicitante_nombre||'Operador'}`;
+        const op1Label = r.op1_nombre || '—';
+        const op2Label = r.op2_nombre || (r.operador2 || '—');
+        const egresa   = r.op1_egresa  || r.caja_egresa  || '—';
+        const ingresa  = r.op1_ingresa || r.caja_ingresa || '—';
+        return `
         <div style="border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px;background:var(--bg3);${r.estado==='pendiente'?'border-color:rgba(220,38,38,.4)':'opacity:.6'}">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
             <div style="flex:1">
               <div style="font-size:13px;font-weight:700;margin-bottom:6px">
-                Intercambio <b>${r.ix_id || r.docId || '—'}</b> &nbsp;${estadoBadge(r.estado)}
+                Intercambio <b>${r.ix_id || r.docId || r.globalId?.slice(0,8)||'—'}</b> &nbsp;${estadoBadge(r.estado)}
               </div>
               <div style="font-size:12px;color:var(--text2);margin-bottom:3px">
                 📅 ${r.fecha||'—'} &nbsp;·&nbsp; 💰 ${fmtM(r.monto)}
-                &nbsp;·&nbsp; <span style="color:#e05050">${r.caja_egresa||'—'}</span>
-                → <span style="color:#24BF62">${r.caja_ingresa||'—'}</span>
+                &nbsp;·&nbsp; <span style="color:#e05050">${egresa}</span> → <span style="color:#24BF62">${ingresa}</span>
+              </div>
+              <div style="font-size:12px;color:var(--text2);margin-bottom:4px">
+                OP1: <b>${op1Label}</b> &nbsp;·&nbsp; OP2: <b>${op2Label}</b>
               </div>
               <div style="font-size:12px;color:var(--text2);margin-bottom:8px">
-                👤 Solicitado por <b style="color:var(--text)">${r.solicitante_nombre||'—'}</b> · ${fmtTs(r.ts)}
+                Solicitado por <b style="color:var(--text)">${quienSolicito}</b> · ${fmtTs(r.ts)}
               </div>
               <div style="background:var(--bg2);border-radius:6px;padding:8px 12px;font-size:12px">
                 <b style="color:var(--text2)">Motivo:</b> ${r.motivo||'—'}
@@ -5135,7 +5144,7 @@ function initSolicitudes() {
             </div>
             ${r.estado === 'pendiente' ? `
             <div style="display:flex;flex-direction:column;gap:8px;flex-shrink:0">
-              <button onclick="aprobarElimAdmin('${r.id}','${r.docId}','${r.globalId||''}')"
+              <button onclick="aprobarElimAdmin('${r.id}','${r.docId||''}','${r.globalId||''}','${r.op1_doc_id||''}','${r.op2_doc_id||''}')"
                 style="padding:8px 16px;border-radius:8px;border:none;background:#dc2626;color:#fff;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">
                 ✅ Confirmar y Eliminar
               </button>
@@ -5145,7 +5154,8 @@ function initSolicitudes() {
               </button>
             </div>` : ''}
           </div>
-        </div>`).join('');
+        </div>`;
+      }).join('');
     }, err => {
       list.innerHTML = `<div style="color:#e05050;padding:16px">Error: ${err.message}</div>`;
     });
@@ -5214,12 +5224,18 @@ function initSolicitudes() {
   }
 }
 
-async function aprobarElimAdmin(requestId, docId, globalId) {
-  if (!confirm('¿Confirmar eliminación?\n\nSe borrará el intercambio del operador, registro global y del cajero.')) return;
+async function aprobarElimAdmin(requestId, docId, globalId, op1DocId, op2DocId) {
+  if (!confirm('¿Confirmar eliminación?\n\nSe borrará el intercambio de ambos operadores y el registro global.')) return;
   try {
     const batch = db.batch();
-    if (docId)    batch.delete(db.collection('patriarca_intercambios').doc(docId));
-    if (globalId) batch.delete(db.collection('patriarca_ix_global').doc(globalId));
+    // Intercambio del operador solicitante (solicitudes desde operador)
+    if (docId)     batch.delete(db.collection('patriarca_intercambios').doc(docId));
+    // Registros op1 y op2 (solicitudes desde cajero)
+    if (op1DocId)  batch.delete(db.collection('patriarca_intercambios').doc(op1DocId));
+    if (op2DocId)  batch.delete(db.collection('patriarca_intercambios').doc(op2DocId));
+    // Registro global
+    if (globalId)  batch.delete(db.collection('patriarca_ix_global').doc(globalId));
+    // Notificaciones entrantes pendientes
     if (globalId) {
       const incSnap = await db.collection('patriarca_ix_incoming')
         .where('global_id', '==', globalId).get();

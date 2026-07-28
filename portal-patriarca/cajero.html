@@ -1161,14 +1161,26 @@ async function eliminarIX(globalId) {
   const ix = ixGlobal.find(x => x.id === globalId);
   if (!ix) return;
   const detalle = `${ix.op1_nombre||'Op1'} | ${ix.op1_egresa||'—'} → ${ix.op1_ingresa||'—'} | ${pesos(ix.monto)} | ${fmtDate(ix.fecha)}`;
-  if (!confirm(`¿Eliminar este intercambio?\n\n${detalle}\n\nEsta acción no se puede deshacer.`)) return;
+  const motivo = prompt(`SOLICITAR ELIMINACIÓN\n\n${detalle}\n\n¿Motivo? (obligatorio — el administrador debe aprobar antes de eliminar)`);
+  if (motivo === null) return;
+  if (!motivo.trim()) { toast('⚠ Debes indicar el motivo', 'error'); return; }
   try {
-    const batch = db.batch();
-    batch.delete(db.collection('patriarca_ix_global').doc(globalId));
-    if (ix.op1_doc_id) batch.delete(db.collection('patriarca_intercambios').doc(ix.op1_doc_id));
-    if (ix.op2_doc_id) batch.delete(db.collection('patriarca_intercambios').doc(ix.op2_doc_id));
-    await batch.commit();
-    toast('🗑 Intercambio eliminado', 'success');
+    await db.collection('patriarca_ix_delete_requests').add({
+      globalId,
+      op1_doc_id:  ix.op1_doc_id || null,
+      op2_doc_id:  ix.op2_doc_id || null,
+      op1_nombre:  ix.op1_nombre || '',
+      op2_nombre:  ix.op2_nombre || '',
+      op1_egresa:  ix.op1_egresa || '',
+      op1_ingresa: ix.op1_ingresa || '',
+      monto:       ix.monto || 0,
+      fecha:       ix.fecha || '',
+      motivo:      motivo.trim(),
+      solicitante: 'cajero',
+      estado:      'pendiente',
+      ts:          firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    toast('📤 Solicitud enviada — el administrador debe aprobarla', 'info');
   } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
 }
 

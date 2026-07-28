@@ -2646,33 +2646,40 @@ function renderCajasMetodo(metodo) {
       <button onclick="cajasVista='dias';renderCajasMetodo(cajasMetodo)" style="${btnBase};border-left:1px solid var(--border);${cajasVista==='dias'?'background:var(--gold);color:#000;font-weight:700':'background:var(--bg2);color:var(--text2)'}">📅 Por Días</button>
     </div>`;
 
-  // Barra de filtros
+  // Barra de filtros en 2 filas
   const filterBar = `
-    <div style="display:flex;gap:8px;padding:10px 14px;background:var(--bg);border-bottom:1px solid var(--border);flex-wrap:wrap;align-items:center">
-      ${vistaToggle}
+    <div style="display:flex;flex-direction:column;gap:6px;padding:10px 14px;background:var(--bg);border-bottom:1px solid var(--border)">
+      <!-- Fila 1: vista + selects principales -->
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        ${vistaToggle}
+        ${cajasVista==='detalle' ? `
+        <select style="${fStyle};flex:1;min-width:130px" onchange="updateCajasFilter('operador',this.value)">
+          <option value="">👤 Todos los operadores</option>
+          ${opOptions}
+        </select>
+        <select style="${fStyle};min-width:120px" onchange="updateCajasFilter('tipo',this.value)">
+          <option value="">📋 Tipos</option>
+          <option value="RECARGAS"${cajasFilter.tipo==='RECARGAS'?' selected':''}>RECARGAS</option>
+          <option value="PAGOS"${cajasFilter.tipo==='PAGOS'?' selected':''}>PAGOS</option>
+        </select>
+        <select style="${fStyle};min-width:130px" onchange="updateCajasFilter('estado',this.value)">
+          <option value="">🔘 Estados</option>
+          <option value="Realizada"${cajasFilter.estado==='Realizada'?' selected':''}>✅ Realizada</option>
+          <option value="Pendiente"${cajasFilter.estado==='Pendiente'?' selected':''}>⏳ Pendiente</option>
+          <option value="Rechazada"${cajasFilter.estado==='Rechazada'?' selected':''}>❌ Rechazada</option>
+        </select>
+        ` : ''}
+      </div>
+      <!-- Fila 2: fechas + búsqueda + limpiar -->
       ${cajasVista==='detalle' ? `
-      <select style="${fStyle}" onchange="updateCajasFilter('operador',this.value)">
-        <option value="">👤 Todos los operadores</option>
-        ${opOptions}
-      </select>
-      <select style="${fStyle}" onchange="updateCajasFilter('tipo',this.value)">
-        <option value="">📋 Todos los tipos</option>
-        <option value="RECARGAS"${cajasFilter.tipo==='RECARGAS'?' selected':''}>RECARGAS</option>
-        <option value="PAGOS"${cajasFilter.tipo==='PAGOS'?' selected':''}>PAGOS</option>
-      </select>
-      <select style="${fStyle}" onchange="updateCajasFilter('estado',this.value)">
-        <option value="">🔘 Todos los estados</option>
-        <option value="Realizada"${cajasFilter.estado==='Realizada'?' selected':''}>✅ Realizada</option>
-        <option value="Pendiente"${cajasFilter.estado==='Pendiente'?' selected':''}>⏳ Pendiente</option>
-        <option value="Rechazada"${cajasFilter.estado==='Rechazada'?' selected':''}>❌ Rechazada</option>
-      </select>
-      <input type="date" style="${fStyle}" value="${cajasFilter.fechaDesde}" onchange="updateCajasFilter('fechaDesde',this.value)" title="Desde">
-      <span style="color:var(--text2);font-size:11px">—</span>
-      <input type="date" style="${fStyle}" value="${cajasFilter.fechaHasta}" onchange="updateCajasFilter('fechaHasta',this.value)" title="Hasta">
-      <input id="cajas-search" type="text" style="${fStyle};min-width:160px" value="${cajasFilter.cliente.replace(/"/g,'&quot;')}" oninput="updateCajasFilter('cliente',this.value)" placeholder="🔍 Buscar cliente...">
-      ${hayFiltros ? `<button onclick="limpiarCajasFilter()" style="background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.3);border-radius:6px;color:var(--red);font-size:12px;padding:5px 10px;cursor:pointer;font-family:inherit">✕ Limpiar</button>` : ''}
-      ${hayFiltros ? `<span style="color:var(--text2);font-size:11px">${movsF.length} de ${allMovs.length}</span>` : ''}
-      ` : ''}
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <input type="date" style="${fStyle};min-width:130px" value="${cajasFilter.fechaDesde}" onchange="updateCajasFilter('fechaDesde',this.value)" title="Desde">
+        <span style="color:var(--text2);font-size:11px">—</span>
+        <input type="date" style="${fStyle};min-width:130px" value="${cajasFilter.fechaHasta}" onchange="updateCajasFilter('fechaHasta',this.value)" title="Hasta">
+        <input id="cajas-search" type="text" style="${fStyle};flex:1;min-width:180px" value="${cajasFilter.cliente.replace(/"/g,'&quot;')}" oninput="updateCajasFilter('cliente',this.value)" placeholder="🔍 Buscar cliente...">
+        ${hayFiltros ? `<button onclick="limpiarCajasFilter()" style="background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.3);border-radius:6px;color:var(--red);font-size:12px;padding:5px 10px;cursor:pointer;font-family:inherit;white-space:nowrap">✕ Limpiar</button>` : ''}
+        ${hayFiltros ? `<span style="color:var(--text2);font-size:11px;white-space:nowrap">${movsF.length} de ${allMovs.length}</span>` : ''}
+      </div>` : ''}
     </div>`;
 
   // Filas de la tabla

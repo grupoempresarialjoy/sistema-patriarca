@@ -1443,11 +1443,12 @@ function calcNetIX() {
       if (!(met in net)) net[met] = 0;
       net[met] += delta;
     };
-    if (ix.tipo === 'I') {
+    if (ix.tipo === 'I' || (ix.tipo === 'C' && (!ix.op2_uid || ix.op2_nombre === 'Propio'))) {
+      // Interno O Cruzado Propio (mismo operador): mueve saldo entre métodos en el global
       add(ix.op1_egresa,  -m);
       add(ix.op1_ingresa, +m);
     }
-    // Cruzados: op1 y op2 se cancelan entre sí por método (net 0), se omiten del saldo global
+    // Cruzados entre 2 operadores distintos: op1 y op2 se cancelan → net global 0, se omiten
   });
   return net;
 }

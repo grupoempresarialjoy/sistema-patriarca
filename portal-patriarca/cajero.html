@@ -1070,7 +1070,7 @@ function renderIntercambios() {
     const op1Val = op1El.value;
     const op2Val = op2El.value;
     const ops1 = [...new Set(historial.map(ix => ix.op1_nombre).filter(Boolean))].sort();
-    const ops2 = [...new Set(historial.map(ix => ix.op2_nombre).filter(Boolean))].sort();
+    const ops2 = [...new Set(historial.map(ix => ix.op2_nombre || 'Propio'))].sort(); // incluir nulos como 'Propio'
     op1El.innerHTML = '<option value="">OP1: Todos</option>' + ops1.map(o=>`<option value="${o}">${o}</option>`).join('');
     op2El.innerHTML = '<option value="">OP2: Todos</option>' + ops2.map(o=>`<option value="${o}">${o}</option>`).join('');
     op1El.value = op1Val;
@@ -1102,7 +1102,7 @@ function renderIntercambios() {
   if (fEgresa)  filtrado = filtrado.filter(ix => ix.op1_egresa  === fEgresa);
   if (fIngresa) filtrado = filtrado.filter(ix => ix.op1_ingresa === fIngresa);
   if (fOp1)     filtrado = filtrado.filter(ix => (ix.op1_nombre||'') === fOp1);
-  if (fOp2)     filtrado = filtrado.filter(ix => (ix.op2_nombre||'') === fOp2);
+  if (fOp2)     filtrado = filtrado.filter(ix => (ix.op2_nombre||'Propio') === fOp2);
   if (fMonto !== null) filtrado = filtrado.filter(ix => Number(ix.monto) === fMonto);
 
   // Contador

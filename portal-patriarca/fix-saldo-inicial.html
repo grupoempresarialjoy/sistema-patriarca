@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Diagnóstico Saldo Inicial</title>
+<style>
+:root{--bg:#0d0f14;--bg2:#13161d;--bg3:#1a1e28;--border:#2a2f3f;--text:#e8eaf0;--text2:#8890a8;--green:#24BF62;--red:#e05050;--orange:#f0a050;--blue:#4a9eff;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;font-size:13px;padding:24px;}
+h1{font-size:18px;margin-bottom:4px;}
+.sub{color:var(--text2);font-size:12px;margin-bottom:24px;line-height:1.8;}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:16px;}
+.green{color:var(--green);} .red{color:var(--red);} .orange{color:var(--orange);} .blue{color:var(--blue);}
+button{border:none;border-radius:7px;padding:9px 18px;font-size:13px;font-weight:600;cursor:pointer;}
+.btn-blue{background:#1e40af;color:#fff;} .btn-green{background:#166534;color:#fff;}
+button:disabled{opacity:.45;cursor:not-allowed;}
+table{width:100%;border-collapse:collapse;font-size:12px;}
+th{text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text2);font-weight:600;}
+td{padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.04);vertical-align:top;}
+.mono{font-family:monospace;font-size:11px;}
+#log{font-family:monospace;font-size:11px;line-height:1.8;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px;max-height:300px;overflow-y:auto;white-space:pre-wrap;}
+.login-box{max-width:320px;margin:80px auto;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:28px;}
+.login-box input{width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:9px 12px;font-size:13px;margin-bottom:10px;}
+.tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;}
+.tag-ok{background:rgba(36,191,98,.15);color:var(--green);}
+.tag-warn{background:rgba(240,160,80,.15);color:var(--orange);}
+</style>
+</head>
+<body>
+
+<div id="login-section">
+  <div class="login-box">
+    <h1 style="text-align:center;margin-bottom:16px">🔍 Diagnóstico Saldo Inicial</h1>
+    <input type="email" id="email" placeholder="Email admin">
+    <input type="password" id="pwd" placeholder="Contraseña">
+    <div id="login-err" style="color:var(--red);font-size:11px;margin-bottom:8px;display:none"></div>
+    <button class="btn-blue" style="width:100%" onclick="doLogin()">Ingresar</button>
+  </div>
+</div>
+
+<div id="main-section" style="display:none">
+  <h1>🔍 Diagnóstico: Saldo Inicial de Clientes</h1>
+  <p class="sub">Busca TODOS los documentos en patriarca_saldo_inicial para identificar el problema de Ronaldo / Julio 2026</p>
+
+  <div class="card">
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
+      <button class="btn-blue" onclick="buscarTodo()">🔍 Buscar todos los docs</button>
+      <button class="btn-blue" onclick="buscarOperadores()">👥 Ver UIDs de operadores</button>
+      <input id="inp-mes" value="2026-07" placeholder="Mes (2026-07)" style="padding:7px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);width:120px;">
+      <button class="btn-green" onclick="buscarMes()">📅 Buscar por mes</button>
+    </div>
+    <div id="results">Presiona un botón para comenzar.</div>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-bottom:10px;font-size:14px">📋 Log</h2>
+    <div id="log">—</div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+firebase.initializeApp({
+  apiKey:"AIzaSyBQ42PzffxkEUEJVaPIVxHPKDqA_wk6IS0",
+  authDomain:"portal-patriarca-aj16.firebaseapp.com",
+  projectId:"portal-patriarca-aj16",
+  storageBucket:"portal-patriarca-aj16.firebasestorage.app",
+  messagingSenderId:"1073575698338",
+  appId:"1:1073575698338:web:f014083b3092c6dc245cfb"
+});
+const auth=firebase.auth(), db=firebase.firestore();
+
+function doLogin(){
+  const e=document.getElementById('email').value.trim(), p=document.getElementById('pwd').value;
+  const err=document.getElementById('login-err'); err.style.display='none';
+  auth.signInWithEmailAndPassword(e,p).catch(ex=>{err.textContent=ex.message;err.style.display='block';});
+}
+auth.onAuthStateChanged(u=>{
+  document.getElementById('login-section').style.display=u?'none':'block';
+  document.getElementById('main-section').style.display=u?'block':'none';
+});
+document.addEventListener('keydown',e=>{
+  if(e.key==='Enter'&&document.getElementById('login-section').style.display!=='none') doLogin();
+});
+
+function log(msg){const el=document.getElementById('log');el.textContent+=msg+'\n';el.scrollTop=el.scrollHeight;}
+function peso(n){return '$'+Math.round(n||0).toLocaleString('es-CO');}
+
+async function buscarTodo(){
+  document.getElementById('log').textContent='';
+  document.getElementById('results').innerHTML='⏳ Cargando...';
+  log('Cargando todos los documentos de patriarca_saldo_inicial...');
+  const snap = await db.collection('patriarca_saldo_inicial').get();
+  log(`Total docs encontrados: ${snap.docs.length}`);
+  mostrarDocs(snap.docs);
+}
+
+async function buscarMes(){
+  const mes = document.getElementById('inp-mes').value.trim();
+  if(!mes){alert('Ingresa un mes (ej: 2026-07)');return;}
+  document.getElementById('log').textContent='';
+  document.getElementById('results').innerHTML='⏳ Cargando...';
+  log(`Buscando docs para mes: ${mes}`);
+  const snap = await db.collection('patriarca_saldo_inicial').where('mes','==',mes).get();
+  log(`Docs encontrados para ${mes}: ${snap.docs.length}`);
+  mostrarDocs(snap.docs);
+}
+
+async function buscarOperadores(){
+  document.getElementById('log').textContent='';
+  document.getElementById('results').innerHTML='⏳ Cargando...';
+  log('Cargando operadores desde admin_usuarios...');
+  const snap = await db.collection('admin_usuarios').where('rol','==','operador').get();
+  log(`Operadores encontrados: ${snap.docs.length}`);
+  const rows = snap.docs.map(d=>{
+    const data=d.data();
+    const uid_field = data.uid || '(sin campo uid)';
+    const doc_id    = d.id;
+    const match     = uid_field === doc_id ? '✓ igual' : '⚠ DIFERENTE';
+    log(`  ${data.nombre||data.email}: doc_id=${doc_id} | uid_field=${uid_field} | ${match}`);
+    return `<tr>
+      <td>${data.nombre||data.email||'—'}</td>
+      <td class="mono">${doc_id}</td>
+      <td class="mono">${uid_field}</td>
+      <td class="${uid_field===doc_id?'green':'red'}">${match}</td>
+    </tr>`;
+  });
+  document.getElementById('results').innerHTML=`
+    <table>
+      <thead><tr><th>Nombre</th><th>doc_id (Firestore)</th><th>uid (campo)</th><th>¿Coinciden?</th></tr></thead>
+      <tbody>${rows.join('')}</tbody>
+    </table>`;
+}
+
+function mostrarDocs(docs){
+  if(!docs.length){
+    document.getElementById('results').innerHTML='<div style="color:var(--red);padding:16px">⚠ No se encontraron documentos.</div>';
+    return;
+  }
+  const rows = docs.map(d=>{
+    const data=d.data();
+    const saldos=data.saldos||{};
+    let total=0;
+    const clientCount=Object.keys(saldos).length;
+    Object.values(saldos).forEach(casaMap=>Object.values(casaMap||{}).forEach(v=>total+=parseFloat(v)||0));
+    log(`  Doc: ${d.id} | mes: ${data.mes||'?'} | clientes: ${clientCount} | total: ${peso(total)}`);
+    const mesTag = (data.mes||'').includes('2026-07')
+      ? '<span class="tag tag-ok">JULIO 2026</span>'
+      : `<span class="tag tag-warn">${data.mes||'?'}</span>`;
+    return `<tr>
+      <td class="mono">${d.id}</td>
+      <td>${mesTag}</td>
+      <td>${clientCount} clientes</td>
+      <td class="green">${peso(total)}</td>
+      <td class="mono" style="color:var(--text2);font-size:10px">${data.updatedAt?.seconds?new Date(data.updatedAt.seconds*1000).toLocaleString('es-CO'):'—'}</td>
+    </tr>`;
+  });
+  document.getElementById('results').innerHTML=`
+    <table>
+      <thead><tr><th>Doc ID (UID_mes)</th><th>Mes</th><th>Clientes</th><th>Total saldos</th><th>Última actualización</th></tr></thead>
+      <tbody>${rows.join('')}</tbody>
+    </table>`;
+}
+</script>
+</body>
+</html>

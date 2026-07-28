@@ -2605,7 +2605,10 @@ function renderCajasMetodo(metodo) {
     else { totalPagos += monto; runSaldo += monto; }
     saldoMap.set(mv.id, runSaldo);
   });
-  const saldoFinal = saldoInicial - totalRecargas + totalPagos;
+  // Intercambios netos del método en el mes activo
+  const _ixNet   = calcNetIX();
+  const ixNeto   = _ixNet[normMetodo(metodo)] || 0;
+  const saldoFinal = saldoInicial - totalRecargas + totalPagos + ixNeto;
 
   // Aplicar filtros
   let movsF = allMovs;
@@ -2727,6 +2730,7 @@ function renderCajasMetodo(metodo) {
       <div><div class="cajas-kpi-label">Saldo Inicial</div><div class="cajas-kpi-value" style="color:var(--gold)">${pesos(saldoInicial)}</div></div>
       <div><div class="cajas-kpi-label">Recargas${hayFiltros&&cajasVista==='detalle'?' ·filtro':''}</div><div class="cajas-kpi-value" style="color:var(--red)">-${pesos(cajasVista==='dias'?totalRecargas:showRecargas)}</div></div>
       <div><div class="cajas-kpi-label">Pagos${hayFiltros&&cajasVista==='detalle'?' ·filtro':''}</div><div class="cajas-kpi-value" style="color:var(--green)">+${pesos(cajasVista==='dias'?totalPagos:showPagos)}</div></div>
+      ${ixNeto!==0?`<div><div class="cajas-kpi-label">Intercambios</div><div class="cajas-kpi-value" style="color:${ixNeto>=0?'var(--blue)':'var(--red)'}">${ixNeto>=0?'+':''}${pesos(Math.abs(ixNeto))}</div></div>`:''}
       <div><div class="cajas-kpi-label">Saldo Final</div><div class="cajas-kpi-value" style="color:${saldoFinal>=0?'var(--green)':'var(--red)'}">${pesos(saldoFinal)}</div></div>
       ${pendientes>0?`<div style="margin-left:auto"><span class="badge badge-yellow">⏳ ${pendientes} pendiente${pendientes>1?'s':''}</span></div>`:''}
     </div>`;

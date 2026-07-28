@@ -123,9 +123,26 @@ select option{background:var(--bg3)}
 #ci-admin-wrap table thead th:first-child{z-index:4}
 @media(max-width:600px){.form-grid{grid-template-columns:1fr}.form-group.span2{grid-column:span 1}.kpi-grid{grid-template-columns:repeat(2,1fr)}}
 /* ── ESF OPERADORES ── */
-.esf-op-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:16px;padding:16px 0}
-.esf-op-card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px}
-.esf-op-card h4{margin:0 0 10px;font-size:14px;font-weight:700;border-bottom:1px solid var(--border);padding-bottom:8px}
+.esf-op-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,400px));gap:16px;padding:16px 0;justify-content:start}
+.esf-op-card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px;min-width:0}
+.esf-op-card h4{margin:0 0 8px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);padding-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* ESF tabla view */
+.esf-tabla-wrap{overflow-x:auto;border-radius:8px;border:1px solid var(--border);margin-top:16px}
+.esf-tabla{width:100%;border-collapse:collapse;font-size:12px}
+.esf-tabla th{padding:8px 14px;text-align:right;font-size:11px;font-weight:700;color:var(--text2);background:var(--bg2);border-bottom:2px solid var(--border);white-space:nowrap;letter-spacing:.04em}
+.esf-tabla th:first-child{text-align:left;position:sticky;left:0;background:var(--bg2);z-index:3;min-width:200px;border-right:1px solid var(--border)}
+.esf-tabla td{padding:5px 14px;text-align:right;border-bottom:1px solid rgba(255,255,255,.04);white-space:nowrap;font-size:12px}
+.esf-tabla td:first-child{text-align:left;position:sticky;left:0;background:var(--bg);z-index:2;color:var(--text2);font-size:11px;border-right:1px solid var(--border);padding-left:16px}
+.esf-tabla tr:hover td{background:rgba(255,255,255,.025)}
+.esf-tabla tr:hover td:first-child{background:var(--bg2)}
+.esf-tabla .row-section td{font-size:10px;font-weight:700;color:var(--text2);letter-spacing:.07em;background:var(--bg3) !important;text-transform:uppercase;border-top:2px solid var(--border);padding:6px 14px}
+.esf-tabla .row-section td:first-child{background:var(--bg3) !important}
+.esf-tabla .row-total td{font-weight:700;font-size:13px;background:rgba(255,255,255,.025) !important;border-top:1px solid var(--border)}
+.esf-tabla .row-total td:first-child{background:var(--bg2) !important}
+.esf-tabla .row-cuadre-ok td{background:rgba(36,191,98,.07) !important;color:var(--green);font-weight:700}
+.esf-tabla .row-cuadre-err td{background:rgba(224,80,80,.07) !important;color:var(--red);font-weight:700}
+.esf-vista-btn{border:none;padding:5px 14px;font-size:12px;cursor:pointer;font-family:inherit;transition:all .15s;background:var(--bg2);color:var(--text2)}
+.esf-vista-btn.activa{background:var(--purple);color:#fff;font-weight:700}
 .esf-op-cuadre{font-size:11px;padding:5px 10px;border-radius:6px;margin-bottom:10px;font-weight:700}
 .esf-op-cuadre.ok{background:rgba(36,191,98,.12);color:var(--green)}
 .esf-op-cuadre.err{background:rgba(224,80,80,.12);color:var(--red)}
@@ -226,6 +243,7 @@ select option{background:var(--bg3)}
     <div class="tab" onclick="showTab('config')">⚙️ Config</div>
     <div class="tab" onclick="showTab('auditor')">🔍 Auditor</div>
     <div class="tab" onclick="showTab('esf-ops');initESFOps()">📋 ESF Ops</div>
+    <div class="tab" id="tab-liquidaciones" onclick="showTab('liquidaciones');initLiquidaciones()">💳 Liquidaciones</div>
   </nav>
 
   <main>
@@ -304,8 +322,8 @@ select option{background:var(--bg3)}
         </div>
         <div class="tbl-wrap">
           <table>
-            <thead><tr><th>Nombre</th><th>Correo / Usuario</th><th>Rol</th><th>Oficina</th><th>Estado</th><th>Acciones</th></tr></thead>
-            <tbody id="users-tbody"><tr><td colspan="6"><div class="empty"><div class="empty-icon">👤</div>Sin usuarios registrados</div></td></tr></tbody>
+            <thead><tr><th>Nombre</th><th>Correo / Usuario</th><th>UID</th><th>Rol</th><th>Oficina</th><th>Estado</th><th>Acciones</th></tr></thead>
+            <tbody id="users-tbody"><tr><td colspan="7"><div class="empty"><div class="empty-icon">👤</div>Sin usuarios registrados</div></td></tr></tbody>
           </table>
         </div>
       </div>
@@ -467,6 +485,7 @@ select option{background:var(--bg3)}
           </select>
           <select id="si-sel-mes" onchange="loadSaldoInicialAdmin()" style="padding:7px 10px;font-size:12px;min-width:150px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text)"></select>
           <button class="btn btn-purple" onclick="saveSaldoInicialAdmin()">💾 Guardar</button>
+          <button class="btn" style="background:var(--bg3);border:1px solid var(--border);color:var(--text)" onclick="exportarSaldoInicialAdmin()" title="Descargar respaldo JSON">⬇ Backup</button>
         </div>
       </div>
       <div class="panel">
@@ -540,8 +559,15 @@ select option{background:var(--bg3)}
       </div>
       <!-- Intercambios -->
       <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text2);font-weight:700;padding:10px 4px 6px">🔄 Intercambios</div>
-      <div class="panel">
+      <div class="panel" style="margin-bottom:16px">
         <div class="panel-body" id="sol-ix-list">
+          <div style="text-align:center;color:var(--text2);padding:24px">⏳ Cargando...</div>
+        </div>
+      </div>
+      <!-- Inversiones -->
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text2);font-weight:700;padding:10px 4px 6px">🎯 Inversiones / Apuestas</div>
+      <div class="panel">
+        <div class="panel-body" id="sol-inv-list">
           <div style="text-align:center;color:var(--text2);padding:24px">⏳ Cargando...</div>
         </div>
       </div>
@@ -598,6 +624,40 @@ select option{background:var(--bg3)}
     </div>
 
     <!-- ESF OPERADORES -->
+    <!-- LIQUIDACIONES -->
+    <div class="section" id="sec-liquidaciones">
+      <div class="sec-header">
+        <div>
+          <div class="sec-title">💳 Liquidaciones</div>
+          <div class="sec-sub">Pagos registrados por operadores — pendientes de aprobación</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <select id="liq-admin-mes" onchange="initLiquidaciones()" style="padding:7px 10px;font-size:12px;min-width:160px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text)"></select>
+        </div>
+      </div>
+
+      <!-- ── CUENTAS DESTINO (config admin) ── -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:18px;margin-bottom:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+          <div>
+            <span style="font-size:13px;font-weight:700">🏦 Cuentas Destino para Operadores</span>
+            <span style="font-size:11px;color:var(--text2);margin-left:8px">El operador solo verá las cuentas habilitadas al registrar un pago</span>
+          </div>
+          <button onclick="guardarDestinosLiq()" id="btn-save-destinos"
+            style="padding:6px 14px;border-radius:6px;border:none;background:var(--green);color:#fff;font-size:12px;font-weight:700;cursor:pointer;opacity:.5;pointer-events:none">
+            Guardar cambios
+          </button>
+        </div>
+        <div id="destinos-liq-list" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">
+          <span style="color:var(--text2);font-size:12px">Cargando...</span>
+        </div>
+      </div>
+
+      <div id="liq-admin-container">
+        <div class="empty"><div class="empty-icon">💳</div><p>Selecciona un mes para ver los pagos pendientes</p></div>
+      </div>
+    </div>
+
     <div class="section" id="sec-esf-ops">
       <div class="sec-header">
         <div>
@@ -606,6 +666,10 @@ select option{background:var(--bg3)}
         </div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <select id="esf-ops-mes" style="padding:7px 10px;font-size:12px;min-width:160px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text)"></select>
+          <div style="display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden">
+            <button id="esf-btn-cards" class="esf-vista-btn activa" onclick="_esfVista='cards';document.getElementById('esf-btn-cards').classList.add('activa');document.getElementById('esf-btn-tabla').classList.remove('activa');_esfLastSnap&&_esfRenderVista()">🗂 Tarjetas</button>
+            <button id="esf-btn-tabla" class="esf-vista-btn" style="border-left:1px solid var(--border)" onclick="_esfVista='tabla';document.getElementById('esf-btn-tabla').classList.add('activa');document.getElementById('esf-btn-cards').classList.remove('activa');_esfLastSnap&&_esfRenderVista()">📊 Tabla</button>
+          </div>
           <button class="btn btn-purple" onclick="adminESFAll()">⟳ Calcular ESF</button>
         </div>
       </div>
@@ -1159,47 +1223,65 @@ async function doLogin() {
 
 function doLogout() { auth.signOut().then(() => location.reload()); }
 
+let _adminInited = false; // guard — evita inicializar dos veces
+
 auth.onAuthStateChanged(async user => {
-  if (!user) return;
+  if (!user) {
+    _adminInited = false;
+    return;
+  }
+  // Si ya se inicializó (Firebase puede disparar esto varias veces), no repetir
+  if (_adminInited) return;
 
   const email = user.email.toLowerCase();
 
-  // Verificar en Firestore si tiene rol admin
-  const adminDoc = await db.collection('admin_accesos').doc(user.uid).get();
+  try {
+    // Verificar en Firestore si tiene rol admin
+    const adminDoc = await db.collection('admin_accesos').doc(user.uid).get();
 
-  if (adminDoc.exists && adminDoc.data().rol === 'admin') {
-    // Acceso OK por Firestore
-    mostrarApp(adminDoc.data().nombre || user.email);
-  } else if (ADMIN_SEED[email]) {
-    // Seed admin (Ronaldo) — auto-registrar en Firestore si no existe
-    await db.collection('admin_accesos').doc(user.uid).set({
-      uid: user.uid, email, nombre: ADMIN_SEED[email], rol: 'admin',
-      username: email.split('@')[0], tipo: 'seed',
-      creadoEn: firebase.firestore.FieldValue.serverTimestamp(),
-    });
-    mostrarApp(ADMIN_SEED[email]);
-  } else {
-    // Fallback: verificar en admin_usuarios (puede que admin_accesos no se creó correctamente)
-    const usrSnap = await db.collection('admin_usuarios')
-      .where('uid','==',user.uid).where('rol','==','admin').get();
-    if (!usrSnap.empty) {
-      const usrData = usrSnap.docs[0].data();
-      // Auto-reparar: crear el documento admin_accesos que falta
-      await db.collection('admin_accesos').doc(user.uid).set({
-        uid: user.uid, email, nombre: usrData.nombre || email,
-        username: usrData.username || email.split('@')[0],
-        rol: 'admin', tipo: 'admin',
-        reparadoEn: firebase.firestore.FieldValue.serverTimestamp(),
-      });
-      mostrarApp(usrData.nombre || email);
+    if (adminDoc.exists && adminDoc.data().rol === 'admin') {
+      mostrarApp(adminDoc.data().nombre || user.email);
+    } else if (ADMIN_SEED[email]) {
+      // Seed admin — registrar si no existe (sin await para no bloquear)
+      db.collection('admin_accesos').doc(user.uid).set({
+        uid: user.uid, email, nombre: ADMIN_SEED[email], rol: 'admin',
+        username: email.split('@')[0], tipo: 'seed',
+        creadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true }).catch(e => console.warn('seed admin set:', e));
+      mostrarApp(ADMIN_SEED[email]);
     } else {
-      toast('⚠ Sin acceso de administrador', 'error');
-      await auth.signOut();
+      // Fallback: verificar en admin_usuarios
+      const usrSnap = await db.collection('admin_usuarios')
+        .where('uid','==',user.uid).where('rol','==','admin').get();
+      if (!usrSnap.empty) {
+        const usrData = usrSnap.docs[0].data();
+        db.collection('admin_accesos').doc(user.uid).set({
+          uid: user.uid, email, nombre: usrData.nombre || email,
+          username: usrData.username || email.split('@')[0],
+          rol: 'admin', tipo: 'admin',
+          reparadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true }).catch(e => console.warn('repair admin:', e));
+        mostrarApp(usrData.nombre || email);
+      } else {
+        toast('⚠ Sin acceso de administrador', 'error');
+        auth.signOut();
+      }
+    }
+  } catch(e) {
+    console.error('onAuthStateChanged error:', e);
+    // Si falla la verificación en Firestore, intentar seed como fallback
+    if (ADMIN_SEED[email]) {
+      console.warn('Firestore falló, acceso por seed');
+      mostrarApp(ADMIN_SEED[email]);
+    } else {
+      toast('⚠ Error de conexión al verificar acceso. Recarga la página.', 'error');
     }
   }
 });
 
 function mostrarApp(nombre) {
+  if (_adminInited) return; // guard doble
+  _adminInited = true;
   document.getElementById('auth-overlay').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
   document.getElementById('user-name').textContent = nombre;
@@ -1296,6 +1378,7 @@ async function loadCupoInicialAdmin() {
 
     // Cupo existente por operador — misma lógica
     const cupoData = {};
+    const cupoTotalData = {}; // uid → cupo total asignado (capital_propio + capital_asignado)
     await Promise.all(ciOps.map(op =>
       db.collection('patriarca_config').doc(op.uid).get().then(s => {
         const d = s.exists ? s.data() : {};
@@ -1304,17 +1387,21 @@ async function loadCupoInicialAdmin() {
         } else {
           cupoData[op.uid] = d.cupos_cajero || {}; // legacy fallback
         }
+        // CUPO TOTAL: usar el guardado en cupos_por_mes si existe, sino capital_propio + capital_asignado
+        const cupoTotalGuardado = cupoData[op.uid]?.['CUPO TOTAL'];
+        const cupoTotalCalc     = (parseFloat(d.capital_propio) || 0) + (parseFloat(d.capital_asignado) || 0);
+        cupoTotalData[op.uid]   = cupoTotalGuardado || cupoTotalCalc || 0;
       })
     ));
 
-    renderCupoInicialAdmin(cupoData);
+    renderCupoInicialAdmin(cupoData, cupoTotalData);
   } catch(e) {
     wrap.innerHTML = `<div class="empty"><div class="empty-icon">⚠️</div><p style="color:var(--red)">Error: ${e.message}</p></div>`;
     console.error('loadCupoInicialAdmin:', e);
   }
 }
 
-function renderCupoInicialAdmin(cupoData) {
+function renderCupoInicialAdmin(cupoData, cupoTotalData = {}) {
   const wrap = document.getElementById('ci-admin-wrap');
   if (!ciOps.length)    { wrap.innerHTML = '<div class="empty">Sin operadores para esta oficina</div>'; return; }
   if (!ciMetodos.length){ wrap.innerHTML = '<div class="empty">Sin métodos configurados</div>'; return; }
@@ -1339,6 +1426,22 @@ function renderCupoInicialAdmin(cupoData) {
   ciOps.forEach(op => { html += `<th style="text-align:right;min-width:150px">${op.nombre}</th>`; });
   html += `<th style="text-align:right;min-width:140px;color:var(--purple)">⚖️ DIFERENCIA</th>`;
   html += '</tr></thead><tbody>';
+
+  // ── Fila especial: CUPO TOTAL ASIGNADO (capital propio + asignado) ──────────
+  html += `<tr style="background:rgba(139,92,246,.12);border-bottom:2px solid rgba(139,92,246,.4)">
+    <td style="font-weight:800;color:#a78bfa;font-size:13px">🎯 CUPO TOTAL ASIGNADO</td>
+    <td style="text-align:right;color:var(--text2);font-size:11px;font-style:italic">— por operador</td>`;
+  ciOps.forEach(op => {
+    const v = cupoTotalData[op.uid] || 0;
+    html += `<td style="text-align:right">
+      <input class="ci-inp" type="text" id="ci-${op.uid}-CUPO_TOTAL"
+        value="${v ? ciNumToCOP(v) : ''}" placeholder="0"
+        style="border-color:#a78bfa;font-weight:700"
+        oninput="ciFormatInput(this)">
+    </td>`;
+  });
+  html += `<td style="text-align:right;color:var(--text2)">—</td></tr>
+  <tr style="height:6px;background:transparent"><td colspan="${2 + ciOps.length + 1}"></td></tr>`;
 
   ciMetodos.forEach(m => {
     const mk = m.replace(/ /g,'_');
@@ -1368,7 +1471,22 @@ function renderCupoInicialAdmin(cupoData) {
     html += `<td id="ci-tot-op-${op.uid}" class="${t<0?'ci-td-neg':'ci-td-pos'}" style="text-align:right;font-weight:700">${ciPesos(t)}</td>`;
   });
   html += `<td id="ci-tot-diff" class="${totDiff<0?'ci-td-neg':'ci-td-pos'}" style="text-align:right;font-weight:700">${ciPesos(totDiff)}</td>`;
-  html += '</tr></tfoot></table>';
+  html += '</tr>';
+
+  // ── Fila CUPO RESIDUAL = Cupo Total Asignado − Saldo Clientes Anterior ──
+  html += `<tr style="background:rgba(139,92,246,.1);border-top:2px solid rgba(139,92,246,.4)">
+    <td style="font-weight:800;color:#a78bfa;font-size:12px">📊 CUPO RESIDUAL<br><span style="font-weight:400;font-size:10px;color:var(--text2)">Cupo Total − Saldo Clientes Ant.</span></td>
+    <td style="text-align:right;color:var(--text2);font-size:11px">—</td>`;
+  ciOps.forEach(op => {
+    const cupoTotal = cupoTotalData[op.uid] || 0;
+    const saldoCli  = cupoData[op.uid]?.['SALDO CLIENTES ANTERIOR'] || 0;
+    const residual  = cupoTotal - saldoCli;
+    const col       = residual >= 0 ? 'var(--green)' : 'var(--red)';
+    html += `<td style="text-align:right;font-weight:800;font-size:14px;color:${col}" id="ci-residual-${op.uid}">${ciPesos(residual)}</td>`;
+  });
+  html += `<td style="text-align:right;color:var(--text2)">—</td></tr>`;
+
+  html += '</tfoot></table>';
   wrap.innerHTML = html;
 }
 
@@ -1500,6 +1618,11 @@ async function saveCupoInicialAdmin() {
         // Si el campo está en 0/vacío sin intención → conservar valor existente en Firestore
         cupos[m] = (uiVal !== 0 || explicitZero) ? uiVal : (existing[m] || 0);
       });
+      // Guardar también CUPO TOTAL ASIGNADO
+      const cupoTotalEl  = document.getElementById(`ci-${op.uid}-CUPO_TOTAL`);
+      const cupoTotalVal = ciParseCOP(cupoTotalEl?.value || '');
+      cupos['CUPO TOTAL'] = cupoTotalVal; // siempre guardar (0 si está vacío)
+
       // Guardar plano (backward compat) + por mes
       const cfgRef = db.collection('patriarca_config').doc(op.uid);
       const cfgUpdate = { cupos_cajero: cupos };
@@ -1507,7 +1630,53 @@ async function saveCupoInicialAdmin() {
       try { return cfgRef.update(cfgUpdate); }
       catch(_) { return cfgRef.set({ cupos_cajero: cupos, cupos_por_mes: { [mesSel]: cupos } }, { merge: true }); }
     }));
-    toast('✅ Cupo inicial guardado correctamente', 'success');
+    // ── Auto-guardar snapshot ESF inicial ──────────────────────────────────
+    // Guarda los valores "fijos" del mes para detectar si alguien los cambia
+    const prevMes = (() => {
+      const [y, m] = mesSel.split('-').map(Number);
+      const d = new Date(y, m - 2, 1); // mes anterior
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    })();
+    const uid_admin = auth.currentUser?.uid || '';
+    const email_admin = auth.currentUser?.email || 'admin';
+
+    await Promise.all(ciOps.map(async op => {
+      try {
+        // Cupos iniciales ya guardados arriba
+        const cfgSnap = await db.collection('patriarca_config').doc(op.uid).get();
+        const cuposIniciales = cfgSnap.exists ? (cfgSnap.data().cupos_por_mes?.[mesSel] || {}) : {};
+
+        // Clientes mes anterior — desde saldo_inicial del mes ACTUAL (fuente autorizada)
+        // saldo_inicial contiene los saldos ingresados manualmente por admin al cerrar mes
+        let clientesMesAnterior = 0;
+        try {
+          const siSnap = await db.collection('patriarca_saldo_inicial').doc(`${op.uid}_${mesSel}`).get({ source: 'server' });
+          if (siSnap.exists) {
+            const saldos = siSnap.data().saldos || {};
+            Object.values(saldos).forEach(casaMap => {
+              Object.values(casaMap || {}).forEach(v => { clientesMesAnterior += parseFloat(v) || 0; });
+            });
+            clientesMesAnterior = Math.round(clientesMesAnterior);
+          }
+          // Fallback: esf_resumen del mes previo si no hay saldo_inicial
+          if (!clientesMesAnterior) {
+            const prevSnap = await db.collection('patriarca_esf_resumen').doc(`${op.uid}_${prevMes}`).get();
+            if (prevSnap.exists) clientesMesAnterior = Math.round(prevSnap.data().totalClientes || 0);
+          }
+        } catch(_) {}
+
+        await db.collection('patriarca_esf_inicial').doc(`${op.uid}_${mesSel}`).set({
+          uid:               op.uid,
+          operadorNombre:    op.nombre || op.email || op.uid,
+          mesKey:            mesSel,
+          cuposIniciales,
+          clientesMesAnterior,
+          savedAt:           firebase.firestore.FieldValue.serverTimestamp(),
+          savedBy:           email_admin,
+        });
+      } catch(e) { console.warn('ESF inicial snapshot error:', op.uid, e); }
+    }));
+    toast('✅ Cupo inicial + snapshot ESF guardados', 'success');
   } catch(e) { toast('❌ ' + e.message, 'error'); }
   btn.disabled = false; btn.textContent = '💾 Guardar';
 }
@@ -1578,7 +1747,10 @@ function loadOficinas() {
     renderOficinasGrid();
     renderOficinasTabla();
     poblarSelectOficinasModal();
-  }, err => console.warn('oficinas:', err));
+  }, err => {
+    console.warn('oficinas:', err);
+    toast('⚠ Error cargando oficinas: ' + err.code, 'error');
+  });
 }
 
 function renderOficinasGrid() {
@@ -1731,6 +1903,9 @@ function loadUsuarios() {
   db.collection('admin_usuarios').onSnapshot(snap => {
     allUsers = snap.docs.map(d => ({id: d.id, ...d.data()}));
     renderUsuarios();
+  }, err => {
+    console.warn('usuarios:', err);
+    toast('⚠ Error cargando usuarios: ' + err.code, 'error');
   });
 }
 
@@ -1753,7 +1928,7 @@ function renderUsuarios() {
   document.getElementById('users-count').textContent = lista.length + ' usuario(s)';
 
   if (!lista.length) {
-    tbody.innerHTML = '<tr><td colspan="6"><div class="empty"><div class="empty-icon">👤</div>Sin usuarios</div></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7"><div class="empty"><div class="empty-icon">👤</div>Sin usuarios</div></td></tr>';
     return;
   }
 
@@ -1778,9 +1953,13 @@ function renderUsuarios() {
              color:${esInfo?'#a070ff':'var(--text2)'};border:1px solid ${esInfo?'rgba(160,112,255,.4)':'var(--border)'}">
            ${esInfo?'ℹ INFO':'— PPAL'}
          </button>` : '';
+    const uidDisplay = u.uid
+      ? `<span style="font-size:10px;font-family:monospace;color:var(--text2);cursor:pointer" title="Click para copiar" onclick="navigator.clipboard.writeText('${u.uid}');toast('UID copiado','success')">${u.uid.slice(0,8)}…</span>`
+      : '<span style="color:var(--text2)">—</span>';
     return `<tr style="${estado==='inactivo'?'opacity:.55':''}${esInfo?';font-style:italic':''}">
       <td style="font-weight:600">${u.nombre}${esInfo?' <span style="font-size:9px;color:#a070ff;font-weight:400">(informativo)</span>':''}</td>
       <td style="color:var(--text2);font-size:12px">${u.email || '—'}</td>
+      <td>${uidDisplay}</td>
       <td><span class="badge ${rolBadge}">${u.rol}</span></td>
       <td>${oficLabel}</td>
       <td>${estadoBadge}</td>
@@ -3007,7 +3186,10 @@ async function loadSaldoInicialAdmin() {
   // Cargar saldos de Firestore y convertir a lista de filas
   siRows = [];
   try {
-    const snap = await db.collection('patriarca_saldo_inicial').doc(`${opUid}_${mesKey}`).get({ source: 'server' });
+    const docKey = `${opUid}_${mesKey}`;
+    console.log('[SI Admin] Buscando doc:', docKey, '| opUid:', opUid, '| mesKey:', mesKey);
+    const snap = await db.collection('patriarca_saldo_inicial').doc(docKey).get({ source: 'server' });
+    console.log('[SI Admin] Doc exists:', snap.exists, snap.exists ? snap.data() : '(vacío)');
     if (snap.exists) {
       const saldos = snap.data().saldos || {};
       Object.entries(saldos).forEach(([clienteId, casaMap]) => {
@@ -3020,7 +3202,7 @@ async function loadSaldoInicialAdmin() {
         });
       });
     }
-  } catch(e) {}
+  } catch(e) { console.error('[SI Admin] Error al cargar:', e); }
 
   renderSiAdminTable();
 }
@@ -3221,11 +3403,26 @@ async function saveSaldoInicialAdmin() {
   const saldos = {};
   siRows.forEach(row => {
     const m = parseFloat(row.monto) || 0;
-    if (!m) return; // ignorar ceros
+    if (!m) return;
     if (!saldos[row.clienteId]) saldos[row.clienteId] = {};
-    // Si el mismo cliente+casa aparece más de una vez, sumar
     saldos[row.clienteId][row.casa] = (saldos[row.clienteId][row.casa] || 0) + m;
   });
+
+  // ── Protección: no permitir guardar tabla vacía si ya hay datos en Firestore ──
+  if (Object.keys(saldos).length === 0) {
+    // Verificar si ya hay datos guardados
+    try {
+      const existing = await db.collection('patriarca_saldo_inicial').doc(`${opUid}_${mesKey}`).get({ source: 'server' });
+      if (existing.exists && Object.keys(existing.data().saldos || {}).length > 0) {
+        const ok = confirm(
+          '⚠️ La tabla está vacía pero ya hay saldos guardados para este operador y mes.\n\n' +
+          'Si guardas ahora, SE BORRARÁN todos los saldos existentes.\n\n' +
+          '¿Estás seguro de que quieres borrar todos los saldos?'
+        );
+        if (!ok) { toast('Guardado cancelado — los saldos existentes se conservaron', 'info'); return; }
+      }
+    } catch(e) { console.warn('SI check existing:', e); }
+  }
 
   try {
     await db.collection('patriarca_saldo_inicial').doc(`${opUid}_${mesKey}`).set({
@@ -3234,12 +3431,30 @@ async function saveSaldoInicialAdmin() {
       saldos,
       updatedBy: 'admin',
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    });
+    }, { merge: true });
     toast('✅ Saldos iniciales guardados', 'success');
   } catch(e) {
     console.error(e);
     toast('Error al guardar: ' + e.message, 'error');
   }
+}
+
+async function exportarSaldoInicialAdmin() {
+  const opUid  = siAdminGetOp();
+  const mesKey = siAdminGetMes();
+  if (!opUid) { toast('Selecciona un operador primero', 'error'); return; }
+  try {
+    const snap = await db.collection('patriarca_saldo_inicial').doc(`${opUid}_${mesKey}`).get({ source: 'server' });
+    const opNombre = document.getElementById('si-sel-op').selectedOptions[0]?.text || opUid;
+    const data = snap.exists ? snap.data() : { saldos: {}, mes: mesKey, opId: opUid };
+    const json = JSON.stringify({ exportadoEn: new Date().toISOString(), operador: opNombre, ...data }, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `saldo_inicial_${opNombre.replace(/\s+/g,'_')}_${mesKey}.json`;
+    a.click();
+    toast('✅ Backup descargado', 'success');
+  } catch(e) { toast('Error al exportar: ' + e.message, 'error'); }
 }
 
 // ────────────────────── CORRECCIONES ──────────────────────
@@ -3979,10 +4194,15 @@ window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', _u
 // ESF POR OPERADOR — Estado de Situación Financiera consolidado
 // ═══════════════════════════════════════════════════════════════
 let _esfOpsInited = false;
-let _esfOpsListener = null;   // onSnapshot activo
-let _esfOpsAllOps   = {};     // uid → nombre de todos los operadores
-let _esfOpsMesKey   = null;   // mes actualmente visible
-let _esfProdMap     = {};     // uid → productividad calculada directamente
+let _esfOpsListener    = null;   // onSnapshot activo
+let _esfOpsAllOps      = {};     // uid → nombre de todos los operadores
+let _esfOpsMesKey      = null;   // mes actualmente visible
+let _esfProdMap        = {};     // uid → productividad calculada directamente
+let _esfInicialMap     = {};     // uid → patriarca_esf_inicial snapshot data
+let _esfCuposActuales  = {};     // uid → cupos_por_mes[mesKey] desde patriarca_config
+let _esfVista          = 'cards'; // 'cards' | 'tabla'
+let _esfLastSnap       = null;   // último snapshot de patriarca_esf_resumen
+let _esfLastMes        = '';     // texto del mes para renderizado
 
 function initESFOps() {
   const sel = document.getElementById('esf-ops-mes');
@@ -4004,16 +4224,19 @@ async function adminESFAll() {
   if (!mesKey) { toast('Selecciona un mes', 'error'); return; }
   const container = document.getElementById('esf-ops-container');
 
-  // Si el mes cambió, cancelar listener anterior
-  if (_esfOpsListener && _esfOpsMesKey !== mesKey) {
-    _esfOpsListener();
-    _esfOpsListener = null;
+  // Si el mes cambió, cancelar listener anterior y limpiar caches
+  if (_esfOpsMesKey !== mesKey) {
+    if (_esfOpsListener) { _esfOpsListener(); _esfOpsListener = null; }
+    _esfInicialMap    = {};
+    _esfCuposActuales = {};
+    _esfProdMap       = {};
+    _esfLastSnap      = null;
   }
   _esfOpsMesKey = mesKey;
 
   container.innerHTML = '<div style="padding:32px;text-align:center;color:var(--text2)">⏳ Cargando ESF de operadores…</div>';
 
-  // Cargar lista de operadores (una sola vez por sesión)
+  // ── 1. Cargar lista de operadores (una sola vez por sesión) ──
   if (!Object.keys(_esfOpsAllOps).length) {
     try {
       const opsSnap = await db.collection('admin_usuarios').where('rol','==','operador').get();
@@ -4024,140 +4247,242 @@ async function adminESFAll() {
     } catch(e) { console.warn('esf ops load:', e); }
   }
 
-  // ── Cargar productividad directamente desde movimientos e inversiones ──
-  // Esto funciona aunque el operador no haya recalculado su ESF
+  // ── 2. Listener inmediato — muestra tarjetas SIN esperar productividad ──
+  if (!_esfOpsListener) {
+    _esfOpsListener = db.collection('patriarca_esf_resumen')
+      .where('mesKey', '==', mesKey)
+      .onSnapshot(
+        snap => {
+          _esfLastSnap = snap;
+          _esfLastMes  = document.getElementById('esf-ops-mes')?.selectedOptions[0]?.text || mesKey;
+          _esfRenderVista();
+        },
+        err => { console.error(err); toast('Error ESF: ' + err.message, 'error'); }
+      );
+  }
+
+  // ── 3. Snapshots ESF inicial + cupos (pequeños, rápidos) en paralelo ──
   try {
-    _esfProdMap = {};
-    const [movSnap, invSnap] = await Promise.all([
-      db.collection('patriarca_movimientos').get(),
-      db.collection('patriarca_inversiones').get(),
+    const [iniSnap, cfgSnaps] = await Promise.all([
+      db.collection('patriarca_esf_inicial').where('mesKey', '==', mesKey).get(),
+      Object.keys(_esfOpsAllOps).length
+        ? Promise.all(Object.keys(_esfOpsAllOps).map(uid => db.collection('patriarca_config').doc(uid).get()))
+        : Promise.resolve([])
     ]);
-    // Filtrar por mes y agrupar por opId
+    iniSnap.docs.forEach(d => { const data = d.data(); if (data.uid) _esfInicialMap[data.uid] = data; });
+    cfgSnaps.forEach(s => {
+      if (!s.exists) return;
+      _esfCuposActuales[s.id] = s.data().cupos_por_mes?.[mesKey] || {};
+    });
+  } catch(e) { console.warn('ESF inicial load:', e); }
+
+  // ── 4. Productividad en SEGUNDO PLANO — no bloquea UI ──
+  _cargarProductividadESF(mesKey);
+}
+
+// Carga movimientos e inversiones en background; actualiza la vista al terminar
+async function _cargarProductividadESF(mesKey) {
+  try {
+    const [movSnap, invSnap] = await Promise.all([
+      db.collection('patriarca_movimientos')
+        .where('fecha', '>=', mesKey + '-01')
+        .where('fecha', '<=', mesKey + '-31')
+        .get(),
+      db.collection('patriarca_inversiones')
+        .where('fecha', '>=', mesKey + '-01')
+        .where('fecha', '<=', mesKey + '-31')
+        .get(),
+    ]);
+
+    const prod = {}, apMap = {};
     movSnap.docs.forEach(d => {
-      const m = d.data();
-      if (!(m.fecha||'').startsWith(mesKey)) return;
-      const uid = m.opId; if (!uid) return;
-      if (!_esfProdMap[uid]) _esfProdMap[uid] = { numRecargas:0,montoRecargas:0,numPagos:0,montoPagos:0,numInversiones:0,_cliSet:new Set() };
+      const m = d.data(); const uid = m.opId; if (!uid) return;
+      if (!prod[uid]) prod[uid] = { numRecargas:0,montoRecargas:0,numPagos:0,montoPagos:0,numInversiones:0,_cliSet:new Set() };
       const t = (m.tipo||'').toUpperCase();
       if (t==='RECARGAS'||t==='RECARGA') {
-        _esfProdMap[uid].numRecargas++;
-        _esfProdMap[uid].montoRecargas += parseFloat(m.monto)||0;
-        if (m.cliente_id||m.cliente) _esfProdMap[uid]._cliSet.add(m.cliente_id||m.cliente);
+        prod[uid].numRecargas++; prod[uid].montoRecargas += parseFloat(m.monto)||0;
+        if (m.cliente_id||m.cliente) prod[uid]._cliSet.add(m.cliente_id||m.cliente);
       }
-      if (t==='PAGOS'||t==='PAGO') {
-        _esfProdMap[uid].numPagos++;
-        _esfProdMap[uid].montoPagos += parseFloat(m.monto)||0;
-      }
+      if (t==='PAGOS'||t==='PAGO') { prod[uid].numPagos++; prod[uid].montoPagos += parseFloat(m.monto)||0; }
     });
     invSnap.docs.forEach(d => {
-      const i = d.data();
-      if (!(i.fecha||'').startsWith(mesKey)) return;
-      const uid = i.opId; if (!uid) return;
-      if (!_esfProdMap[uid]) _esfProdMap[uid] = { numRecargas:0,montoRecargas:0,numPagos:0,montoPagos:0,numInversiones:0,_cliSet:new Set() };
-      _esfProdMap[uid].numInversiones++;
-      if (i.cliente_id||i.cliente) _esfProdMap[uid]._cliSet.add(i.cliente_id||i.cliente);
+      const i = d.data(); const uid = i.opId; if (!uid) return;
+      if (!prod[uid]) prod[uid] = { numRecargas:0,montoRecargas:0,numPagos:0,montoPagos:0,numInversiones:0,_cliSet:new Set() };
+      prod[uid].numInversiones++;
+      if (i.cliente_id||i.cliente) prod[uid]._cliSet.add(i.cliente_id||i.cliente);
+      if (!apMap[uid]) apMap[uid] = {};
+      const apId = i.id_apuesta || d.id;
+      if (!apMap[uid][apId]) apMap[uid][apId] = { inv:0, ret:0, estado:'ABIERTO' };
+      const fondos = (i.fondos||'').toUpperCase();
+      if (fondos !== 'BONIFICACION') apMap[uid][apId].inv += parseFloat(i.monto)||0;
+      apMap[uid][apId].ret += parseFloat(i.retorno_cliente)||0;
+      if ((i.estado_evento||'ABIERTO')==='CERRADO') apMap[uid][apId].estado = 'CERRADO';
     });
-    // Convertir Set a count
-    Object.values(_esfProdMap).forEach(p => {
-      p.clientesUnicos = p._cliSet.size;
-      p.montoRecargas  = Math.round(p.montoRecargas);
-      p.montoPagos     = Math.round(p.montoPagos);
-      delete p._cliSet;
+    Object.entries(prod).forEach(([uid, p]) => {
+      p.clientesUnicos = p._cliSet.size; p.montoRecargas = Math.round(p.montoRecargas); p.montoPagos = Math.round(p.montoPagos); delete p._cliSet;
+      let inv = 0, util = 0;
+      Object.values(apMap[uid]||{}).forEach(ap => { if (ap.estado!=='CERRADO') inv+=ap.inv; else util+=ap.ret-ap.inv; });
+      p.invertido_live = Math.round(inv); p.utilidad_live = Math.round(util);
     });
+    _esfProdMap = prod;
+    if (_esfLastSnap) _esfRenderVista(); // re-render con productividad
   } catch(e) { console.warn('esf prod:', e); }
+}
 
-  // Función que re-renderiza cada vez que Firestore notifica cambio
-  function renderCards(esfSnap) {
-    const mes = document.getElementById('esf-ops-mes')?.selectedOptions[0]?.text || mesKey;
-    // Deduplicar por uid — si hay múltiples docs para el mismo operador, queda el más reciente
-    const esfMap = {}; // uid → data
-    esfSnap.docs.forEach(d => {
-      const data = d.data();
-      if (data.mesKey !== mesKey) return;
-      const opUid = data.uid || d.id.replace(/_\d{4}-\d{2}$/, '');
-      // Solo incluir operadores registrados (excluye cuentas admin)
-      if (!_esfOpsAllOps[opUid]) return;
-      const tsNuevo = data.actualizadoEn?.seconds || 0;
-      const tsExist = esfMap[opUid]?.actualizadoEn?.seconds || 0;
-      if (!esfMap[opUid] || tsNuevo > tsExist) esfMap[opUid] = { ...data, uid: opUid };
-    });
+// Render ESF — accesible globalmente para el toggle Tarjetas/Tabla
+function _esfRenderVista() {
+  const container = document.getElementById('esf-ops-container');
+  if (!container || !_esfLastSnap) return;
+  const mesKey = _esfOpsMesKey;
+  const mes    = _esfLastMes;
+  const esfMap = {};
+  _esfLastSnap.docs.forEach(d => {
+    const data = d.data();
+    if (data.mesKey !== mesKey) return;
+    const opUid = data.uid || d.id.replace(/_\d{4}-\d{2}$/, '');
+    if (!_esfOpsAllOps[opUid]) return;
+    const tsNuevo = data.actualizadoEn?.seconds || 0;
+    const tsExist = esfMap[opUid]?.actualizadoEn?.seconds || 0;
+    if (!esfMap[opUid] || tsNuevo > tsExist) esfMap[opUid] = { ...data, uid: opUid };
+  });
 
-    const cards = [];
-
-    // Operadores con ESF guardado para este mes (ordenados por nombre)
-    Object.values(esfMap)
-      .sort((a,b) => (a.nombre||'').localeCompare(b.nombre||''))
-      .forEach(r => {
-        r.mes = r.mes || mes;
-        // Fusionar productividad directa (siempre más fresca que la guardada)
-        if (_esfProdMap[r.uid]) r.productividad = _esfProdMap[r.uid];
-        cards.push(_esfRenderCard(r));
-      });
-
-    // Operadores SIN ESF guardado este mes
-    Object.entries(_esfOpsAllOps).forEach(([uid, nombre]) => {
-      if (!esfMap[uid]) {
-        cards.push(`
-          <div class="esf-op-card" style="opacity:.55">
-            <h4>👤 ${nombre} <span style="font-size:10px;color:var(--text2);font-weight:400">· ${mes} · sin datos</span></h4>
-            <div style="padding:20px;text-align:center;color:var(--text2);font-size:13px">
-              ⚠ Sin ESF guardado para <strong>${mes}</strong>.<br>
-              <span style="font-size:11px">El operador debe abrir su portal → pestaña ESF.</span>
-            </div>
-          </div>`);
-      }
-    });
-
-    if (!cards.length) {
-      container.innerHTML = `<div class="empty"><div class="empty-icon">📋</div><p>No hay ESF para <strong>${mes}</strong>.</p></div>`;
-      return;
+  // Enriquecer con productividad y snapshots
+  Object.values(esfMap).forEach(r => {
+    r.mes = r.mes || mes;
+    if (_esfProdMap[r.uid]) {
+      r.productividad = _esfProdMap[r.uid];
+      if (_esfProdMap[r.uid].invertido_live != null) r.invertido = _esfProdMap[r.uid].invertido_live;
+      if (_esfProdMap[r.uid].utilidad_live  != null) r.utilidad  = _esfProdMap[r.uid].utilidad_live;
     }
+    r._snapshot      = _esfInicialMap[r.uid]    || null;
+    r._cuposActuales = _esfCuposActuales[r.uid] || null;
+  });
 
-    // ── Resumen consolidado CEO ──
-    let totRec=0,totMtoRec=0,totPag=0,totMtoPag=0,totInv=0,totCom=0,totCli=new Set();
-    Object.entries(_esfProdMap).forEach(([uid,p]) => {
-      if (!_esfOpsAllOps[uid]) return;
-      totRec+=p.numRecargas||0; totMtoRec+=p.montoRecargas||0;
-      totPag+=p.numPagos||0;    totMtoPag+=p.montoPagos||0;
-      totInv+=p.numInversiones||0;
-    });
-    Object.values(esfMap).forEach(r => { totCom += (r.totalComisiones||0)+(r.comisionesMesAnt||0); });
-    const pC = n => '$'+Math.round(n).toLocaleString('es-CO');
-    const consolidado = `
-    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px 20px;margin-bottom:20px">
-      <div style="font-size:12px;color:var(--text2);font-weight:700;letter-spacing:.06em;margin-bottom:12px">RESUMEN CONSOLIDADO — ${mes}</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px">
-        <div style="background:var(--bg3);border-radius:8px;padding:10px 14px">
-          <div style="font-size:10px;color:var(--text2)">Recargas totales</div>
-          <div style="font-size:17px;font-weight:800;color:var(--blue)">${totRec.toLocaleString('es-CO')}</div>
-          <div style="font-size:11px;color:var(--text)">${pC(totMtoRec)}</div>
+  const cards = [];
+  Object.values(esfMap).sort((a,b) => (a.nombre||'').localeCompare(b.nombre||'')).forEach(r => cards.push(_esfRenderCard(r)));
+  Object.entries(_esfOpsAllOps).forEach(([uid, nombre]) => {
+    if (!esfMap[uid]) cards.push(`
+      <div class="esf-op-card" style="opacity:.55">
+        <h4>👤 ${nombre} <span style="font-size:10px;color:var(--text2);font-weight:400">· ${mes} · sin datos</span></h4>
+        <div style="padding:20px;text-align:center;color:var(--text2);font-size:13px">
+          ⚠ Sin ESF guardado para <strong>${mes}</strong>.<br>
+          <span style="font-size:11px">El operador debe abrir su portal → pestaña ESF.</span>
         </div>
-        <div style="background:var(--bg3);border-radius:8px;padding:10px 14px">
-          <div style="font-size:10px;color:var(--text2)">Pagos totales</div>
-          <div style="font-size:17px;font-weight:800;color:var(--green)">${totPag.toLocaleString('es-CO')}</div>
-          <div style="font-size:11px;color:var(--text)">${pC(totMtoPag)}</div>
-        </div>
-        <div style="background:var(--bg3);border-radius:8px;padding:10px 14px">
-          <div style="font-size:10px;color:var(--text2)">Apuestas registradas</div>
-          <div style="font-size:17px;font-weight:800;color:var(--orange)">${totInv.toLocaleString('es-CO')}</div>
-        </div>
-        <div style="background:rgba(255,160,0,0.08);border:1px solid rgba(255,160,0,0.35);border-radius:8px;padding:10px 14px">
-          <div style="font-size:10px;color:var(--orange)">💰 Comisiones por Cobrar</div>
-          <div style="font-size:17px;font-weight:800;color:var(--orange)">${pC(totCom)}</div>
-          <div style="font-size:10px;color:var(--text2)">Total a pagar a operadores</div>
-        </div>
+      </div>`);
+  });
+
+  if (!cards.length && !Object.keys(esfMap).length) {
+    container.innerHTML = `<div class="empty"><div class="empty-icon">📋</div><p>No hay ESF para <strong>${mes}</strong>.</p></div>`;
+    return;
+  }
+
+  // Resumen consolidado
+  let totRec=0,totMtoRec=0,totPag=0,totMtoPag=0,totInv=0,totCom=0;
+  Object.entries(_esfProdMap).forEach(([uid,p]) => {
+    if (!_esfOpsAllOps[uid]) return;
+    totRec+=p.numRecargas||0; totMtoRec+=p.montoRecargas||0;
+    totPag+=p.numPagos||0;    totMtoPag+=p.montoPagos||0;
+    totInv+=p.numInversiones||0;
+  });
+  let totUtilNeta = 0;
+  Object.values(esfMap).forEach(r => {
+    totCom      += (r.totalComisiones||0) + (r.comisionesMesAnt||0);
+    totUtilNeta += Math.round((r.utilidad||0) - (r.totalGastos||0));
+  });
+  const totGanancia = totUtilNeta + Math.round(totCom);
+  const pC = n => '$'+Math.round(n).toLocaleString('es-CO');
+  const colUN = totUtilNeta >= 0 ? 'var(--green)' : 'var(--red)';
+  const colGT = totGanancia >= 0 ? 'var(--green)' : 'var(--red)';
+  const consolidado = `
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px 20px;margin-bottom:20px">
+    <div style="font-size:12px;color:var(--text2);font-weight:700;letter-spacing:.06em;margin-bottom:12px">RESUMEN CONSOLIDADO — ${mes}</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px">
+      <div style="background:var(--bg3);border-radius:8px;padding:10px 14px">
+        <div style="font-size:10px;color:var(--text2)">Recargas totales</div>
+        <div style="font-size:17px;font-weight:800;color:var(--blue)">${totRec.toLocaleString('es-CO')}</div>
+        <div style="font-size:11px;color:var(--text)">${pC(totMtoRec)}</div>
       </div>
-    </div>`;
+      <div style="background:var(--bg3);border-radius:8px;padding:10px 14px">
+        <div style="font-size:10px;color:var(--text2)">Pagos totales</div>
+        <div style="font-size:17px;font-weight:800;color:var(--green)">${totPag.toLocaleString('es-CO')}</div>
+        <div style="font-size:11px;color:var(--text)">${pC(totMtoPag)}</div>
+      </div>
+      <div style="background:var(--bg3);border-radius:8px;padding:10px 14px">
+        <div style="font-size:10px;color:var(--text2)">Apuestas registradas</div>
+        <div style="font-size:17px;font-weight:800;color:var(--orange)">${totInv.toLocaleString('es-CO')}</div>
+      </div>
+      <div style="background:rgba(255,160,0,0.08);border:1px solid rgba(255,160,0,0.35);border-radius:8px;padding:10px 14px">
+        <div style="font-size:10px;color:var(--orange)">💰 Comisiones por Cobrar</div>
+        <div style="font-size:17px;font-weight:800;color:var(--orange)">${pC(totCom)}</div>
+        <div style="font-size:10px;color:var(--text2)">Total a pagar a operadores</div>
+      </div>
+      <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.3);border-radius:8px;padding:10px 14px">
+        <div style="font-size:10px;color:var(--text2)">📈 Utilidad Neta</div>
+        <div style="font-size:17px;font-weight:800;color:${colUN}">${pC(totUtilNeta)}</div>
+        <div style="font-size:10px;color:var(--text2)">Utilidad − Gastos</div>
+      </div>
+      <div style="background:rgba(16,185,129,0.14);border:1px solid rgba(16,185,129,0.45);border-radius:8px;padding:10px 14px">
+        <div style="font-size:10px;color:var(--text2)">🏆 Ganancia Total</div>
+        <div style="font-size:17px;font-weight:800;color:${colGT}">${pC(totGanancia)}</div>
+        <div style="font-size:10px;color:var(--text2)">Util. Neta + Comisiones</div>
+      </div>
+    </div>
+  </div>`;
+  if (_esfVista === 'tabla') {
+    container.innerHTML = consolidado + _esfRenderTabla(esfMap, mes);
+  } else {
     container.innerHTML = consolidado + `<div class="esf-op-grid">${cards.join('')}</div>`;
   }
+}
 
-  // Suscripción en tiempo real — se actualiza sola cuando un operador recalcula su ESF
-  if (!_esfOpsListener) {
-    _esfOpsListener = db.collection('patriarca_esf_resumen').onSnapshot(
-      snap => renderCards(snap),
-      err  => { console.error(err); toast('Error ESF: ' + err.message, 'error'); }
-    );
+async function recalcularTodosESF() {
+  const mesKey = document.getElementById('esf-ops-mes')?.value;
+  if (!mesKey) { toast('Selecciona un mes primero', 'error'); return; }
+  const mes = document.getElementById('esf-ops-mes')?.selectedOptions[0]?.text || mesKey;
+
+  // Cargar operadores si aún no están en memoria
+  if (!Object.keys(_esfOpsAllOps).length) {
+    const opsSnap = await db.collection('admin_usuarios').where('rol','==','operador').get();
+    opsSnap.docs.forEach(d => {
+      const uid = d.data().uid || d.id;
+      _esfOpsAllOps[uid] = d.data().nombre || d.data().email || uid;
+    });
   }
+
+  const ops = Object.entries(_esfOpsAllOps).filter(([uid]) => uid);
+  toast(`⏳ Recalculando ESF de ${ops.length} operadores…`, 'info');
+
+  let ok = 0, err = 0;
+  for (const [uid, nombre] of ops) {
+    const r = await _esfCalcOp(uid, nombre, mesKey);
+    if (r.error) { err++; console.warn(`ESF ${nombre}:`, r.error); continue; }
+    // Guardar en patriarca_esf_resumen igual que lo haría el portal del operador
+    try {
+      await db.collection('patriarca_esf_resumen').doc(`${uid}_${mesKey}`).set({
+        uid, nombre, mes, mesKey,
+        cuadre:            r.cuadre,
+        totalActivos:      r.totalActivos,
+        totalPasivos:      r.totalPasivos,
+        totalPatrimonio:   r.totalPatrimonio,
+        totalClientes:     r.totalClientes,
+        invertido:         r.invertido,
+        totalComisiones:   r.totalComisiones,
+        comisionesMesAnt:  r.comisionesMesAnt,
+        gananciaMesAnt:    r.gananciaMesAnt,
+        comByMetodo:       r.comByMetodo,
+        clientesMesAnt:    r.clientesMesAnt,
+        cupoEnCajas:       r.cupoEnCajas,
+        cupo:              r.cupo,
+        utilidad:          r.utilidad,
+        totalGastos:       r.totalGastos,
+        cajas:             r.cajasResult || [],
+        actualizadoEn:     firebase.firestore.FieldValue.serverTimestamp(),
+        recalcByAdmin:     true,
+      }, { merge: true });
+      ok++;
+    } catch(e) { err++; console.warn(`ESF save ${nombre}:`, e); }
+  }
+  toast(`✅ ESF actualizado: ${ok} operadores${err ? ` · ${err} errores` : ''}`, ok ? 'success' : 'error');
 }
 
 async function _esfCalcOp(uid, nombre, mesKey) {
@@ -4175,9 +4500,31 @@ async function _esfCalcOp(uid, nombre, mesKey) {
     const cfg               = cfgSnap.exists ? cfgSnap.data() : {};
     const siData            = siSnap.exists  ? siSnap.data() : {};
     const saldoInicial      = siData.saldos || {};
-    const comisionesMesAnt  = Math.round(siData.comisionesMesAnterior || 0);
-    const gananciaMesAnt    = Math.round(siData.gananciaMesAnterior   || 0);
+    let   comisionesMesAnt  = Math.round(siData.comisionesMesAnterior || 0);
+    let   gananciaMesAnt    = Math.round(siData.gananciaMesAnterior   || 0);
     const movs              = movSnap.docs.map(d => d.data());
+
+    // ── Reducir gananciaMesAnt y comisionesMesAnt por pagos de liquidación aprobados ──
+    // (igual que renderESF en patriarca.html — para que admin y portal coincidan)
+    let _liqPrevAdminDocs = [];
+    try {
+      const [yk0, mk0] = mesKey.split('-').map(Number);
+      const prevKey0 = new Date(yk0, mk0 - 2, 1).toISOString().slice(0, 7);
+      if (prevKey0) {
+        const liqS0 = await db.collection('patriarca_liquidacion_txs')
+          .where('operadorId', '==', uid)
+          .where('mesKey',     '==', prevKey0)
+          .where('estado',     '==', 'aprobado')
+          .get({ source: 'server' });
+        _liqPrevAdminDocs = liqS0.docs;
+        liqS0.docs.forEach(d => {
+          const tx    = d.data();
+          const monto = Math.round(tx.monto || 0);
+          if (tx.tipo === 'comision') comisionesMesAnt = Math.max(0, comisionesMesAnt - monto);
+          gananciaMesAnt = Math.max(0, gananciaMesAnt - monto);
+        });
+      }
+    } catch(e) { console.warn('_esfCalcOp: liq_prev:', e); }
     const invs         = invSnap.docs.map(d => d.data());
     const ixs          = ixSnap.docs.map(d => d.data());
     const gastos       = gasSnap.docs.map(d => d.data());
@@ -4296,10 +4643,18 @@ async function _esfCalcOp(uid, nombre, mesKey) {
     });
     gastos.forEach(g => { const met=normM(g.metodo); if (met&&mapaD[met]) mapaD[met].gas+=parseFloat(g.valor)||0; });
 
+    // ── Pagos de liquidación del mes anterior (saldo) — reducen saldo del método ──
+    // Reusar _liqPrevAdminDocs ya cargado arriba (evita segunda query)
+    _liqPrevAdminDocs.filter(d => d.data().tipo === 'saldo').forEach(d => {
+      const tx  = d.data();
+      const met = normM(tx.metodo);
+      if (met && mapaD[met]) mapaD[met].liq = (mapaD[met].liq || 0) + (parseFloat(tx.monto) || 0);
+    });
+
     let totalCajas = 0;
     const cajasResult = metCajeroList
-      .map(m => { const d=mapaD[m]; const v=d.ini+d.ix-d.rec+d.pag-d.gas; return {metodo:m,valor:v,d}; })
-      .filter(({valor,d}) => valor!==0 || d.ini||d.rec||d.pag||d.ix||d.gas) // solo mostrar activos
+      .map(m => { const d=mapaD[m]; const v=d.ini+d.ix-d.rec+d.pag-d.gas-(d.liq||0); return {metodo:m,valor:v,d}; })
+      .filter(({valor,d}) => valor!==0 || d.ini||d.rec||d.pag||d.ix||d.gas||d.liq) // solo mostrar activos
       .map(({metodo,valor}) => { totalCajas+=valor; return {metodo,valor}; });
 
     // ── 8. Cupo: igual que el portal — suma de cupos_cajero de métodos cajero válidos ──
@@ -4356,9 +4711,53 @@ function _esfRenderCard(r) {
   const updAt = r.actualizadoEn?.seconds
     ? new Date(r.actualizadoEn.seconds*1000).toLocaleString('es-CO',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})
     : '—';
+  // ── Comparación con snapshot ESF inicial ───────────────────────────────────
+  const alertasESF = [];
+  if (r._snapshot) {
+    const snap = r._snapshot;
+    // 1) ¿Clientes Mes Anterior cambió?
+    const cmaSnap    = snap.clientesMesAnterior || 0;
+    const cmaActual  = r.clientesMesAnt || 0;
+    const p2 = v => '$'+Math.round(v||0).toLocaleString('es-CO');
+    if (Math.abs(cmaSnap - cmaActual) > 1) {
+      alertasESF.push(
+        `⚠ <strong>Clientes Mes Anterior cambió</strong>: era ${p2(cmaSnap)}, ahora ${p2(cmaActual)}`
+      );
+    }
+    // 2) ¿Cambió algún cupo inicial desde que se guardó el snapshot?
+    if (r._cuposActuales) {
+      const cuposSnap = snap.cuposIniciales || {};
+      const cuposAct  = r._cuposActuales;
+      const allKeys   = new Set([...Object.keys(cuposSnap), ...Object.keys(cuposAct)]);
+      const diffs = [];
+      allKeys.forEach(k => {
+        const vSnap = parseFloat(cuposSnap[k]) || 0;
+        const vAct  = parseFloat(cuposAct[k])  || 0;
+        if (Math.abs(vSnap - vAct) > 1) {
+          diffs.push(`${k}: ${p2(vSnap)} → ${p2(vAct)}`);
+        }
+      });
+      if (diffs.length) {
+        alertasESF.push(
+          `⚠ <strong>Cupos modificados desde el snapshot</strong>: ${diffs.join(' | ')}`
+        );
+      }
+    }
+  }
+  const alertaBanner = alertasESF.length
+    ? `<div style="background:rgba(240,80,80,.12);border:1px solid rgba(240,80,80,.4);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px;line-height:1.7;color:var(--red)">
+        ${alertasESF.map(a=>`<div>${a}</div>`).join('')}
+        <div style="font-size:10px;color:var(--text2);margin-top:4px">Guardado por ${r._snapshot.savedBy||'admin'} el ${r._snapshot.savedAt?.seconds?new Date(r._snapshot.savedAt.seconds*1000).toLocaleDateString('es-CO'):'—'}</div>
+       </div>`
+    : (r._snapshot
+        ? `<div style="font-size:10px;color:var(--text2);margin-bottom:6px">✓ Sin cambios vs. snapshot ESF inicial</div>`
+        : `<div style="font-size:10px;color:var(--text2);opacity:.6;margin-bottom:6px">Sin snapshot ESF inicial guardado para este mes</div>`
+      );
+
   return `
   <div class="esf-op-card">
     <h4>👤 ${r.nombre} <span style="font-size:10px;color:var(--text2);font-weight:400">· ${r.mes||r.mesKey||''} · act. ${updAt}</span></h4>
+    ${alertaBanner}
     <div class="esf-op-cuadre ${r.cuadre?'ok':'err'}">
       ${r.cuadre?'✓ CUADRE':'✗ DESCUADRE'} — ${r.cuadre?p(r.totalActivos):'Activos '+p(r.totalActivos)+' / Patrimonio '+p(r.totalPatrimonio)}
     </div>
@@ -4367,7 +4766,7 @@ function _esfRenderCard(r) {
       <div>
         <div class="esf-op-sec">Activos</div>
         <div class="esf-op-row"><span>Clientes</span><span style="font-weight:700">${p(r.totalClientes)}</span></div>
-        <div class="esf-op-row"><span>Invertido</span><span>${r.invertido?p(r.invertido):'$—'}</span></div>
+        <div class="esf-op-row"><span>Invertido</span><span>${(r.invertido!=null&&r.invertido!==undefined)?p(r.invertido):'$—'}</span></div>
         <div class="esf-op-row"><span>Comisiones</span><span style="color:var(--orange)">${p(r.totalComisiones)}</span></div>
         ${r.comisionesMesAnt>0?`<div class="esf-op-row"><span style="color:var(--orange)">Com. Mes Ant.</span><span style="color:var(--orange)">${p(r.comisionesMesAnt)}</span></div>`:''}
         <div style="margin-top:6px;padding-top:4px;border-top:1px solid var(--border)">${cajasHtml}</div>
@@ -4379,7 +4778,7 @@ function _esfRenderCard(r) {
         <div class="esf-op-row"><span style="font-weight:700">Clientes Mes Anterior</span><span style="font-weight:700">${p(r.clientesMesAnt)}</span></div>
         <div class="esf-op-row"><span>Cupo</span><span style="color:${col(r.cupoEnCajas)}">${p(r.cupoEnCajas)}</span></div>
         <div class="esf-op-row"><span>Utilidad</span><span style="color:${r.utilidad>=0?'var(--green)':'var(--red)'}">${p(r.utilidad)}</span></div>
-        <div class="esf-op-row"><span>Costos/Gastos</span><span style="color:var(--red)">${r.totalGastos>0?'-'+p(r.totalGastos):'$—'}</span></div>
+        <div class="esf-op-row"><span>Costos/Gastos</span><span style="color:var(--red)">${(r.totalGastos!=null&&r.totalGastos!==undefined)?(r.totalGastos>0?'-'+p(r.totalGastos):'$0'):'$—'}</span></div>
         ${comHtml}
         <div class="esf-op-row total"><span>Total Patrimonio</span><span style="color:var(--green)">${p(r.totalPatrimonio)}</span></div>
       </div>
@@ -4417,23 +4816,196 @@ function _esfRenderCard(r) {
           <div style="font-size:10px;color:var(--text2)">Clientes</div>
         </div>
       </div>
-      <div style="margin-top:8px;background:rgba(255,160,0,0.08);border:1px solid rgba(255,160,0,0.35);border-radius:8px;padding:8px 12px;display:flex;justify-content:space-between;align-items:center">
-        <span style="font-size:12px;color:var(--orange);font-weight:700">💰 Comisiones por Cobrar</span>
-        <span style="font-size:15px;font-weight:800;color:var(--orange)">${p(r.totalComisiones + (r.comisionesMesAnt||0))}</span>
+      <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px">
+        <div style="background:rgba(255,160,0,0.08);border:1px solid rgba(255,160,0,0.35);border-radius:8px;padding:8px 12px;display:flex;justify-content:space-between;align-items:center">
+          <span style="font-size:12px;color:var(--orange);font-weight:700">💰 Comisiones por Cobrar</span>
+          <span style="font-size:15px;font-weight:800;color:var(--orange)">${p(r.totalComisiones + (r.comisionesMesAnt||0))}</span>
+        </div>
+        ${(()=>{
+          const utilNeta = Math.round((r.utilidad||0) - (r.totalGastos||0));
+          const ganancia = utilNeta + Math.round(r.totalComisiones||0) + Math.round(r.comisionesMesAnt||0);
+          const colUtil  = utilNeta  >= 0 ? 'var(--green)' : 'var(--red)';
+          const colGan   = ganancia  >= 0 ? 'var(--green)' : 'var(--red)';
+          return `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+          <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.3);border-radius:8px;padding:8px 12px">
+            <div style="font-size:10px;color:var(--text2);font-weight:600">📈 Utilidad Neta</div>
+            <div style="font-size:14px;font-weight:800;color:${colUtil}">${p(utilNeta)}</div>
+            <div style="font-size:9px;color:var(--text2)">Utilidad − Gastos</div>
+          </div>
+          <div style="background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.4);border-radius:8px;padding:8px 12px">
+            <div style="font-size:10px;color:var(--text2);font-weight:600">🏆 Ganancia Total</div>
+            <div style="font-size:14px;font-weight:800;color:${colGan}">${p(ganancia)}</div>
+            <div style="font-size:9px;color:var(--text2)">Util. Neta + Comisiones</div>
+          </div>
+        </div>`;
+        })()}
       </div>
     </div>`;
     })()}
   </div>`;
 }
 
+// ── ESF TABLA (vista tipo Mapa de Capital) ───────────────────────────────────
+function _esfRenderTabla(esfMap, mes) {
+  const p  = v => v ? '$'+Math.round(v||0).toLocaleString('es-CO') : '—';
+  const pc = (v, clr) => v ? `<span style="color:${clr};font-weight:600">${'$'+Math.round(v||0).toLocaleString('es-CO')}</span>` : '<span style="color:var(--text2)">—</span>';
+  const col = v => v > 0 ? 'var(--green)' : v < 0 ? 'var(--red)' : 'var(--text2)';
+
+  const ops = Object.values(esfMap).sort((a,b) => (a.nombre||'').localeCompare(b.nombre||''));
+  if (!ops.length) return `<div class="empty"><div class="empty-icon">📋</div><p>No hay ESF para <strong>${mes}</strong>.</p></div>`;
+
+  // Primer nombre de cada operador para el header
+  const firstName = n => (n||'').split(' ')[0];
+
+  // Recolectar todos los métodos de cajas únicos
+  const allMets = [];
+  const metSet  = new Set();
+  ops.forEach(r => (r.cajas||r.cajasResult||[]).forEach(c => {
+    if (c.metodo && !metSet.has(c.metodo)) { metSet.add(c.metodo); allMets.push(c.metodo); }
+  }));
+
+  // Recolectar todos los métodos de comisión únicos
+  const allComMets = [];
+  const comMetSet  = new Set();
+  ops.forEach(r => Object.keys(r.comByMetodo||{}).forEach(m => {
+    if (!comMetSet.has(m)) { comMetSet.add(m); allComMets.push(m); }
+  }));
+
+  // Totales por columna
+  const totActivos  = ops.reduce((s,r) => s+(r.totalActivos||0), 0);
+  const totPatrim   = ops.reduce((s,r) => s+(r.totalPatrimonio||0), 0);
+  const totPasivos  = ops.reduce((s,r) => s+(r.totalPasivos||0), 0);
+  const totClientes = ops.reduce((s,r) => s+(r.totalClientes||0), 0);
+  const totCupo     = ops.reduce((s,r) => s+(r.cupoEnCajas||0), 0);
+  const totUtil     = ops.reduce((s,r) => s+(r.utilidad||0), 0);
+  const totGastos   = ops.reduce((s,r) => s+(r.totalGastos||0), 0);
+  const totCom      = ops.reduce((s,r) => s+(r.totalComisiones||0)+(r.comisionesMesAnt||0), 0);
+  const totInv      = ops.reduce((s,r) => s+(r.invertido||0), 0);
+  const totCmaAnt   = ops.reduce((s,r) => s+(r.clientesMesAnt||0), 0);
+
+  const thStyle = 'border-left:1px solid var(--border)';
+
+  // Generar header
+  const headerCols = ops.map(r => `<th style="${thStyle}">${firstName(r.nombre)}</th>`).join('');
+  const header = `<tr><th>Concepto</th>${headerCols}<th style="${thStyle};color:var(--text2)">TOTAL</th></tr>`;
+
+  const row = (label, vals, totalVal, colorFn, indent=false) => {
+    const cells = ops.map((r,i) => {
+      const v = vals[i];
+      return `<td style="${thStyle}">${colorFn ? pc(v, colorFn(v)) : p(v)}</td>`;
+    }).join('');
+    const tot = totalVal !== undefined ? (colorFn ? pc(totalVal, colorFn(totalVal)) : p(totalVal)) : '';
+    const lbl = indent ? `<span style="padding-left:10px;font-size:11px">${label}</span>` : label;
+    return `<tr><td>${lbl}</td>${cells}<td style="${thStyle};font-weight:600">${tot}</td></tr>`;
+  };
+
+  const secRow = label => `<tr class="row-section"><td colspan="${ops.length+2}">${label}</td></tr>`;
+
+  const totRow = (label, vals, totalVal, colorFn) => {
+    const cells = ops.map((r,i) => {
+      const v = vals[i];
+      return `<td style="${thStyle};font-weight:700">${colorFn ? pc(v, colorFn(v)) : `<span style="font-weight:700">${p(v)}</span>`}</td>`;
+    }).join('');
+    const tot = totalVal !== undefined ? (colorFn ? pc(totalVal, colorFn(totalVal)) : `<span style="font-weight:700">${p(totalVal)}</span>`) : '';
+    return `<tr class="row-total"><td><strong>${label}</strong></td>${cells}<td style="${thStyle}">${tot}</td></tr>`;
+  };
+
+  // Filas de cajas por método
+  const cajasRows = allMets.map(met => {
+    const vals = ops.map(r => {
+      const c = (r.cajas||r.cajasResult||[]).find(x => x.metodo === met);
+      return c ? (c.valor||0) : 0;
+    });
+    const tot = vals.reduce((s,v) => s+v, 0);
+    return row(met, vals, tot, col, true);
+  }).join('');
+
+  // Filas de comisión por método
+  const comRows = allComMets.map(met => {
+    const vals = ops.map(r => (r.comByMetodo||{})[met] || 0);
+    const tot  = vals.reduce((s,v) => s+v, 0);
+    return row(`Com. ${met}`, vals, tot, () => 'var(--orange)', true);
+  }).join('');
+
+  // Filas de productividad
+  const pNum = (n,arr) => arr.map(r => {
+    const v = (r.productividad||{})[n] || 0;
+    return `<td style="${thStyle};font-weight:600">${v ? v.toLocaleString('es-CO') : '—'}</td>`;
+  }).join('');
+  const pMto = (n,arr) => arr.map(r => {
+    const v = (r.productividad||{})[n] || 0;
+    return `<td style="${thStyle}">${v ? '$'+Math.round(v).toLocaleString('es-CO') : '—'}</td>`;
+  }).join('');
+  const totProd = (n) => ops.reduce((s,r) => s+((r.productividad||{})[n]||0), 0);
+
+  const prodRows = `
+    <tr><td><span style="padding-left:10px">Recargas (cant.)</span></td>${pNum('numRecargas',ops)}<td style="${thStyle};font-weight:600">${totProd('numRecargas').toLocaleString('es-CO')}</td></tr>
+    <tr><td><span style="padding-left:10px">Recargas (monto)</span></td>${pMto('montoRecargas',ops)}<td style="${thStyle}">$${Math.round(totProd('montoRecargas')).toLocaleString('es-CO')}</td></tr>
+    <tr><td><span style="padding-left:10px">Pagos (cant.)</span></td>${pNum('numPagos',ops)}<td style="${thStyle};font-weight:600">${totProd('numPagos').toLocaleString('es-CO')}</td></tr>
+    <tr><td><span style="padding-left:10px">Pagos (monto)</span></td>${pMto('montoPagos',ops)}<td style="${thStyle}">$${Math.round(totProd('montoPagos')).toLocaleString('es-CO')}</td></tr>
+    <tr><td><span style="padding-left:10px">Apuestas</span></td>${pNum('numInversiones',ops)}<td style="${thStyle};font-weight:600">${totProd('numInversiones').toLocaleString('es-CO')}</td></tr>
+    <tr><td><span style="padding-left:10px">Clientes únicos</span></td>${pNum('clientesUnicos',ops)}<td style="${thStyle};font-weight:600">${totProd('clientesUnicos').toLocaleString('es-CO')}</td></tr>`;
+
+  // Fila cuadre
+  const cuadreRow = `<tr class="${ops.every(r=>r.cuadre)?'row-cuadre-ok':'row-cuadre-err'}">
+    <td><strong>CUADRE</strong></td>
+    ${ops.map(r => `<td style="${thStyle};text-align:center">${r.cuadre?'✓':'✗'}</td>`).join('')}
+    <td style="${thStyle};text-align:center">${ops.every(r=>r.cuadre)?'✓ todos':'⚠ revisar'}</td>
+  </tr>`;
+
+  // Fila comisiones por cobrar + utilidad + ganancia
+  const comVals    = ops.map(r => (r.totalComisiones||0)+(r.comisionesMesAnt||0));
+  const utilVals   = ops.map(r => Math.round((r.utilidad||0)-(r.totalGastos||0)));
+  const ganVals    = ops.map((r,i) => utilVals[i] + comVals[i]);
+  const totUtilNet = utilVals.reduce((s,v)=>s+v,0);
+  const totGanTot  = totUtilNet + totCom;
+
+  return `<div class="esf-tabla-wrap"><table class="esf-tabla">
+    <thead>${header}</thead>
+    <tbody>
+      ${secRow('ACTIVOS')}
+      ${row('Clientes', ops.map(r=>r.totalClientes||0), totClientes, col)}
+      ${row('Invertido', ops.map(r=>r.invertido||0), totInv, col)}
+      ${row('Comisiones', ops.map(r=>r.totalComisiones||0), ops.reduce((s,r)=>s+(r.totalComisiones||0),0), ()=>'var(--orange)')}
+      ${row('Com. Mes Ant.', ops.map(r=>r.comisionesMesAnt||0), ops.reduce((s,r)=>s+(r.comisionesMesAnt||0),0), ()=>'var(--orange)')}
+      ${cajasRows}
+      ${totRow('Total Activos', ops.map(r=>r.totalActivos||0), totActivos, v=>v>=0?'var(--green)':'var(--red)')}
+
+      ${secRow('PATRIMONIO')}
+      ${row('Clientes Mes Anterior', ops.map(r=>r.clientesMesAnt||0), totCmaAnt, col)}
+      ${row('Cupo', ops.map(r=>r.cupoEnCajas||0), totCupo, col)}
+      ${row('Utilidad', ops.map(r=>r.utilidad||0), totUtil, col)}
+      ${row('Costos/Gastos', ops.map(r=>-(r.totalGastos||0)), -totGastos, col)}
+      ${comRows}
+      ${totRow('Total Patrimonio', ops.map(r=>r.totalPatrimonio||0), totPatrim, v=>v>=0?'var(--green)':'var(--red)')}
+
+      ${secRow('PASIVOS')}
+      ${totRow('Total Pasivos', ops.map(r=>r.totalPasivos||0), totPasivos, col)}
+
+      ${cuadreRow}
+
+      ${secRow('PRODUCTIVIDAD DEL MES')}
+      ${prodRows}
+
+      ${secRow('FINANZAS')}
+      ${row('💰 Comisiones por Cobrar', comVals, totCom, ()=>'var(--orange)')}
+      ${row('📈 Utilidad Neta', utilVals, totUtilNet, col)}
+      ${totRow('🏆 Ganancia Total', ganVals, totGanTot, v=>v>=0?'var(--green)':'var(--red)')}
+    </tbody>
+  </table></div>`;
+}
+
 // ── SOLICITUDES DE ELIMINACIÓN ──────────────────────────────────────────────
 let _solAdminListener = null;
 let _solMovListener   = null;
+let _solInvListener   = null;
 let _solMovPendCount  = 0;
 let _solIxPendCount   = 0;
+let _solInvPendCount  = 0;
 
 function _updateSolBadge() {
-  const total = _solMovPendCount + _solIxPendCount;
+  const total = _solMovPendCount + _solIxPendCount + _solInvPendCount;
   const tabEl = document.getElementById('tab-solicitudes');
   const badge = document.getElementById('sol-pending-badge');
   if (total > 0) {
@@ -4453,9 +5025,13 @@ function initSolicitudes() {
     const fmtTs = ts => ts?.toDate ? ts.toDate().toLocaleString('es-CO',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
     _solMovListener = db.collection('patriarca_movimientos')
       .where('solicitud_eliminar', '==', true)
-      .orderBy('solicitud_eliminar_ts', 'desc')
       .onSnapshot(snap => {
-        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+          .sort((a,b) => {
+            const ta = a.solicitud_eliminar_ts?.seconds || 0;
+            const tb = b.solicitud_eliminar_ts?.seconds || 0;
+            return tb - ta;
+          });
         _solMovPendCount = docs.filter(d => !d.solicitud_aprobada && !d.solicitud_rechazada).length;
         _updateSolBadge();
         if (!docs.length) {
@@ -4485,6 +5061,14 @@ function initSolicitudes() {
                   👤 Solicitado por <b style="color:var(--text)">${r.solicitud_eliminar_op||'—'}</b>
                   &nbsp;·&nbsp; ${fmtTs(r.solicitud_eliminar_ts)}
                 </div>
+                ${r.solicitud_eliminar_motivo ? `
+                <div style="margin-top:6px;font-size:12px;color:var(--text2)">
+                  <span style="color:var(--text);font-weight:600">Motivo:</span> ${r.solicitud_eliminar_motivo}
+                </div>` : ''}
+                ${r.eliminado && r.eliminado_por ? `
+                <div style="margin-top:4px;font-size:11px;color:var(--green)">
+                  ✅ Eliminado por <b>${r.eliminado_por}</b> · ${fmtTs(r.eliminado_ts)}
+                </div>` : ''}
               </div>
               ${pendiente ? `
               <div style="display:flex;flex-direction:column;gap:8px;flex-shrink:0">
@@ -4565,6 +5149,69 @@ function initSolicitudes() {
     }, err => {
       list.innerHTML = `<div style="color:#e05050;padding:16px">Error: ${err.message}</div>`;
     });
+
+  // ── Listener inversiones ──
+  if (!_solInvListener) {
+    const invList = document.getElementById('sol-inv-list');
+    const fmtM   = n => '$' + Math.round(n||0).toLocaleString('es-CO');
+    const fmtTs2 = ts => ts?.toDate ? ts.toDate().toLocaleString('es-CO',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
+    const estadoBadge2 = e => ({
+      pendiente: '<span style="background:rgba(251,191,36,.15);color:#fbbf24;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">⏳ PENDIENTE</span>',
+      aprobado:  '<span style="background:rgba(36,191,98,.12);color:#24BF62;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">✅ APROBADO</span>',
+      rechazado: '<span style="background:rgba(224,80,80,.12);color:#e05050;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">❌ RECHAZADO</span>',
+    }[e] || e);
+
+    _solInvListener = db.collection('patriarca_inv_delete_requests')
+      .orderBy('ts', 'desc')
+      .onSnapshot(snap => {
+        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        _solInvPendCount = docs.filter(d => d.estado === 'pendiente').length;
+        _updateSolBadge();
+        if (!docs.length) {
+          invList.innerHTML = '<div style="text-align:center;color:var(--text2);padding:20px;font-size:12px">Sin solicitudes de apuestas</div>';
+          return;
+        }
+        invList.innerHTML = docs.map(r => `
+          <div style="border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px;background:var(--bg3);${r.estado==='pendiente'?'border-color:rgba(220,38,38,.4)':'opacity:.6'}">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+              <div style="flex:1">
+                <div style="font-size:13px;font-weight:700;margin-bottom:6px">
+                  Apuesta <b>Ap# ${r.ap_num||'—'}</b> &nbsp;${estadoBadge2(r.estado)}
+                </div>
+                <div style="font-size:12px;color:var(--text2);margin-bottom:3px">
+                  📅 ${r.fecha||'—'} &nbsp;·&nbsp; 💰 ${fmtM(r.monto)}
+                  &nbsp;·&nbsp; 👤 <b>${r.cliente||'—'}</b>
+                  &nbsp;·&nbsp; 🏠 ${r.casa||'—'}
+                </div>
+                <div style="font-size:12px;color:var(--text2);margin-bottom:3px">
+                  🎯 ${r.evento||'—'} &nbsp;·&nbsp; 📦 ${r.fondos||'—'} &nbsp;·&nbsp; Estado: <b>${r.estado_ap||'—'}</b>
+                </div>
+                <div style="font-size:12px;color:var(--text2);margin-bottom:8px">
+                  👤 Solicitado por <b style="color:var(--text)">${r.solicitante_nombre||'—'}</b> · ${fmtTs2(r.ts)}
+                </div>
+                <div style="background:var(--bg2);border-radius:6px;padding:8px 12px;font-size:12px">
+                  <b style="color:var(--text2)">Motivo:</b> ${r.motivo||'—'}
+                </div>
+                ${r.estado==='aprobado' ? `<div style="margin-top:6px;font-size:11px;color:var(--green)">✅ Aprobado y eliminado · ${fmtTs2(r.aprobado_ts)}</div>` : ''}
+                ${r.estado==='rechazado' ? `<div style="margin-top:6px;font-size:11px;color:var(--red)">❌ Rechazado · ${fmtTs2(r.rechazado_ts)}</div>` : ''}
+              </div>
+              ${r.estado === 'pendiente' ? `
+              <div style="display:flex;flex-direction:column;gap:8px;flex-shrink:0">
+                <button onclick="aprobarElimInvAdmin('${r.id}','${r.invId}')"
+                  style="padding:8px 16px;border-radius:8px;border:none;background:#dc2626;color:#fff;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">
+                  ✅ Confirmar y Eliminar
+                </button>
+                <button onclick="rechazarElimInvAdmin('${r.id}')"
+                  style="padding:8px 16px;border-radius:8px;border:1px solid rgba(220,38,38,.4);background:transparent;color:#e05050;font-size:12px;font-weight:700;cursor:pointer">
+                  ❌ Rechazar
+                </button>
+              </div>` : ''}
+            </div>
+          </div>`).join('');
+      }, err => {
+        invList.innerHTML = `<div style="color:#e05050;padding:16px">Error: ${err.message}</div>`;
+      });
+  }
 }
 
 async function aprobarElimAdmin(requestId, docId, globalId) {
@@ -4598,11 +5245,44 @@ async function rechazarElimAdmin(requestId) {
   } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
 }
 
-async function aprobarElimMovAdmin(movId) {
-  if (!confirm('¿Confirmar eliminación del movimiento?\n\nEsta acción no se puede deshacer.')) return;
+async function aprobarElimInvAdmin(requestId, invId) {
+  if (!confirm('¿Confirmar eliminación de la apuesta?\n\nEsta acción no se puede deshacer.')) return;
   try {
-    await db.collection('patriarca_movimientos').doc(movId).delete();
-    toast('✅ Movimiento eliminado correctamente', 'success');
+    const batch = db.batch();
+    // Inversiones están en patriarca_inversiones/{invId}
+    batch.delete(db.collection('patriarca_inversiones').doc(invId));
+    batch.update(db.collection('patriarca_inv_delete_requests').doc(requestId), {
+      estado: 'aprobado',
+      aprobado_por: auth.currentUser?.email || 'admin',
+      aprobado_ts: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    await batch.commit();
+    toast('✅ Apuesta eliminada correctamente', 'success');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+async function rechazarElimInvAdmin(requestId) {
+  if (!confirm('¿Rechazar esta solicitud? La apuesta permanecerá activa.')) return;
+  try {
+    await db.collection('patriarca_inv_delete_requests').doc(requestId).update({
+      estado: 'rechazado',
+      rechazado_por: auth.currentUser?.email || 'admin',
+      rechazado_ts: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    toast('Solicitud rechazada — la apuesta permanece', 'info');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+async function aprobarElimMovAdmin(movId) {
+  if (!confirm('¿Confirmar eliminación del movimiento?\n\nEl movimiento quedará marcado como eliminado (con registro de auditoría).')) return;
+  try {
+    await db.collection('patriarca_movimientos').doc(movId).update({
+      eliminado:           true,
+      solicitud_aprobada:  true,
+      eliminado_por:       auth.currentUser?.email || 'admin',
+      eliminado_ts:        firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    toast('✅ Movimiento eliminado — queda registro de auditoría', 'success');
   } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
 }
 
@@ -4850,13 +5530,45 @@ async function aceptarCierre(cierreId) {
     if (mesKey) {
       // Leer ESF del operador (nuevo formato uid_mesKey, luego fallback a uid)
       let comByMetodo = null;
+      let cajasEsf = [];
+      let totalClientesEsf = 0;
       const esfNew = await db.collection('patriarca_esf_resumen').doc(`${data.operadorId}_${mesKey}`).get();
-      if (esfNew.exists) comByMetodo = esfNew.data().comByMetodo;
+      if (esfNew.exists) {
+        comByMetodo = esfNew.data().comByMetodo;
+        cajasEsf = esfNew.data().cajas || [];
+        totalClientesEsf = esfNew.data().totalClientes || 0;
+      }
       if (!comByMetodo) {
         const esfOld = await db.collection('patriarca_esf_resumen').doc(data.operadorId).get();
-        if (esfOld.exists && esfOld.data().mesKey === mesKey) comByMetodo = esfOld.data().comByMetodo;
+        if (esfOld.exists && esfOld.data().mesKey === mesKey) {
+          comByMetodo = esfOld.data().comByMetodo;
+          cajasEsf = esfOld.data().cajas || [];
+          totalClientesEsf = esfOld.data().totalClientes || 0;
+        }
       }
 
+      // 4b. Guardar patriarca_variaciones para hoja de liquidación
+      const _saldosM = data.saldosMetodos || {};
+      const _comByM  = comByMetodo || {};
+      await db.collection('patriarca_variaciones').doc(`${data.operadorId}_${mesKey}`).set({
+        operadorId:          data.operadorId,
+        operadorNombre:      data.operadorNombre,
+        mesKey,
+        mes:                 data.mes,
+        saldosPorMetodo:     _saldosM,
+        totalSaldos:         Math.round(Object.values(_saldosM).reduce((s,v)=>s+(v||0),0)),
+        comisionesPorMetodo: _comByM,
+        totalComisiones:     Math.round(Object.values(_comByM).reduce((s,v)=>s+(v||0),0)),
+        gananciaNeta:        Math.round(data.ganancia?.total || 0),
+        estado:              'pendiente',
+        creadoEn:            firebase.firestore.FieldValue.serverTimestamp(),
+        creadoPor:           auth.currentUser?.email || 'admin'
+      }, { merge: true });
+
+      if (!comByMetodo || !Object.keys(comByMetodo).length) {
+        console.warn('[Cierre] Sin comByMetodo para', data.operadorId, mesKey, '— no se crean asientos contables');
+        toast('⚠ Cierre aceptado pero sin datos ESF — asientos contables no generados. Abre ESF del operador y vuelve a aceptar el cierre.', 'error');
+      }
       if (comByMetodo && Object.keys(comByMetodo).length) {
         // Siguiente número de OP
         const contSnap = await db.collection('cont_movimientos').orderBy('op','desc').limit(1).get();
@@ -4880,7 +5592,7 @@ async function aceptarCierre(cierreId) {
           batchCom.set(db.collection('cont_movimientos').doc(), {
             op: nextOp, fecha: fechaCierre,
             cuenta: 'ACTIVOS',
-            subcuenta: `Cuenta Por Cobrar comisiones ${metodo}`,
+            subcuenta: `Cuenta Por Cobrar comisiones ${metodo} Operadores`,
             debito: m, credito: 0,
             descripcion: desc, notas: 'Asiento automático de cierre',
             creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
@@ -4889,7 +5601,7 @@ async function aceptarCierre(cierreId) {
           batchCom.set(db.collection('cont_movimientos').doc(), {
             op: nextOp, fecha: fechaCierre,
             cuenta: 'PATRIMONIO',
-            subcuenta: 'Utilidad Mes Anterior',
+            subcuenta: 'Ganancias Operadores',
             debito: 0, credito: m,
             descripcion: desc, notas: 'Asiento automático de cierre',
             creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
@@ -4897,6 +5609,83 @@ async function aceptarCierre(cierreId) {
         });
 
         if (hayAsientos) await batchCom.commit();
+
+        // ── Asientos Grupo 5: variación (saldo final − saldo inicial) por cuenta ──
+        // Mapeo ESF metodo (mayúsculas) → nombre catálogo SF
+        const ESF_A_SF = {
+          'EFECTIVO OPERADOR':      'Efectivo Operador',
+          'BE MOVIL CAJA':          'Be Movil Caja',
+          'CUENTA BANCARIA':        'Cuenta Bancaria',
+          'MEGA RED':               'Mega Red',
+          'WPLAY UNITY':            'Wplay Unity',
+          'SUPER GIROS UNITY':      'Super Giros Unity',
+          'EFECTY 1 DE MAYO':       'Efecty 1 De Mayo',
+          'SUPER GIROS MAQUINA':    'Supergiros Maquina',
+          'CORRESPONSAL EL PARAMO': 'Corresponsal El Paramo',
+          'EASY CHANGER':           'Easy changer',
+          'PTM PROPIO':             'Ptm Propio',
+          'BE MOVIL MASTER':        'Be Movil Master',
+          'PUNTO RED UNITY':        'Punto Red Unity',
+          'BET RED':                'Bet Red',
+        };
+
+        // Paso 1 — Cuentas Grupo 5: base + NUEVA de cont_catalogo (campo subcuenta)
+        const baseG5 = ['Efectivo Operador','Be Movil Caja','Cuenta Bancaria','Mega Red','Wplay Unity','Super Giros Unity','Efecty 1 De Mayo','Supergiros Maquina','Corresponsal El Paramo','Easy changer'];
+        const catG5Snap = await db.collection('cont_catalogo').where('grupo','==','5 · Efectivo Operadores').get();
+        const nuevasG5 = catG5Snap.docs.map(d => d.data().subcuenta).filter(Boolean);
+        const grupo5 = [...new Set([...baseG5, ...nuevasG5])];
+
+        // Paso 2 — Saldo inicial: cupos_por_mes[mesKey] del operador
+        const cfgSnap = await db.collection('patriarca_config').doc(data.operadorId).get();
+        const cuposIniciales = cfgSnap.exists ? (cfgSnap.data().cupos_por_mes?.[mesKey] || {}) : {};
+
+        // Paso 3 — Saldo final: cajas ESF (métodos físicos) + totalClientes (Saldo Clientes)
+        const saldoFinalPorSF = {};
+        cajasEsf.forEach(c => {
+          const sfNombre = ESF_A_SF[c.metodo] || c.metodo;
+          saldoFinalPorSF[sfNombre] = Math.round(c.valor || 0);
+        });
+        saldoFinalPorSF['Saldo Clientes'] = Math.round(totalClientesEsf);
+
+        // Casos especiales: nombre catálogo → clave en cupos_por_mes
+        const SF_A_CUPO_KEY = {
+          'Saldo Clientes': 'SALDO CLIENTES ANTERIOR',
+        };
+
+        // Paso 4 — Para cada cuenta Grupo 5: variación y asientos
+        const batchCajas = db.batch();
+        let hayAsientosCajas = false;
+
+        grupo5.forEach(sfNombre => {
+          const cupoKey = SF_A_CUPO_KEY[sfNombre] || sfNombre.toUpperCase();
+          const inicial = Math.round(cuposIniciales[cupoKey] || 0);
+          const final_  = saldoFinalPorSF[sfNombre] !== undefined ? saldoFinalPorSF[sfNombre] : 0;
+          const val = final_ - inicial; // variación = saldo final − saldo inicial
+          if (!val) return;
+          hayAsientosCajas = true;
+          // DÉBITO: cuenta en ACTIVOS
+          batchCajas.set(db.collection('cont_movimientos').doc(), {
+            op: nextOp, fecha: fechaCierre,
+            cuenta: 'ACTIVOS', subcuenta: sfNombre,
+            debito: val > 0 ? val : 0,
+            credito: val < 0 ? Math.abs(val) : 0,
+            descripcion: desc, notas: 'Asiento automático de cierre — saldo método',
+            origen: 'cierre_metodo',
+            creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+          });
+          // CRÉDITO: Ganancias Operadores en PATRIMONIO
+          batchCajas.set(db.collection('cont_movimientos').doc(), {
+            op: nextOp, fecha: fechaCierre,
+            cuenta: 'PATRIMONIO', subcuenta: 'Ganancias Operadores',
+            debito: val < 0 ? Math.abs(val) : 0,
+            credito: val > 0 ? val : 0,
+            descripcion: desc, notas: 'Asiento automático de cierre — saldo método',
+            origen: 'cierre_metodo',
+            creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+          });
+        });
+
+        if (hayAsientosCajas) await batchCajas.commit();
       }
     }
 
@@ -4921,6 +5710,491 @@ async function rechazarCierre(cierreId) {
   } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
 }
 
+// ══════════════════════════════════════════════════════════════
+// ── CUENTAS DESTINO LIQUIDACIÓN ──────────────────────────────
+const LIQ_DESTINOS_DISPONIBLES = {
+  '1 · Disponible': ['Efectivo de Apuestas', 'Be Movil Gej', 'PTM Propio en caja', 'Dinero por Cuadrar', 'Departamento de Dirección'],
+  '2 · Bancos':     ['Mega Red Aj1.6', 'Corresponsal', 'Corresponsal Efecty 1 de Mayo'],
+};
+let _liqDestinosActivos = new Set();
+let _liqDestinosLoaded  = false;
+
+async function loadDestinosLiq() {
+  try {
+    const snap = await db.collection('patriarca_config_global').doc('liq_destinos').get();
+    _liqDestinosActivos = new Set(snap.exists ? (snap.data().activos || []) : []);
+  } catch(e) { _liqDestinosActivos = new Set(); }
+  _liqDestinosLoaded = true;
+  _renderDestinosLiq();
+}
+
+function _renderDestinosLiq() {
+  const el = document.getElementById('destinos-liq-list');
+  if (!el) return;
+  let html = '';
+  Object.entries(LIQ_DESTINOS_DISPONIBLES).forEach(([grupo, cuentas]) => {
+    html += `<div style="width:100%;font-size:10px;font-weight:700;color:var(--text2);margin-top:4px;margin-bottom:2px;text-transform:uppercase;letter-spacing:.05em">${grupo}</div>`;
+    cuentas.forEach(cuenta => {
+      const on = _liqDestinosActivos.has(cuenta);
+      html += `<label style="display:flex;align-items:center;gap:7px;cursor:pointer;background:${on?'rgba(36,191,98,.1)':'var(--bg3)'};border:1px solid ${on?'rgba(36,191,98,.35)':'var(--border)'};border-radius:7px;padding:6px 12px;font-size:12px;font-weight:${on?'700':'400'};color:${on?'var(--green)':'var(--text2)'};transition:.15s" onclick="_toggleDestino('${cuenta}')">
+        <span style="font-size:16px">${on?'✅':'⬜'}</span> ${cuenta}
+      </label>`;
+    });
+  });
+  el.innerHTML = html;
+}
+
+function _toggleDestino(cuenta) {
+  if (_liqDestinosActivos.has(cuenta)) _liqDestinosActivos.delete(cuenta);
+  else _liqDestinosActivos.add(cuenta);
+  _renderDestinosLiq();
+  const btn = document.getElementById('btn-save-destinos');
+  if (btn) { btn.style.opacity='1'; btn.style.pointerEvents='auto'; }
+}
+
+async function guardarDestinosLiq() {
+  const btn = document.getElementById('btn-save-destinos');
+  if (btn) { btn.textContent='Guardando...'; btn.style.opacity='.7'; }
+  try {
+    await db.collection('patriarca_config_global').doc('liq_destinos').set({
+      activos: [..._liqDestinosActivos],
+      actualizadoEn: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    toast('✅ Cuentas destino guardadas');
+    if (btn) { btn.textContent='Guardar cambios'; btn.style.opacity='.5'; btn.style.pointerEvents='none'; }
+  } catch(e) {
+    toast('❌ Error: ' + e.message, 'error');
+    if (btn) { btn.textContent='Guardar cambios'; btn.style.opacity='1'; }
+  }
+}
+
+// LIQUIDACIONES — Aprobar / Rechazar pagos de operadores
+// ══════════════════════════════════════════════════════════════
+let _liqAdminListener = null;
+
+function initLiquidaciones() {
+  // Cargar destinos solo la primera vez
+  if (!_liqDestinosLoaded) loadDestinosLiq();
+  // Poblar selector de meses si está vacío
+  const sel = document.getElementById('liq-admin-mes');
+  if (sel && !sel.options.length) {
+    const now = new Date();
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const val = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+      const lbl = d.toLocaleDateString('es-CO', { month: 'long', year: 'numeric' });
+      const opt = document.createElement('option');
+      opt.value = val; opt.textContent = lbl.charAt(0).toUpperCase() + lbl.slice(1);
+      sel.appendChild(opt);
+    }
+  }
+  const mesKey = sel?.value;
+  if (!mesKey) return;
+
+  if (_liqAdminListener) { _liqAdminListener(); _liqAdminListener = null; }
+
+  const container = document.getElementById('liq-admin-container');
+  container.innerHTML = '<div class="empty" style="padding:32px">⏳ Cargando pagos...</div>';
+
+  _liqAdminListener = db.collection('patriarca_liquidacion_txs')
+    .where('mesKey', '==', mesKey)
+    .onSnapshot(snap => {
+      const txs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        .sort((a,b) => (b.creadoEn?.seconds||0) - (a.creadoEn?.seconds||0));
+      _renderLiqAdmin(txs, mesKey);
+    }, err => {
+      container.innerHTML = `<div class="empty">⚠ Error: ${err.message}</div>`;
+    });
+}
+
+async function _renderLiqAdmin(txs, mesKey) {
+  const container = document.getElementById('liq-admin-container');
+  const peso = n => '$' + Math.round(n||0).toLocaleString('es-CO');
+
+  // Cargar correcciones pendientes del mes
+  let correcciones = [];
+  try {
+    const corrSnap = await db.collection('patriarca_liq_correcciones')
+      .where('mesKey', '==', mesKey).get({ source: 'server' });
+    correcciones = corrSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch(e) {}
+
+  const corrPend = correcciones.filter(c => c.estado === 'pendiente');
+
+  if (!txs.length && !corrPend.length) {
+    container.innerHTML = '<div class="empty"><div class="empty-icon">💳</div><p>Sin pagos registrados para este mes</p></div>';
+    return;
+  }
+
+  // Agrupar por operador
+  const porOp = {};
+  txs.forEach(t => {
+    if (!porOp[t.operadorId]) porOp[t.operadorId] = { nombre: t.operadorNombre, txs: [] };
+    porOp[t.operadorId].txs.push(t);
+  });
+
+  const pendCount = txs.filter(t => t.estado === 'pendiente').length;
+  let html = `<div style="font-size:12px;color:var(--text2);margin-bottom:16px">
+    ${txs.length} pago(s) · <span style="color:var(--orange);font-weight:700">${pendCount} pendiente(s)</span>
+  </div>`;
+
+  Object.entries(porOp).forEach(([opId, { nombre, txs: opTxs }]) => {
+    const pendientes = opTxs.filter(t => t.estado === 'pendiente');
+    const totalPend  = pendientes.reduce((s,t) => s + (t.monto||0), 0);
+    const estadoLabel = pendientes.length
+      ? `<span style="font-size:11px;color:var(--orange);font-weight:600">${pendientes.length} pendiente(s) · ${peso(totalPend)}</span>`
+      : `<span style="font-size:11px;color:var(--green);font-weight:600">✅ Liquidación aprobada</span>`;
+
+    html += `<div class="panel" style="margin-bottom:16px">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+        <span style="font-size:13px;font-weight:700">${nombre || opId}</span>
+        ${estadoLabel}
+      </div>
+      <div class="tbl-wrap"><table>
+        <thead><tr>
+          <th>Fecha</th><th>Tipo</th><th>Método</th><th>Destino</th><th>Monto</th><th>Estado</th><th>Notas</th><th style="width:160px"></th>
+        </tr></thead>
+        <tbody>`;
+    opTxs.forEach(t => {
+      const eColor = t.estado==='aprobado' ? 'var(--green)' : t.estado==='rechazado' ? '#ef4444' : 'var(--orange)';
+      const eIcon  = t.estado==='aprobado' ? '✅' : t.estado==='rechazado' ? '❌' : '⏳';
+      const destinoBadge = t.tipo === 'saldo' && t.destino
+        ? `<span style="font-size:11px;font-weight:600;color:var(--blue)">${t.destino}</span>`
+        : `<span style="color:var(--text2);font-size:11px">—</span>`;
+      const acciones = t.estado === 'pendiente'
+        ? `<div style="display:flex;gap:6px;align-items:center">
+             <button onclick="aprobarPagoLiq('${t.id}')"
+               style="padding:4px 10px;border-radius:5px;border:none;background:var(--green);color:#fff;cursor:pointer;font-size:11px;font-weight:700;white-space:nowrap">
+               ✅ Aprobar
+             </button>
+             <button onclick="rechazarPagoLiq('${t.id}')"
+               style="padding:4px 10px;border-radius:5px;border:1px solid #ef4444;background:transparent;color:#ef4444;cursor:pointer;font-size:11px;font-weight:700;white-space:nowrap">
+               ✕ Rechazar
+             </button>
+           </div>`
+        : `<span style="font-size:10px;color:var(--text2)">${t.aprobadoPor || t.rechazadoPor || '—'}</span>`;
+      html += `<tr>
+        <td>${t.fecha||'—'}</td>
+        <td>${t.tipo==='saldo'?'💰 Saldo':'📑 Comisión'}</td>
+        <td style="font-weight:600">${t.metodo||'—'}</td>
+        <td>${destinoBadge}</td>
+        <td style="font-weight:700">${peso(t.monto)}</td>
+        <td style="color:${eColor};font-weight:700">${eIcon} ${t.estado}</td>
+        <td style="font-size:11px;color:var(--text2)">${t.notas||'—'}</td>
+        <td>${acciones}</td>
+      </tr>`;
+    });
+    html += `</tbody></table></div></div>`;
+  });
+
+  // ── CORRECCIONES PENDIENTES ──
+  if (corrPend.length) {
+    html += `<div style="margin-top:24px">
+      <div style="font-size:13px;font-weight:700;color:var(--orange);margin-bottom:12px">⚠️ Solicitudes de Corrección (${corrPend.length})</div>`;
+    corrPend.forEach(c => {
+      html += `<div class="panel" style="margin-bottom:12px;border-color:rgba(245,158,11,.3)">
+        <div style="padding:14px 18px">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">
+            <div>
+              <div style="font-size:12px;font-weight:700;margin-bottom:4px">${c.operadorNombre || c.operadorId}</div>
+              <div style="font-size:11px;color:var(--text2)">${c.tipo==='comision'?'Comisión':'Saldo'} · <strong>${c.metodo}</strong></div>
+              <div style="font-size:11px;margin-top:6px">
+                <span style="color:var(--text2)">Antes:</span> <strong>${peso(c.oldMonto)}</strong> (${c.oldFecha})
+                &nbsp;→&nbsp;
+                <span style="color:var(--orange)">Después:</span> <strong style="color:var(--orange)">${peso(c.newMonto)}</strong> (${c.newFecha})
+              </div>
+              <div style="font-size:11px;color:var(--text2);margin-top:4px">Motivo: ${c.motivo}</div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+              <button onclick="aprobarCorreccionLiq('${c.id}')" style="padding:5px 12px;border-radius:5px;border:none;background:var(--green);color:#fff;cursor:pointer;font-size:12px;font-weight:700">✅ Aprobar</button>
+              <button onclick="rechazarCorreccionLiq('${c.id}')" style="padding:5px 12px;border-radius:5px;border:none;background:#ef4444;color:#fff;cursor:pointer;font-size:12px;font-weight:700">❌ Rechazar</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
+  container.innerHTML = html;
+}
+
+// Aprobar UN solo pago — genera su propio OP contable
+async function aprobarPagoLiq(txId) {
+  const uid   = auth.currentUser?.uid || '';
+  const email = auth.currentUser?.email || 'admin';
+  try {
+    const doc = await db.collection('patriarca_liquidacion_txs').doc(txId).get();
+    if (!doc.exists) { toast('⚠ Pago no encontrado', 'error'); return; }
+    const tx = { id: doc.id, ...doc.data() };
+
+    const contSnap = await db.collection('cont_movimientos').orderBy('op','desc').limit(1).get();
+    const nextOp   = contSnap.empty ? 1 : ((Number(contSnap.docs[0].data().op) || 0) + 1);
+    const descOP   = `Liquidación ${tx.mesKey} — ${tx.operadorNombre}`;
+    const lineDesc = `${descOP} · ${tx.tipo==='saldo'?'Saldo':'Comisión'} ${tx.metodo}`;
+    const destino  = tx.destino || 'Corresponsal';
+
+    const batch = db.batch();
+
+    if (tx.tipo === 'comision') {
+      batch.set(db.collection('cont_movimientos').doc(), {
+        op: nextOp, fecha: tx.fecha,
+        cuenta: 'ACTIVOS', subcuenta: `Cuenta Por Cobrar comisiones ${tx.metodo}`,
+        debito: tx.monto, credito: 0,
+        descripcion: descOP, notas: lineDesc,
+        creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      batch.set(db.collection('cont_movimientos').doc(), {
+        op: nextOp, fecha: tx.fecha,
+        cuenta: 'ACTIVOS', subcuenta: `Cuenta Por Cobrar comisiones ${tx.metodo} Operadores`,
+        debito: 0, credito: tx.monto,
+        descripcion: descOP, notas: lineDesc,
+        creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    } else {
+      batch.set(db.collection('cont_movimientos').doc(), {
+        op: nextOp, fecha: tx.fecha,
+        cuenta: 'ACTIVOS', subcuenta: destino,
+        debito: tx.monto, credito: 0,
+        descripcion: descOP, notas: lineDesc,
+        creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      batch.set(db.collection('cont_movimientos').doc(), {
+        op: nextOp, fecha: tx.fecha,
+        cuenta: 'ACTIVOS', subcuenta: metodoToSFLiq(tx.metodo),
+        debito: 0, credito: tx.monto,
+        descripcion: descOP, notas: lineDesc,
+        creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    }
+    batch.update(db.collection('patriarca_liquidacion_txs').doc(txId), {
+      estado: 'aprobado', aprobadoPor: email,
+      aprobadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+      opContable: nextOp
+    });
+    await batch.commit();
+    toast(`✅ Pago aprobado — OP#${nextOp}`);
+  } catch(e) {
+    toast('❌ Error: ' + e.message, 'error');
+    console.error('aprobarPagoLiq:', e);
+  }
+}
+
+// Helper compartido: método (mayúsculas) → subcuenta SF Grupo 5
+function metodoToSFLiq(m) {
+  return ({
+    'EFECTIVO OPERADOR':'Efectivo Operador','BE MOVIL CAJA':'Be Movil Caja',
+    'CUENTA BANCARIA':'Cuenta Bancaria','MEGA RED':'Mega Red','WPLAY UNITY':'Wplay Unity',
+    'SUPER GIROS UNITY':'Super Giros Unity','EFECTY 1 DE MAYO':'Efecty 1 De Mayo',
+    'SUPER GIROS MAQUINA':'Supergiros Maquina','CORRESPONSAL EL PARAMO':'Corresponsal El Paramo',
+    'EASY CHANGER':'Easy changer','PTM PROPIO':'Ptm Propio',
+    'BE MOVIL MASTER':'Be Movil Master','PUNTO RED UNITY':'Punto Red Unity','BET RED':'Bet Red',
+  })[m] || m.split(' ').map(w=>w[0].toUpperCase()+w.slice(1).toLowerCase()).join(' ');
+}
+
+// Aprobar TODOS los pagos pendientes de un operador en UN solo asiento
+async function aprobarLiquidacionCompleta(operadorId, mesKey) {
+  if (!confirm('¿Aprobar toda la liquidación y crear un solo asiento contable con todos los pagos?')) return;
+  try {
+    // Traer todos los pagos pendientes del operador para este mes
+    const snap = await db.collection('patriarca_liquidacion_txs')
+      .where('operadorId', '==', operadorId)
+      .where('mesKey', '==', mesKey)
+      .where('estado', '==', 'pendiente')
+      .get();
+
+    if (snap.empty) { toast('⚠ No hay pagos pendientes', 'error'); return; }
+
+    const txs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const operadorNombre = txs[0].operadorNombre || operadorId;
+    const fecha = txs[0].fecha || new Date().toISOString().slice(0,10);
+    const uid   = auth.currentUser?.uid || '';
+    const email = auth.currentUser?.email || 'admin';
+
+    // Un solo OP para toda la liquidación
+    const contSnap = await db.collection('cont_movimientos').orderBy('op','desc').limit(1).get();
+    const nextOp = contSnap.empty ? 1 : ((Number(contSnap.docs[0].data().op) || 0) + 1);
+    const descOP = `Liquidación ${mesKey} — ${operadorNombre}`;
+
+    const batch = db.batch();
+
+
+    txs.forEach(tx => {
+      const lineDesc = `${descOP} · ${tx.tipo==='saldo'?'Saldo':'Comisión'} ${tx.metodo}`;
+      const destino  = tx.destino || 'Corresponsal'; // cuenta CEO que recibe el dinero
+      if (tx.tipo === 'comision') {
+        // DÉBITO: Cuenta Por Cobrar comisiones [METODO] — cuenta negra
+        batch.set(db.collection('cont_movimientos').doc(), {
+          op: nextOp, fecha: tx.fecha || fecha,
+          cuenta: 'ACTIVOS', subcuenta: `Cuenta Por Cobrar comisiones ${tx.metodo}`,
+          debito: tx.monto, credito: 0,
+          descripcion: descOP, notas: lineDesc,
+          creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        // CRÉDITO: Cuenta Por Cobrar comisiones [METODO] Operadores — cuenta naranja
+        batch.set(db.collection('cont_movimientos').doc(), {
+          op: nextOp, fecha: tx.fecha || fecha,
+          cuenta: 'ACTIVOS', subcuenta: `Cuenta Por Cobrar comisiones ${tx.metodo} Operadores`,
+          debito: 0, credito: tx.monto,
+          descripcion: descOP, notas: lineDesc,
+          creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+        });
+      } else {
+        // Pago de saldo — DÉBITO: cuenta destino CEO / CRÉDITO: método Grupo 5 del operador
+        batch.set(db.collection('cont_movimientos').doc(), {
+          op: nextOp, fecha: tx.fecha || fecha,
+          cuenta: 'ACTIVOS', subcuenta: destino,
+          debito: tx.monto, credito: 0,
+          descripcion: descOP, notas: lineDesc,
+          creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        batch.set(db.collection('cont_movimientos').doc(), {
+          op: nextOp, fecha: tx.fecha || fecha,
+          cuenta: 'ACTIVOS', subcuenta: metodoToSFLiq(tx.metodo),
+          debito: 0, credito: tx.monto,
+          descripcion: descOP, notas: lineDesc,
+          creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+        });
+      }
+      // Marcar cada tx como aprobada
+      batch.update(db.collection('patriarca_liquidacion_txs').doc(tx.id), {
+        estado: 'aprobado', aprobadoPor: email,
+        aprobadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+        opContable: nextOp
+      });
+    });
+
+    await batch.commit();
+    toast(`✅ Liquidación aprobada — OP#${nextOp} con ${txs.length} pago(s)`);
+  } catch(e) {
+    toast('❌ Error: ' + e.message, 'error');
+    console.error('aprobarLiquidacionCompleta:', e);
+  }
+}
+
+async function rechazarPagoLiq(txId) {
+  const motivo = prompt('Motivo del rechazo (opcional):');
+  if (motivo === null) return;
+  try {
+    await db.collection('patriarca_liquidacion_txs').doc(txId).update({
+      estado:       'rechazado',
+      rechazadoPor: auth.currentUser?.email || 'admin',
+      rechazadoEn:  firebase.firestore.FieldValue.serverTimestamp(),
+      motivoRechazo: motivo
+    });
+    toast('Pago rechazado', 'info');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+async function aprobarCorreccionLiq(corrId) {
+  if (!confirm('¿Aprobar corrección? Se anulará el asiento original y se creará uno nuevo con los valores corregidos.')) return;
+  try {
+    const corrSnap = await db.collection('patriarca_liq_correcciones').doc(corrId).get();
+    if (!corrSnap.exists) { toast('Corrección no encontrada', 'error'); return; }
+    const c = corrSnap.data();
+
+    const uid   = auth.currentUser?.uid || '';
+    const email = auth.currentUser?.email || 'admin';
+    const batch = db.batch();
+
+    // Obtener OP original y siguiente OP disponible
+    const contSnap = await db.collection('cont_movimientos').orderBy('op','desc').limit(1).get();
+    const nextOp = contSnap.empty ? 1 : ((Number(contSnap.docs[0].data().op) || 0) + 1);
+    const descBase = `Corrección Liq ${c.mesKey} — ${c.operadorNombre}`;
+
+    // 1. ANULAR asiento original (si tenemos el OP)
+    if (c.opContableOriginal) {
+      const opSnap = await db.collection('cont_movimientos')
+        .where('op', '==', c.opContableOriginal).get({ source: 'server' });
+      opSnap.docs.forEach(doc => {
+        const d = doc.data();
+        if ((d.subcuenta||'').includes(c.metodo)) {
+          // Invertir débito y crédito para anular
+          batch.set(db.collection('cont_movimientos').doc(), {
+            op: nextOp, fecha: c.newFecha,
+            cuenta: d.cuenta, subcuenta: d.subcuenta,
+            debito:  d.credito || 0,  // invertido
+            credito: d.debito  || 0,  // invertido
+            descripcion: `${descBase} · ANULACIÓN OP#${c.opContableOriginal}`,
+            notas: `Anulación por corrección. Motivo: ${c.motivo}`,
+            creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+          });
+        }
+      });
+    }
+
+    // 2. NUEVO asiento con monto correcto
+    const opNuevo = nextOp + 1;
+    const descNuevo = `${descBase} · ${c.tipo==='comision'?'Comisión':'Saldo'} ${c.metodo} (corregido)`;
+    if (c.tipo === 'comision') {
+      batch.set(db.collection('cont_movimientos').doc(), {
+        op: opNuevo, fecha: c.newFecha,
+        cuenta: 'ACTIVOS', subcuenta: `Cuenta Por Cobrar comisiones ${c.metodo}`,
+        debito: c.newMonto, credito: 0,
+        descripcion: descNuevo, notas: `Corrección: ${c.motivo}`,
+        creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      batch.set(db.collection('cont_movimientos').doc(), {
+        op: opNuevo, fecha: c.newFecha,
+        cuenta: 'ACTIVOS', subcuenta: `Cuenta Por Cobrar comisiones ${c.metodo} Operadores`,
+        debito: 0, credito: c.newMonto,
+        descripcion: descNuevo, notas: `Corrección: ${c.motivo}`,
+        creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    } else {
+      batch.set(db.collection('cont_movimientos').doc(), {
+        op: opNuevo, fecha: c.newFecha,
+        cuenta: 'ACTIVOS', subcuenta: `Efectivo Recibido — ${c.metodo}`,
+        debito: c.newMonto, credito: 0,
+        descripcion: descNuevo, notas: `Corrección: ${c.motivo}`,
+        creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      batch.set(db.collection('cont_movimientos').doc(), {
+        op: opNuevo, fecha: c.newFecha,
+        cuenta: 'ACTIVOS', subcuenta: `Cupo — ${c.metodo}`,
+        debito: 0, credito: c.newMonto,
+        descripcion: descNuevo, notas: `Corrección: ${c.motivo}`,
+        creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    }
+
+    // 3. Actualizar tx original con nuevo monto
+    batch.update(db.collection('patriarca_liquidacion_txs').doc(c.txId), {
+      monto: c.newMonto, fecha: c.newFecha,
+      opContable: opNuevo,
+      notas: `[Corregido] ${c.motivo}`
+    });
+
+    // 4. Marcar corrección como aprobada
+    batch.update(db.collection('patriarca_liq_correcciones').doc(corrId), {
+      estado: 'aprobada', aprobadoPor: email,
+      aprobadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+      opAnulacion: nextOp, opCorreccion: opNuevo
+    });
+
+    await batch.commit();
+    toast(`✅ Corrección aprobada — OP#${nextOp} anulación · OP#${opNuevo} corrección`);
+    initLiquidaciones();
+  } catch(e) {
+    toast('❌ Error: ' + e.message, 'error');
+    console.error('aprobarCorreccionLiq:', e);
+  }
+}
+
+async function rechazarCorreccionLiq(corrId) {
+  const motivo = prompt('Motivo del rechazo (opcional):');
+  if (motivo === null) return;
+  try {
+    await db.collection('patriarca_liq_correcciones').doc(corrId).update({
+      estado: 'rechazada', rechazadoPor: auth.currentUser?.email || 'admin',
+      rechazadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+      motivoRechazo: motivo
+    });
+    toast('Corrección rechazada');
+    initLiquidaciones();
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
 // ──────────────────────────────────────────────────────────────
 // CORRECCIÓN PUNTUAL — solo para cierres ya aceptados antes de
 // que se implementara el guardado de comisionesMesAnterior y
@@ -4931,13 +6205,14 @@ async function rechazarCierre(cierreId) {
 // ──────────────────────────────────────────────────────────────
 async function fixSaldoInicialDesdesCierre(operadorId, mesLabel, mesSigKey) {
   console.log(`[fix] Buscando cierre aceptado de ${operadorId} — ${mesLabel}...`);
+  // Filtrar estado en JS para evitar query compuesta sin índice
   const snap = await db.collection('patriarca_cierres')
     .where('operadorId', '==', operadorId)
     .where('mes',        '==', mesLabel)
-    .where('estado',     '==', 'aceptado')
     .get();
-  if (snap.empty) { console.error('[fix] No se encontró cierre aceptado.'); return; }
-  const sorted = snap.docs.map(d => d.data())
+  const aceptados = snap.docs.filter(d => d.data().estado === 'aceptado');
+  if (!aceptados.length) { console.error('[fix] No se encontró cierre aceptado.'); return; }
+  const sorted = aceptados.map(d => d.data())
     .sort((a,b) => (b.ts?.toMillis?.() || 0) - (a.ts?.toMillis?.() || 0));
   const c = sorted[0];
   const comAnt = Math.round(c.ganancia?.totalComisiones || 0);
@@ -4948,6 +6223,71 @@ async function fixSaldoInicialDesdesCierre(operadorId, mesLabel, mesSigKey) {
     gananciaMesAnterior:   ganAnt
   });
   console.log(`[fix] ✅ patriarca_saldo_inicial/${operadorId}_${mesSigKey} actualizado.`);
+}
+
+// ──────────────────────────────────────────────────────────────
+// BACKFILL — Crear patriarca_variaciones para cierres ya aceptados
+//
+// Uso desde consola del admin:
+//   await backfillVariaciones('Junio 2026')
+//
+// Crea el doc de variaciones para TODOS los operadores que
+// cerraron ese mes, leyendo saldosMetodos del cierre y
+// comByMetodo del patriarca_esf_resumen.
+// ──────────────────────────────────────────────────────────────
+async function backfillVariaciones(mesLabel) {
+  const MESES = {enero:1,febrero:2,marzo:3,abril:4,mayo:5,junio:6,julio:7,agosto:8,septiembre:9,octubre:10,noviembre:11,diciembre:12};
+  const partes = mesLabel.trim().toLowerCase().split(/\s+/);
+  const num = MESES[partes[0]], año = parseInt(partes[1]);
+  if (!num || !año) { console.error('[backfill] Formato inválido. Usa: "Junio 2026"'); return; }
+  const mesKey = `${año}-${String(num).padStart(2,'0')}`;
+  console.log(`[backfill] Procesando cierres de ${mesLabel} (mesKey: ${mesKey})...`);
+
+  // Traer todos los cierres de ese mes
+  const snap = await db.collection('patriarca_cierres').where('mes', '==', mesLabel).get();
+  const cierres = snap.docs.map(d => d.data()).filter(d => d.estado === 'aceptado');
+  console.log(`[backfill] ${cierres.length} cierre(s) aceptado(s) encontrados`);
+
+  let ok = 0, err = 0;
+  for (const c of cierres) {
+    try {
+      // Leer comByMetodo del ESF resumen (nuevo formato primero, fallback a viejo)
+      let comByMetodo = {};
+      const esfNew = await db.collection('patriarca_esf_resumen').doc(`${c.operadorId}_${mesKey}`).get();
+      if (esfNew.exists && esfNew.data().comByMetodo) {
+        comByMetodo = esfNew.data().comByMetodo;
+      } else {
+        const esfOld = await db.collection('patriarca_esf_resumen').doc(c.operadorId).get();
+        if (esfOld.exists && esfOld.data().mesKey === mesKey && esfOld.data().comByMetodo) {
+          comByMetodo = esfOld.data().comByMetodo;
+        }
+      }
+
+      const saldosM = c.saldosMetodos || {};
+      const docData = {
+        operadorId:          c.operadorId,
+        operadorNombre:      c.operadorNombre,
+        mesKey,
+        mes:                 mesLabel,
+        saldosPorMetodo:     saldosM,
+        totalSaldos:         Math.round(Object.values(saldosM).reduce((s,v)=>s+(v||0),0)),
+        comisionesPorMetodo: comByMetodo,
+        totalComisiones:     Math.round(Object.values(comByMetodo).reduce((s,v)=>s+(v||0),0)),
+        gananciaNeta:        Math.round(c.ganancia?.total || 0),
+        estado:              'pendiente',
+        creadoEn:            firebase.firestore.FieldValue.serverTimestamp(),
+        creadoPor:           'backfill'
+      };
+
+      await db.collection('patriarca_variaciones').doc(`${c.operadorId}_${mesKey}`).set(docData, { merge: true });
+      console.log(`  ✅ ${c.operadorNombre} — saldos: $${docData.totalSaldos.toLocaleString('es-CO')} | comisiones: $${docData.totalComisiones.toLocaleString('es-CO')}`);
+      ok++;
+    } catch(e) {
+      console.error(`  ❌ ${c.operadorNombre || c.operadorId}:`, e.message);
+      err++;
+    }
+  }
+  console.log(`[backfill] ✅ ${ok} creados · ❌ ${err} errores`);
 }
 </script>
 </body>

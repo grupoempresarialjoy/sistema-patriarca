@@ -363,8 +363,8 @@
 
   /* ── ESF CONSOLIDADO ── */
   .esf-cons-table { width:100%; border-collapse:collapse; font-size:12px; font-family:'Montserrat',sans-serif; min-width:700px; }
-  .esf-cons-table th { background:var(--bg-dark); color:var(--text-muted); font-size:9px; font-weight:800; letter-spacing:1px; text-align:right; padding:8px 12px; border-bottom:2px solid var(--border); white-space:nowrap; }
-  .esf-cons-table th:first-child { text-align:left; min-width:180px; position:sticky; left:0; background:var(--bg-dark); z-index:2; }
+  .esf-cons-table th { background:var(--bg-dark); color:var(--text-muted); font-size:9px; font-weight:800; letter-spacing:1px; text-align:right; padding:8px 12px; border-bottom:2px solid var(--border); white-space:nowrap; position:sticky; top:0; z-index:10; }
+  .esf-cons-table th:first-child { text-align:left; min-width:180px; position:sticky; top:0; left:0; background:var(--bg-dark); z-index:20; }
   .esf-cons-table th.th-total { background:#1a2a1a; color:var(--green-primary); }
   .esf-cons-table td { padding:6px 12px; text-align:right; border-bottom:1px solid rgba(42,47,63,.5); color:var(--text); white-space:nowrap; }
   .esf-cons-table td:first-child { text-align:left; color:var(--text-muted); font-size:11px; position:sticky; left:0; background:var(--bg-card); z-index:1; }
@@ -843,12 +843,34 @@
 
         <!-- ── TAB: SITUACIÓN FINANCIERA ── -->
         <div class="cont-tab-content active" id="ctab-content-sf">
-          <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
-            <button id="btn-sf-modo" onclick="toggleSFModo()"
-              style="font-size:10px;font-weight:800;letter-spacing:.8px;padding:6px 14px;border-radius:20px;border:1px solid var(--border);background:var(--bg-card2);color:var(--text-muted);cursor:pointer;font-family:'Montserrat',sans-serif;transition:all .15s"
-              title="Alternar entre saldos base y saldos con ajustes ESF">
-              👁 VISTA BASE
-            </button>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+            <!-- Filtro: hasta operación N -->
+            <div style="display:flex;align-items:center;gap:6px;background:var(--bg-card2);border:1px solid var(--border);border-radius:20px;padding:4px 12px">
+              <span style="font-size:9px;font-weight:800;letter-spacing:.8px;color:var(--text-muted)">HASTA OP</span>
+              <input id="sf-op-input" type="number" min="1" placeholder="—"
+                style="width:60px;background:transparent;border:none;outline:none;font-size:12px;font-weight:700;font-family:'Montserrat',sans-serif;color:var(--text);text-align:center"
+                oninput="setSFMaxOp(this.value)"
+                title="Mostrar SF solo hasta esta operación">
+              <span id="sf-op-total" style="font-size:9px;color:var(--text-muted)">/ —</span>
+              <button onclick="clearSFMaxOp()" title="Ver todas las operaciones"
+                style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--text-muted);padding:0 2px;line-height:1">&times;</button>
+            </div>
+            <div id="sf-op-badge" style="display:none;font-size:9px;font-weight:700;padding:3px 10px;border-radius:10px;background:rgba(245,158,11,.15);color:#f59e0b;border:1px solid rgba(245,158,11,.3)">
+              ⏱ Vista histórica
+            </div>
+            <div style="flex:1"></div>
+            <div style="display:flex;gap:6px">
+              <button id="btn-sf-base" onclick="setSFModo(true)"
+                style="font-size:10px;font-weight:800;letter-spacing:.8px;padding:6px 14px;border-radius:20px;border:1px solid var(--border);background:var(--bg-card2);color:var(--text-muted);cursor:pointer;font-family:'Montserrat',sans-serif;transition:all .15s"
+                title="Solo movimientos registrados en el diario">
+                👁 VISTA BASE
+              </button>
+              <button id="btn-sf-ajustada" onclick="setSFModo(false)"
+                style="font-size:10px;font-weight:800;letter-spacing:.8px;padding:6px 14px;border-radius:20px;border:1px solid rgba(53,204,47,.5);background:var(--bg-card2);color:var(--green-primary);cursor:pointer;font-family:'Montserrat',sans-serif;transition:all .15s"
+                title="Con ajustes ESF de operadores">
+                ✦ VISTA AJUSTADA
+              </button>
+            </div>
           </div>
           <div class="stats-row stats-4" style="margin-bottom:20px" id="sf-kpis">
             <div class="stat-card"><div class="stat-label">TOTAL ACTIVO</div><div class="stat-value stat-green" id="kpi-activo">—</div></div>
@@ -1191,6 +1213,7 @@
               <h3>📋 Libro de Movimientos</h3>
               <div class="sh-right">
                 <span id="mov-count-lbl" style="font-size:11px;color:var(--text-muted)"></span>
+                <button id="btn-mov-mes" onclick="_movSoloMes=!_movSoloMes;renderMovimientos()" class="btn btn-ghost" style="font-size:11px;font-weight:800;letter-spacing:.4px;padding:5px 12px;color:var(--green-primary);border-color:rgba(53,204,47,.4)" title="Filtrar por mes seleccionado / ver todos">📅 Mes actual</button>
                 <button onclick="normalizarOp1()" class="btn btn-ghost" style="font-size:11px;font-weight:700;letter-spacing:.4px;padding:5px 12px;color:#f59e0b;border-color:rgba(245,158,11,.3)" title="Poner todos los movimientos en OP 1">🔧 Normalizar OP → 1</button>
                 <button onclick="toggleOpCheck()" class="btn btn-ghost" style="font-size:11px;font-weight:700;letter-spacing:.4px;padding:5px 12px" title="Verificar que débitos y créditos cuadren por OP">⚖️ Comprobar OPs</button>
               </div>
@@ -1220,7 +1243,8 @@
                     </td>
                     <td><input class="mov-filter-input" placeholder="Subcuenta..." oninput="applyMovFilter('subcuenta',this.value)"></td>
                     <td><input class="mov-filter-input" placeholder="Grupo..." oninput="applyMovFilter('grupo',this.value)"></td>
-                    <td colspan="2"></td>
+                    <td><input class="mov-filter-input" placeholder="Débito..." type="number" min="0" oninput="applyMovFilter('debito',this.value)" style="text-align:right"></td>
+                    <td><input class="mov-filter-input" placeholder="Crédito..." type="number" min="0" oninput="applyMovFilter('credito',this.value)" style="text-align:right"></td>
                     <td><input class="mov-filter-input" placeholder="Descripción..." oninput="applyMovFilter('desc',this.value)"></td>
                     <td colspan="2"><button onclick="clearMovFilters()" style="font-size:10px;padding:3px 8px;background:var(--bg-card2);border:1px solid var(--border);border-radius:4px;color:var(--text-muted);cursor:pointer">✕ Limpiar</button></td>
                   </tr>
@@ -1243,9 +1267,14 @@
             <select id="esf-cons-mes" onchange="loadEsfConsolidado()"
               style="background:var(--card);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:6px;font-size:12px;font-weight:600;font-family:'Montserrat',sans-serif">
             </select>
+            <span style="font-size:10px;color:var(--text-muted);font-style:italic">Se actualiza automáticamente cuando el operador abre su portal</span>
+            <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text-muted);cursor:pointer">
+              <input type="checkbox" id="esf-cons-solo-datos" onchange="loadEsfConsolidado()" checked style="cursor:pointer">
+              Solo con datos
+            </label>
             <span id="esf-cons-status" style="font-size:11px;color:var(--text-muted)"></span>
           </div>
-          <div style="overflow-x:auto">
+          <div style="overflow:auto;max-height:calc(100vh - 190px);-webkit-overflow-scrolling:touch">
             <div id="esf-cons-container">
               <div style="padding:32px;text-align:center;color:var(--text-muted)">Selecciona un mes para ver el ESF consolidado.</div>
             </div>
@@ -1261,6 +1290,16 @@
           </div>
           <div id="var-container">
             <div style="padding:32px;text-align:center;color:var(--text-muted)">Abre ESF CONSOLIDADO primero para cargar los datos del mes.</div>
+          </div>
+
+          <!-- ── VARIACIONES COMISIONES MES A MES ── -->
+          <div style="margin-top:32px;padding-top:24px;border-top:2px solid var(--border)">
+            <div style="font-size:11px;font-weight:800;letter-spacing:1.5px;color:var(--text-muted);margin-bottom:16px">
+              📑 COMISIONES — VARIACIÓN MES A MES
+            </div>
+            <div id="var-coms-container">
+              <div style="padding:24px;text-align:center;color:var(--text-muted);font-size:12px">⏳ Cargando historial…</div>
+            </div>
           </div>
         </div>
 
@@ -1491,10 +1530,11 @@
       <input type="hidden" id="edit-cuenta-id">
       <input type="hidden" id="edit-cuenta-original">
       <input type="hidden" id="edit-cuenta-tipo">
-      <input type="hidden" id="edit-cuenta-grupo">
       <label class="form-label">NOMBRE</label>
       <input class="form-input" id="edit-cuenta-nombre" placeholder="Nombre de la subcuenta"
              onkeydown="if(event.key==='Enter') saveEditCuenta()">
+      <label class="form-label" style="margin-top:14px">GRUPO</label>
+      <select class="form-input" id="edit-cuenta-grupo" style="cursor:pointer"></select>
       <p id="edit-cuenta-hint" style="font-size:11px;color:var(--text-muted);margin-top:8px;display:none">
         ⚠️ Esta es una cuenta base. El cambio se guarda como un alias en Firestore y puede revertirse desde el catálogo.
       </p>
@@ -2132,9 +2172,11 @@ function switchContTab(tab) {
 let _esfConsListener = null;
 let _esfConsMesKey   = null;
 let _esfExcluidos    = new Set(JSON.parse(localStorage.getItem('esf-excluidos') || '[]'));
+let _mesCerradoMap   = {}; // { docId: {autorizado, cerradoPor} } para el mes activo del ESF
 let _sfGananciaMesActual  = 0; // Utilidad derivada del ESF CONSOLIDADO → fluye a SF grupo 15
 let _sfGananciaBalance    = 0; // Ganancia ajustada para balance perfecto (comisiones + g5Delta)
 let _sfModoBase = false; // false = Vista Ajustada (con ESF), true = Vista Base (solo cont_movimientos)
+let _sfMaxOp    = null; // null = todas las ops; número = filtrar hasta esa op inclusive
 let _sfComisionesMesActual = {}; // { metodo: total } desde ESF CONSOLIDADO → fluye a SF activos
 let _sfCajasMesActual     = {}; // { metodo: total } cajas por método → grupo 5 SF
 let _sfClientesMesActual  = 0;  // totalClientes ESF → Saldo Clientes grupo 5 SF
@@ -2143,6 +2185,7 @@ let _sfInvertidoMesActual = 0;  // invertido ESF → Invertido Mes Actual grupo 
 // Mapeo nombre SF → clave ESF (compartido entre renderVariaciones y renderSituacionFinanciera)
 const SF_A_ESF_G5 = {
   'Saldo Clientes':         '__clientes__',
+  'Invertido - Mes Actual': '__invertido__',
   'Efectivo Operador':      'EFECTIVO OPERADOR',
   'Be Movil Caja':          'BE MOVIL CAJA',
   'Cuenta Bancaria':        'CUENTA BANCARIA',
@@ -2154,10 +2197,33 @@ const SF_A_ESF_G5 = {
   'Corresponsal El Paramo': 'CORRESPONSAL EL PARAMO',
   'Easy changer':           'EASY CHANGER',
 };
+// Aliases: nombres históricos en cont_movimientos → nombre canónico actual en ESF
+const COM_METODO_ALIAS = {
+  'Be movil':        'BE MOVIL CAJA',
+  'BE MOVIL':        'BE MOVIL CAJA',
+  'Be Movil':        'BE MOVIL CAJA',
+  'Be movil caja':   'BE MOVIL CAJA',
+};
+function _normMetodo(m) { return COM_METODO_ALIAS[m] || m; }
+
+// Extrae el metodo de una subcuenta "Cuenta Por Cobrar comisiones X [Operadores]"
+// (acepta con o sin " Operadores" — usado en tabla de variaciones)
+function _metodoFromSubcuenta(sub) {
+  const m = (sub || '').match(/^Cuenta Por Cobrar comisiones (.+?)(?:\s+Operadores)?$/);
+  return m ? _normMetodo(m[1]) : null;
+}
+// Solo extrae el metodo si la subcuenta termina en " Operadores"
+// (usado en SF para aplicar ajuste ESF solo a cuentas de cierre)
+function _metodoFromSubcuentaOp(sub) {
+  const m = (sub || '').match(/^Cuenta Por Cobrar comisiones (.+?)\s+Operadores$/);
+  return m ? _normMetodo(m[1]) : null;
+}
+
 function _esfValG5(nombreSF) {
   const key = SF_A_ESF_G5[nombreSF];
   if (!key) return null;
-  if (key === '__clientes__') return _sfClientesMesActual || null;
+  if (key === '__clientes__')  return _sfClientesMesActual  || null;
+  if (key === '__invertido__') return _sfInvertidoMesActual || null;
   const v = _sfCajasMesActual[key];
   return (v !== undefined) ? v : null;
 }
@@ -2170,6 +2236,234 @@ function toggleEsfExcluido(uid) {
   const container = document.getElementById('esf-cons-container');
   const prev = container._lastDocs;
   if (prev) container.innerHTML = _renderEsfConsolidado(prev, _esfConsMesKey);
+}
+
+async function toggleMesCerrado(uid, emailOp, mesKey) {
+  const docId  = `${uid}_${mesKey}`;
+  const ref    = db.collection('patriarca_meses_cerrados').doc(docId);
+  const snap   = await ref.get();
+  const user   = firebase.auth().currentUser;
+  const admin  = user?.email || 'CEO';
+
+  if (!snap.exists) {
+    // Cerrar el mes
+    if (!confirm(`¿Cerrar el mes ${mesKey} para ${emailOp}?\nEl operador no podrá registrar nada hasta que lo autorices.`)) return;
+    await ref.set({ uid, mesKey, email: emailOp, cerradoEn: firebase.firestore.FieldValue.serverTimestamp(), cerradoPor: admin, autorizado: false });
+    _mesCerradoMap[docId] = { autorizado: false };
+  } else if (!snap.data().autorizado) {
+    // Autorizar edición temporal
+    if (!confirm(`¿Autorizar a ${emailOp} para editar el mes ${mesKey}?\nPodrá registrar movimientos hasta que lo vuelvas a cerrar.`)) return;
+    await ref.update({ autorizado: true, autorizadoPor: admin, autorizadoEn: firebase.firestore.FieldValue.serverTimestamp() });
+    _mesCerradoMap[docId] = { autorizado: true };
+  } else {
+    // Volver a cerrar (revocar autorización)
+    if (!confirm(`¿Revocar autorización de edición para ${emailOp} en ${mesKey}?`)) return;
+    await ref.update({ autorizado: false });
+    _mesCerradoMap[docId] = { autorizado: false };
+  }
+
+  // Re-renderizar ESF
+  const container = document.getElementById('esf-cons-container');
+  const prev = container._lastDocs;
+  if (prev) container.innerHTML = _renderEsfConsolidado(prev, _esfConsMesKey);
+}
+
+async function _cargarMesCerradoMap(ops, mesKey) {
+  if (!ops.length || !mesKey) return;
+  _mesCerradoMap = {};
+  const docIds = ops.map(op => `${op.uid}_${mesKey}`);
+  // Firestore no soporta 'in' con más de 30 items, lo hacemos en chunks
+  const CHUNK = 30;
+  for (let i = 0; i < docIds.length; i += CHUNK) {
+    const chunk = docIds.slice(i, i + CHUNK);
+    const snaps = await Promise.all(chunk.map(id => db.collection('patriarca_meses_cerrados').doc(id).get()));
+    snaps.forEach(s => { if (s.exists) _mesCerradoMap[s.id] = s.data(); });
+  }
+}
+
+async function recalcularEsfCeo() {
+  const mesKey = document.getElementById('esf-cons-mes')?.value;
+  if (!mesKey) return;
+  const mes = document.getElementById('esf-cons-mes')?.selectedOptions[0]?.text || mesKey;
+  const btn = document.getElementById('btn-recalc-esf');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Calculando...'; }
+
+  try {
+    // Cargar operadores y métodos en paralelo
+    const [opsSnap, metSnap] = await Promise.all([
+      db.collection('admin_usuarios').where('rol','==','operador').get(),
+      db.collection('admin_config').doc('metodos').get(),
+    ]);
+    const metCajeroList = (metSnap.exists ? (metSnap.data().lista || []) : [])
+      .filter(m => m.tipo === 'cajero' && (m.nombre||'').trim().toUpperCase() !== 'SALDO CLIENTES ANTERIOR')
+      .map(m => (m.nombre||'').trim().toUpperCase());
+    const metCajeroSet = new Set(metCajeroList);
+
+    const ops = opsSnap.docs.map(d => ({ uid: d.data().uid || d.id, nombre: d.data().nombre || d.data().email || d.id }))
+      .filter(o => o.uid);
+
+    let ok = 0, err = 0;
+    for (const op of ops) {
+      try {
+        const [cfgSnap, siSnap, movSnap, invSnap, ixSnap, gasSnap, cliSnap] = await Promise.all([
+          db.collection('patriarca_config').doc(op.uid).get(),
+          db.collection('patriarca_saldo_inicial').doc(`${op.uid}_${mesKey}`).get(),
+          db.collection('patriarca_movimientos').where('opId','==',op.uid).get(),
+          db.collection('patriarca_inversiones').where('opId','==',op.uid).get(),
+          db.collection('patriarca_intercambios').where('opId','==',op.uid).get(),
+          db.collection('patriarca_gastos').where('opId','==',op.uid).get(),
+          db.collection('patriarca_clientes').where('opId','==',op.uid).get(),
+        ]);
+        const cfg = cfgSnap.exists ? cfgSnap.data() : {};
+        const siData = siSnap.exists ? siSnap.data() : {};
+        const saldoInicial = siData.saldos || {};
+        let comisionesMesAnt = Math.round(siData.comisionesMesAnterior || 0);
+        let gananciaMesAnt   = Math.round(siData.gananciaMesAnterior   || 0);
+        const movs    = movSnap.docs.map(d => d.data()).filter(m => (m.fecha||'').startsWith(mesKey));
+
+        // Liquidaciones mes anterior aprobadas → reducen gananciaMesAnt y comisionesMesAnt
+        let _liqCeoDocs = [];
+        try {
+          const [yk0, mk0] = mesKey.split('-').map(Number);
+          const prevKey0 = new Date(yk0, mk0 - 2, 1).toISOString().slice(0, 7);
+          if (prevKey0) {
+            const liqS0 = await db.collection('patriarca_liquidacion_txs')
+              .where('operadorId', '==', op.uid)
+              .where('mesKey',     '==', prevKey0)
+              .where('estado',     '==', 'aprobado')
+              .get({ source: 'server' });
+            _liqCeoDocs = liqS0.docs;
+            liqS0.docs.forEach(d => {
+              const tx = d.data();
+              const monto = Math.round(tx.monto || 0);
+              if (tx.tipo === 'comision') comisionesMesAnt = Math.max(0, comisionesMesAnt - monto);
+              gananciaMesAnt = Math.max(0, gananciaMesAnt - monto);
+            });
+          }
+        } catch(e) { console.warn('recalcEsfCeo liq_prev:', e); }
+        const invs    = invSnap.docs.map(d => d.data()).filter(i => {
+          if (i.mesKey) return i.mesKey === mesKey;
+          return (i.fecha||'').startsWith(mesKey);
+        });
+        const ixs     = ixSnap.docs.map(d => d.data()).filter(i => (i.fecha||'').startsWith(mesKey));
+        const gastos  = gasSnap.docs.map(d => d.data()).filter(g => (g.fecha||'').startsWith(mesKey));
+        const clientes = cliSnap.docs.map(d => ({id:d.id,...d.data()}));
+        const idToNombre = {};
+        clientes.forEach(c => idToNombre[c.id] = c.nombre_completo || c.nombre || c.id);
+
+        // Clientes mes anterior
+        let clientesMesAnt = 0;
+        Object.values(saldoInicial).forEach(cm => Object.values(cm||{}).forEach(v => clientesMesAnt += parseFloat(v)||0));
+
+        // Clientes actual
+        const siMap={}, movMap={}, invMap={};
+        Object.entries(saldoInicial).forEach(([cid, casaMap]) => {
+          const n = idToNombre[cid] || cid;
+          Object.entries(casaMap||{}).forEach(([casa, monto]) => { siMap[`${n}||${casa}`] = (siMap[`${n}||${casa}`]||0) + (parseFloat(monto)||0); });
+        });
+        movs.forEach(m => {
+          if (!m.cliente||!m.casa) return;
+          const n = (m.cliente_id && idToNombre[m.cliente_id]) || m.cliente;
+          const k = `${n}||${m.casa}`;
+          if (!movMap[k]) movMap[k]={recargas:0,pagos:0};
+          if (m.tipo==='RECARGAS') movMap[k].recargas += parseFloat(m.monto)||0;
+          if (m.tipo==='PAGOS')    movMap[k].pagos    += parseFloat(m.monto)||0;
+        });
+        invs.forEach(i => {
+          if (!i.cliente||!i.casa) return;
+          const n = (i.cliente_id && idToNombre[i.cliente_id]) || i.cliente;
+          const k = `${n}||${i.casa}`;
+          if (!invMap[k]) invMap[k]={invertido:0,retornado:0};
+          invMap[k].invertido += parseFloat(i.monto)||0;
+          const ret = parseFloat(i.retorno_cliente)||0;
+          if (ret>0) invMap[k].retornado += ret;
+        });
+        let totalClientes = 0;
+        new Set([...Object.keys(siMap),...Object.keys(movMap),...Object.keys(invMap)]).forEach(k => {
+          totalClientes += (siMap[k]||0) + ((movMap[k]||{}).recargas||0) - ((movMap[k]||{}).pagos||0)
+                         - ((invMap[k]||{}).invertido||0) + ((invMap[k]||{}).retornado||0);
+        });
+
+        // Invertido
+        let invertido = 0;
+        invs.forEach(i => { if ((i.estado_evento||'ABIERTO')!=='CERRADO') invertido += parseFloat(i.monto)||0; });
+
+        // Comisiones y cajas
+        const comByMetodo = {};
+        movs.forEach(m => {
+          const com = parseFloat(m.comision)||0; if (!com) return;
+          const met = (m.metodo||'?').toUpperCase();
+          comByMetodo[met] = (comByMetodo[met]||0) + com;
+        });
+        const totalComisiones = Object.values(comByMetodo).reduce((s,v)=>s+v,0);
+
+        // Gastos
+        const totalGastos = gastos.reduce((s,g) => s + (parseFloat(g.valor)||0), 0);
+
+        // Cajas (métodos físicos)
+        const mapaData = {};
+        metCajeroList.forEach(m => { mapaData[m] = {inicial:0,ix:0,recargas:0,pagos:0,gastos:0,liq:0}; });
+        // Saldo inicial por caja
+        const cuposPorMes = cfg.cupos_por_mes?.[mesKey] || cfg.cupos_cajero || {};
+        Object.entries(cuposPorMes).forEach(([k,v]) => { const m=(k||'').toUpperCase(); if (metCajeroSet.has(m)) mapaData[m].inicial = parseFloat(v)||0; });
+        // Intercambios
+        ixs.forEach(ix => {
+          const eg=(ix.caja_egresa||'').toUpperCase(); const ig=(ix.caja_ingresa||'').toUpperCase();
+          const monto = parseFloat(ix.monto)||0;
+          if (mapaData[eg]) mapaData[eg].ix -= monto;
+          if (mapaData[ig]) mapaData[ig].ix += monto;
+        });
+        movs.forEach(m => {
+          const met=(m.metodo||'').toUpperCase(); if (!mapaData[met]) return;
+          if (m.tipo==='RECARGAS') mapaData[met].recargas += parseFloat(m.monto)||0;
+          if (m.tipo==='PAGOS')    mapaData[met].pagos    += parseFloat(m.monto)||0;
+        });
+        gastos.forEach(g => { const met=(g.metodo||'').toUpperCase(); if (mapaData[met]) mapaData[met].gastos += parseFloat(g.valor)||0; });
+        // Descuento liquidación mes anterior aprobada
+        _liqCeoDocs.filter(d => d.data().tipo === 'saldo').forEach(d => {
+          const tx = d.data();
+          const met = (tx.metodo||'').trim().toUpperCase();
+          if (mapaData[met]) mapaData[met].liq += parseFloat(tx.monto) || 0;
+        });
+        const cajasResult = metCajeroList.map(m => ({ metodo: m, valor: Math.round(mapaData[m].inicial + mapaData[m].ix - mapaData[m].recargas + mapaData[m].pagos - mapaData[m].gastos - mapaData[m].liq) })).filter(c => c.valor !== 0);
+
+        // Totales
+        const cupo = Math.round(parseFloat(cfg.cupo)||0);
+        const totalCajas = cajasResult.reduce((s,c)=>s+c.valor,0);
+        const totalActivos = Math.round(totalClientes + invertido + totalComisiones + comisionesMesAnt + totalCajas);
+        const totalPasivos = 0;
+        let utilidad, totalPatrimonio, cupoEnCajas;
+        if (clientesMesAnt > 0) {
+          totalPatrimonio = totalActivos - totalPasivos;
+          utilidad = totalActivos - Math.round(clientesMesAnt) - cupo - Math.round(totalGastos) + Math.round(totalComisiones);
+          cupoEnCajas = totalPatrimonio - Math.round(clientesMesAnt) - utilidad + Math.round(totalGastos) - Math.round(totalComisiones);
+        } else {
+          utilidad = totalCajas - cupo + Math.round(totalComisiones) - Math.round(totalGastos);
+          totalPatrimonio = cupo + utilidad - Math.round(totalGastos) + Math.round(totalComisiones);
+          cupoEnCajas = cupo;
+        }
+
+        await db.collection('patriarca_esf_resumen').doc(`${op.uid}_${mesKey}`).set({
+          uid: op.uid, nombre: op.nombre, mes, mesKey,
+          cuadre: Math.abs(totalActivos - totalPasivos - totalPatrimonio) <= 1,
+          totalActivos, totalPasivos, totalPatrimonio,
+          totalClientes: Math.round(totalClientes), invertido: Math.round(invertido),
+          totalComisiones: Math.round(totalComisiones), comByMetodo,
+          clientesMesAnt: Math.round(clientesMesAnt), cupoEnCajas,
+          comisionesMesAnt, gananciaMesAnt,
+          cupo, utilidad: Math.round(utilidad), totalGastos: Math.round(totalGastos),
+          cajas: cajasResult,
+          actualizadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+          recalcByAdmin: true,
+        }, { merge: true });
+        ok++;
+      } catch(e) { err++; console.warn('ESF recalc', op.nombre, e); }
+    }
+    // Pequeño toast visual
+    const status = document.getElementById('esf-cons-status');
+    if (status) status.textContent = `✅ ${ok} operadores actualizados${err ? ` · ${err} errores` : ''}`;
+  } catch(e) { console.error('recalcularEsfCeo:', e); }
+  if (btn) { btn.disabled = false; btn.textContent = '🔄 Recalcular todos'; }
 }
 
 function initEsfConsolidado() {
@@ -2216,7 +2510,7 @@ function loadEsfConsolidado() {
   _esfConsListener = db.collection('patriarca_esf_resumen').onSnapshot(snap => {
     const docs = snap.docs
       .map(d => ({ uid: d.id, ...d.data(), uid: d.data().uid || d.id }))
-      .filter(d => d.mesKey === mesKey)
+      .filter(d => d.mesKey === mesKey && !(d.nombre || '').endsWith('@admin.aj16.com') && !(d.uid || '').endsWith('@admin.aj16.com'))
       // Deduplicar: si hay doc viejo (uid) y nuevo (uid_mesKey) del mismo operador, queda el más reciente
       .reduce((acc, d) => {
         const idx = acc.findIndex(x => x.uid === d.uid);
@@ -2238,28 +2532,35 @@ function loadEsfConsolidado() {
       </div>`;
       return;
     }
-    container._lastDocs = docs;
-    container.innerHTML = _renderEsfConsolidado(docs, mesKey);
+    // Filtrar operadores sin datos si el checkbox está activo
+    const soloDatos = document.getElementById('esf-cons-solo-datos')?.checked;
+    const docsFiltrados = soloDatos ? docs.filter(d => (d.totalActivos || 0) !== 0) : docs;
+    container._lastDocs = docsFiltrados;
+    // Cargar mapa de meses cerrados antes de renderizar
+    _cargarMesCerradoMap(docsFiltrados, mesKey).then(() => {
+      container.innerHTML = _renderEsfConsolidado(docsFiltrados, mesKey);
+    });
   }, err => {
     container.innerHTML = `<div style="padding:32px;text-align:center;color:#ef4444">Error: ${err.message}</div>`;
   });
 }
 
 function _renderEsfConsolidado(ops, mesKey) {
+  const _fmtN = n => Math.abs(n).toLocaleString('es-CO', {minimumFractionDigits:0, maximumFractionDigits:0});
   const fmt = v => {
-    const n = Math.round(v || 0);
+    const n = v || 0;
     if (n === 0) return `<span class="esf-cons-v zero">—</span>`;
-    const s = '$' + Math.abs(n).toLocaleString('es-CO');
+    const s = '$' + _fmtN(n);
     return `<span class="esf-cons-v ${n > 0 ? 'pos' : 'neg'}">${n < 0 ? '-' : ''}${s}</span>`;
   };
   const fmtOrange = v => {
-    const n = Math.round(v || 0);
+    const n = v || 0;
     if (n === 0) return `<span class="esf-cons-v zero">—</span>`;
-    return `<span class="esf-cons-v orange">$${n.toLocaleString('es-CO')}</span>`;
+    return `<span class="esf-cons-v orange">$${_fmtN(n)}</span>`;
   };
   const fmtTotal = v => {
-    const n = Math.round(v || 0);
-    const s = '$' + Math.abs(n).toLocaleString('es-CO');
+    const n = v || 0;
+    const s = '$' + _fmtN(n);
     return n < 0 ? `-${s}` : s;
   };
 
@@ -2285,15 +2586,27 @@ function _renderEsfConsolidado(ops, mesKey) {
   const totalPatrimonio = ops.reduce((s, op) => s + (op.totalPatrimonio || 0), 0);
   const allCuadre = Math.abs(totalActivos - totalPatrimonio) <= ops.length;
 
-  // Cabeceras — con toggle para incluir/excluir del cálculo de utilidad
+  // Cabeceras — con toggle para incluir/excluir del cálculo de utilidad + botón cerrar mes
+  const mesKeyEsf = _esfConsMesKey || getMesGlobal();
   const headers = ops.map(op => {
-    const excl = _esfExcluidos.has(op.uid);
+    const excl    = _esfExcluidos.has(op.uid);
+    const docId   = `${op.uid}_${mesKeyEsf}`;
+    const cerrado = _mesCerradoMap[docId];
+    const autorizado = cerrado?.autorizado === true;
+    const lockColor  = cerrado ? (autorizado ? '#f59e0b' : '#ef4444') : '#6b7280';
+    const lockTitle  = cerrado ? (autorizado ? 'Mes cerrado (autorizado para editar) · Click para reabrir' : 'Mes cerrado · Click para autorizar edición') : 'Cerrar mes para este operador';
+    const lockIcon   = cerrado ? (autorizado ? '🔓' : '🔒') : '🔓';
     return `<th style="${excl ? 'opacity:.45;font-style:italic' : ''}">
       ${(op.nombre || op.uid).split(' ')[0]}
       <br><button onclick="toggleEsfExcluido('${op.uid}')"
         title="${excl ? 'Incluir en utilidad' : 'Excluir de utilidad'}"
         style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;margin-top:3px;cursor:pointer;border:1px solid ${excl ? 'rgba(239,68,68,.5)' : 'rgba(160,112,255,.4)'};background:${excl ? 'rgba(239,68,68,.15)' : 'rgba(160,112,255,.15)'};color:${excl ? '#ef4444' : '#a070ff'}">
         ${excl ? '✕ excluido' : '✓ incluido'}
+      </button>
+      <br><button onclick="toggleMesCerrado('${op.uid}','${op.email||op.uid}','${mesKeyEsf}')"
+        title="${lockTitle}"
+        style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;margin-top:2px;cursor:pointer;border:1px solid ${lockColor}40;background:${lockColor}20;color:${lockColor}">
+        ${lockIcon} ${cerrado ? (autorizado ? 'autorizado' : 'cerrado') : 'abrir'}
       </button>
     </th>`;
   }).join('');
@@ -2334,6 +2647,8 @@ function _renderEsfConsolidado(ops, mesKey) {
   html += fila('Clientes', ops.map(op => op.totalClientes), sum('totalClientes'), fmt, true);
   html += fila('Invertido', ops.map(op => op.invertido), sum('invertido'));
   html += fila('Comisiones por Cobrar', ops.map(op => op.totalComisiones), sum('totalComisiones'), fmtOrange);
+  if (ops.some(op => op.comisionesMesAnt > 0))
+    html += fila('Com. Mes Anterior', ops.map(op => op.comisionesMesAnt || 0), sum('comisionesMesAnt'), fmtOrange);
   cajasArr.forEach(metodo => {
     const vals = ops.map(op => (op.cajas || op.cajasResult || []).find(c => c.metodo === metodo)?.valor || 0);
     html += fila(metodo, vals, sumCaja(metodo));
@@ -2357,7 +2672,10 @@ function _renderEsfConsolidado(ops, mesKey) {
 
   // ── PASIVOS ──
   html += seccion('PASIVOS');
-  html += fila('Total Pasivos', ops.map(() => 0), 0);
+  const totalPasivos = sum('gananciaMesAnt');
+  if (ops.some(op => op.gananciaMesAnt > 0))
+    html += fila('Liquidación por pagar', ops.map(op => op.gananciaMesAnt || 0), totalPasivos, fmt);
+  html += filaTotal('TOTAL PASIVOS', ops.map(op => op.gananciaMesAnt || 0), totalPasivos);
 
   // ── PATRIMONIO ──
   // Utilidad derivada = Total Activos − (CMA + Cupo)
@@ -2375,7 +2693,7 @@ function _renderEsfConsolidado(ops, mesKey) {
 
   html += seccion('PATRIMONIO');
   html += fila('Clientes Mes Anterior', ops.map(op => op.clientesMesAnt), sum('clientesMesAnt'), fmt, true);
-  html += fila('Cupo', ops.map(op => op.cupoEnCajas), sum('cupoEnCajas'));
+  html += fila('Cupo Residual', ops.map(op => op.cupoEnCajas), sum('cupoEnCajas'));
   html += fila('Utilidad (registrada)', ops.map(op => op.utilidad), sum('utilidad'), fmt);
   html += fila('Costos / Gastos', ops.map(op => -(op.totalGastos || 0)), -sum('totalGastos'));
   // Publicar comisiones al SF como cuentas dinámicas en ACTIVOS
@@ -2417,18 +2735,16 @@ function _renderEsfConsolidado(ops, mesKey) {
 
   return `
     ${cuadreBar}
-    <div style="overflow-x:auto">
-      <table class="esf-cons-table">
-        <thead>
-          <tr>
-            <th>CUENTA</th>
-            ${headers}
-            <th class="th-total">TOTAL</th>
-          </tr>
-        </thead>
-        <tbody>${html}</tbody>
-      </table>
-    </div>
+    <table class="esf-cons-table" style="border-collapse:separate;border-spacing:0;width:100%">
+      <thead>
+        <tr>
+          <th>CUENTA</th>
+          ${headers}
+          <th class="th-total">TOTAL</th>
+        </tr>
+      </thead>
+      <tbody>${html}</tbody>
+    </table>
     <div style="margin-top:10px;font-size:10px;color:var(--text-muted)">
       Datos desde portal de operadores · ${ops.length} operador(es) · Mes: ${mesKey}
     </div>`;
@@ -2443,7 +2759,7 @@ const CUENTAS_CAT = {
     '2 · Bancos':              ['Mega Red Aj1.6','Corresponsal','Corresponsal Efecty 1 de Mayo'],
     '3 · Cuentas por Cobrar':  ['Comision EasyChanger','PTM Propio en caja','Dinero por Cuadrar','Cuenta Por Cobrar comisiones Be movil','Cuenta Por Cobrar comisiones WPLAY UNITY','Cuenta Por Cobrar comisiones SUPER GIROS MAQUINA','Cuenta Por Cobrar comisiones SUPER GIROS UNITY'],
     '4 · Clientes (Float)':    ['Saldo Clientes'],
-    '5 · Efectivo Operadores': ['Efectivo Operador','Be Movil Caja','Cuenta Bancaria','Mega Red','Wplay Unity','Super Giros Unity','Efecty 1 De Mayo','Supergiros Maquina','Corresponsal El Paramo','Easy changer'],
+    '5 · Efectivo Operadores': ['Invertido - Mes Actual','Efectivo Operador','Be Movil Caja','Cuenta Bancaria','Mega Red','Wplay Unity','Super Giros Unity','Efecty 1 De Mayo','Supergiros Maquina','Corresponsal El Paramo','Easy changer'],
     '6 · Inversiones':         ['Inversion de Capital en Golden'],
     '8 · PPyE':                ['PPE Joy','PPE Paarsa cash','PPE Ross','Efectivo de Venta PPyE','Casa Apuestas Bogota 1','Deposito a PTM Corresponsal Unity Bancolombia','PPYE Efecty 1 De mayo','PPyE EFECTY LA CASONA','PPYE Celular Galaxu A03 Oficina Gramalote','PPYE PC CORRESPONSAL LINUX','PPYE AIRE ACONDICIONADO 18 BTU','PPYE AIRE ACONDICIONADO 24 BTU','PPYE Imac 27 Pulgadas','PPYE Pantalla Xiaomi 27 Pulgadas','PPYE Celular ZTE Blade A31 Plus','PPYE IMPRESORA TERMICA AMC-2','PPYE HUELLERO DIGITAL AMC-2','PPYE LECTOR DE BARRA AMC-2','PPYE CELULAR REDMIN NOTE 10 AMC - 2','NUEVAS SILLAS 7','2 TV Cwk Gej','PROYECTO ACADEMIA AJ1.6','PPyE IMPRESORA EPSON L3210','Pantalla 27 Pulgadas'],
   },
@@ -2629,13 +2945,25 @@ async function deleteCatSubcuenta(id) {
   catch(e) { toast('Error: '+e.message,'error'); }
 }
 
+function _fillGruposEdit(tipo, grupoActual) {
+  const grupos = [
+    ...Object.keys(CUENTAS_CAT[tipo] || {}),
+    ...customCuentas.filter(c => c.tipo === tipo).map(c => c.grupo)
+  ];
+  const uniq = [...new Set(grupos)].sort();
+  const sel = document.getElementById('edit-cuenta-grupo');
+  sel.innerHTML = uniq.map(g => `<option value="${g}" ${g === grupoActual ? 'selected' : ''}>${g}</option>`).join('');
+}
+
 function editCatSubcuenta(id, nombre) {
+  // Buscar tipo y grupo del doc en customCuentas
+  const doc = customCuentas.find(c => c.id === id) || {};
   document.getElementById('edit-cuenta-id').value = id;
   document.getElementById('edit-cuenta-original').value = '';
-  document.getElementById('edit-cuenta-tipo').value = '';
-  document.getElementById('edit-cuenta-grupo').value = '';
+  document.getElementById('edit-cuenta-tipo').value = doc.tipo || 'ACTIVOS';
   document.getElementById('edit-cuenta-nombre').value = nombre;
   document.getElementById('edit-cuenta-hint').style.display = 'none';
+  _fillGruposEdit(doc.tipo || 'ACTIVOS', doc.grupo || '');
   openModal('modal-edit-cuenta');
   setTimeout(() => document.getElementById('edit-cuenta-nombre').select(), 150);
 }
@@ -2644,9 +2972,9 @@ function editHardcoded(tipo, grupo, nombre) {
   document.getElementById('edit-cuenta-id').value = '';
   document.getElementById('edit-cuenta-original').value = nombre;
   document.getElementById('edit-cuenta-tipo').value = tipo;
-  document.getElementById('edit-cuenta-grupo').value = grupo;
   document.getElementById('edit-cuenta-nombre').value = nombre;
   document.getElementById('edit-cuenta-hint').style.display = 'block';
+  _fillGruposEdit(tipo, grupo);
   openModal('modal-edit-cuenta');
   setTimeout(() => document.getElementById('edit-cuenta-nombre').select(), 150);
 }
@@ -2658,13 +2986,20 @@ async function saveEditCuenta() {
   const tipo     = document.getElementById('edit-cuenta-tipo').value;
   const grupo    = document.getElementById('edit-cuenta-grupo').value;
   if(!nombre) { toast('Escribe un nombre', 'error'); return; }
-  if(nombre === original) { closeModal('modal-edit-cuenta'); return; }
   try {
     if(id) {
-      // Editar una cuenta personalizada (Firestore)
-      await db.collection('cont_catalogo').doc(id).update({ subcuenta: nombre });
+      // Cuenta personalizada (Firestore) — actualizar nombre y grupo
+      const doc = customCuentas.find(c => c.id === id) || {};
+      const cambios = {};
+      if(nombre !== doc.subcuenta) cambios.subcuenta = nombre;
+      if(grupo  !== doc.grupo)     cambios.grupo     = grupo;
+      if(Object.keys(cambios).length)
+        await db.collection('cont_catalogo').doc(id).update(cambios);
     } else {
-      // Editar una cuenta base → guardar override en Firestore
+      // Cuenta base — guardar override con nombre y grupo nuevo
+      if(nombre === original && grupo === document.querySelector(`[data-name="${original}"]`)?.dataset.grupo) {
+        closeModal('modal-edit-cuenta'); return;
+      }
       await db.collection('cont_catalogo').add({
         tipo, grupo, subcuenta: nombre, replaces: original,
         creadoPor: currentUser?.uid||'',
@@ -3751,6 +4086,7 @@ function loadContador() {
   loadAportesHistorial();
   loadSocios();
   loadValidacionCapital(); // tiempo real
+  initEsfConsolidado(); // pre-cargar ESF Consolidado en background
   contListener = db.collection('cont_movimientos')
     .onSnapshot(snap => {
       // Sin índice compuesto — ordenamos en cliente
@@ -3806,8 +4142,19 @@ function agruparPorTipoGrupo(saldos, tipo) {
 // CONTADOR — RENDER SITUACIÓN FINANCIERA
 // ============================================================
 function renderSituacionFinanciera() {
-  const saldos = calcSaldos(contMovs);
-  const n = contMovs.length;
+  // Las cuentas son acumulativas — sin filtro de mes, solo filtro de op si aplica
+  const _contMovsBase = (_sfMaxOp !== null) ? contMovs.filter(m => (m.op || 0) <= _sfMaxOp) : contMovs;
+  const sfMovs = _contMovsBase; // incluye cierre_metodo → Vista Base muestra saldos reales post-cierre
+  const maxOpTotal = contMovs.length ? Math.max(...contMovs.map(m => m.op || 0)) : 0;
+
+  // Actualizar controles del header
+  const opTotal = document.getElementById('sf-op-total');
+  const opBadge = document.getElementById('sf-op-badge');
+  if (opTotal) opTotal.textContent = `/ ${maxOpTotal}`;
+  if (opBadge) opBadge.style.display = (_sfMaxOp !== null) ? '' : 'none';
+
+  const saldos = calcSaldos(sfMovs);
+  const n = sfMovs.length;
 
   // Totales
   let totalA=0, totalP=0, totalT=0;
@@ -3817,9 +4164,10 @@ function renderSituacionFinanciera() {
     else if(s.tipo==='PATRIMONIO') totalT += s.saldo;
     else if(s.tipo==='INGRESOS')   totalT += s.saldo; // fluye a resultados
   });
-  if (!_sfModoBase) {
+  // Los ajustes ESF solo aplican en vista completa (sin filtro de op histórico)
+  if (!_sfModoBase && _sfMaxOp === null) {
     const _comTotal = Object.values(_sfComisionesMesActual).reduce((s,v)=>s+v,0);
-    const saldosG5  = calcSaldos(contMovs);
+    const saldosG5  = calcSaldos(sfMovs);
     let   _g5Delta  = 0;
     Object.entries(SF_A_ESF_G5).forEach(([nombreSF]) => {
       const esfV = _esfValG5(nombreSF);
@@ -3829,15 +4177,20 @@ function renderSituacionFinanciera() {
       totalA   -= reg;
       totalA   += esfV;
     });
-    totalA += _comTotal;
-    // Usar comisiones + g5Delta como ganancia garantiza balance exacto
-    _sfGananciaBalance = _comTotal + _g5Delta;
+    // Comisiones ya están en el diario — no agregar de ESF para evitar doble conteo
+    // cierre_metodo también ya está en el diario (PATRIMONIO/Ganancias Operadores) → restarlo también
+    const mesKey = _esfConsMesKey || getMesGlobal();
+    const _cierrePatNet = sfMovs
+      .filter(m => m.origen === 'cierre_metodo' && m.cuenta === 'PATRIMONIO'
+                && (mesKey ? (m.fecha||'').startsWith(mesKey) : true))
+      .reduce((s,m) => s + (m.credito||0) - (m.debito||0), 0);
+    _sfGananciaBalance = _sfGananciaMesActual - _comTotal - _cierrePatNet;
     totalT += _sfGananciaBalance;
   }
 
   const totalPP = totalP + totalT;
   const dif = totalA - totalPP;
-  const ok = Math.abs(dif) < 1;
+  const ok = Math.abs(dif) < 25;
 
   // KPIs
   document.getElementById('kpi-activo').textContent = fmt(totalA);
@@ -3846,7 +4199,9 @@ function renderSituacionFinanciera() {
   document.getElementById('kpi-estado').innerHTML   = ok
     ? `<span class="sf-badge sf-badge-ok">✓ CORRECTO</span>`
     : `<span class="sf-badge sf-badge-err">✗ DESCUADRADO</span>`;
-  document.getElementById('kpi-dif').textContent = ok ? 'Activo = Pasivo + Patrimonio' : `Diferencia: ${fmt(dif)}`;
+  document.getElementById('kpi-dif').innerHTML = ok
+    ? `Activo = Pasivo + Patrimonio${Math.abs(dif) > 0.01 ? ` <span style="font-size:10px;color:#94a3b8;margin-left:6px" title="Diferencia de precisión tolerada">Δ ${fmt(dif)}</span>` : ''}`
+    : `Diferencia: ${fmt(dif)}`;
   document.getElementById('sf-subtitle').textContent = `${n} líneas de movimiento registradas`;
   document.getElementById('sf-total-activo-lbl').textContent = fmt(totalA);
   document.getElementById('sf-total-patrim-lbl').textContent = fmt(totalT);
@@ -3863,22 +4218,18 @@ function renderSituacionFinanciera() {
     const esCxC   = g.includes('Cuentas por Cobrar') || g.includes('3 ·');
     const esEfect = g.includes('Efectivo Operadores') || g.includes('5 ·');
     const filasEsf = [];
-    if (esCxC && !_sfModoBase && Object.keys(_sfComisionesMesActual).length) {
-      Object.entries(_sfComisionesMesActual).forEach(([metodo, total]) => {
-        if (total) filasEsf.push({ sub: `Cuenta Por Cobrar comisiones ${metodo} - Mes Actual`, saldo: total, _esf: true });
-      });
-    }
-    if(!filas.length && !filasEsf.length) return;
 
-    // Grupo 5: aplicar variación ESF a cada cuenta (saldo registrado + variación = valor ESF)
-    const filasRender = (esEfect && !_sfModoBase) ? filas.map(f => {
+    // Grupo 5: aplicar variación ESF a cada cuenta (saldo registrado → valor ESF + variación)
+    // — solo en vista completa; en modo histórico (filtro op) se muestra tal como estaba
+    const esfActivo = !_sfModoBase && _sfMaxOp === null;
+    const filasRender = (esEfect && esfActivo) ? filas.map(f => {
       const esfV = _esfValG5(f.sub);
       if (esfV === null) return f;
       return { ...f, saldo: esfV, _variacion: esfV - f.saldo, _esfAjustado: true };
     }) : [...filas];
 
-    // Cuentas ESF sin movimiento registrado (ej. Efectivo Operador)
-    if (esEfect && !_sfModoBase) {
+    // Grupo 5: agregar cuentas ESF sin movimiento registrado
+    if (esEfect && esfActivo) {
       const yaEnFilas = new Set(filas.map(f => f.sub));
       Object.entries(SF_A_ESF_G5).forEach(([nombreSF]) => {
         if (yaEnFilas.has(nombreSF)) return;
@@ -3887,6 +4238,30 @@ function renderSituacionFinanciera() {
           filasRender.push({ sub: nombreSF, saldo: esfV, _variacion: esfV, _esfAjustado: true });
       });
     }
+
+    // Cuentas por Cobrar (comisiones): ajustar entradas registradas con valor ESF + variación
+    // — igual que G5, muestra el valor REAL con badge de variación vs lo ya reconocido en cierres
+    if (esCxC && esfActivo && Object.keys(_sfComisionesMesActual).length) {
+      // Calcular lo ya registrado en Operadores para el mes actual
+      const mesKey = _esfConsMesKey || getMesGlobal();
+      const opMesReg = {};
+      sfMovs.forEach(mov => {
+        if (mov.cuenta !== 'ACTIVOS') return;
+        const metodo = _metodoFromSubcuentaOp(mov.subcuenta);
+        if (!metodo) return;
+        if (mesKey && !(mov.fecha || '').startsWith(mesKey)) return;
+        opMesReg[metodo] = (opMesReg[metodo] || 0) + (mov.debito || 0);
+      });
+      // Fila morada = pendiente = ESF - ya cerrado este mes
+      // Cuando todos los cierres estén hechos → pendiente = $0
+      Object.entries(_sfComisionesMesActual).forEach(([metodo, total]) => {
+        if (!total) return;
+        const pendiente = total - (opMesReg[metodo] || 0);
+        filasEsf.push({ sub: `Cuenta Por Cobrar comisiones ${metodo} - Mes Actual`, saldo: pendiente, _esf: true });
+      });
+    }
+
+    if(!filasRender.length && !filasEsf.length) return;
 
     const todasFilas = [...filasRender, ...filasEsf];
     const subTotal = todasFilas.reduce((s,f) => s+f.saldo, 0);
@@ -3899,15 +4274,22 @@ function renderSituacionFinanciera() {
         </div>`;
       } else if(f._esfAjustado) {
         const cls = f.saldo<0?'sf-val-neg':f.saldo===0?'sf-val-zero':'sf-val-pos';
-        const varSign = f._variacion >= 0 ? '+' : '';
-        const varColor = f._variacion > 0 ? 'var(--green-primary)' : f._variacion < 0 ? '#ef4444' : 'var(--text-muted)';
-        htmlA += `<div class="sf-row">
-          <span class="sf-row-name" title="Registrado + variación ESF">${f.sub} <span style="font-size:9px;color:#a070ff;font-weight:700">ESF</span></span>
-          <span class="sf-row-val ${cls}" title="Variación: ${varSign}${fmt(f._variacion)}">${fmt(f.saldo)}</span>
+        const esOpEsf = esCxC && f.sub.endsWith(' Operadores');
+        htmlA += `<div class="sf-row" ${esOpEsf ? 'style="border-left:3px solid #f59e0b;padding-left:8px"' : ''}>
+          <span class="sf-row-name" ${esOpEsf ? 'style="color:#f59e0b"' : ''} title="Valor ESF real · Registrado en cierres: ${fmt(f.saldo - f._variacion)}">${f.sub}${esOpEsf ? ' <span style="font-size:9px;font-weight:700;opacity:.7">OP</span>' : ''} <span style="font-size:9px;color:#a070ff;font-weight:700">ESF</span></span>
+          <span class="sf-row-val ${cls}">${fmt(f.saldo)}</span>
         </div>`;
       } else {
         const cls = f.saldo<0?'sf-val-neg':f.saldo===0?'sf-val-zero':'sf-val-pos';
-        htmlA += `<div class="sf-row"><span class="sf-row-name" title="${f.sub}">${f.sub}</span><span class="sf-row-val ${cls}">${fmt(f.saldo)}</span></div>`;
+        const esOp = esCxC && f.sub.endsWith(' Operadores');
+        if (esOp) {
+          htmlA += `<div class="sf-row" style="border-left:3px solid #f59e0b;padding-left:8px">
+            <span class="sf-row-name" style="color:#f59e0b" title="${f.sub}">${f.sub} <span style="font-size:9px;font-weight:700;opacity:.7">OP</span></span>
+            <span class="sf-row-val ${cls}">${fmt(f.saldo)}</span>
+          </div>`;
+        } else {
+          htmlA += `<div class="sf-row"><span class="sf-row-name" title="${f.sub}">${f.sub}</span><span class="sf-row-val ${cls}">${fmt(f.saldo)}</span></div>`;
+        }
       }
     });
     htmlA += `<div class="sf-subtotal"><span>Subtotal ${g.split('·')[0].trim()}</span><span>${fmt(subTotal)}</span></div>`;
@@ -3944,8 +4326,18 @@ function renderSituacionFinanciera() {
     if(g.includes('Resultados')) {
       Object.values(gruposI).flat().forEach(f => filas.push({...f, sub:`↳ ${f.sub}`}));
       // Inyectar Ganancia o Perdida Mes actual desde ESF CONSOLIDADO
-      if (!_sfModoBase && _sfGananciaBalance !== 0) {
-        filas.push({ sub: 'Ganancia o Perdida Mes actual', saldo: _sfGananciaBalance, _esf: true });
+      // Muestra solo el PENDIENTE = utilidad ESF - ya registrado en "Ganancias Operadores" este mes
+      if (!_sfModoBase && _sfGananciaMesActual !== 0) {
+        const mesKey = _esfConsMesKey || getMesGlobal();
+        // Usar _contMovsBase (incluye cierre_metodo) para que pendienteGanancia ≈ $0
+        const gananciasMesReg = _contMovsBase
+          .filter(m => m.cuenta === 'PATRIMONIO' && m.subcuenta === 'Ganancias Operadores'
+                    && (mesKey ? (m.fecha || '').startsWith(mesKey) : true))
+          .reduce((s, m) => s + (m.credito || 0) - (m.debito || 0), 0);
+        const pendienteGanancia = _sfGananciaMesActual - gananciasMesReg;
+        if (pendienteGanancia !== 0) {
+          filas.push({ sub: 'Ganancia o Perdida Mes actual', saldo: pendienteGanancia, _esf: true });
+        }
       }
     }
     if(!filas.length) return;
@@ -3960,7 +4352,15 @@ function renderSituacionFinanciera() {
           <span class="sf-row-val ${cls}" style="color:#a070ff">${fmt(f.saldo)}</span>
         </div>`;
       } else {
-        htmlT += `<div class="sf-row"><span class="sf-row-name" title="${f.sub}">${f.sub}</span><span class="sf-row-val ${cls}">${fmt(f.saldo)}</span></div>`;
+        const esOpT = g.includes('15') && f.sub.endsWith(' Operadores');
+        if (esOpT) {
+          htmlT += `<div class="sf-row" style="border-left:3px solid #f59e0b;padding-left:8px">
+            <span class="sf-row-name" style="color:#f59e0b" title="${f.sub}">${f.sub} <span style="font-size:9px;font-weight:700;opacity:.7">OP</span></span>
+            <span class="sf-row-val ${cls}">${fmt(f.saldo)}</span>
+          </div>`;
+        } else {
+          htmlT += `<div class="sf-row"><span class="sf-row-name" title="${f.sub}">${f.sub}</span><span class="sf-row-val ${cls}">${fmt(f.saldo)}</span></div>`;
+        }
       }
     });
     htmlT += `<div class="sf-subtotal"><span>Subtotal</span><span>${fmt(subTotal)}</span></div>`;
@@ -3971,15 +4371,16 @@ function renderSituacionFinanciera() {
 // ============================================================
 // CONTADOR — FILTROS MOVIMIENTOS
 // ============================================================
-let _movFilters = {op:'', fecha:'', cuenta:'', subcuenta:'', grupo:'', desc:''};
+let _movFilters = {op:'', fecha:'', cuenta:'', subcuenta:'', grupo:'', debito:'', credito:'', desc:''};
+let _movSoloMes = true; // true = solo mes seleccionado, false = todos los meses
 
 function applyMovFilter(key, val) {
-  _movFilters[key] = val.toLowerCase();
+  _movFilters[key] = (key === 'debito' || key === 'credito') ? val.trim() : val.toLowerCase();
   renderMovimientos();
 }
 
 function clearMovFilters() {
-  _movFilters = {op:'', fecha:'', cuenta:'', subcuenta:'', grupo:'', desc:''};
+  _movFilters = {op:'', fecha:'', cuenta:'', subcuenta:'', grupo:'', debito:'', credito:'', desc:''};
   document.querySelectorAll('.mov-filter-input').forEach(el => el.value = '');
   renderMovimientos();
 }
@@ -4058,14 +4459,18 @@ function renderMovimientos() {
 
   // Aplicar filtros
   const f = _movFilters;
+  const mesFiltro = _movSoloMes ? (_esfConsMesKey || getMesGlobal()) : null;
   const filtered = contMovs.filter(m => {
-    const grp = (SUBCUENTA_IDX[m.subcuenta]?.grupo || '').toLowerCase();
+    const grp = m.origen === 'cierre_metodo' ? 'cierre' : (SUBCUENTA_IDX[m.subcuenta]?.grupo || '').toLowerCase();
+    if(mesFiltro && !(m.fecha||'').startsWith(mesFiltro))                       return false;
     if(f.op        && !(String(m.op||'')).includes(f.op))                      return false;
     if(f.fecha     && !(m.fecha||'').toLowerCase().includes(f.fecha))           return false;
     if(f.cuenta    && (m.cuenta||'').toLowerCase() !== f.cuenta.toLowerCase())  return false;
     if(f.subcuenta && !(m.subcuenta||'').toLowerCase().includes(f.subcuenta))   return false;
     if(f.grupo     && !grp.includes(f.grupo))                                   return false;
     if(f.desc      && !(m.descripcion||'').toLowerCase().includes(f.desc))      return false;
+    if(f.debito    && String(m.debito||0) !== f.debito && !(String(m.debito||0)).includes(f.debito))   return false;
+    if(f.credito   && String(m.credito||0) !== f.credito && !(String(m.credito||0)).includes(f.credito)) return false;
     return true;
   });
 
@@ -4073,6 +4478,14 @@ function renderMovimientos() {
   if(lbl) lbl.textContent = filtered.length < contMovs.length
     ? `${filtered.length} de ${contMovs.length} líneas`
     : `${contMovs.length} líneas`;
+
+  // Actualizar botón toggle mes
+  const btnMes = document.getElementById('btn-mov-mes');
+  if(btnMes) {
+    btnMes.textContent   = _movSoloMes ? `📅 ${mesFiltro || 'Mes actual'}` : '📅 Todos los meses';
+    btnMes.style.color   = _movSoloMes ? 'var(--green-primary)' : 'var(--text-muted)';
+    btnMes.style.borderColor = _movSoloMes ? 'rgba(53,204,47,.4)' : 'var(--border)';
+  }
 
   // Refrescar panel de verificación si está abierto
   const opPanel = document.getElementById('op-check-panel');
@@ -4084,18 +4497,32 @@ function renderMovimientos() {
   }
 
   const tagMap = {ACTIVOS:'A',PASIVOS:'P',PATRIMONIO:'T',INGRESOS:'I'};
-  tbody.innerHTML = filtered.map(m => {
-    const f = m.fecha ? m.fecha : '—';
+
+  // Agrupar por OP y ordenar: dentro de cada OP empareja débito-crédito del mismo monto
+  const opGroups = {};
+  filtered.forEach(m => {
+    const k = String(m.op||'—');
+    if (!opGroups[k]) opGroups[k] = [];
+    opGroups[k].push(m);
+  });
+
+  const renderLine = m => {
+    const f  = m.fecha || '—';
     const tc = tagMap[m.cuenta] || 'A';
-    const deb  = m.debito  ? fmt(m.debito)  : '—';
-    const cred = m.credito ? fmt(m.credito) : '—';
+    const deb  = m.debito  != null && m.debito  !== 0 ? fmt(m.debito)  : '—';
+    const cred = m.credito != null && m.credito !== 0 ? fmt(m.credito) : '—';
+    const debColor = (m.debito||0) < 0 ? '#f59e0b' : '#3b82f6';
     return `<tr>
       <td style="font-weight:800;color:var(--text-muted)">${m.op||'—'}</td>
       <td style="white-space:nowrap">${f}</td>
       <td><span class="tag-c tag-${tc}">${m.cuenta||'—'}</span></td>
       <td style="min-width:180px">${m.subcuenta||'—'}</td>
-      <td style="font-size:10px;color:var(--text-muted);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${SUBCUENTA_IDX[m.subcuenta]?.grupo||''}">${SUBCUENTA_IDX[m.subcuenta]?.grupo||'—'}</td>
-      <td style="text-align:right;font-family:monospace;color:#3b82f6">${deb}</td>
+      <td style="font-size:10px;color:var(--text-muted);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${SUBCUENTA_IDX[m.subcuenta]?.grupo||''}">
+        ${m.origen==='cierre_metodo'
+          ? '<span style="font-size:9px;font-weight:800;color:#a070ff;background:rgba(160,112,255,.13);border:1px solid rgba(160,112,255,.3);border-radius:8px;padding:1px 6px">⚙ CIERRE</span>'
+          : (SUBCUENTA_IDX[m.subcuenta]?.grupo||'—')}
+      </td>
+      <td style="text-align:right;font-family:monospace;color:${debColor}">${deb}</td>
       <td style="text-align:right;font-family:monospace;color:#ef4444">${cred}</td>
       <td style="min-width:160px">${m.descripcion||'—'}</td>
       <td style="font-size:11px;color:var(--text-muted)">${m.notas||''}</td>
@@ -4104,7 +4531,58 @@ function renderMovimientos() {
         <button onclick="eliminarMovimiento('${m.id}')" style="background:transparent;border:none;cursor:pointer;font-size:13px;padding:2px 6px;opacity:.5;color:#ef4444" title="Eliminar línea">🗑</button>
       </td>
     </tr>`;
-  }).join('');
+  };
+
+  const rows = [];
+  // Ordenar OPs numéricamente
+  const sortedOps = Object.keys(opGroups).sort((a,b) => (Number(a)||0)-(Number(b)||0));
+
+  sortedOps.forEach((op, opIdx) => {
+    const lines = opGroups[op];
+
+    // ── Cabecera separadora de OP ──
+    const desc   = lines[0]?.descripcion || '';
+    const fecha  = lines[0]?.fecha || '';
+    const totalDeb  = lines.reduce((s,m)=>s+(m.debito||0),0);
+    const totalCred = lines.reduce((s,m)=>s+(m.credito||0),0);
+    const cuadra = Math.abs(totalDeb - totalCred) < 1;
+    rows.push(`<tr style="background:rgba(255,255,255,0.03);border-top:2px solid var(--border)">
+      <td colspan="10" style="padding:6px 10px;font-size:11px;color:var(--text-muted);font-weight:700;letter-spacing:.04em">
+        <span style="color:var(--green-primary);font-weight:800">OP ${op}</span>
+        &nbsp;·&nbsp; ${fecha}
+        ${desc ? `&nbsp;·&nbsp; <span style="color:var(--text)">${desc}</span>` : ''}
+        &nbsp;&nbsp;
+        <span style="font-size:10px;color:${cuadra?'var(--green-primary)':'#ef4444'}">
+          ${cuadra?'✓ cuadra':'✗ descuadre'} · Db ${fmt(totalDeb)} / Cr ${fmt(totalCred)}
+        </span>
+      </td>
+    </tr>`);
+
+    // ── Emparejar débitos con créditos del mismo monto ──
+    const debs  = lines.filter(m => (m.debito||0) > 0).slice();
+    const creds = lines.filter(m => (m.credito||0) > 0).slice();
+    const usedCred = new Set();
+    const paired   = [];
+
+    debs.forEach(d => {
+      paired.push(d);
+      const match = creds.find((c,i) => !usedCred.has(i) && Math.abs((c.credito||0)-(d.debito||0)) < 1);
+      if (match !== undefined) {
+        const idx = creds.indexOf(match);
+        usedCred.add(idx);
+        paired.push(match);
+      }
+    });
+    // Créditos sin par
+    creds.forEach((c, i) => { if (!usedCred.has(i)) paired.push(c); });
+    // Entradas con débito negativo u otros valores especiales (no incluidas arriba)
+    const pairedIds = new Set(paired.map(m => m.id));
+    lines.filter(m => !pairedIds.has(m.id)).forEach(m => paired.push(m));
+
+    paired.forEach(m => rows.push(renderLine(m)));
+  });
+
+  tbody.innerHTML = rows.join('');
 }
 
 function toggleMovimientos() {
@@ -4333,14 +4811,34 @@ async function saveMovimiento() {
 // ============================================================
 // SF — Toggle Vista Base / Vista Ajustada
 // ============================================================
-function toggleSFModo() {
-  _sfModoBase = !_sfModoBase;
-  const btn = document.getElementById('btn-sf-modo');
-  if (btn) {
-    btn.textContent  = _sfModoBase ? '✨ VISTA AJUSTADA' : '👁 VISTA BASE';
-    btn.style.color  = _sfModoBase ? 'var(--green-primary)' : 'var(--text-muted)';
-    btn.style.borderColor = _sfModoBase ? 'rgba(53,204,47,.4)' : 'var(--border)';
+function setSFModo(modoBase) {
+  _sfModoBase = modoBase;
+  const btnBase     = document.getElementById('btn-sf-base');
+  const btnAjustada = document.getElementById('btn-sf-ajustada');
+  if (btnBase) {
+    btnBase.style.color       = modoBase ? 'var(--green-primary)' : 'var(--text-muted)';
+    btnBase.style.borderColor = modoBase ? 'rgba(53,204,47,.5)'   : 'var(--border)';
+    btnBase.textContent       = modoBase ? '✔ VISTA BASE' : '👁 VISTA BASE';
   }
+  if (btnAjustada) {
+    btnAjustada.style.color       = !modoBase ? 'var(--green-primary)' : 'var(--text-muted)';
+    btnAjustada.style.borderColor = !modoBase ? 'rgba(53,204,47,.5)'   : 'var(--border)';
+    btnAjustada.textContent       = !modoBase ? '✔ VISTA AJUSTADA' : '✦ VISTA AJUSTADA';
+  }
+  renderSituacionFinanciera();
+}
+function toggleSFModo() { setSFModo(!_sfModoBase); }
+
+function setSFMaxOp(val) {
+  const n = parseInt(val, 10);
+  _sfMaxOp = (!val || isNaN(n) || n < 1) ? null : n;
+  renderSituacionFinanciera();
+}
+
+function clearSFMaxOp() {
+  _sfMaxOp = null;
+  const inp = document.getElementById('sf-op-input');
+  if (inp) inp.value = '';
   renderSituacionFinanciera();
 }
 
@@ -4389,7 +4887,7 @@ async function eliminarMovimiento(id) {
 // ============================================================
 // VARIACIONES — Registrado vs ESF Consolidado
 // ============================================================
-function renderVariaciones() {
+async function renderVariaciones() {
   const container = document.getElementById('var-container');
   const mesLabel  = document.getElementById('var-mes-label');
   const status    = document.getElementById('var-status');
@@ -4434,25 +4932,78 @@ function renderVariaciones() {
     : '—';
   if (mesLabel) mesLabel.textContent = mesTexto.charAt(0).toUpperCase() + mesTexto.slice(1);
 
-  // Saldos registrados en cont_movimientos (grupo 5 · Efectivo Operadores)
-  const saldos = calcSaldos(contMovs);
+  // REG: fuente primaria = cupos_por_mes en patriarca_config (dato estático del administrador)
+  // Equivale al saldo de inicio del mes (cupo registrado manualmente en admin)
+  const CUPO_KEY_TO_SF = {
+    'SALDO CLIENTES ANTERIOR': 'Saldo Clientes',
+    'EFECTIVO OPERADOR':       'Efectivo Operador',
+    'BE MOVIL CAJA':           'Be Movil Caja',
+    'CUENTA BANCARIA':         'Cuenta Bancaria',
+    'MEGA RED':                'Mega Red',
+    'WPLAY UNITY':             'Wplay Unity',
+    'SUPER GIROS UNITY':       'Super Giros Unity',
+    'EFECTY 1 DE MAYO':        'Efecty 1 De Mayo',
+    'SUPER GIROS MAQUINA':     'Supergiros Maquina',
+    'CORRESPONSAL EL PARAMO':  'Corresponsal El Paramo',
+    'EASY CHANGER':            'Easy changer',
+    'PTM PROPIO':              'Ptm Propio',
+    'BE MOVIL MASTER':         'Be Movil Master',
+    'PUNTO RED UNITY':         'Punto Red Unity',
+    'BET RED':                 'Bet Red',
+  };
+  const cuposREG = {};
+  let cuposLoaded = false;
+  try {
+    if (ops.length && mesKey) {
+      const snaps = await Promise.all(
+        ops.map(op => op.uid ? db.collection('patriarca_config').doc(op.uid).get() : Promise.resolve(null))
+      );
+      snaps.forEach(snap => {
+        if (!snap || !snap.exists) return;
+        const cupos = snap.data().cupos_por_mes?.[mesKey] || {};
+        Object.entries(cupos).forEach(([key, val]) => {
+          const sfNombre = CUPO_KEY_TO_SF[key.toUpperCase()];
+          if (sfNombre) cuposREG[sfNombre] = (cuposREG[sfNombre] || 0) + (parseFloat(val) || 0);
+        });
+      });
+      cuposLoaded = Object.keys(cuposREG).length > 0;
+    }
+  } catch(e) { console.warn('[Variaciones] Error cargando cupos_por_mes:', e); }
+
+  // Fallback para cuentas sin cupo (ej. Invertido) y cuando cupos no están disponibles
+  const saldosFallback = calcSaldos((contMovs || []).filter(m => {
+    if (m.origen === 'cierre_metodo' && (m.fecha || '').startsWith(mesKey)) return false;
+    return true;
+  }));
+  // Helper: REG de una cuenta — cupo del admin si disponible, sino movimientos
+  const getREG = (sfNombre) => cuposREG[sfNombre] !== undefined
+    ? cuposREG[sfNombre]
+    : (saldosFallback[sfNombre]?.saldo || 0);
   const fmt  = n => { const v = Math.abs(n||0); const s = v.toLocaleString('es-CO',{minimumFractionDigits:0,maximumFractionDigits:2}); return (n < 0 ? '−' : '') + '$' + s; };
   const cls  = n => n > 0 ? 'var-pos' : n < 0 ? 'var-neg' : 'var-zero';
 
-  // esfVal ya definido arriba usando cajasEsf frescos
+  // ASC: solo cierre_metodo del mes actual (no acumular de meses anteriores)
+  const asientosCierre = {};
+  (contMovs || []).forEach(m => {
+    if (m.origen !== 'cierre_metodo' || m.cuenta !== 'ACTIVOS') return;
+    if (!(m.fecha || '').startsWith(mesKey)) return; // solo mes actual
+    const sfNombre = m.subcuenta;
+    asientosCierre[sfNombre] = (asientosCierre[sfNombre] || 0) + (m.debito || 0) - (m.credito || 0);
+  });
 
   // Construir filas — cuentas del grupo 5 que existan en SF o en ESF
   // "Saldo Clientes" no está en el catálogo fijo pero sí en los movimientos → agregar siempre
   const cuentasGrupo5 = ['Saldo Clientes', ...(CUENTAS_CAT.ACTIVOS['5 · Efectivo Operadores'] || [])];
   const rows = [];
-  let totalReg = 0, totalEsf = 0, totalVar = 0;
+  let totalReg = 0, totalEsf = 0, totalAsc = 0, totalVar = 0;
 
   cuentasGrupo5.forEach(nombre => {
-    const reg = saldos[nombre]?.saldo || 0;
+    const reg = getREG(nombre);
     const esf = esfVal(nombre);
-    const var_ = esf - reg;
-    totalReg += reg; totalEsf += esf; totalVar += var_;
-    rows.push({ nombre, reg, esf, var: var_ });
+    const asc = asientosCierre[nombre] || 0;
+    const var_ = esf - reg - asc;
+    totalReg += reg; totalEsf += esf; totalAsc += asc; totalVar += var_;
+    rows.push({ nombre, reg, esf, asc, var: var_ });
   });
 
   // Agregar cuentas ESF que no están en el catálogo SF
@@ -4460,20 +5011,22 @@ function renderVariaciones() {
     const enCat = Object.values(SF_A_ESF_G5).includes(metodo);
     if (!enCat) {
       const esf = _sfCajasMesActual[metodo];
+      const asc = 0;
       totalEsf += esf; totalVar += esf;
-      rows.push({ nombre: metodo + ' ⚠ sin cuenta SF', reg: 0, esf, var: esf });
+      rows.push({ nombre: metodo + ' ⚠ sin cuenta SF', reg: 0, esf, asc, var: esf });
     }
   });
 
   // Invertido (separado)
-  const invReg = saldos['Inversion de Capital en Golden']?.saldo || 0; // placeholder si aplica
+  const invReg = getREG('Inversion de Capital en Golden');
   const invEsf = _sfInvertidoMesActual;
   const invVar = invEsf - invReg;
 
   let html = `<div style="overflow-x:auto"><table class="var-table">
     <thead><tr>
       <th style="text-align:left">CUENTA (GRUPO 5 · EFECTIVO OPERADORES)</th>
-      <th>REGISTRADO EN SF</th>
+      <th>REGISTRADO EN SF ${cuposLoaded ? '<span style="font-size:9px;color:var(--green-primary);font-weight:600">(ADMIN)</span>' : '<span style="font-size:9px;color:var(--text-muted);font-weight:600">(movimientos)</span>'}</th>
+      <th style="color:var(--orange)">ASIENTO CIERRE</th>
       <th style="color:#a070ff">ESF MES ACTUAL</th>
       <th>VARIACIÓN</th>
     </tr></thead>
@@ -4483,22 +5036,25 @@ function renderVariaciones() {
     html += `<tr>
       <td>${r.nombre}</td>
       <td>${r.reg ? fmt(r.reg) : '<span style="color:var(--text-muted)">—</span>'}</td>
+      <td style="color:var(--orange)">${r.asc ? fmt(r.asc) : '<span style="color:var(--text-muted)">—</span>'}</td>
       <td style="color:#a070ff">${r.esf ? fmt(r.esf) : '<span style="color:var(--text-muted)">—</span>'}</td>
-      <td class="${cls(r.var)}">${r.var !== 0 ? fmt(r.var) : '<span style="color:var(--text-muted)">—</span>'}</td>
+      <td class="${cls(r.var)}">${r.var !== 0 ? fmt(r.var) : '<span style="color:var(--green)">✓</span>'}</td>
     </tr>`;
   });
 
   html += `<tr class="var-total">
     <td>TOTAL GRUPO 5</td>
     <td>${fmt(totalReg)}</td>
+    <td style="color:var(--orange);font-weight:800">${fmt(totalAsc)}</td>
     <td style="color:#a070ff;font-weight:800">${fmt(totalEsf)}</td>
     <td class="${cls(totalVar)}">${fmt(totalVar)}</td>
   </tr>`;
 
   if (invertidoEsf) {
-    html += `<tr class="var-group"><td colspan="4">INVERTIDO</td></tr>
+    html += `<tr class="var-group"><td colspan="5">INVERTIDO</td></tr>
     <tr>
       <td>Invertido - Mes Actual</td>
+      <td><span style="color:var(--text-muted)">—</span></td>
       <td><span style="color:var(--text-muted)">—</span></td>
       <td style="color:#a070ff">${fmt(invertidoEsf)}</td>
       <td class="${cls(invertidoEsf)}">${fmt(invertidoEsf)}</td>
@@ -4508,12 +5064,138 @@ function renderVariaciones() {
   html += `</tbody></table></div>
   <div style="margin-top:16px;padding:12px 16px;background:var(--bg-dark);border-radius:8px;font-size:11px;color:var(--text-muted);line-height:1.7">
     <strong style="color:var(--text)">¿Qué es la variación?</strong><br>
-    ESF Mes Actual − Registrado en SF = lo que cambió ese mes en cada caja.<br>
-    El próximo paso será aplicar estas variaciones como ajuste en el SF.
+    ESF Mes Actual − Registrado en SF − Asiento Cierre = diferencia pendiente por cerrar.<br>
+    Cada operador que cierra reduce la variación con sus asientos automáticos.
   </div>`;
 
   container.innerHTML = html;
   if (status) status.textContent = `${rows.length} cuentas · ${Object.keys(_sfCajasMesActual).length} métodos ESF`;
+  // Siempre refrescar también la sección de comisiones
+  renderVariacionesComisiones();
+}
+
+// ============================================================
+// VARIACIONES COMISIONES — Solo el mes seleccionado en ESF Consolidado
+// ============================================================
+function renderVariacionesComisiones() {
+  const container = document.getElementById('var-coms-container');
+  if (!container) return;
+
+  const mk = _esfConsMesKey || getMesGlobal();
+  if (!mk) {
+    container.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);font-size:12px">Abre ESF CONSOLIDADO y selecciona el mes.</div>';
+    return;
+  }
+
+  const fmt = n => {
+    const v = Math.abs(n || 0);
+    const s = v.toLocaleString('es-CO', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    return (n < 0 ? '−' : '') + '$' + s;
+  };
+  const cls = n => n > 0 ? 'var-pos' : n < 0 ? 'var-neg' : 'var-zero';
+
+  // ESF: usar _sfComisionesMesActual (ya cargado por ESF Consolidado para este mes)
+  const esfMes = { ..._sfComisionesMesActual };
+
+  // Registrado: DÉBITO a "Cuenta Por Cobrar comisiones X Operadores" (solo cierres)
+  const regMes = {};
+  (contMovs || []).forEach(mov => {
+    if (mov.cuenta !== 'ACTIVOS') return;
+    const metodo = _metodoFromSubcuentaOp(mov.subcuenta); // solo cuentas Operadores
+    if (!metodo) return;
+    if (!(mov.fecha || '').startsWith(mk)) return;
+    regMes[metodo] = (regMes[metodo] || 0) + (mov.debito || 0);
+  });
+
+  const metodos = new Set([...Object.keys(esfMes), ...Object.keys(regMes)]);
+  if (!metodos.size) {
+    container.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);font-size:12px">Sin datos de comisiones para este mes.</div>';
+    return;
+  }
+
+  let totalSaldo = 0;
+  let rowsHtml = '';
+
+  [...metodos].sort().forEach(metodo => {
+    const reg = regMes[metodo] || 0;
+    const esf = esfMes[metodo] || 0;
+    const saldo = esf - reg;
+    totalSaldo += saldo;
+    const saldoCls = saldo > 0 ? 'var-pos' : saldo < 0 ? 'var-neg' : 'var-zero';
+    rowsHtml += `
+      <tr>
+        <td style="color:#a070ff">Cuenta Por Cobrar comisiones ${metodo} - Mes Actual</td>
+        <td style="color:#a070ff">${esf ? fmt(esf) : '<span style="color:var(--text-muted)">—</span>'}</td>
+      </tr>
+      <tr>
+        <td style="padding-left:24px;color:var(--text-muted)">Cuenta Por Cobrar comisiones ${metodo} Operadores</td>
+        <td style="color:var(--text-muted)">${reg ? fmt(-reg) : '<span style="color:var(--text-muted)">—</span>'}</td>
+      </tr>
+      <tr style="border-bottom:2px solid var(--border);margin-bottom:8px">
+        <td style="padding-left:24px;font-weight:700;font-size:11px;letter-spacing:.5px">SALDO</td>
+        <td class="${saldoCls}" style="font-weight:800">${saldo !== 0 ? fmt(saldo) : '<span style="color:var(--text-muted)">$0</span>'}</td>
+      </tr>`;
+  });
+
+  // — GANANCIA / PATRIMONIO —
+  const gananciaEsf = _sfGananciaMesActual || 0;
+  const gananciaReg = (contMovs || [])
+    .filter(m => m.cuenta === 'PATRIMONIO' && m.subcuenta === 'Ganancias Operadores'
+              && m.origen !== 'cierre_metodo'
+              && (mk ? (m.fecha || '').startsWith(mk) : true))
+    .reduce((s, m) => s + (m.credito || 0), 0);
+  const gananciaCierre = (contMovs || [])
+    .filter(m => m.cuenta === 'PATRIMONIO' && m.subcuenta === 'Ganancias Operadores'
+              && m.origen === 'cierre_metodo'
+              && (mk ? (m.fecha || '').startsWith(mk) : true))
+    .reduce((s, m) => s + (m.credito || 0) - (m.debito || 0), 0);
+  const gananciaSaldo = gananciaEsf - gananciaReg - gananciaCierre;
+  const gananciaCls = Math.abs(gananciaSaldo) < 100 ? 'var-zero' : gananciaSaldo > 0 ? 'var-pos' : 'var-neg';
+
+  const patrimonioHtml = gananciaEsf ? `
+    <tr>
+      <td style="color:#a070ff">Ganancia o Perdida Mes actual</td>
+      <td style="color:#a070ff">${fmt(gananciaEsf)}</td>
+    </tr>
+    <tr>
+      <td style="padding-left:24px;color:#f59e0b">Ganancias Operadores <span style="font-size:9px;font-weight:700;opacity:.7">OP</span></td>
+      <td style="color:#f59e0b">${gananciaReg ? fmt(-gananciaReg) : '<span style="color:var(--text-muted)">—</span>'}</td>
+    </tr>
+    ${gananciaCierre ? `<tr>
+      <td style="padding-left:24px;color:#f59e0b">Variaciones Cierre Métodos <span style="font-size:9px;font-weight:700;opacity:.7">OP</span></td>
+      <td style="color:#f59e0b">${fmt(-gananciaCierre)}</td>
+    </tr>` : ''}
+    <tr style="border-bottom:2px solid var(--border)">
+      <td style="padding-left:24px;font-weight:700;font-size:11px;letter-spacing:.5px">SALDO</td>
+      <td class="${gananciaCls}" style="font-weight:800">${Math.abs(gananciaSaldo) >= 100 ? fmt(gananciaSaldo) : '<span style="color:var(--text-muted)">$0</span>'}</td>
+    </tr>` : '';
+
+  container.innerHTML = `<div style="overflow-x:auto"><table class="var-table">
+    <thead><tr>
+      <th style="text-align:left">CUENTA</th>
+      <th>VALOR</th>
+    </tr></thead>
+    <tbody>
+      ${rowsHtml}
+      <tr class="var-total">
+        <td>SALDO TOTAL COMISIONES</td>
+        <td class="${cls(totalSaldo)}">${fmt(totalSaldo)}</td>
+      </tr>
+    </tbody>
+  </table>
+  <table class="var-table" style="margin-top:24px">
+    <thead><tr>
+      <th style="text-align:left">PATRIMONIO</th>
+      <th>VALOR</th>
+    </tr></thead>
+    <tbody>
+      ${patrimonioHtml}
+      <tr class="var-total">
+        <td>SALDO GANANCIA</td>
+        <td class="${gananciaCls}">${gananciaSaldo !== 0 ? fmt(gananciaSaldo) : '<span style="color:var(--text-muted)">$0</span>'}</td>
+      </tr>
+    </tbody>
+  </table></div>`;
 }
 
 // ============================================================

@@ -731,6 +731,7 @@ select option { background: var(--bg3); }
             <tbody id="intercambios-tbody">
               <tr><td colspan="8"><div class="empty"><div class="empty-icon">🔄</div>Sin intercambios</div></td></tr>
             </tbody>
+            <tfoot id="intercambios-tfoot"></tfoot>
           </table>
         </div>
       </div>
@@ -5691,6 +5692,19 @@ function renderIntercambios() {
       <td style="font-size:11px">${ix.operador2||'Propio'}</td>
       <td>${accionIX(ix)}</td>
     </tr>`).join('');
+
+  // ── Totales al pie ──
+  const tfoot = document.getElementById('intercambios-tfoot');
+  if (tfoot) {
+    const totMonto = data.filter(ix => ix.estado !== 'cancelado').reduce((s, ix) => s + (parseFloat(ix.monto)||0), 0);
+    const hayFiltro = fEstado || fDesde || fHasta || fEgresa || fIngresa || fOp2 || fBuscar;
+    const TD = 'padding:6px 10px;font-size:12px;border-top:2px solid var(--border)';
+    tfoot.innerHTML = `<tr style="background:var(--bg2)">
+      <td colspan="3" style="${TD};color:var(--text2)">${data.length} intercambio${data.length!==1?'s':''}${hayFiltro?' · filtrado':''}</td>
+      <td style="${TD};font-weight:700;color:var(--gold)">${peso(totMonto)}</td>
+      <td colspan="4" style="${TD}"></td>
+    </tr>`;
+  }
 }
 
 // ──────────────────── IMPORTAR INTERCAMBIOS ────────────────────

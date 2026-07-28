@@ -223,6 +223,7 @@ select option{background:var(--bg3)}
                 <th style="text-align:right;padding:10px 16px;background:var(--bg3);color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">Intercambios</th>
                 <th style="text-align:right;padding:10px 16px;background:var(--bg3);color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">Saldo Op.</th>
                 <th style="text-align:right;padding:10px 16px;background:var(--bg3);color:var(--red);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">Gastos (−)</th>
+                <th style="text-align:right;padding:10px 16px;background:var(--bg3);color:var(--red);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">Liq. (−)</th>
                 <th style="text-align:right;padding:10px 16px;background:var(--bg3);color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">Sistema</th>
                 <th style="text-align:right;padding:10px 16px;background:var(--bg3);color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">Físico Real</th>
                 <th style="text-align:right;padding:10px 16px;background:var(--bg3);color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">Diferencia</th>
@@ -1177,6 +1178,7 @@ async function eliminarIX(globalId) {
       fecha:       ix.fecha || '',
       motivo:      motivo.trim(),
       solicitante: 'cajero',
+      solicitante_nombre: firebase.auth().currentUser?.email || 'Cajero',
       estado:      'pendiente',
       ts:          firebase.firestore.FieldValue.serverTimestamp(),
     });
@@ -1500,7 +1502,7 @@ function renderCupoActual() {
     const m = ix.monto || 0;
     addNet(ix.op1_uid, ix.op1_egresa, -m);
     addNet(ix.op1_uid, ix.op1_ingresa, +m);
-    if (ix.tipo === 'C' && ix.op2_uid) {
+    if (ix.tipo === 'C' && ix.op2_uid && ix.op2_nombre !== 'Propio') {
       addNet(ix.op2_uid, ix.op2_egresa, -m);
       addNet(ix.op2_uid, ix.op2_ingresa, +m);
     }
@@ -1677,7 +1679,7 @@ function renderSaldoCajas() {
 }
 
 // ── DASHBOARD ──
-function renderDashboard() {
+async function renderDashboard() {
   if (!METODOS.length) return;
   const net = calcNetIX();
 
@@ -1796,6 +1798,26 @@ function renderDashboard() {
     gasPorMet[key] = (gasPorMet[key] || 0) + (parseFloat(g.valor) || 0);
   });
 
+  // ── Liquidaciones pagadas del mes anterior (aprobadas) — reducen el efectivo físico ──
+  const liqPorMet = {};
+  try {
+    const [yk, mk] = mesActivo.split('-').map(Number);
+    const prevKey = new Date(yk, mk - 2, 1).toISOString().slice(0, 7);
+    const liqSnap = await db.collection('patriarca_liquidacion_txs')
+      .where('mesKey', '==', prevKey)
+      .where('tipo',   '==', 'saldo')
+      .where('estado', '==', 'aprobado')
+      .get();
+    liqSnap.forEach(d => {
+      const tx = d.data();
+      if (!tx.metodo) return;
+      const nm  = normMetodo(tx.metodo);
+      const key = METODOS.find(m => normMetodo(m) === nm) || tx.metodo;
+      if (!key) return;
+      liqPorMet[key] = (liqPorMet[key] || 0) + (parseFloat(tx.monto) || 0);
+    });
+  } catch(e) { console.warn('renderDashboard liqPorMet:', e); }
+
   // ── Cards de saldo final por método ──
   const cards = [];
   METODOS.forEach(m => {
@@ -1806,9 +1828,10 @@ function renderDashboard() {
     const rec = recPorMet[m] || 0;
     const pag = pagPorMet[m] || 0;
     const gas = gasPorMet[m] || 0;
-    const fin = ini + ix - rec + pag - gas;
-    if (ini === 0 && ix === 0 && rec === 0 && pag === 0 && gas === 0) return; // omitir métodos sin datos
-    cards.push({ m, ini, ix, op: pag - rec, gas, fin });
+    const liq = liqPorMet[m] || 0;
+    const fin = ini + ix - rec + pag - gas - liq;
+    if (ini === 0 && ix === 0 && rec === 0 && pag === 0 && gas === 0 && liq === 0) return;
+    cards.push({ m, ini, ix, op: pag - rec, gas, liq, fin });
   });
 
   const grid = document.getElementById('dash-metodos-grid');
@@ -3275,6 +3298,7 @@ function _renderCruceInline(cards) {
     ix:      c.ix   || 0,
     op:      c.op   || 0,
     gas:     c.gas  || 0,
+    liq:     c.liq  || 0,
     sistema: c.fin
   }));
 
@@ -3294,6 +3318,7 @@ function _renderCruceInline(cards) {
       <td style="${TD};text-align:right;font-weight:600;color:${ixClr}">${fmtSigned(row.ix)}</td>
       <td style="${TD};text-align:right;font-weight:600;color:${opClr}">${fmtSigned(row.op)}</td>
       <td style="${TD};text-align:right;font-weight:600;color:var(--red)">${row.gas ? '−'+pesos(row.gas) : '—'}</td>
+      <td style="${TD};text-align:right;font-weight:600;color:var(--red)">${row.liq ? '−'+pesos(row.liq) : '—'}</td>
       <td style="${TD};text-align:right;font-weight:700;color:${sisClr}">
         <span style="cursor:pointer" title="Clic para copiar al Físico Real" onclick="_copiarSistema(${i})">${pesos(row.sistema)}</span>
         <button onclick="_copiarSistema(${i})" title="Copiar valor del sistema al físico real"
@@ -3326,6 +3351,7 @@ function _renderCruceInline(cards) {
       <td id="cruce-tot-ix"  style="padding:12px 16px;text-align:right;font-weight:700">—</td>
       <td id="cruce-tot-op"  style="padding:12px 16px;text-align:right;font-weight:700">—</td>
       <td id="cruce-tot-gas" style="padding:12px 16px;text-align:right;font-weight:700;color:var(--red)">—</td>
+      <td id="cruce-tot-liq" style="padding:12px 16px;text-align:right;font-weight:700;color:var(--red)">—</td>
       <td id="cruce-tot-sis" style="padding:12px 16px;text-align:right;font-weight:800;font-size:14px"></td>
       <td id="cruce-tot-fis" style="padding:12px 16px;text-align:right;font-weight:800;font-size:14px;color:var(--text2)">—</td>
       <td id="cruce-tot-dif" style="padding:12px 16px;text-align:right;font-weight:800;font-size:14px;color:var(--text2)">—</td>
@@ -3423,6 +3449,7 @@ function _actualizarCruce() {
   const totIx  = _cruceData.reduce((s,r) => s + (r.ix||0),  0);
   const totOp  = _cruceData.reduce((s,r) => s + (r.op||0),  0);
   const totGas = _cruceData.reduce((s,r) => s + (r.gas||0),  0);
+  const totLiq = _cruceData.reduce((s,r) => s + (r.liq||0),  0);
 
   document.querySelectorAll('.cruce-fisico').forEach(inp => {
     const i   = parseInt(inp.dataset.idx);
@@ -3459,9 +3486,10 @@ function _actualizarCruce() {
   const totIxEl  = document.getElementById('cruce-tot-ix');
   const totOpEl  = document.getElementById('cruce-tot-op');
   const totGasEl = document.getElementById('cruce-tot-gas');
+  const totLiqEl = document.getElementById('cruce-tot-liq');
   if (!totSisEl) return;
 
-  // Totales: S. Inicial, Intercambios, Saldo Op., Gastos
+  // Totales: S. Inicial, Intercambios, Saldo Op., Gastos, Liq.
   if (totIniEl) { totIniEl.textContent = totIni ? pesos(totIni) : '—'; totIniEl.style.color = 'var(--text2)'; }
   if (totIxEl)  {
     totIxEl.textContent = totIx ? (totIx>0?'+':'')+pesos(Math.abs(totIx)) : '—';
@@ -3472,6 +3500,7 @@ function _actualizarCruce() {
     totOpEl.style.color = totOp > 0 ? 'var(--green)' : totOp < 0 ? 'var(--red)' : 'var(--text2)';
   }
   if (totGasEl) { totGasEl.textContent = totGas ? '−'+pesos(totGas) : '—'; totGasEl.style.color = totGas ? 'var(--red)' : 'var(--text2)'; }
+  if (totLiqEl) { totLiqEl.textContent = totLiq ? '−'+pesos(totLiq) : '—'; totLiqEl.style.color = totLiq ? 'var(--red)' : 'var(--text2)'; }
 
   totSisEl.textContent = pesos(totSis);
   totSisEl.style.color = totSis < 0 ? 'var(--red)' : 'var(--green)';

@@ -187,7 +187,7 @@ select option{background:var(--bg3)}
       <div class="sub-tab" id="subtab-cupo-inicial"  onclick="showSubSection('cupo-inicial')">💰 Cupo Inicial</div>
       <div class="sub-tab" id="subtab-hoja-op"       onclick="showSubSection('hoja-op')">📄 Hoja Operador</div>
       <div class="sub-tab" id="subtab-cupo-actual"   onclick="showSubSection('cupo-actual')">📈 Cupo Actual</div>
-      <div class="sub-tab" id="subtab-mapa-capital"  onclick="showSubSection('mapa-capital')">🗺️ Mapa Capital</div>
+      <div class="sub-tab" id="subtab-mapa-capital"  onclick="showSubSection('mapa-capital')">🗺️ Mapa de Capital Activo</div>
     </div>
   </div>
   <main>
@@ -1513,6 +1513,22 @@ async function renderCupoActual() {
       if (ing && ing !== 'SALDO CLIENTES') addNet(uid, ing, +m);
     });
   } catch(e) { console.warn('renderCupoActual: ix load:', e); }
+
+  // Liquidaciones pagadas (mes anterior, aprobadas) — descuenta de EFECTIVO OPERADOR por operador
+  try {
+    const [yk, mk] = mesActivo.split('-').map(Number);
+    const prevKey  = new Date(yk, mk - 2, 1).toISOString().slice(0, 7);
+    const liqSnap  = await db.collection('patriarca_liquidacion_txs')
+      .where('mesKey', '==', prevKey)
+      .where('tipo',   '==', 'saldo')
+      .where('estado', '==', 'aprobado')
+      .get();
+    liqSnap.docs.forEach(d => {
+      const tx = d.data();
+      if (normMetodo(tx.metodo || '') !== 'EFECTIVO OPERADOR') return;
+      addNet(tx.operadorId, 'EFECTIVO OPERADOR', -(parseFloat(tx.monto) || 0));
+    });
+  } catch(e) { console.warn('renderCupoActual: liq load:', e); }
 
   // Usar todos los métodos configurados — excluir SALDO CLIENTES (va en sección aparte)
   const metodos = (METODOS.length ? METODOS : [...new Set(movsDelMes().map(m => m.metodo).filter(Boolean))])

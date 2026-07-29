@@ -3992,6 +3992,31 @@ function _refreshEdBadge() {
   if (btn) btn.textContent = cnt > 0 ? `✏️ Ediciones 🔴${cnt}` : '✏️ Ediciones';
 }
 
+async function marcarTodoOp(quien) {
+  if (!confirm('¿Marcar todas las ediciones de este operador como revisadas?')) return;
+  const rev  = _audEdRevisadas();
+  const keys = {};
+  const recolectar = (docs, prefix) => {
+    docs.filter(d => d.historial?.length).forEach(doc => {
+      doc.historial.forEach((h, i) => {
+        const q = h.editadoPor || doc.editadoPor || '(desconocido)';
+        if (q !== quien) return;
+        const k = `${prefix}_${doc.id}_${i}`;
+        if (!rev[k]) keys[k] = true;
+      });
+    });
+  };
+  recolectar(_audMovs, 'mov');
+  recolectar(_audInvs, 'inv');
+  if (!Object.keys(keys).length) { toast('Ya todo está revisado', 'info'); return; }
+  const docRef = db.collection('admin_auditoria').doc(_audMesKey);
+  await docRef.set({ ediciones_revisadas: keys }, { merge: true });
+  _audData.ediciones_revisadas = { ..._audEdRevisadas(), ...keys };
+  _refreshEdBadge();
+  renderEdiciones();
+  toast(`✅ ${Object.keys(keys).length} ediciones marcadas como revisadas`, 'success');
+}
+
 async function marcarRevisadoEdicion(key) {
   const docRef = db.collection('admin_auditoria').doc(_audMesKey);
   await docRef.set({ ediciones_revisadas: { [key]: true } }, { merge: true });
@@ -4101,6 +4126,7 @@ function _renderEdList(container, docs, prefix, rev, renderDoc) {
           <span style="font-size:14px;font-weight:600;color:var(--text)">👤 ${opNombre}</span>
           <span style="background:var(--orange);color:#000;font-size:11px;font-weight:700;padding:2px 7px;border-radius:99px">${items.length} edición${items.length!==1?'es':''}</span>
           ${pendOp > 0 ? `<span style="background:#e53935;color:#fff;font-size:10px;font-weight:700;padding:2px 6px;border-radius:99px">🔴 ${pendOp} sin revisar</span>` : `<span style="background:var(--green);color:#000;font-size:10px;font-weight:700;padding:2px 6px;border-radius:99px">✅ revisado</span>`}
+          ${pendOp > 0 ? `<button onclick="event.preventDefault();event.stopPropagation();marcarTodoOp('${quien.replace(/'/g,"\\'")}')" style="font-size:11px;padding:3px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg2);color:var(--text);cursor:pointer;font-weight:600">👁 Marcar todo</button>` : ''}
           <span style="font-size:10px;color:var(--text2);margin-left:auto">${quien !== opNombre ? quien : ''}</span>
         </summary>
         <div>`;

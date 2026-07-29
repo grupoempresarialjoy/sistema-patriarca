@@ -1980,6 +1980,10 @@ let escalera_rangos = [
 ];
 let escalera_interes_capital = 5;
 let escalera_interes_diario  = 0.2;
+// Variables para que _calcBono() pueda actualizar la Ganancia Operador con el bono
+let _lastBaseNeta   = 0;
+let _lastIntCapMes  = 0;
+let _lastEscalera   = null;
 let allEventos = [];
 let allMovimientos = [];
 let allInversiones = [];
@@ -2826,6 +2830,10 @@ function reloadDash() {
   const tasaCapMes = (escalera_interes_capital || 5) / 100;
   const intCapMes  = escalera.interesCapital ? capAsig * tasaCapMes : 0;
   const ganOpeNeta = ganOpeBruta - intCapMes;
+  // Guardar para que _calcBono() actualice la ganancia con el bono
+  _lastBaseNeta  = baseNeta;
+  _lastIntCapMes = intCapMes;
+  _lastEscalera  = escalera;
 
   // Rojo — cambiar color según aplica o no
   const rojoWrap = document.getElementById('kpi-rojo-wrap');
@@ -2937,6 +2945,17 @@ function _calcBono() {
     bonoStatus = 'solo'; bonoPct = b.pct_solo || 5;
   } else if (totalCombo >= meta) {
     bonoStatus = 'combo'; bonoPct = b.pct_combo || 3;
+  }
+
+  // Actualizar Ganancia Operador sumando el bono a la participación
+  if (_lastEscalera) {
+    const partConBono   = _lastEscalera.participacion + bonoPct;
+    const ganNetaConBono = (_lastBaseNeta * (partConBono / 100)) - _lastIntCapMes;
+    const partLabel = bonoPct > 0
+      ? `${_lastEscalera.participacion}%+${bonoPct}%`
+      : `${_lastEscalera.participacion}%`;
+    document.getElementById('p-participacion').textContent = partLabel;
+    document.getElementById('p-bono').textContent          = peso(ganNetaConBono);
   }
 
   // ── Render UI ──

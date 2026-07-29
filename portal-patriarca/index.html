@@ -4186,6 +4186,18 @@ function renderSituacionFinanciera() {
       .reduce((s,m) => s + (m.credito||0) - (m.debito||0), 0);
     _sfGananciaBalance = _sfGananciaMesActual - _comTotal - _cierrePatNet;
     totalT += _sfGananciaBalance;
+
+    // G3 ESF: comisiones mes actual pendientes → también suman al TOTAL ACTIVO
+    let opMesRegG3 = 0;
+    sfMovs.forEach(mov => {
+      if (mov.cuenta !== 'ACTIVOS') return;
+      const metodo = _metodoFromSubcuentaOp(mov.subcuenta);
+      if (!metodo || _sfComisionesMesActual[metodo] === undefined) return;
+      if (mesKey && !(mov.fecha || '').startsWith(mesKey)) return;
+      opMesRegG3 += (mov.debito || 0);
+    });
+    const g3EsfDelta = _comTotal - opMesRegG3;
+    if (g3EsfDelta > 0) totalA += g3EsfDelta;
   }
 
   const totalPP = totalP + totalT;

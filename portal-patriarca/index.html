@@ -4184,7 +4184,7 @@ function renderSituacionFinanciera() {
       .filter(m => m.origen === 'cierre_metodo' && m.cuenta === 'PATRIMONIO'
                 && (mesKey ? (m.fecha||'').startsWith(mesKey) : true))
       .reduce((s,m) => s + (m.credito||0) - (m.debito||0), 0);
-    _sfGananciaBalance = _sfGananciaMesActual - _comTotal - _cierrePatNet;
+    _sfGananciaBalance = _sfGananciaMesActual - _cierrePatNet;
     totalT += _sfGananciaBalance;
 
     // G3 ESF: comisiones mes actual pendientes → también suman al TOTAL ACTIVO

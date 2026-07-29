@@ -1740,8 +1740,8 @@ function renderDashboardESF() {
   const fmt = v => '$' + Math.round(v||0).toLocaleString('es-CO');
   const col = v => v >= 0 ? 'var(--green)' : 'var(--red)';
 
-  // Solo operadores reales con datos ESF calculados
-  const opUids = new Set(allUsers.filter(u=>u.rol==='operador'&&u.uid).map(u=>u.uid));
+  // Solo operadores activos con datos ESF calculados
+  const opUids = new Set(allUsers.filter(u=>u.rol==='operador'&&u.uid&&(u.estado||'activo')==='activo').map(u=>u.uid));
   let data = _dashEsfData.filter(r =>
     r.uid && opUids.has(r.uid) &&
     ((r.totalActivos||0) > 0 || (r.utilidad||0) > 0 || (r.totalComisiones||0) > 0)

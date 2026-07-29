@@ -259,6 +259,21 @@ select option{background:var(--bg3)}
         <div class="kpi"><div class="kpi-label">Movimientos hoy</div><div class="kpi-value" id="kpi-movs">—</div></div>
         <div class="kpi"><div class="kpi-label">Pendientes cajero</div><div class="kpi-value" id="kpi-pend" style="color:var(--orange)">—</div></div>
       </div>
+      <!-- ── Resumen ESF por Operador ── -->
+      <div style="margin-bottom:20px">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap">
+          <span style="font-weight:700;font-size:14px;color:var(--text)">📊 Resumen Operadores</span>
+          <select id="dash-esf-oficina" onchange="renderDashboardESF()" style="padding:5px 10px;font-size:12px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+            <option value="">Todas las oficinas</option>
+          </select>
+          <button onclick="loadDashboardESF()" style="font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);cursor:pointer">⟳ Actualizar</button>
+          <span id="dash-esf-mes-lbl" style="font-size:11px;color:var(--text2)"></span>
+        </div>
+        <div id="dash-esf-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px">
+          <div style="color:var(--text2);font-size:13px;padding:16px;grid-column:1/-1">Cargando resumen ESF...</div>
+        </div>
+      </div>
+
       <div class="panel">
         <div class="panel-header"><span class="panel-title">Operadores registrados</span></div>
         <div class="tbl-wrap">
@@ -1296,6 +1311,7 @@ function initAdmin() {
   loadComisiones();
   loadUsuarios();
   loadDashboard();
+  setTimeout(loadDashboardESF, 1200); // esperar que allUsers cargue primero
   precargarEscaleras();
   // Iniciar listeners para badges de notificación
   setTimeout(() => { initSolicitudes(); initCierres(); }, 800);
@@ -1695,6 +1711,97 @@ function toast(msg, type='info') {
 }
 
 // ────────────────────── DASHBOARD ──────────────────────
+// ── DASHBOARD ESF — Resumen por operador ──
+let _dashEsfData = [];
+
+async function loadDashboardESF() {
+  const lbl = document.getElementById('dash-esf-mes-lbl');
+  if (lbl) lbl.textContent = _adminMesLabel(_adminMes);
+  try {
+    const snap = await db.collection('patriarca_esf_resumen')
+      .where('mesKey', '==', _adminMes).get();
+    _dashEsfData = snap.docs.map(d => d.data());
+    // Poblar selector de oficinas usando oficinaNombre
+    const nombresOf = [...new Set(allUsers.filter(u=>u.oficinaNombre).map(u=>u.oficinaNombre))].sort((a,b)=>{
+      if(a==='Unity') return -1; if(b==='Unity') return 1; return a.localeCompare(b);
+    });
+    const sel = document.getElementById('dash-esf-oficina');
+    if (sel) {
+      const prev = sel.value;
+      sel.innerHTML = '<option value="">Todas las oficinas</option>' +
+        nombresOf.map(o=>`<option value="${o}"${o===prev||(!prev&&o==='Unity')?'selected':''}>${o}</option>`).join('');
+    }
+    renderDashboardESF();
+  } catch(e) { console.warn('dashboardESF:', e); }
+}
+
+function renderDashboardESF() {
+  const oficina = document.getElementById('dash-esf-oficina')?.value || '';
+  const fmt = v => '$' + Math.round(v||0).toLocaleString('es-CO');
+  const col = v => v >= 0 ? 'var(--green)' : 'var(--red)';
+
+  let data = [..._dashEsfData];
+  if (oficina) {
+    const uids = new Set(allUsers.filter(u=>u.oficinaNombre===oficina).map(u=>u.uid));
+    data = data.filter(r => uids.has(r.uid));
+  }
+  data.sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
+
+  const container = document.getElementById('dash-esf-cards');
+  if (!container) return;
+  if (!data.length) {
+    container.innerHTML = '<div style="color:var(--text2);font-size:13px;padding:16px;grid-column:1/-1">Sin datos ESF para este mes — usa "Calcular ESF" en la sección ESF por Operador.</div>';
+    return;
+  }
+
+  // Totales para fila de resumen
+  let totCom=0, totUtil=0, totGan=0;
+  const cards = data.map(r => {
+    const com  = r.totalComisiones || 0;
+    const util = (r.utilidad||0) - (r.totalGastos||0);
+    const gan  = (r.totalActivos||0) - (r.clientesMesAnt||0) - (r.cupoEnCajas||0);
+    totCom+=com; totUtil+=util; totGan+=gan;
+    return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:8px">
+      <div style="font-weight:700;font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${r.nombre}">${r.nombre}</div>
+      <div style="display:flex;flex-direction:column;gap:5px">
+        <div style="display:flex;justify-content:space-between;font-size:11px">
+          <span style="color:var(--text2)">Comisiones</span>
+          <span style="color:var(--orange);font-weight:600">${fmt(com)}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:11px">
+          <span style="color:var(--text2)">Utilidad Neta</span>
+          <span style="color:${col(util)};font-weight:600">${fmt(util)}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:11px;border-top:1px solid var(--border);padding-top:5px;margin-top:2px">
+          <span style="color:var(--text2);font-weight:600">Ganancia Total</span>
+          <span style="color:${col(gan)};font-weight:700">${fmt(gan)}</span>
+        </div>
+      </div>
+    </div>`;
+  });
+
+  // Card de totales
+  cards.push(`<div style="background:var(--bg3);border:2px solid var(--purple);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:8px">
+    <div style="font-weight:800;font-size:12px;color:var(--purple)">TOTAL ${oficina||'GENERAL'}</div>
+    <div style="display:flex;flex-direction:column;gap:5px">
+      <div style="display:flex;justify-content:space-between;font-size:11px">
+        <span style="color:var(--text2)">Comisiones</span>
+        <span style="color:var(--orange);font-weight:700">${fmt(totCom)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:11px">
+        <span style="color:var(--text2)">Utilidad Neta</span>
+        <span style="color:${col(totUtil)};font-weight:700">${fmt(totUtil)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:11px;border-top:1px solid var(--border);padding-top:5px;margin-top:2px">
+        <span style="color:var(--text2);font-weight:700">Ganancia Total</span>
+        <span style="color:${col(totGan)};font-weight:800">${fmt(totGan)}</span>
+      </div>
+    </div>
+  </div>`);
+
+  container.innerHTML = cards.join('');
+}
+
 function loadDashboard() {
   // Operadores
   db.collection('patriarca_operadores').onSnapshot(snap => {

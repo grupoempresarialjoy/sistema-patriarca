@@ -4337,19 +4337,9 @@ function renderSituacionFinanciera() {
     // Si es Resultados, agregar ingresos neto
     if(g.includes('Resultados')) {
       Object.values(gruposI).flat().forEach(f => filas.push({...f, sub:`↳ ${f.sub}`}));
-      // Inyectar Ganancia o Perdida Mes actual desde ESF CONSOLIDADO
-      // Muestra solo el PENDIENTE = utilidad ESF - ya registrado en "Ganancias Operadores" este mes
+      // Inyectar Ganancia o Perdida Mes actual desde ESF CONSOLIDADO — valor directo
       if (!_sfModoBase && _sfGananciaMesActual !== 0) {
-        const mesKey = _esfConsMesKey || getMesGlobal();
-        // Usar _contMovsBase (incluye cierre_metodo) para que pendienteGanancia ≈ $0
-        const gananciasMesReg = _contMovsBase
-          .filter(m => m.cuenta === 'PATRIMONIO' && m.subcuenta === 'Ganancias Operadores'
-                    && (mesKey ? (m.fecha || '').startsWith(mesKey) : true))
-          .reduce((s, m) => s + (m.credito || 0) - (m.debito || 0), 0);
-        const pendienteGanancia = _sfGananciaMesActual - gananciasMesReg;
-        if (pendienteGanancia !== 0) {
-          filas.push({ sub: 'Ganancia o Perdida Mes actual', saldo: pendienteGanancia, _esf: true });
-        }
+        filas.push({ sub: 'Ganancia o Perdida Mes actual', saldo: _sfGananciaMesActual, _esf: true });
       }
     }
     if(!filas.length) return;

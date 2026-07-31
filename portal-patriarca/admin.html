@@ -34,9 +34,19 @@ header{background:var(--bg2);border-bottom:1px solid var(--border);padding:0 20p
 nav{background:var(--bg2);border-bottom:1px solid var(--border);display:flex;overflow-x:auto;flex-shrink:0}
 nav::-webkit-scrollbar{height:3px}
 nav::-webkit-scrollbar-thumb{background:var(--border)}
+nav{overflow:visible}
 .tab{padding:12px 18px;cursor:pointer;font-size:12px;color:var(--text2);white-space:nowrap;border-bottom:2px solid transparent;transition:all .15s}
 .tab:hover{color:var(--text)}
 .tab.active{color:var(--purple);border-bottom-color:var(--purple);font-weight:600}
+/* ── Menús desplegables ── */
+.navgrp{position:relative}
+.navgrp>.tab{display:flex;align-items:center;gap:5px}
+.navgrp>.tab::after{content:'▾';font-size:9px;opacity:.6}
+.navgrp-menu{position:absolute;top:100%;left:0;min-width:210px;background:var(--bg2);border:1px solid var(--border);border-top:none;border-radius:0 0 8px 8px;box-shadow:0 8px 24px rgba(0,0,0,.28);opacity:0;visibility:hidden;transform:translateY(-6px);transition:opacity .15s,transform .15s,visibility .15s;z-index:500;padding:5px 0}
+.navgrp:hover .navgrp-menu,.navgrp.open .navgrp-menu{opacity:1;visibility:visible;transform:translateY(0)}
+.navgrp-item{padding:9px 16px;font-size:12px;color:var(--text2);cursor:pointer;white-space:nowrap;border-left:2px solid transparent;transition:all .12s}
+.navgrp-item:hover{background:var(--bg3);color:var(--text)}
+.navgrp-item.active{color:var(--purple);font-weight:600;border-left-color:var(--purple);background:var(--bg3)}
 main{flex:1;padding:20px;overflow:auto}
 .section{display:none}
 .section.active{display:block}
@@ -229,22 +239,46 @@ select option{background:var(--bg3)}
   </div>
 
   <nav>
-    <div class="tab active" onclick="showTab('dashboard')">📊 Dashboard</div>
-    <div class="tab" onclick="showTab('oficinas')">🏢 Oficinas</div>
-    <div class="tab" onclick="showTab('usuarios')">👤 Usuarios</div>
-    <div class="tab" onclick="showTab('metodos')">📋 Métodos</div>
-    <div class="tab" onclick="showTab('comisiones')">💰 Comisiones</div>
-    <div class="tab" onclick="showTab('cupo-inicial')">💼 Cupo Inicial</div>
-    <div class="tab" onclick="showTab('saldo-inicial')">📊 Saldo Inicial Clientes</div>
-    <div class="tab" onclick="showTab('noticias')">📢 Noticias</div>
-    <div class="tab" onclick="showTab('correcciones')">🔧 Correcciones</div>
-    <div class="tab" id="tab-solicitudes" onclick="showTab('solicitudes')">🗑 Solicitudes</div>
-    <div class="tab" id="tab-cierres" onclick="showTab('cierres');initCierres()">📅 Cierres</div>
-    <div class="tab" onclick="showTab('config')">⚙️ Config</div>
-    <div class="tab" onclick="showTab('auditor')">🔍 Auditor</div>
-    <div class="tab" onclick="showTab('esf-ops');initESFOps()">📋 ESF Ops</div>
-    <div class="tab" onclick="showTab('diario');initDiario()">📆 Diario</div>
-    <div class="tab" id="tab-liquidaciones" onclick="showTab('liquidaciones');initLiquidaciones()">💳 Liquidaciones</div>
+    <div class="tab active" data-sec="dashboard" onclick="showTab('dashboard')">📊 Dashboard</div>
+
+    <div class="navgrp" id="grp-usuarios">
+      <div class="tab">👤 Usuarios</div>
+      <div class="navgrp-menu">
+        <div class="navgrp-item" data-sec="usuarios"      onclick="showTab('usuarios')">👤 Lista de Usuarios</div>
+        <div class="navgrp-item" data-sec="comisiones"    onclick="showTab('comisiones')">💰 Comisiones</div>
+        <div class="navgrp-item" data-sec="cupo-inicial"  onclick="showTab('cupo-inicial')">💼 Cupo Inicial</div>
+        <div class="navgrp-item" data-sec="saldo-inicial" onclick="showTab('saldo-inicial')">📊 Saldo Inicial Clientes</div>
+      </div>
+    </div>
+
+    <div class="navgrp" id="grp-reportes">
+      <div class="tab">📈 Reportes</div>
+      <div class="navgrp-menu">
+        <div class="navgrp-item" data-sec="diario"        onclick="showTab('diario');initDiario()">📆 Ganancia Diaria</div>
+        <div class="navgrp-item" data-sec="esf-ops"       onclick="showTab('esf-ops');initESFOps()">📋 ESF Ops</div>
+        <div class="navgrp-item" data-sec="liquidaciones" id="tab-liquidaciones" onclick="showTab('liquidaciones');initLiquidaciones()">💳 Liquidaciones</div>
+        <div class="navgrp-item" data-sec="auditor"       onclick="showTab('auditor')">🔍 Auditor</div>
+      </div>
+    </div>
+
+    <div class="navgrp" id="grp-gestion">
+      <div class="tab">📋 Gestión</div>
+      <div class="navgrp-menu">
+        <div class="navgrp-item" data-sec="noticias"     onclick="showTab('noticias')">📢 Noticias</div>
+        <div class="navgrp-item" data-sec="correcciones" onclick="showTab('correcciones')">🔧 Correcciones</div>
+        <div class="navgrp-item" data-sec="solicitudes"  id="tab-solicitudes" onclick="showTab('solicitudes')">🗑 Solicitudes</div>
+        <div class="navgrp-item" data-sec="cierres"      id="tab-cierres" onclick="showTab('cierres');initCierres()">📅 Cierres</div>
+      </div>
+    </div>
+
+    <div class="navgrp" id="grp-config">
+      <div class="tab">⚙️ Configuración</div>
+      <div class="navgrp-menu">
+        <div class="navgrp-item" data-sec="oficinas" onclick="showTab('oficinas')">🏢 Oficinas</div>
+        <div class="navgrp-item" data-sec="metodos"  onclick="showTab('metodos')">📋 Métodos</div>
+        <div class="navgrp-item" data-sec="config"   onclick="showTab('config')">⚙️ General</div>
+      </div>
+    </div>
   </nav>
 
   <main>
@@ -1391,9 +1425,22 @@ function initAdmin() {
 // ── UI ──
 function showTab(name) {
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  document.getElementById('sec-' + name).classList.add('active');
-  event.target.classList.add('active');
+  document.querySelectorAll('.tab, .navgrp-item').forEach(t => t.classList.remove('active'));
+  const sec = document.getElementById('sec-' + name);
+  if (sec) sec.classList.add('active');
+
+  // Marcar el ítem y, si está en un grupo, también el tab del grupo
+  const item = document.querySelector(`[data-sec="${name}"]`);
+  if (item) {
+    item.classList.add('active');
+    const grp = item.closest('.navgrp');
+    if (grp) {
+      grp.querySelector('.tab').classList.add('active');
+      grp.classList.remove('open'); // cerrar el menú tras elegir
+      setTimeout(() => grp.classList.remove('open'), 10);
+    }
+  }
+
   if (name === 'comisiones') renderComOficinas();
   if (name === 'cupo-inicial') initCupoInicialAdmin();
   if (name === 'saldo-inicial') initSaldoInicialAdmin();
@@ -1401,6 +1448,33 @@ function showTab(name) {
   if (name === 'solicitudes') initSolicitudes();
   if (name === 'cierres')    initCierres();
   if (name === 'auditor') initAuditor();
+}
+
+// ── Menús desplegables: abrir con clic (necesario en móvil/táctil) ──
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.navgrp > .tab').forEach(t => {
+    t.addEventListener('click', e => {
+      e.stopPropagation();
+      const grp = t.closest('.navgrp');
+      const abierto = grp.classList.contains('open');
+      document.querySelectorAll('.navgrp').forEach(g => g.classList.remove('open'));
+      if (!abierto) grp.classList.add('open');
+    });
+  });
+  // Cerrar al hacer clic fuera
+  document.addEventListener('click', () => {
+    document.querySelectorAll('.navgrp').forEach(g => g.classList.remove('open'));
+  });
+});
+
+// ── Badge de pendientes en el tab del grupo (Gestión) ──
+function _syncGrpBadge() {
+  const grp = document.getElementById('grp-gestion');
+  if (!grp) return;
+  const tab = grp.querySelector('.tab');
+  const hayPend = [...grp.querySelectorAll('.navgrp-item')]
+    .some(i => /\(\d+\)/.test(i.textContent));
+  tab.textContent = hayPend ? '📋 Gestión •' : '📋 Gestión';
 }
 
 // ── CUPO INICIAL ADMIN ──────────────────────────────────────────────────────
@@ -5425,6 +5499,7 @@ function _updateSolBadge() {
     if (tabEl) tabEl.textContent = '🗑 Solicitudes';
     if (badge) badge.style.display = 'none';
   }
+  _syncGrpBadge();
 }
 
 function initSolicitudes() {
@@ -5747,6 +5822,7 @@ function initCierres() {
         tabEl.textContent  = '📅 Cierres';
         badge.style.display = 'none';
       }
+      _syncGrpBadge();
 
       if (!docs.length) {
         list.innerHTML = '<div style="text-align:center;color:var(--text2);padding:32px">Sin solicitudes de cierre registradas</div>';

@@ -180,6 +180,7 @@ select option{background:var(--bg3)}
     <div class="tab" id="tab-capital-ops" onclick="showTabGroup('cupo-actual')">📈 Capital Ops</div>
     <div class="tab" onclick="showTab('saldo-cajas')">🏦 Saldo Cajas</div>
     <div class="tab" onclick="showTab('cajas')">📋 Cajas</div>
+    <div class="tab" onclick="showTab('efectivo');initEfectivo()">💵 Efectivo</div>
   </nav>
   <!-- Sub-nav de Capital Ops — aparece solo cuando ese grupo está activo -->
   <div id="sub-nav-capital" style="display:none;background:var(--bg3);border-bottom:1px solid var(--border);display:none;overflow-x:auto">
@@ -191,6 +192,90 @@ select option{background:var(--bg3)}
     </div>
   </div>
   <main>
+
+    <!-- ─────────────── EFECTIVO ─────────────── -->
+    <div class="section" id="sec-efectivo">
+      <div class="sec-header">
+        <div>
+          <div class="sec-title">💵 Registro de Efectivo</div>
+          <div class="sec-sub">Ingresos y egresos de efectivo por operador — <span id="ef-mes-lbl"></span></div>
+        </div>
+        <button class="btn btn-gold btn-sm" onclick="abrirModalEfectivo()">+ Registrar</button>
+      </div>
+
+      <!-- KPIs -->
+      <div class="kpi-grid" style="margin-bottom:16px">
+        <div class="kpi"><div class="kpi-label">Total Ingresa</div><div class="kpi-value" id="ef-kpi-in" style="color:var(--green)">$0</div></div>
+        <div class="kpi"><div class="kpi-label">Total Egresa</div><div class="kpi-value" id="ef-kpi-eg" style="color:var(--red)">$0</div></div>
+        <div class="kpi"><div class="kpi-label">Total Registrado</div><div class="kpi-value" id="ef-kpi-tot">$0</div></div>
+        <div class="kpi"><div class="kpi-label">Efectivo Contado</div><div class="kpi-value" id="ef-kpi-cont">$0</div></div>
+        <div class="kpi"><div class="kpi-label">Estado (diferencia)</div><div class="kpi-value" id="ef-kpi-dif">$0</div></div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:minmax(280px,1fr) minmax(320px,1.4fr) minmax(260px,.9fr);gap:14px;align-items:start">
+
+        <!-- 1. Resumen por operador -->
+        <div class="panel">
+          <div class="panel-header"><span class="panel-title">Resumen por Operador</span></div>
+          <div class="table-wrap">
+            <table style="font-size:12px">
+              <thead><tr>
+                <th>Nombre</th>
+                <th style="text-align:right">Ingresa</th>
+                <th style="text-align:right">Egresa</th>
+                <th style="text-align:right">Total</th>
+              </tr></thead>
+              <tbody id="ef-resumen-tbody"><tr><td colspan="4" style="text-align:center;color:var(--text2);padding:20px">—</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 2. Registro de movimientos -->
+        <div class="panel">
+          <div class="panel-header">
+            <span class="panel-title">Movimientos</span>
+            <div style="display:flex;gap:6px;align-items:center">
+              <select id="ef-filtro-op" onchange="renderEfectivo()" style="padding:4px 8px;font-size:11px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+                <option value="">Todos</option>
+              </select>
+              <button class="btn btn-ghost btn-sm" onclick="exportEfectivoCSV()">⬇ CSV</button>
+            </div>
+          </div>
+          <div class="table-wrap" style="max-height:520px;overflow-y:auto">
+            <table style="font-size:12px">
+              <thead><tr>
+                <th>Fecha</th><th>#</th><th>Operador</th>
+                <th style="text-align:right">Cantidad</th><th>Operación</th><th></th>
+              </tr></thead>
+              <tbody id="ef-movs-tbody"><tr><td colspan="6" style="text-align:center;color:var(--text2);padding:20px">Sin movimientos</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 3. Conteo de dinero -->
+        <div class="panel">
+          <div class="panel-header">
+            <span class="panel-title">Tabla de Conteo</span>
+            <button class="btn btn-gold btn-sm" onclick="guardarConteo()">💾 Guardar</button>
+          </div>
+          <div style="padding:12px">
+            <table style="width:100%;font-size:12px;border-collapse:collapse" id="ef-conteo-tabla"></table>
+            <div style="border-top:2px solid var(--border);margin-top:10px;padding-top:10px">
+              <div style="display:flex;justify-content:space-between;padding:4px 0;font-weight:700">
+                <span>TOTAL REGISTRADO</span><span id="ef-ct-registrado">$0</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;padding:4px 0;font-weight:700">
+                <span>EFECTIVO CONTADO</span><span id="ef-ct-efectivo">$0</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;padding:8px 0;font-weight:800;font-size:14px;border-top:1px solid var(--border);margin-top:6px">
+                <span>ESTADO</span><span id="ef-ct-estado">$0</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
 
     <!-- DASHBOARD -->
     <div class="section active" id="sec-dashboard">
@@ -486,6 +571,49 @@ select option{background:var(--bg3)}
     </div>
 
   </main>
+</div>
+
+<!-- MODAL EFECTIVO -->
+<div class="modal-overlay" id="modal-efectivo">
+  <div class="modal" style="max-width:420px">
+    <h3 id="ef-modal-title" style="margin-bottom:16px">💵 Registrar Efectivo</h3>
+    <input type="hidden" id="ef-edit-id">
+    <div class="form-group">
+      <label>Fecha</label>
+      <input type="date" id="ef-f-fecha">
+    </div>
+    <div class="form-group">
+      <label>Operador</label>
+      <select id="ef-f-operador"></select>
+    </div>
+    <div class="form-group">
+      <label>Cantidad</label>
+      <input id="ef-f-cantidad" type="text" inputmode="numeric" placeholder="0"
+        oninput="
+          const s=this.selectionStart,l=this.value.length;
+          this.value=formatCOP(this.value);
+          const dl=this.value.length-l;
+          this.setSelectionRange(s+dl,s+dl);
+        "
+        style="font-size:20px;font-weight:700;text-align:right;color:var(--gold)">
+    </div>
+    <div class="form-group">
+      <label>Operación</label>
+      <div style="display:flex;gap:8px">
+        <button type="button" id="ef-btn-in" class="btn btn-ghost" style="flex:1" onclick="setEfOperacion('INGRESA')">⬆ INGRESA</button>
+        <button type="button" id="ef-btn-eg" class="btn btn-ghost" style="flex:1" onclick="setEfOperacion('EGRESA')">⬇ EGRESA</button>
+      </div>
+      <input type="hidden" id="ef-f-operacion" value="INGRESA">
+    </div>
+    <div class="form-group">
+      <label>Nota (opcional)</label>
+      <input type="text" id="ef-f-nota" placeholder="Ej: recoger de Efecty">
+    </div>
+    <div class="modal-footer" style="margin-top:16px">
+      <button class="btn btn-ghost" onclick="closeModal('modal-efectivo')">Cancelar</button>
+      <button class="btn btn-gold" onclick="guardarEfectivo()">✓ Guardar</button>
+    </div>
+  </div>
 </div>
 
 <!-- MODAL MONTO (reemplaza prompt() para realizarMov / editarMontoCaja) -->
@@ -2156,6 +2284,7 @@ function cambiarMes() {
   if (cajasMetodo) renderCajas();
   if (hojaOpUid) renderHojaOp();
   if (document.getElementById('sec-mapa-capital')?.classList.contains('active')) renderMapaCapital();
+  if (_efInited) cargarEfectivo();
 }
 
 function loadCajas() {
@@ -3543,6 +3672,308 @@ function _actualizarCruce() {
     totDifEl.textContent = (totDif > 0 ? '+' : '') + pesos(totDif);
     totDifEl.style.color = totDif > 0 ? 'var(--orange)' : 'var(--red)';
   }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// REGISTRO DE EFECTIVO — ingresos/egresos por operador + conteo
+// ═══════════════════════════════════════════════════════════════
+const EF_DENOMS = [100000, 50000, 20000, 10000, 5000, 2000, 1000];
+let _efMovs      = [];    // movimientos del mes
+let _efConteo    = {};    // denominación → cantidad de billetes
+let _efUnsub     = null;
+let _efInited    = false;
+
+function openModal(id)  { document.getElementById(id)?.classList.add('open'); }
+function closeModal(id) { document.getElementById(id)?.classList.remove('open'); }
+
+function _efDocId() { return mesActivo + '_' + (cajeroOficina || 'global'); }
+
+function initEfectivo() {
+  if (!_efInited) {
+    _efInited = true;
+    renderConteoTabla();
+  }
+  cargarEfectivo();
+}
+
+function cargarEfectivo() {
+  const lbl = document.getElementById('ef-mes-lbl');
+  if (lbl) lbl.textContent = mesActivo;
+
+  // Poblar selectores de operador
+  const opts = operadores.slice().sort((a,b)=>a.nombre.localeCompare(b.nombre))
+    .map(o => `<option value="${o.uid}">${o.nombre}</option>`).join('');
+  const selF = document.getElementById('ef-f-operador');
+  if (selF) selF.innerHTML = opts;
+  const selFil = document.getElementById('ef-filtro-op');
+  if (selFil) {
+    const prev = selFil.value;
+    selFil.innerHTML = '<option value="">Todos</option>' + opts;
+    selFil.value = prev;
+  }
+
+  // Listener de movimientos del mes
+  if (_efUnsub) { _efUnsub(); _efUnsub = null; }
+  let q = db.collection('patriarca_efectivo').where('mesKey','==',mesActivo);
+  if (cajeroOficina) q = q.where('oficina','==',cajeroOficina);
+  _efUnsub = q.onSnapshot(snap => {
+    _efMovs = snap.docs.map(d => ({ id:d.id, ...d.data() }))
+      .sort((a,b) => (a.fecha||'').localeCompare(b.fecha||'') || (a.num||0)-(b.num||0));
+    renderEfectivo();
+  }, e => console.warn('efectivo:', e));
+
+  // Cargar conteo guardado
+  db.collection('patriarca_efectivo_conteo').doc(_efDocId()).get().then(d => {
+    _efConteo = d.exists ? (d.data().conteo || {}) : {};
+    renderConteoTabla();
+    renderEfectivo();
+  }).catch(e => console.warn('conteo:', e));
+}
+
+function renderConteoTabla() {
+  const t = document.getElementById('ef-conteo-tabla');
+  if (!t) return;
+  const filas = EF_DENOMS.map(d => `
+    <tr>
+      <td style="padding:4px 6px;color:var(--text2)">${pesos(d)}</td>
+      <td style="padding:4px 6px;width:70px">
+        <input type="number" min="0" id="ef-ct-${d}" value="${_efConteo[d]||''}" placeholder="0"
+          oninput="calcConteo()" style="width:100%;text-align:center;padding:4px;font-size:12px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text)">
+      </td>
+      <td style="padding:4px 6px;text-align:right;font-weight:600" id="ef-ctv-${d}">$0</td>
+    </tr>`).join('');
+  t.innerHTML = filas + `
+    <tr>
+      <td style="padding:4px 6px;color:var(--text2)">MONEDAS</td>
+      <td style="padding:4px 6px">
+        <input type="number" min="0" id="ef-ct-monedas" value="${_efConteo.monedas||''}" placeholder="0"
+          oninput="calcConteo()" style="width:100%;text-align:center;padding:4px;font-size:12px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text)">
+      </td>
+      <td style="padding:4px 6px;text-align:right;font-weight:600" id="ef-ctv-monedas">$0</td>
+    </tr>`;
+  calcConteo();
+}
+
+function _efTotalContado() {
+  let tot = 0;
+  EF_DENOMS.forEach(d => {
+    const n = parseInt(document.getElementById('ef-ct-'+d)?.value) || 0;
+    tot += n * d;
+  });
+  tot += parseInt(document.getElementById('ef-ct-monedas')?.value) || 0;
+  return tot;
+}
+
+function calcConteo() {
+  EF_DENOMS.forEach(d => {
+    const n = parseInt(document.getElementById('ef-ct-'+d)?.value) || 0;
+    const el = document.getElementById('ef-ctv-'+d);
+    if (el) el.textContent = pesos(n * d);
+  });
+  const mon = parseInt(document.getElementById('ef-ct-monedas')?.value) || 0;
+  const elM = document.getElementById('ef-ctv-monedas');
+  if (elM) elM.textContent = pesos(mon);
+
+  const contado = _efTotalContado();
+  let registrado = 0;
+  _efMovs.forEach(m => {
+    registrado += (m.operacion === 'EGRESA' ? -1 : 1) * (parseFloat(m.cantidad)||0);
+  });
+  const dif = contado - registrado;
+
+  const set = (id, txt, color) => {
+    const el = document.getElementById(id);
+    if (el) { el.textContent = txt; if (color) el.style.color = color; }
+  };
+  set('ef-ct-registrado', pesos(registrado));
+  set('ef-ct-efectivo',   pesos(contado));
+  set('ef-kpi-cont',      pesos(contado));
+  if (dif === 0) {
+    set('ef-ct-estado', '✅ CUADRA', 'var(--green)');
+    set('ef-kpi-dif',   '✅ $0',     'var(--green)');
+  } else {
+    const txt = (dif > 0 ? '+' : '') + pesos(dif);
+    const col = dif > 0 ? 'var(--orange)' : 'var(--red)';
+    set('ef-ct-estado', txt, col);
+    set('ef-kpi-dif',   txt, col);
+  }
+}
+
+function renderEfectivo() {
+  const filtroOp = document.getElementById('ef-filtro-op')?.value || '';
+
+  // ── Resumen por operador ──
+  const res = {};
+  let totIn = 0, totEg = 0;
+  _efMovs.forEach(m => {
+    const uid = m.opUid || '—';
+    if (!res[uid]) res[uid] = { nombre: m.opNombre || uid, in:0, eg:0 };
+    const v = parseFloat(m.cantidad) || 0;
+    if (m.operacion === 'EGRESA') { res[uid].eg += v; totEg += v; }
+    else                          { res[uid].in += v; totIn += v; }
+  });
+  const filas = Object.values(res)
+    .filter(r => r.in || r.eg)
+    .sort((a,b) => (b.in-b.eg)-(a.in-a.eg));
+
+  const tbR = document.getElementById('ef-resumen-tbody');
+  if (tbR) {
+    tbR.innerHTML = filas.length ? filas.map(r => {
+      const t = r.in - r.eg;
+      return `<tr>
+        <td style="font-weight:600">${r.nombre}</td>
+        <td style="text-align:right;color:var(--green)">${r.in?pesos(r.in):'$—'}</td>
+        <td style="text-align:right;color:var(--red)">${r.eg?pesos(r.eg):'$—'}</td>
+        <td style="text-align:right;font-weight:700;color:${t>=0?'var(--green)':'var(--red)'}">${pesos(t)}</td>
+      </tr>`;
+    }).join('') + `<tr style="background:var(--bg3);font-weight:800">
+        <td>TOTAL</td>
+        <td style="text-align:right">${pesos(totIn)}</td>
+        <td style="text-align:right">${pesos(totEg)}</td>
+        <td style="text-align:right">${pesos(totIn-totEg)}</td>
+      </tr>`
+      : '<tr><td colspan="4" style="text-align:center;color:var(--text2);padding:20px">Sin registros</td></tr>';
+  }
+
+  // ── KPIs ──
+  document.getElementById('ef-kpi-in').textContent  = pesos(totIn);
+  document.getElementById('ef-kpi-eg').textContent  = pesos(totEg);
+  document.getElementById('ef-kpi-tot').textContent = pesos(totIn - totEg);
+
+  // ── Movimientos ──
+  const lista = filtroOp ? _efMovs.filter(m => m.opUid === filtroOp) : _efMovs;
+  const tbM = document.getElementById('ef-movs-tbody');
+  if (tbM) {
+    tbM.innerHTML = lista.length ? lista.map(m => {
+      const esEg = m.operacion === 'EGRESA';
+      return `<tr${m.nota?` title="${m.nota}"`:''}>
+        <td style="white-space:nowrap">${m.fecha||'—'}</td>
+        <td style="color:var(--text2)">${m.num||''}</td>
+        <td>${m.opNombre||'—'}${m.nota?' <span style="color:var(--text2);font-size:10px">📝</span>':''}</td>
+        <td style="text-align:right;font-weight:600">${pesos(m.cantidad)}</td>
+        <td><span class="badge ${esEg?'badge-red':'badge-green'}">${m.operacion}</span></td>
+        <td style="white-space:nowrap">
+          <button class="btn-icon" onclick="editarEfectivo('${m.id}')" title="Editar">✏️</button>
+          <button class="btn-icon" onclick="borrarEfectivo('${m.id}')" title="Eliminar">🗑</button>
+        </td>
+      </tr>`;
+    }).join('')
+      : '<tr><td colspan="6" style="text-align:center;color:var(--text2);padding:20px">Sin movimientos</td></tr>';
+  }
+
+  calcConteo();
+}
+
+function setEfOperacion(op) {
+  document.getElementById('ef-f-operacion').value = op;
+  const bIn = document.getElementById('ef-btn-in');
+  const bEg = document.getElementById('ef-btn-eg');
+  const on  = 'background:var(--green);color:#fff;border-color:var(--green)';
+  const onR = 'background:var(--red);color:#fff;border-color:var(--red)';
+  bIn.style.cssText = 'flex:1;' + (op==='INGRESA' ? on : '');
+  bEg.style.cssText = 'flex:1;' + (op==='EGRESA'  ? onR : '');
+}
+
+function abrirModalEfectivo() {
+  document.getElementById('ef-edit-id').value = '';
+  document.getElementById('ef-modal-title').textContent = '💵 Registrar Efectivo';
+  document.getElementById('ef-f-fecha').value = new Date().toISOString().slice(0,10);
+  document.getElementById('ef-f-cantidad').value = '';
+  document.getElementById('ef-f-nota').value = '';
+  setEfOperacion('INGRESA');
+  openModal('modal-efectivo');
+}
+
+function editarEfectivo(id) {
+  const m = _efMovs.find(x => x.id === id);
+  if (!m) return;
+  document.getElementById('ef-edit-id').value = id;
+  document.getElementById('ef-modal-title').textContent = '✏️ Editar Registro';
+  document.getElementById('ef-f-fecha').value    = m.fecha || '';
+  document.getElementById('ef-f-operador').value = m.opUid || '';
+  document.getElementById('ef-f-cantidad').value = formatCOP(String(Math.round(m.cantidad||0)));
+  document.getElementById('ef-f-nota').value     = m.nota || '';
+  setEfOperacion(m.operacion || 'INGRESA');
+  openModal('modal-efectivo');
+}
+
+async function guardarEfectivo() {
+  const editId   = document.getElementById('ef-edit-id').value;
+  const fecha    = document.getElementById('ef-f-fecha').value;
+  const opUid    = document.getElementById('ef-f-operador').value;
+  const cantidad = parseCOP(document.getElementById('ef-f-cantidad').value);
+  const operacion= document.getElementById('ef-f-operacion').value;
+  const nota     = document.getElementById('ef-f-nota').value.trim();
+
+  if (!fecha)     { toast('⚠ Selecciona la fecha', 'error'); return; }
+  if (!opUid)     { toast('⚠ Selecciona el operador', 'error'); return; }
+  if (!cantidad)  { toast('⚠ Ingresa la cantidad', 'error'); return; }
+
+  const op = operadores.find(o => o.uid === opUid);
+  const data = {
+    fecha, opUid, opNombre: op?.nombre || opUid,
+    cantidad, operacion, nota,
+    mesKey: fecha.slice(0,7),
+    oficina: cajeroOficina || '',
+    ts: firebase.firestore.FieldValue.serverTimestamp()
+  };
+
+  try {
+    if (editId) {
+      await db.collection('patriarca_efectivo').doc(editId).update(data);
+      toast('✅ Registro actualizado', 'success');
+    } else {
+      const maxNum = _efMovs.reduce((mx,m) => Math.max(mx, m.num||0), 0);
+      data.num = maxNum + 1;
+      await db.collection('patriarca_efectivo').add(data);
+      toast('✅ Registro guardado', 'success');
+    }
+    closeModal('modal-efectivo');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+async function borrarEfectivo(id) {
+  const m = _efMovs.find(x => x.id === id);
+  if (!m) return;
+  if (!confirm(`¿Eliminar el registro de ${m.opNombre} por ${pesos(m.cantidad)}?`)) return;
+  try {
+    await db.collection('patriarca_efectivo').doc(id).delete();
+    toast('🗑 Registro eliminado', 'success');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+async function guardarConteo() {
+  const conteo = {};
+  EF_DENOMS.forEach(d => {
+    const n = parseInt(document.getElementById('ef-ct-'+d)?.value) || 0;
+    if (n) conteo[d] = n;
+  });
+  const mon = parseInt(document.getElementById('ef-ct-monedas')?.value) || 0;
+  if (mon) conteo.monedas = mon;
+
+  try {
+    await db.collection('patriarca_efectivo_conteo').doc(_efDocId()).set({
+      mesKey: mesActivo, oficina: cajeroOficina || '',
+      conteo, total: _efTotalContado(),
+      actualizadoEn: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+    _efConteo = conteo;
+    toast('✅ Conteo guardado', 'success');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+function exportEfectivoCSV() {
+  if (!_efMovs.length) { toast('Nada que exportar', 'error'); return; }
+  const filtroOp = document.getElementById('ef-filtro-op')?.value || '';
+  const lista = filtroOp ? _efMovs.filter(m => m.opUid === filtroOp) : _efMovs;
+  const rows = lista.map(m =>
+    [m.fecha, m.num||'', `"${m.opNombre||''}"`, Math.round(m.cantidad||0), m.operacion, `"${m.nota||''}"`].join(',')
+  );
+  const csv = 'Fecha,#,Operador,Cantidad,Operacion,Nota\n' + rows.join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'}));
+  a.download = `efectivo_${mesActivo}.csv`;
+  a.click();
 }
 </script>
 </body>

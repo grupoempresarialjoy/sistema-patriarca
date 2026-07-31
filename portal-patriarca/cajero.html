@@ -236,52 +236,45 @@ select option{background:var(--bg3)}
         </div>
       </div>
 
-      <div style="display:grid;grid-template-columns:minmax(360px,1.6fr) minmax(280px,1fr);gap:14px;align-items:start">
-
-        <!-- Registro de movimientos -->
-        <div class="panel">
-          <div class="panel-header">
-            <span class="panel-title">Movimientos</span>
-            <div style="display:flex;gap:6px;align-items:center">
-              <select id="ef-filtro-op" onchange="renderEfectivo()" style="padding:4px 8px;font-size:11px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text)">
-                <option value="">Todos</option>
-              </select>
-              <button class="btn btn-ghost btn-sm" onclick="exportEfectivoCSV()">⬇ CSV</button>
-            </div>
-          </div>
-          <div class="table-wrap" style="max-height:520px;overflow-y:auto">
-            <table style="font-size:12px">
-              <thead><tr>
-                <th>Fecha</th><th>#</th><th>Operador</th>
-                <th style="text-align:right">Cantidad</th><th>Operación</th><th></th>
-              </tr></thead>
-              <tbody id="ef-movs-tbody"><tr><td colspan="6" style="text-align:center;color:var(--text2);padding:20px">Sin movimientos</td></tr></tbody>
-            </table>
+      <!-- Conteo de dinero — compacto y horizontal -->
+      <div class="panel" style="margin-bottom:14px">
+        <div class="panel-header" style="cursor:pointer" onclick="toggleConteo()">
+          <span class="panel-title">🧮 Tabla de Conteo <span id="ef-conteo-caret" style="font-size:10px;color:var(--text2)">▾</span></span>
+          <div style="display:flex;gap:14px;align-items:center;font-size:12px">
+            <span style="color:var(--text2)">Contado <strong id="ef-ct-efectivo" style="color:var(--text)">$0</strong></span>
+            <span id="ef-ct-estado" style="font-weight:800">$0</span>
+            <span id="ef-conteo-status" style="font-size:11px;color:var(--text2)">Automático</span>
           </div>
         </div>
-
-        <!-- 3. Conteo de dinero -->
-        <div class="panel">
-          <div class="panel-header">
-            <span class="panel-title">Tabla de Conteo</span>
-            <span id="ef-conteo-status" style="font-size:11px;color:var(--text2)">Guardado automático</span>
-          </div>
-          <div style="padding:12px">
-            <table style="width:100%;font-size:12px;border-collapse:collapse" id="ef-conteo-tabla"></table>
-            <div style="border-top:2px solid var(--border);margin-top:10px;padding-top:10px">
-              <div style="display:flex;justify-content:space-between;padding:4px 0;font-weight:700">
-                <span>TOTAL REGISTRADO</span><span id="ef-ct-registrado">$0</span>
-              </div>
-              <div style="display:flex;justify-content:space-between;padding:4px 0;font-weight:700">
-                <span>EFECTIVO CONTADO</span><span id="ef-ct-efectivo">$0</span>
-              </div>
-              <div style="display:flex;justify-content:space-between;padding:8px 0;font-weight:800;font-size:14px;border-top:1px solid var(--border);margin-top:6px">
-                <span>ESTADO</span><span id="ef-ct-estado">$0</span>
-              </div>
-            </div>
+        <div id="ef-conteo-body" style="padding:12px">
+          <div id="ef-conteo-tabla" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px"></div>
+          <div style="display:flex;gap:24px;justify-content:flex-end;border-top:1px solid var(--border);margin-top:12px;padding-top:10px;font-size:12px;flex-wrap:wrap">
+            <span>Registrado <strong id="ef-ct-registrado">$0</strong></span>
           </div>
         </div>
+      </div>
 
+      <!-- Registro de movimientos — ancho completo -->
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Movimientos</span>
+          <div style="display:flex;gap:6px;align-items:center">
+            <select id="ef-filtro-op" onchange="renderEfectivo()" style="padding:4px 8px;font-size:11px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+              <option value="">Todos</option>
+            </select>
+            <button class="btn btn-ghost btn-sm" onclick="exportEfectivoCSV()">⬇ CSV</button>
+          </div>
+        </div>
+        <div class="table-wrap" style="max-height:600px;overflow-y:auto">
+          <table style="font-size:12px">
+            <thead><tr>
+              <th>Fecha</th><th>#</th><th>Operador</th>
+              <th style="text-align:right">Cantidad</th><th>Operación</th>
+              <th>Nota</th><th></th>
+            </tr></thead>
+            <tbody id="ef-movs-tbody"><tr><td colspan="7" style="text-align:center;color:var(--text2);padding:20px">Sin movimientos</td></tr></tbody>
+          </table>
+        </div>
       </div>
     </div>
 
@@ -3926,27 +3919,26 @@ function _efConteoAutoSave() {
   }, 700);
 }
 
+function toggleConteo() {
+  const b = document.getElementById('ef-conteo-body');
+  const c = document.getElementById('ef-conteo-caret');
+  const oculto = b.style.display === 'none';
+  b.style.display = oculto ? '' : 'none';
+  if (c) c.textContent = oculto ? '▾' : '▸';
+}
+
 function renderConteoTabla() {
   const t = document.getElementById('ef-conteo-tabla');
   if (!t) return;
-  const filas = EF_DENOMS.map(d => `
-    <tr>
-      <td style="padding:4px 6px;color:var(--text2)">${pesos(d)}</td>
-      <td style="padding:4px 6px;width:70px">
-        <input type="number" min="0" id="ef-ct-${d}" value="${_efConteo[d]||''}" placeholder="0"
-          oninput="calcConteo();_efConteoAutoSave()" style="width:100%;text-align:center;padding:4px;font-size:12px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text)">
-      </td>
-      <td style="padding:4px 6px;text-align:right;font-weight:600" id="ef-ctv-${d}">$0</td>
-    </tr>`).join('');
-  t.innerHTML = filas + `
-    <tr>
-      <td style="padding:4px 6px;color:var(--text2)">MONEDAS</td>
-      <td style="padding:4px 6px">
-        <input type="number" min="0" id="ef-ct-monedas" value="${_efConteo.monedas||''}" placeholder="0"
-          oninput="calcConteo();_efConteoAutoSave()" style="width:100%;text-align:center;padding:4px;font-size:12px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text)">
-      </td>
-      <td style="padding:4px 6px;text-align:right;font-weight:600" id="ef-ctv-monedas">$0</td>
-    </tr>`;
+  const celda = (key, label) => `
+    <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px">
+      <div style="font-size:10px;color:var(--text2);margin-bottom:5px;letter-spacing:.3px">${label}</div>
+      <input type="number" min="0" id="ef-ct-${key}" value="${_efConteo[key]||''}" placeholder="0"
+        oninput="calcConteo();_efConteoAutoSave()"
+        style="width:100%;text-align:center;padding:5px;font-size:14px;font-weight:700;background:var(--bg);border:1px solid var(--border);border-radius:5px;color:var(--text);box-sizing:border-box">
+      <div style="font-size:11px;text-align:right;margin-top:5px;font-weight:600" id="ef-ctv-${key}">$0</div>
+    </div>`;
+  t.innerHTML = EF_DENOMS.map(d => celda(d, pesos(d))).join('') + celda('monedas', 'MONEDAS');
   calcConteo();
 }
 
@@ -4064,19 +4056,20 @@ function renderEfectivo() {
   if (tbM) {
     tbM.innerHTML = lista.length ? lista.map(m => {
       const esEg = m.operacion === 'EGRESA';
-      return `<tr${m.nota?` title="${m.nota}"`:''}>
+      return `<tr>
         <td style="white-space:nowrap">${m.fecha||'—'}</td>
         <td style="color:var(--text2)">${m.num||''}</td>
-        <td>${m.opNombre||'—'}${m.nota?' <span style="color:var(--text2);font-size:10px">📝</span>':''}</td>
+        <td>${m.opNombre||'—'}</td>
         <td style="text-align:right;font-weight:600">${pesos(m.cantidad)}</td>
         <td><span class="badge ${esEg?'badge-red':'badge-green'}">${m.operacion}</span></td>
+        <td style="color:var(--text2);max-width:260px;font-size:11px">${m.nota ? `📝 ${m.nota}` : ''}</td>
         <td style="white-space:nowrap">
           <button class="btn-icon" onclick="editarEfectivo('${m.id}')" title="Editar">✏️</button>
           <button class="btn-icon btn-eliminar-reg" onclick="borrarEfectivo('${m.id}')" title="Eliminar">🗑</button>
         </td>
       </tr>`;
     }).join('')
-      : '<tr><td colspan="6" style="text-align:center;color:var(--text2);padding:20px">Sin movimientos</td></tr>';
+      : '<tr><td colspan="7" style="text-align:center;color:var(--text2);padding:20px">Sin movimientos</td></tr>';
   }
 
   calcConteo();

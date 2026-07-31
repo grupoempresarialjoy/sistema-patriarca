@@ -200,7 +200,10 @@ select option{background:var(--bg3)}
           <div class="sec-title">💵 Registro de Efectivo</div>
           <div class="sec-sub">Ingresos y egresos de efectivo por operador — <span id="ef-mes-lbl"></span></div>
         </div>
-        <button class="btn btn-gold btn-sm" onclick="abrirModalEfectivo()">+ Registrar</button>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost btn-sm btn-importar" onclick="abrirModalImportar()">⬆ Importar Excel</button>
+          <button class="btn btn-gold btn-sm" onclick="abrirModalEfectivo()">+ Registrar</button>
+        </div>
       </div>
 
       <!-- KPIs -->
@@ -212,25 +215,30 @@ select option{background:var(--bg3)}
         <div class="kpi"><div class="kpi-label">Estado (diferencia)</div><div class="kpi-value" id="ef-kpi-dif">$0</div></div>
       </div>
 
-      <div style="display:grid;grid-template-columns:minmax(280px,1fr) minmax(320px,1.4fr) minmax(260px,.9fr);gap:14px;align-items:start">
-
-        <!-- 1. Resumen por operador -->
-        <div class="panel">
-          <div class="panel-header"><span class="panel-title">Resumen por Operador</span></div>
-          <div class="table-wrap">
-            <table style="font-size:12px">
-              <thead><tr>
-                <th>Nombre</th>
-                <th style="text-align:right">Ingresa</th>
-                <th style="text-align:right">Egresa</th>
-                <th style="text-align:right">Total</th>
-              </tr></thead>
-              <tbody id="ef-resumen-tbody"><tr><td colspan="4" style="text-align:center;color:var(--text2);padding:20px">—</td></tr></tbody>
-            </table>
-          </div>
+      <!-- Cruce de Efectivo por Operador — físico automático desde el registro -->
+      <div class="panel" style="margin-bottom:14px">
+        <div class="panel-header">
+          <span class="panel-title">⚖️ Cruce de Efectivo por Operador</span>
+          <span style="font-size:11px;color:var(--text2)">Sistema = Cupo Actual · Físico = registro de efectivo</span>
         </div>
+        <div class="table-wrap">
+          <table style="font-size:12px">
+            <thead><tr>
+              <th>Operador</th>
+              <th style="text-align:right;color:var(--green)">Ingresa</th>
+              <th style="text-align:right;color:var(--red)">Egresa</th>
+              <th style="text-align:right">Físico (registro)</th>
+              <th style="text-align:right">Sistema (cupo)</th>
+              <th style="text-align:right">Diferencia</th>
+            </tr></thead>
+            <tbody id="ef-cruce-tbody"><tr><td colspan="6" style="text-align:center;color:var(--text2);padding:20px">—</td></tr></tbody>
+          </table>
+        </div>
+      </div>
 
-        <!-- 2. Registro de movimientos -->
+      <div style="display:grid;grid-template-columns:minmax(360px,1.6fr) minmax(280px,1fr);gap:14px;align-items:start">
+
+        <!-- Registro de movimientos -->
         <div class="panel">
           <div class="panel-header">
             <span class="panel-title">Movimientos</span>
@@ -256,7 +264,7 @@ select option{background:var(--bg3)}
         <div class="panel">
           <div class="panel-header">
             <span class="panel-title">Tabla de Conteo</span>
-            <button class="btn btn-gold btn-sm" onclick="guardarConteo()">💾 Guardar</button>
+            <span id="ef-conteo-status" style="font-size:11px;color:var(--text2)">Guardado automático</span>
           </div>
           <div style="padding:12px">
             <table style="width:100%;font-size:12px;border-collapse:collapse" id="ef-conteo-tabla"></table>
@@ -573,6 +581,61 @@ select option{background:var(--bg3)}
   </main>
 </div>
 
+<!-- MODAL IMPORTAR EFECTIVO -->
+<div class="modal-overlay" id="modal-importar">
+  <div class="modal" style="max-width:760px">
+    <h3 style="margin-bottom:6px">⬆ Importar desde Excel</h3>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:14px">
+      Columnas esperadas: <strong>FECHA · # OP · OPERADOR · CANTIDAD · OPERACIÓN</strong>
+    </div>
+
+    <!-- Opción A: pegar -->
+    <div class="form-group">
+      <label>Opción 1 — Copia las filas en Excel y pégalas aquí</label>
+      <textarea id="imp-paste" rows="5" oninput="parseImportar('paste')"
+        placeholder="1/07/26	1	Juan Miguel Antonio Antonio Garzon	927.600	INGRESA&#10;1/07/26	2	Vanlly Nataly Pedraza Sarabia	700.000	INGRESA"
+        style="width:100%;font-family:monospace;font-size:11px;padding:8px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);resize:vertical"></textarea>
+    </div>
+
+    <!-- Opción B: archivo -->
+    <div class="form-group">
+      <label>Opción 2 — Sube el archivo (.xlsx, .xlsb, .csv)</label>
+      <input type="file" id="imp-file" accept=".xlsx,.xlsb,.xls,.csv" onchange="parseImportar('file')"
+        style="width:100%;padding:8px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px">
+      <div id="imp-hojas-wrap" style="display:none;margin-top:8px">
+        <label style="font-size:11px">Hoja</label>
+        <select id="imp-hoja" onchange="parseImportar('hoja')" style="width:100%;padding:6px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px"></select>
+      </div>
+    </div>
+
+    <!-- Resumen -->
+    <div id="imp-resumen" style="display:none;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:12px"></div>
+
+    <!-- Mapeo de nombres no reconocidos -->
+    <div id="imp-mapeo-wrap" style="display:none;margin-bottom:12px">
+      <div style="font-size:12px;font-weight:600;margin-bottom:6px;color:var(--orange)">⚠ Nombres sin coincidencia — asigna el operador:</div>
+      <div id="imp-mapeo" style="display:flex;flex-direction:column;gap:6px;max-height:160px;overflow-y:auto"></div>
+    </div>
+
+    <!-- Preview -->
+    <div id="imp-preview-wrap" style="display:none;max-height:220px;overflow:auto;border:1px solid var(--border);border-radius:8px;margin-bottom:12px">
+      <table style="width:100%;font-size:11px">
+        <thead><tr><th>Fecha</th><th>#</th><th>Operador</th><th style="text-align:right">Cantidad</th><th>Operación</th></tr></thead>
+        <tbody id="imp-preview"></tbody>
+      </table>
+    </div>
+
+    <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);margin-bottom:10px">
+      <input type="checkbox" id="imp-reemplazar"> Borrar los registros existentes del mes antes de importar
+    </label>
+
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-importar')">Cancelar</button>
+      <button class="btn btn-gold" id="imp-btn" onclick="ejecutarImportar()" disabled>✓ Importar</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL EFECTIVO -->
 <div class="modal-overlay" id="modal-efectivo">
   <div class="modal" style="max-width:420px">
@@ -742,6 +805,7 @@ select option{background:var(--bg3)}
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
 // ── CONFIG ──
 const firebaseConfig = {
@@ -804,6 +868,7 @@ db.collection('admin_config').doc('metodos').onSnapshot(snap => {
 let opId = null;
 let opNombre = '';
 let cajeroOficina = '';   // oficina del cajero logueado (ej. 'Unity')
+let cajeroPermisos = {};  // permisos asignados por el admin
 let comisionesMap = {};   // "CASA_METODO" → [tasaRecarga%, tasaPago%]
 let cupoInicial = {};   // { metodo: amount }
 let intercambios = [];  // array de docs
@@ -830,6 +895,12 @@ auth.onAuthStateChanged(user => {
     document.getElementById('hdr-user').textContent = opNombre;
     initMesSelect();
     // Obtener oficina del cajero primero, luego arrancar
+    // Permisos configurados por el admin — en tiempo real
+    db.collection('patriarca_config').doc(user.uid).onSnapshot(snap => {
+      cajeroPermisos = snap.exists ? (snap.data().permisos || {}) : {};
+      aplicarPermisosCajero();
+    }, e => console.warn('permisos cajero:', e));
+
     db.collection('admin_usuarios').where('email','==', user.email).limit(1).get().then(s => {
       cajeroOficina = s.empty ? '' : (s.docs[0].data().oficinaNombre || '');
       if (cajeroOficina) document.getElementById('hdr-user').textContent = opNombre + ' · ' + cajeroOficina;
@@ -1572,6 +1643,8 @@ async function rechazarCorreccion(corrId) {
   } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
 }
 
+let _efSistemaPorOp = {};  // uid → EFECTIVO OPERADOR según Cupo Actual
+
 // calcular neto de intercambios por método (completados del mes activo)
 function calcNetIX() {
   const net = {};
@@ -1689,6 +1762,7 @@ async function renderCupoActual() {
   cols.forEach(o => totPorOp[o.uid] = 0);
   let totGeneral = 0;
 
+  _efSistemaPorOp = {};   // uid → efectivo que el sistema dice que debe tener
   const rows = metodos.map(met => {
     const metNorm = normMetodo(met);
     let totMet = 0;
@@ -1698,6 +1772,7 @@ async function renderCupoActual() {
         .reduce((acc, [k, v]) => normMetodo(k) === metNorm && v !== undefined && v !== null && v !== 0 ? v : acc, 0);
       const net = (netPorOp[o.uid] || {})[metNorm] || 0;
       const val = ini + net; // Cupo Actual = Inicial + Movimientos netos
+      if (metNorm === 'EFECTIVO OPERADOR') _efSistemaPorOp[o.uid] = val;
       totPorOp[o.uid] += val;
       totMet += val;
       const cls = val > 0 ? 'td-pos' : val < 0 ? 'td-neg' : 'td-zero';
@@ -3682,18 +3757,19 @@ let _efMovs      = [];    // movimientos del mes
 let _efConteo    = {};    // denominación → cantidad de billetes
 let _efUnsub     = null;
 let _efInited    = false;
+let _efConteoUnsub = null;
+let _efConteoTimer = null;
 
 function openModal(id)  { document.getElementById(id)?.classList.add('open'); }
 function closeModal(id) { document.getElementById(id)?.classList.remove('open'); }
 
 function _efDocId() { return mesActivo + '_' + (cajeroOficina || 'global'); }
 
-function initEfectivo() {
-  if (!_efInited) {
-    _efInited = true;
-    renderConteoTabla();
-  }
+async function initEfectivo() {
+  _efInited = true;
   cargarEfectivo();
+  // Asegurar que el Cupo Actual esté calculado para poder comparar
+  try { await renderCupoActual(); renderEfectivo(); } catch(e) { console.warn('initEfectivo:', e); }
 }
 
 function cargarEfectivo() {
@@ -3722,12 +3798,71 @@ function cargarEfectivo() {
     renderEfectivo();
   }, e => console.warn('efectivo:', e));
 
-  // Cargar conteo guardado
-  db.collection('patriarca_efectivo_conteo').doc(_efDocId()).get().then(d => {
-    _efConteo = d.exists ? (d.data().conteo || {}) : {};
-    renderConteoTabla();
-    renderEfectivo();
-  }).catch(e => console.warn('conteo:', e));
+  // Conteo: cache local inmediato + sincronización en tiempo real
+  _efConteoLoadLS();
+  renderConteoTabla();
+
+  if (_efConteoUnsub) { _efConteoUnsub(); _efConteoUnsub = null; }
+  _efConteoUnsub = db.collection('patriarca_efectivo_conteo').doc(_efDocId())
+    .onSnapshot(d => {
+      if (!d.exists) return;
+      const remoto = d.data().conteo || {};
+      let cambio = false;
+      Object.keys(remoto).forEach(k => {
+        if (_efConteo[k] !== remoto[k]) { _efConteo[k] = remoto[k]; cambio = true; }
+      });
+      if (!cambio) return;
+      _efConteoSaveLS();
+      // Refrescar inputs sin pisar el campo que se está editando
+      [...EF_DENOMS, 'monedas'].forEach(k => {
+        const inp = document.getElementById('ef-ct-' + k);
+        if (inp && document.activeElement !== inp) inp.value = _efConteo[k] || '';
+      });
+      calcConteo();
+    }, e => console.warn('conteo snap:', e));
+
+  renderEfectivo();
+}
+
+// ── Persistencia del conteo: localStorage inmediato + Firestore con debounce ──
+function _efConteoSaveLS() {
+  try { localStorage.setItem('ef_conteo_' + _efDocId(), JSON.stringify(_efConteo)); } catch(e) {}
+}
+function _efConteoLoadLS() {
+  try {
+    const raw = localStorage.getItem('ef_conteo_' + _efDocId());
+    _efConteo = raw ? JSON.parse(raw) : {};
+  } catch(e) { _efConteo = {}; }
+}
+function _efConteoAutoSave() {
+  // Capturar valores actuales
+  const conteo = {};
+  EF_DENOMS.forEach(d => {
+    const n = parseInt(document.getElementById('ef-ct-'+d)?.value) || 0;
+    if (n) conteo[d] = n;
+  });
+  const mon = parseInt(document.getElementById('ef-ct-monedas')?.value) || 0;
+  if (mon) conteo.monedas = mon;
+  _efConteo = conteo;
+  _efConteoSaveLS();
+
+  const st = document.getElementById('ef-conteo-status');
+  if (st) { st.textContent = '⏳ Guardando…'; st.style.color = 'var(--text2)'; }
+
+  if (_efConteoTimer) clearTimeout(_efConteoTimer);
+  _efConteoTimer = setTimeout(async () => {
+    try {
+      await db.collection('patriarca_efectivo_conteo').doc(_efDocId()).set({
+        mesKey: mesActivo, oficina: cajeroOficina || '',
+        conteo, total: _efTotalContado(),
+        actualizadoEn: firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+      if (st) { st.textContent = '✓ Guardado'; st.style.color = 'var(--green)'; }
+    } catch(e) {
+      if (st) { st.textContent = '⚠ Error al guardar'; st.style.color = 'var(--red)'; }
+      console.warn('conteo save:', e);
+    }
+  }, 700);
 }
 
 function renderConteoTabla() {
@@ -3738,7 +3873,7 @@ function renderConteoTabla() {
       <td style="padding:4px 6px;color:var(--text2)">${pesos(d)}</td>
       <td style="padding:4px 6px;width:70px">
         <input type="number" min="0" id="ef-ct-${d}" value="${_efConteo[d]||''}" placeholder="0"
-          oninput="calcConteo()" style="width:100%;text-align:center;padding:4px;font-size:12px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text)">
+          oninput="calcConteo();_efConteoAutoSave()" style="width:100%;text-align:center;padding:4px;font-size:12px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text)">
       </td>
       <td style="padding:4px 6px;text-align:right;font-weight:600" id="ef-ctv-${d}">$0</td>
     </tr>`).join('');
@@ -3747,7 +3882,7 @@ function renderConteoTabla() {
       <td style="padding:4px 6px;color:var(--text2)">MONEDAS</td>
       <td style="padding:4px 6px">
         <input type="number" min="0" id="ef-ct-monedas" value="${_efConteo.monedas||''}" placeholder="0"
-          oninput="calcConteo()" style="width:100%;text-align:center;padding:4px;font-size:12px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text)">
+          oninput="calcConteo();_efConteoAutoSave()" style="width:100%;text-align:center;padding:4px;font-size:12px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text)">
       </td>
       <td style="padding:4px 6px;text-align:right;font-weight:600" id="ef-ctv-monedas">$0</td>
     </tr>`;
@@ -3812,27 +3947,49 @@ function renderEfectivo() {
     if (m.operacion === 'EGRESA') { res[uid].eg += v; totEg += v; }
     else                          { res[uid].in += v; totIn += v; }
   });
-  const filas = Object.values(res)
-    .filter(r => r.in || r.eg)
+  // ── Cruce: físico (registro) vs sistema (cupo actual) ──
+  // Incluir también operadores que tienen saldo en el sistema aunque no tengan registros
+  Object.keys(_efSistemaPorOp).forEach(uid => {
+    if (!res[uid] && _efSistemaPorOp[uid]) {
+      const op = operadores.find(o => o.uid === uid);
+      res[uid] = { nombre: op?.nombre || uid, in:0, eg:0 };
+    }
+  });
+
+  const filas = Object.entries(res)
+    .filter(([uid,r]) => r.in || r.eg || _efSistemaPorOp[uid])
+    .map(([uid,r]) => ({ uid, ...r, sist: _efSistemaPorOp[uid] || 0 }))
     .sort((a,b) => (b.in-b.eg)-(a.in-a.eg));
 
-  const tbR = document.getElementById('ef-resumen-tbody');
-  if (tbR) {
-    tbR.innerHTML = filas.length ? filas.map(r => {
-      const t = r.in - r.eg;
+  const tbC = document.getElementById('ef-cruce-tbody');
+  if (tbC) {
+    let sFis=0, sSis=0;
+    const html = filas.map(r => {
+      const fis = r.in - r.eg;
+      const dif = fis - r.sist;
+      sFis += fis; sSis += r.sist;
+      const difTxt = dif === 0
+        ? '<span style="color:var(--green);font-weight:700">✅ CORRECTO</span>'
+        : `<span style="color:${dif>0?'var(--orange)':'var(--red)'};font-weight:700">${dif>0?'+':''}${pesos(dif)}</span>`;
       return `<tr>
         <td style="font-weight:600">${r.nombre}</td>
-        <td style="text-align:right;color:var(--green)">${r.in?pesos(r.in):'$—'}</td>
-        <td style="text-align:right;color:var(--red)">${r.eg?pesos(r.eg):'$—'}</td>
-        <td style="text-align:right;font-weight:700;color:${t>=0?'var(--green)':'var(--red)'}">${pesos(t)}</td>
+        <td style="text-align:right;color:var(--green)">${r.in?pesos(r.in):'—'}</td>
+        <td style="text-align:right;color:var(--red)">${r.eg?pesos(r.eg):'—'}</td>
+        <td style="text-align:right;font-weight:700">${pesos(fis)}</td>
+        <td style="text-align:right;color:var(--text2)">${r.sist?pesos(r.sist):'—'}</td>
+        <td style="text-align:right">${difTxt}</td>
       </tr>`;
-    }).join('') + `<tr style="background:var(--bg3);font-weight:800">
+    }).join('');
+    const difTot = sFis - sSis;
+    tbC.innerHTML = filas.length ? html + `<tr style="background:var(--bg3);font-weight:800;border-top:2px solid var(--border)">
         <td>TOTAL</td>
-        <td style="text-align:right">${pesos(totIn)}</td>
-        <td style="text-align:right">${pesos(totEg)}</td>
-        <td style="text-align:right">${pesos(totIn-totEg)}</td>
+        <td style="text-align:right;color:var(--green)">${pesos(totIn)}</td>
+        <td style="text-align:right;color:var(--red)">${pesos(totEg)}</td>
+        <td style="text-align:right">${pesos(sFis)}</td>
+        <td style="text-align:right">${pesos(sSis)}</td>
+        <td style="text-align:right;color:${difTot===0?'var(--green)':difTot>0?'var(--orange)':'var(--red)'}">${difTot===0?'✅ $0':(difTot>0?'+':'')+pesos(difTot)}</td>
       </tr>`
-      : '<tr><td colspan="4" style="text-align:center;color:var(--text2);padding:20px">Sin registros</td></tr>';
+      : '<tr><td colspan="6" style="text-align:center;color:var(--text2);padding:20px">Sin registros</td></tr>';
   }
 
   // ── KPIs ──
@@ -3854,7 +4011,7 @@ function renderEfectivo() {
         <td><span class="badge ${esEg?'badge-red':'badge-green'}">${m.operacion}</span></td>
         <td style="white-space:nowrap">
           <button class="btn-icon" onclick="editarEfectivo('${m.id}')" title="Editar">✏️</button>
-          <button class="btn-icon" onclick="borrarEfectivo('${m.id}')" title="Eliminar">🗑</button>
+          <button class="btn-icon btn-eliminar-reg" onclick="borrarEfectivo('${m.id}')" title="Eliminar">🗑</button>
         </td>
       </tr>`;
     }).join('')
@@ -3862,6 +4019,7 @@ function renderEfectivo() {
   }
 
   calcConteo();
+  aplicarPermisosCajero();   // los botones se regeneran en cada render
 }
 
 function setEfOperacion(op) {
@@ -3933,6 +4091,9 @@ async function guardarEfectivo() {
 }
 
 async function borrarEfectivo(id) {
+  if (cajeroPermisos.eliminarTodo === false) {
+    toast('⚠ No tienes permiso para eliminar registros', 'error'); return;
+  }
   const m = _efMovs.find(x => x.id === id);
   if (!m) return;
   if (!confirm(`¿Eliminar el registro de ${m.opNombre} por ${pesos(m.cantidad)}?`)) return;
@@ -3942,24 +4103,286 @@ async function borrarEfectivo(id) {
   } catch(e) { toast('⚠ ' + e.message, 'error'); }
 }
 
-async function guardarConteo() {
-  const conteo = {};
-  EF_DENOMS.forEach(d => {
-    const n = parseInt(document.getElementById('ef-ct-'+d)?.value) || 0;
-    if (n) conteo[d] = n;
+// Aplica los permisos que el admin configuró para este cajero
+function aplicarPermisosCajero() {
+  const p = cajeroPermisos || {};
+  const puedeImportar = p.importarExcel !== false;
+  const puedeBorrar   = p.eliminarTodo  !== false;
+
+  document.querySelectorAll('.btn-importar').forEach(b => {
+    b.style.display = puedeImportar ? '' : 'none';
   });
-  const mon = parseInt(document.getElementById('ef-ct-monedas')?.value) || 0;
-  if (mon) conteo.monedas = mon;
+  document.querySelectorAll('.btn-eliminar-reg').forEach(b => {
+    b.style.display = puedeBorrar ? '' : 'none';
+  });
+}
+
+// ── IMPORTAR DESDE EXCEL ────────────────────────────────────────
+let _impFilas   = [];   // filas parseadas y válidas
+let _impNoMatch = [];   // nombres sin coincidencia
+let _impWB      = null; // workbook cargado
+
+function _norm(s) {
+  return String(s||'').toUpperCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g,'')
+    .replace(/[^A-Z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+}
+
+// Busca operador por nombre — exacto, luego por similitud de palabras
+function _matchOperador(nombre) {
+  const n = _norm(nombre);
+  if (!n) return null;
+  let op = operadores.find(o => _norm(o.nombre) === n);
+  if (op) return op;
+  // Coincidencia por nombre+apellido (al menos 2 palabras en común de 4+ letras)
+  const pal = n.split(' ').filter(w => w.length >= 4);
+  let mejor = null, mejorPts = 0;
+  operadores.forEach(o => {
+    const on = _norm(o.nombre).split(' ').filter(w => w.length >= 4);
+    const pts = pal.filter(w => on.includes(w)).length;
+    if (pts > mejorPts) { mejorPts = pts; mejor = o; }
+  });
+  return mejorPts >= 2 ? mejor : null;
+}
+
+// Convierte fecha en varios formatos a 'YYYY-MM-DD'
+function _impFecha(v) {
+  if (v == null || v === '') return null;
+  // Serial de Excel
+  if (typeof v === 'number' && v > 20000 && v < 80000) {
+    const d = new Date(Date.UTC(1899,11,30) + v*86400000);
+    return d.toISOString().slice(0,10);
+  }
+  if (v instanceof Date) return v.toISOString().slice(0,10);
+  const s = String(v).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);
+  // d/m/yy o d/m/yyyy
+  const m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+  if (m) {
+    let [,d,mo,y] = m;
+    y = y.length === 2 ? '20'+y : y;
+    return `${y}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+  }
+  return null;
+}
+
+function _impNum(v) {
+  if (typeof v === 'number') return v;
+  if (v == null) return 0;
+  // "1.234.567,89" o "$ 927.600"
+  const s = String(v).replace(/[^\d,.-]/g,'');
+  if (!s) return 0;
+  const tieneComaDec = /,\d{1,2}$/.test(s);
+  return Math.abs(parseFloat(
+    tieneComaDec ? s.replace(/\./g,'').replace(',','.') : s.replace(/[.,](?=\d{3}\b)/g,'')
+  ) || 0);
+}
+
+function abrirModalImportar() {
+  if (cajeroPermisos.importarExcel === false) {
+    toast('⚠ No tienes permiso para importar', 'error'); return;
+  }
+  _impFilas = []; _impNoMatch = []; _impWB = null;
+  document.getElementById('imp-paste').value = '';
+  document.getElementById('imp-file').value = '';
+  document.getElementById('imp-reemplazar').checked = false;
+  document.getElementById('imp-hojas-wrap').style.display = 'none';
+  document.getElementById('imp-resumen').style.display = 'none';
+  document.getElementById('imp-mapeo-wrap').style.display = 'none';
+  document.getElementById('imp-preview-wrap').style.display = 'none';
+  document.getElementById('imp-btn').disabled = true;
+  openModal('modal-importar');
+}
+
+async function parseImportar(origen) {
+  let filas = [];
+
+  if (origen === 'paste') {
+    const txt = document.getElementById('imp-paste').value.trim();
+    if (!txt) { _impRender([]); return; }
+    filas = txt.split(/\r?\n/).map(l => l.split('\t'));
+    // Si no hay tabs, intentar separar por 2+ espacios o ;
+    if (filas[0].length < 5) filas = txt.split(/\r?\n/).map(l => l.split(/\t|;|\s{2,}/));
+
+  } else {
+    if (origen === 'file') {
+      const f = document.getElementById('imp-file').files[0];
+      if (!f) return;
+      try {
+        const buf = await f.arrayBuffer();
+        _impWB = XLSX.read(buf, { type:'array', cellDates:true });
+      } catch(e) { toast('⚠ No se pudo leer el archivo', 'error'); return; }
+      // Poblar selector de hojas — preseleccionar la que se llame EFECTIVO
+      const sel = document.getElementById('imp-hoja');
+      sel.innerHTML = _impWB.SheetNames.map(n => `<option value="${n}">${n}</option>`).join('');
+      const pref = _impWB.SheetNames.find(n => /EFECTIVO/i.test(n)) || _impWB.SheetNames[0];
+      sel.value = pref;
+      document.getElementById('imp-hojas-wrap').style.display = 'block';
+    }
+    if (!_impWB) return;
+    const hoja = document.getElementById('imp-hoja').value;
+    filas = XLSX.utils.sheet_to_json(_impWB.Sheets[hoja], { header:1, raw:true, defval:null });
+  }
+
+  // Detectar en qué columna arranca el bloque FECHA/#/OPERADOR/CANTIDAD/OPERACIÓN
+  let col0 = 0;
+  for (const f of filas.slice(0, 20)) {
+    if (!f) continue;
+    const i = f.findIndex(c => _norm(c) === 'FECHA');
+    if (i >= 0 && f.slice(i, i+6).some(c => /OPERACION/.test(_norm(c)))) { col0 = i; break; }
+  }
+
+  // Extraer filas válidas
+  const out = [];
+  filas.forEach(f => {
+    if (!f) return;
+    const fecha = _impFecha(f[col0]);
+    const oper  = _norm(f[col0+4]);
+    const nom   = f[col0+2];
+    const cant  = _impNum(f[col0+3]);
+    if (!fecha || !nom || !cant) return;
+    if (oper !== 'INGRESA' && oper !== 'EGRESA') return;
+    out.push({
+      fecha, num: parseInt(f[col0+1]) || null,
+      nombre: String(nom).trim(), cantidad: cant, operacion: oper
+    });
+  });
+
+  _impRender(out);
+}
+
+function _impRender(filas) {
+  const btn = document.getElementById('imp-btn');
+  const res = document.getElementById('imp-resumen');
+
+  if (!filas.length) {
+    _impFilas = [];
+    res.style.display = 'none';
+    document.getElementById('imp-mapeo-wrap').style.display = 'none';
+    document.getElementById('imp-preview-wrap').style.display = 'none';
+    btn.disabled = true;
+    return;
+  }
+
+  // Resolver operadores
+  const noMatch = new Set();
+  filas.forEach(f => {
+    const op = _matchOperador(f.nombre);
+    if (op) { f.opUid = op.uid; f.opNombre = op.nombre; }
+    else    { f.opUid = null;   noMatch.add(f.nombre); }
+  });
+  _impFilas   = filas;
+  _impNoMatch = [...noMatch];
+
+  // Meses detectados
+  const meses = [...new Set(filas.map(f => f.fecha.slice(0,7)))].sort();
+  const otroMes = meses.filter(m => m !== mesActivo);
+  const totIn = filas.filter(f=>f.operacion==='INGRESA').reduce((s,f)=>s+f.cantidad,0);
+  const totEg = filas.filter(f=>f.operacion==='EGRESA').reduce((s,f)=>s+f.cantidad,0);
+
+  res.style.display = 'block';
+  res.innerHTML = `
+    <div><strong>${filas.length}</strong> movimientos detectados · ${meses.join(', ')}</div>
+    <div style="margin-top:4px">
+      Ingresa <span style="color:var(--green);font-weight:600">${pesos(totIn)}</span> ·
+      Egresa <span style="color:var(--red);font-weight:600">${pesos(totEg)}</span> ·
+      Neto <strong>${pesos(totIn-totEg)}</strong>
+    </div>
+    ${otroMes.length ? `<div style="color:var(--orange);margin-top:5px">⚠ Hay fechas fuera del mes activo (${mesActivo}). Se importarán en su mes correspondiente.</div>` : ''}
+    ${_impNoMatch.length ? `<div style="color:var(--orange);margin-top:5px">⚠ ${_impNoMatch.length} nombre(s) sin coincidencia automática</div>` : ''}`;
+
+  // Mapeo manual
+  const wrapM = document.getElementById('imp-mapeo-wrap');
+  if (_impNoMatch.length) {
+    const opts = operadores.slice().sort((a,b)=>a.nombre.localeCompare(b.nombre))
+      .map(o => `<option value="${o.uid}">${o.nombre}</option>`).join('');
+    document.getElementById('imp-mapeo').innerHTML = _impNoMatch.map((n,i) => `
+      <div style="display:flex;gap:8px;align-items:center">
+        <span style="flex:1;font-size:11px;color:var(--text2)">${n}</span>
+        <select onchange="_impAsignar(${i}, this.value)" style="flex:1;padding:4px;font-size:11px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text)">
+          <option value="">— Omitir —</option>${opts}
+        </select>
+      </div>`).join('');
+    wrapM.style.display = 'block';
+  } else {
+    wrapM.style.display = 'none';
+  }
+
+  // Preview (primeras 60)
+  document.getElementById('imp-preview-wrap').style.display = 'block';
+  document.getElementById('imp-preview').innerHTML = filas.slice(0,60).map(f => `
+    <tr style="${f.opUid?'':'opacity:.5'}">
+      <td>${f.fecha}</td><td style="color:var(--text2)">${f.num||''}</td>
+      <td>${f.opNombre || f.nombre}${f.opUid?'':' <span style="color:var(--orange)">⚠</span>'}</td>
+      <td style="text-align:right">${pesos(f.cantidad)}</td>
+      <td><span class="badge ${f.operacion==='EGRESA'?'badge-red':'badge-green'}">${f.operacion}</span></td>
+    </tr>`).join('') + (filas.length>60 ? `<tr><td colspan="5" style="text-align:center;color:var(--text2);padding:8px">… y ${filas.length-60} más</td></tr>` : '');
+
+  btn.disabled = false;
+}
+
+function _impAsignar(idx, uid) {
+  const nombre = _impNoMatch[idx];
+  const op = operadores.find(o => o.uid === uid);
+  _impFilas.forEach(f => {
+    if (f.nombre === nombre) {
+      f.opUid    = op ? op.uid : null;
+      f.opNombre = op ? op.nombre : null;
+    }
+  });
+  _impRender(_impFilas);
+}
+
+async function ejecutarImportar() {
+  const validas = _impFilas.filter(f => f.opUid);
+  if (!validas.length) { toast('⚠ No hay filas con operador asignado', 'error'); return; }
+
+  const btn = document.getElementById('imp-btn');
+  btn.disabled = true; btn.textContent = '⏳ Importando…';
 
   try {
-    await db.collection('patriarca_efectivo_conteo').doc(_efDocId()).set({
-      mesKey: mesActivo, oficina: cajeroOficina || '',
-      conteo, total: _efTotalContado(),
-      actualizadoEn: firebase.firestore.FieldValue.serverTimestamp()
-    }, { merge: true });
-    _efConteo = conteo;
-    toast('✅ Conteo guardado', 'success');
-  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+    // Borrar existentes si se pidió
+    if (document.getElementById('imp-reemplazar').checked) {
+      const meses = [...new Set(validas.map(f => f.fecha.slice(0,7)))];
+      for (const mk of meses) {
+        let q = db.collection('patriarca_efectivo').where('mesKey','==',mk);
+        if (cajeroOficina) q = q.where('oficina','==',cajeroOficina);
+        const snap = await q.get();
+        for (let i = 0; i < snap.docs.length; i += 400) {
+          const b = db.batch();
+          snap.docs.slice(i, i+400).forEach(d => b.delete(d.ref));
+          await b.commit();
+        }
+      }
+    }
+
+    // Insertar en lotes
+    for (let i = 0; i < validas.length; i += 400) {
+      const batch = db.batch();
+      validas.slice(i, i+400).forEach((f, j) => {
+        const ref = db.collection('patriarca_efectivo').doc();
+        batch.set(ref, {
+          fecha: f.fecha,
+          num: f.num || (i + j + 1),
+          opUid: f.opUid, opNombre: f.opNombre,
+          cantidad: f.cantidad, operacion: f.operacion,
+          nota: '', mesKey: f.fecha.slice(0,7),
+          oficina: cajeroOficina || '',
+          importado: true,
+          ts: firebase.firestore.FieldValue.serverTimestamp()
+        });
+      });
+      await batch.commit();
+    }
+
+    const omitidas = _impFilas.length - validas.length;
+    toast(`✅ ${validas.length} movimientos importados${omitidas?` · ${omitidas} omitidos`:''}`, 'success');
+    closeModal('modal-importar');
+  } catch(e) {
+    toast('⚠ ' + e.message, 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = '✓ Importar';
+  }
 }
 
 function exportEfectivoCSV() {

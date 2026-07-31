@@ -192,6 +192,23 @@ select option { background: var(--bg3); }
   .form-group.span2 { grid-column: span 1; }
   .kpi-grid { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ── Celebración ── */
+#modal-feliz{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.75);opacity:0;pointer-events:none;transition:opacity .4s}
+#modal-feliz.visible{opacity:1;pointer-events:all}
+#feliz-card{background:linear-gradient(145deg,#0a1a0f,#0d2412);border:1.5px solid rgba(36,191,98,.45);border-radius:24px;padding:36px 28px;text-align:center;max-width:340px;width:90%;position:relative;transform:translateY(30px) scale(.92);transition:transform .45s cubic-bezier(.34,1.56,.64,1);box-shadow:0 0 70px rgba(36,191,98,.2),0 0 20px rgba(36,191,98,.1)}
+#modal-feliz.visible #feliz-card{transform:translateY(0) scale(1)}
+.feliz-emoji{font-size:64px;margin-bottom:8px;display:block;animation:bounceFeliz 1s ease infinite alternate}
+@keyframes bounceFeliz{from{transform:scale(1)}to{transform:scale(1.15)}}
+.feliz-titulo{font-size:22px;font-weight:800;color:#fff;margin:8px 0 4px;letter-spacing:.5px;text-shadow:0 0 20px rgba(36,191,98,.4)}
+.feliz-sub{font-size:13px;color:rgba(255,255,255,.5);margin-bottom:18px}
+.feliz-monto{font-size:34px;font-weight:900;color:#f0c040;letter-spacing:-1px;margin-bottom:6px;text-shadow:0 0 24px rgba(240,192,64,.5)}
+.feliz-monto-label{font-size:11px;color:rgba(255,255,255,.4);margin-bottom:22px}
+.feliz-btn{background:linear-gradient(135deg,#24bf62,#18a050);color:#fff;border:none;border-radius:40px;padding:13px 36px;font-size:15px;font-weight:700;cursor:pointer;width:100%;letter-spacing:.3px;transition:transform .15s,box-shadow .15s}
+.feliz-btn:hover{transform:scale(1.03);box-shadow:0 4px 20px rgba(36,191,98,.45)}
+/* Monedas */
+.coin{position:fixed;top:-40px;font-size:22px;animation:caerCoin linear forwards;pointer-events:none;z-index:10000;user-select:none}
+@keyframes caerCoin{0%{transform:translateY(0) rotate(0deg);opacity:1}80%{opacity:1}100%{transform:translateY(110vh) rotate(720deg);opacity:0}}
 </style>
 </head>
 <body>
@@ -2386,6 +2403,7 @@ async function loadAllData() {
 
   safeSnapshot(userColl('gastos'), snap => {
     allGastos = sortByTs(snap.docs.map(d => ({id:d.id,...d.data()})));
+    _gastosLoaded = true; // marcar que gastos ya cargaron antes de animar
     renderGastos();
     reloadDash();
   }, 'gastos');
@@ -2863,6 +2881,9 @@ function reloadDash() {
     alertEl.style.display = 'none';
   }
 
+  // ── Celebración meta ──
+  _checkFelizMeta(ganancia);
+
   // ── Bono de Productividad ──
   _calcBono();
 
@@ -2946,6 +2967,12 @@ function _calcBono() {
   } else if (totalCombo >= meta) {
     bonoStatus = 'combo'; bonoPct = b.pct_combo || 3;
   }
+
+  // Celebración bono — pasar ganancia operador con bono incluido
+  const _ganOpeConBono = _lastEscalera
+    ? (_lastBaseNeta * ((_lastEscalera.participacion + bonoPct) / 100)) - _lastIntCapMes
+    : 0;
+  _checkFelizBono(bonoStatus, bonoPct, _ganOpeConBono);
 
   // Actualizar Ganancia Operador sumando el bono a la participación
   if (_lastEscalera) {
@@ -6989,6 +7016,9 @@ function calcTrixi2() {
 }
 
 // ──────────────────── ESF ────────────────────
+// Snapshot del ESF para el resumen de cierre de mes
+let _esfCierre = { clientes:0, invertido:0, comisiones:0, cajas:0, total:0, listo:false };
+
 async function renderESF() {
   const uid = auth.currentUser?.uid;
   if (!uid) return;
@@ -7185,6 +7215,16 @@ async function renderESF() {
   // ── 8. Totales ──
   const totalActivos = totalClientes + invertido + totalComisiones + comisionesMesAnt + totalCajas;
   const totalPasivos = gananciaMesAnt; // Liquidación por Pagar (ganancia mes anterior que adeuda el operador)
+
+  // Guardar para el resumen de cierre de mes
+  _esfCierre = {
+    clientes:   totalClientes,
+    invertido,
+    comisiones: totalComisiones + comisionesMesAnt,
+    cajas:      totalCajas,
+    total:      totalActivos,
+    listo:      true
+  };
 
   // ── Poblar ACTIVOS ──
   document.getElementById('esf-clientes').textContent      = peso(totalClientes);
@@ -7923,16 +7963,37 @@ async function cerrarMes() {
   document.getElementById('cierre-mes-label').textContent    = config.mes;
   document.getElementById('cierre-mes-siguiente').textContent = mesSig;
 
-  // Resumen rápido
+  // ── Resumen de cierre — mismos valores del ESF ──
   const gan = calcCierreGanancia();
-  const metodos = calcCierreMetodos();
-  const totMet  = Object.values(metodos).reduce((s, v) => s + v, 0);
+  if (!_esfCierre.listo) { try { await renderESF(); } catch(e) {} }
+  const E = _esfCierre;
+
+  const fila = (label, valor, color) => `
+    <div style="display:flex;justify-content:space-between;padding:3px 0">
+      <span style="color:var(--text2)">${label}</span>
+      <span style="color:${color||'var(--text)'};font-weight:700">${peso(valor)}</span>
+    </div>`;
+
   document.getElementById('cierre-resumen').style.display = '';
   document.getElementById('cierre-resumen').innerHTML = `
-    <div style="background:var(--bg3);border-radius:8px;padding:12px 14px;font-size:12px;line-height:1.8">
-      <div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Saldo métodos al cierre</span><span style="color:var(--green);font-weight:700">${peso(totMet)}</span></div>
-      <div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Ganancia neta del mes</span><span style="color:var(--gold);font-weight:700">${peso(gan.total)}</span></div>
-      <div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Mes siguiente</span><span style="color:var(--gold);font-weight:700">${mesSig}</span></div>
+    <div style="background:var(--bg3);border-radius:8px;padding:12px 14px;font-size:12px;line-height:1.6">
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text2);font-weight:700;margin-bottom:6px">Con qué cierras el mes</div>
+      ${fila('Saldo de Clientes', E.clientes, 'var(--green)')}
+      ${fila('Comisiones por Cobrar', E.comisiones, 'var(--green)')}
+      ${fila('Saldo en Métodos', E.cajas, 'var(--green)')}
+      ${E.invertido ? fila('Invertido (apuestas abiertas)', E.invertido, 'var(--green)') : ''}
+      <div style="display:flex;justify-content:space-between;padding:7px 0 3px;margin-top:5px;border-top:1px solid var(--border);font-size:13px">
+        <span style="font-weight:700">TOTAL ACTIVOS</span>
+        <span style="color:var(--green);font-weight:800">${peso(E.total)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:7px 0 3px;margin-top:4px;border-top:1px solid var(--border)">
+        <span style="color:var(--text2)">Ganancia neta del mes</span>
+        <span style="color:var(--gold);font-weight:800">${peso(gan.total)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0">
+        <span style="color:var(--text2)">Mes siguiente</span>
+        <span style="color:var(--gold);font-weight:700">${mesSig}</span>
+      </div>
     </div>`;
 
   const btn = document.getElementById('btn-confirmar-cierre');
@@ -8069,6 +8130,96 @@ async function actualizarBotonCierre() {
     btn.disabled = false; btn.style.opacity = '1';
   }
 }
+
+// ── Celebración ──────────────────────────────────────────────
+// null = primer cargue (inicializar sin animar), false = no cumple, true = cumple
+let _felizBonoActivo = null;
+let _felizMetaActiva = null;
+let _gastosLoaded    = false; // esperar que gastos carguen antes de animar (evita valor inflado)
+
+function _lanzarMonedas() {
+  const emojis = ['🪙','💰','💵','✨','🎉','⭐'];
+  const total  = 38;
+  for (let i = 0; i < total; i++) {
+    setTimeout(() => {
+      const el = document.createElement('div');
+      el.className = 'coin';
+      el.textContent = emojis[Math.floor(Math.random() * emojis.length)];
+      el.style.left = Math.random() * 100 + 'vw';
+      el.style.fontSize = (16 + Math.random() * 18) + 'px';
+      const dur = 1.8 + Math.random() * 2.2;
+      el.style.animationDuration = dur + 's';
+      document.body.appendChild(el);
+      setTimeout(() => el.remove(), dur * 1000 + 100);
+    }, i * 60);
+  }
+}
+
+function mostrarFeliz(tipo, titulo, sub, monto) {
+  document.getElementById('feliz-emoji').textContent =
+    tipo === 'bono' ? '🎯' : '🏆';
+  document.getElementById('feliz-titulo').textContent = titulo;
+  document.getElementById('feliz-sub').textContent    = sub;
+  document.getElementById('feliz-monto').textContent  = monto;
+
+  _lanzarMonedas();
+  setTimeout(() => {
+    const m = document.getElementById('modal-feliz');
+    m.style.display = 'flex';
+    requestAnimationFrame(() => requestAnimationFrame(() => m.classList.add('visible')));
+  }, 800);
+}
+
+function cerrarFeliz() {
+  const m = document.getElementById('modal-feliz');
+  m.classList.remove('visible');
+  setTimeout(() => { m.style.display = 'none'; }, 400);
+}
+
+function _felizMesKey() {
+  const mk = _mesKey(config.mes);
+  return mk || null;   // null = la config aun no carga
+}
+
+// Muestra la celebracion una sola vez por logro y por mes
+function _felizUnaVez(tipo, titulo, sub, monto) {
+  const mk = _felizMesKey();
+  if (!mk) return;
+  const key = `_feliz_${mk}_${tipo}`;
+  if (localStorage.getItem(key)) return;   // ya se mostro este mes
+  localStorage.setItem(key, '1');
+  mostrarFeliz(tipo, titulo, sub, monto);
+}
+
+// Llamado desde reloadDash() cuando se supera la meta
+function _checkFelizMeta(ganancia) {
+  if (!_gastosLoaded || !_felizMesKey()) return;   // datos incompletos
+  if (ganancia > 0 && config.meta && ganancia >= config.meta) {
+    _felizUnaVez('meta', '\u00a1META ALCANZADA!', 'Superaste tu meta del mes \ud83d\udd25', peso(ganancia));
+  }
+}
+
+// Llamado desde _calcBono() cuando se alcanza el bono
+function _checkFelizBono(bonoStatus, bonoPct, ganOpeConBono) {
+  if (bonoStatus === 'sin') return;
+  if (!_gastosLoaded || !_felizMesKey()) return;   // datos incompletos
+  if (!ganOpeConBono) return;                      // ganancia aun sin calcular
+  const label = bonoStatus === 'combo' ? `Bono ${bonoPct}% combinado` : `Bono ${bonoPct}% alcanzado`;
+  _felizUnaVez('bono', '\u00a1BONO DESBLOQUEADO!', label + ' \ud83c\udfaf', peso(ganOpeConBono));
+}
 </script>
+
+<!-- Modal Celebración -->
+<div id="modal-feliz" style="display:none">
+  <div id="feliz-card">
+    <span id="feliz-emoji" class="feliz-emoji">🎉</span>
+    <div class="feliz-titulo" id="feliz-titulo">¡FELICITACIONES!</div>
+    <div class="feliz-sub"   id="feliz-sub">Lograste tu meta</div>
+    <div class="feliz-monto" id="feliz-monto">$0</div>
+    <div class="feliz-monto-label">Ganancia acumulada del mes</div>
+    <button class="feliz-btn" onclick="cerrarFeliz()">¡Excelente! 🚀</button>
+  </div>
+</div>
+
 </body>
 </html>

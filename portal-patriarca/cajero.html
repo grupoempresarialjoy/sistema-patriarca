@@ -1762,7 +1762,6 @@ async function renderCupoActual() {
   cols.forEach(o => totPorOp[o.uid] = 0);
   let totGeneral = 0;
 
-  _efSistemaPorOp = {};   // uid → efectivo que el sistema dice que debe tener
   const rows = metodos.map(met => {
     const metNorm = normMetodo(met);
     let totMet = 0;
@@ -1772,7 +1771,6 @@ async function renderCupoActual() {
         .reduce((acc, [k, v]) => normMetodo(k) === metNorm && v !== undefined && v !== null && v !== 0 ? v : acc, 0);
       const net = (netPorOp[o.uid] || {})[metNorm] || 0;
       const val = ini + net; // Cupo Actual = Inicial + Movimientos netos
-      if (metNorm === 'EFECTIVO OPERADOR') _efSistemaPorOp[o.uid] = val;
       totPorOp[o.uid] += val;
       totMet += val;
       const cls = val > 0 ? 'td-pos' : val < 0 ? 'td-neg' : 'td-zero';
@@ -1859,6 +1857,9 @@ async function renderCupoActual() {
   </tr>`;
 
   document.getElementById('ca-tbody').innerHTML = rows + rowTotSinSC + rowSC + rowCom + rowTotGeneral;
+
+  // El cruce de efectivo usa los mismos datos — recalcularlo
+  if (_efInited) calcEfectivoSistema().then(renderEfectivo);
 }
 
 // ── SALDO CAJAS ──
@@ -2359,7 +2360,7 @@ function cambiarMes() {
   if (cajasMetodo) renderCajas();
   if (hojaOpUid) renderHojaOp();
   if (document.getElementById('sec-mapa-capital')?.classList.contains('active')) renderMapaCapital();
-  if (_efInited) cargarEfectivo();
+  if (_efInited) { cargarEfectivo(); calcEfectivoSistema().then(renderEfectivo); }
 }
 
 function loadCajas() {
@@ -3768,8 +3769,68 @@ function _efDocId() { return mesActivo + '_' + (cajeroOficina || 'global'); }
 async function initEfectivo() {
   _efInited = true;
   cargarEfectivo();
-  // Asegurar que el Cupo Actual esté calculado para poder comparar
-  try { await renderCupoActual(); renderEfectivo(); } catch(e) { console.warn('initEfectivo:', e); }
+  await calcEfectivoSistema();
+  renderEfectivo();
+}
+
+// Calcula el EFECTIVO OPERADOR que el sistema espera, por operador.
+// Misma fórmula que Cupo Actual: cupo inicial + pagos − recargas − gastos ± intercambios − liquidaciones.
+async function calcEfectivoSistema() {
+  const MET = 'EFECTIVO OPERADOR';
+  const net = {};
+  const add = (uid, delta) => {
+    if (!uid) return;
+    net[uid] = (net[uid] || 0) + delta;
+  };
+
+  // Movimientos del mes
+  movsDelMes().forEach(mv => {
+    if (normMetodo(mv.metodo || '') !== MET) return;
+    if (mv.tipo === 'PAGOS')    add(mv.opId, +(mv.monto || 0));
+    if (mv.tipo === 'RECARGAS') add(mv.opId, -(mv.monto || 0));
+  });
+
+  // Gastos del mes
+  allGastosGlobal.forEach(g => {
+    if (getMesKey(g) !== mesActivo) return;
+    if (normMetodo(g.metodo || '') !== MET) return;
+    add(g.opId, -(parseFloat(g.valor) || 0));
+  });
+
+  // Intercambios del mes
+  try {
+    const ixSnap = await db.collection('patriarca_intercambios').get();
+    ixSnap.docs.forEach(d => {
+      const ix = d.data();
+      if (!(ix.fecha || '').startsWith(mesActivo)) return;
+      if (ix.estado === 'pendiente_aceptar' || ix.estado === 'cancelado') return;
+      const m = parseFloat(ix.monto) || 0;
+      if (normMetodo(ix.caja_egresa  || '') === MET) add(ix.opId, -m);
+      if (normMetodo(ix.caja_ingresa || '') === MET) add(ix.opId, +m);
+    });
+  } catch(e) { console.warn('calcEfectivoSistema ix:', e); }
+
+  // Liquidaciones pagadas del mes anterior
+  try {
+    const [yk, mk] = mesActivo.split('-').map(Number);
+    const prevKey  = new Date(yk, mk - 2, 1).toISOString().slice(0, 7);
+    const liqSnap  = await db.collection('patriarca_liquidacion_txs')
+      .where('mesKey','==',prevKey).where('tipo','==','saldo').where('estado','==','aprobado').get();
+    liqSnap.docs.forEach(d => {
+      const tx = d.data();
+      if (normMetodo(tx.metodo || '') !== MET) return;
+      add(tx.operadorId, -(parseFloat(tx.monto) || 0));
+    });
+  } catch(e) { console.warn('calcEfectivoSistema liq:', e); }
+
+  // Sumar el cupo inicial asignado en efectivo
+  _efSistemaPorOp = {};
+  operadores.forEach(o => {
+    const ini = Object.entries(cupoAsignado[o.uid] || {})
+      .reduce((acc,[k,v]) => normMetodo(k) === MET && v ? v : acc, 0);
+    const val = ini + (net[o.uid] || 0);
+    if (val) _efSistemaPorOp[o.uid] = val;
+  });
 }
 
 function cargarEfectivo() {

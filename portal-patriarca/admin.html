@@ -243,6 +243,7 @@ select option{background:var(--bg3)}
     <div class="tab" onclick="showTab('config')">⚙️ Config</div>
     <div class="tab" onclick="showTab('auditor')">🔍 Auditor</div>
     <div class="tab" onclick="showTab('esf-ops');initESFOps()">📋 ESF Ops</div>
+    <div class="tab" onclick="showTab('diario');initDiario()">📆 Diario</div>
     <div class="tab" id="tab-liquidaciones" onclick="showTab('liquidaciones');initLiquidaciones()">💳 Liquidaciones</div>
   </nav>
 
@@ -670,6 +671,74 @@ select option{background:var(--bg3)}
 
       <div id="liq-admin-container">
         <div class="empty"><div class="empty-icon">💳</div><p>Selecciona un mes para ver los pagos pendientes</p></div>
+      </div>
+    </div>
+
+    <!-- ─────────────── DIARIO ─────────────── -->
+    <div class="section" id="sec-diario">
+      <div class="sec-header">
+        <div>
+          <div class="sec-title">📆 Ganancia Diaria</div>
+          <div class="sec-sub">Comisiones · Utilidad · Gastos · Total — por día y operador</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="cargarDiario()">⟳ Actualizar</button>
+      </div>
+
+      <!-- Controles -->
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+        <button class="aud-stab active" id="di-tab-dia" onclick="setDiarioVista('dia')">📅 Un día — todos</button>
+        <button class="aud-stab" id="di-tab-op" onclick="setDiarioVista('op')">👤 Un operador — todo el mes</button>
+      </div>
+
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+        <div id="di-wrap-fecha" style="display:flex;align-items:center;gap:6px">
+          <label style="font-size:12px;color:var(--text2)">Fecha</label>
+          <input type="date" id="di-fecha" onchange="renderDiario()" style="padding:6px 10px;font-size:12px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+        </div>
+        <div id="di-wrap-op" style="display:none;align-items:center;gap:6px">
+          <label style="font-size:12px;color:var(--text2)">Operador</label>
+          <select id="di-operador" onchange="renderDiario()" style="padding:6px 10px;font-size:12px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);min-width:180px"></select>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <label style="font-size:12px;color:var(--text2)">Mes</label>
+          <input type="month" id="di-mes" onchange="cargarDiario()" style="padding:6px 10px;font-size:12px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+        </div>
+        <div id="di-wrap-oficina" style="display:flex;align-items:center;gap:6px">
+          <label style="font-size:12px;color:var(--text2)">Oficina</label>
+          <select id="di-oficina" onchange="renderDiario()" style="padding:6px 10px;font-size:12px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+            <option value="">Todas</option>
+          </select>
+        </div>
+        <span id="di-status" style="font-size:11px;color:var(--text2);margin-left:auto"></span>
+      </div>
+
+      <!-- KPIs resumen -->
+      <div class="kpi-grid" style="margin-bottom:16px">
+        <div class="kpi blue"><div class="kpi-label">Comisiones</div><div class="kpi-value" id="di-kpi-com">$0</div></div>
+        <div class="kpi"><div class="kpi-label">Utilidad</div><div class="kpi-value" id="di-kpi-util">$0</div></div>
+        <div class="kpi red"><div class="kpi-label">Gastos</div><div class="kpi-value" id="di-kpi-gas">$0</div></div>
+        <div class="kpi green"><div class="kpi-label">Total</div><div class="kpi-value" id="di-kpi-tot">$0</div></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title" id="di-tabla-titulo">Detalle</span>
+          <button class="btn btn-ghost btn-sm" onclick="exportDiarioCSV()">⬇ CSV</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th id="di-th1">Operador</th>
+              <th style="text-align:right">Comisiones</th>
+              <th style="text-align:right">Utilidad</th>
+              <th style="text-align:right">Gastos</th>
+              <th style="text-align:right">Total</th>
+            </tr></thead>
+            <tbody id="di-tbody">
+              <tr><td colspan="5"><div class="empty"><div class="empty-icon">📆</div>Selecciona un mes para cargar</div></td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
 
@@ -4327,6 +4396,209 @@ function _updateThemeBtn() {
 }
 window.addEventListener('DOMContentLoaded', _updateThemeBtn);
 window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', _updateThemeBtn);
+
+// ═══════════════════════════════════════════════════════════════
+// GANANCIA DIARIA POR OPERADOR
+// Comisiones (movimientos) + Utilidad (inversiones CERRADAS) − Gastos
+// ═══════════════════════════════════════════════════════════════
+let _diVista   = 'dia';   // 'dia' | 'op'
+let _diMesKey  = null;
+let _diData    = {};      // uid → { fecha → {com, util, gas} }
+let _diOps     = {};      // uid → nombre
+
+const _diPeso = n => '$' + Math.round(n||0).toLocaleString('es-CO');
+
+function initDiario() {
+  const inMes = document.getElementById('di-mes');
+  const inFec = document.getElementById('di-fecha');
+  if (inMes && !inMes.value) {
+    const hoy = new Date();
+    inMes.value = `${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}`;
+    if (inFec) inFec.value = hoy.toISOString().slice(0,10);
+    cargarDiario();
+  }
+}
+
+function setDiarioVista(v) {
+  _diVista = v;
+  document.getElementById('di-tab-dia').classList.toggle('active', v==='dia');
+  document.getElementById('di-tab-op').classList.toggle('active',  v==='op');
+  document.getElementById('di-wrap-fecha').style.display   = v==='dia' ? 'flex' : 'none';
+  document.getElementById('di-wrap-op').style.display      = v==='op'  ? 'flex' : 'none';
+  document.getElementById('di-wrap-oficina').style.display = v==='dia' ? 'flex' : 'none';
+  document.getElementById('di-th1').textContent = v==='dia' ? 'Operador' : 'Fecha';
+  renderDiario();
+}
+
+async function cargarDiario() {
+  const mesKey = document.getElementById('di-mes')?.value;
+  if (!mesKey) return;
+  _diMesKey = mesKey;
+  const status = document.getElementById('di-status');
+  if (status) status.textContent = 'Cargando…';
+
+  // Operadores activos
+  _diOps = {};
+  allUsers.filter(u => u.rol==='operador' && u.uid && (u.estado||'activo')==='activo')
+    .forEach(u => { _diOps[u.uid] = u.nombre || u.email || u.uid; });
+
+  const desde = mesKey + '-01';
+  const hasta = mesKey + '-31';
+  const acc   = {};
+  const bump  = (uid, fecha, campo, val) => {
+    if (!uid || !fecha) return;
+    if (!acc[uid])        acc[uid] = {};
+    if (!acc[uid][fecha]) acc[uid][fecha] = { com:0, util:0, gas:0 };
+    acc[uid][fecha][campo] += val;
+  };
+
+  try {
+    const [movSnap, invSnap, gasSnap] = await Promise.all([
+      db.collection('patriarca_movimientos').where('fecha','>=',desde).where('fecha','<=',hasta).get(),
+      db.collection('patriarca_inversiones').where('fecha','>=',desde).where('fecha','<=',hasta).get(),
+      db.collection('patriarca_gastos').where('fecha','>=',desde).where('fecha','<=',hasta).get()
+    ]);
+
+    // 1. Comisiones — de movimientos
+    movSnap.docs.forEach(d => {
+      const m = d.data();
+      const com = parseFloat(m.comision) || 0;
+      if (com) bump(m.opId, m.fecha, 'com', com);
+    });
+
+    // 2. Utilidad — agrupar inversiones por apuesta, solo CERRADO: retorno − invertido
+    //    (excluye fondos BONIFICACION del invertido, igual que el ESF)
+    const apMap = {};
+    invSnap.docs.forEach(d => {
+      const inv = d.data();
+      const k = inv.id_apuesta;
+      if (!k) return;
+      const key = inv.opId + '||' + k;
+      if (!apMap[key]) apMap[key] = { opId:inv.opId, fecha:inv.fecha, ret:0, inv:0, cerrado:false };
+      apMap[key].ret += parseFloat(inv.retorno_cliente) || 0;
+      if ((inv.fondos||'').toUpperCase() !== 'BONIFICACION') apMap[key].inv += parseFloat(inv.monto) || 0;
+      if (inv.estado_evento === 'CERRADO') apMap[key].cerrado = true;
+      // usar la fecha más temprana de la apuesta
+      if (inv.fecha && inv.fecha < apMap[key].fecha) apMap[key].fecha = inv.fecha;
+    });
+    Object.values(apMap).forEach(a => {
+      if (a.cerrado) bump(a.opId, a.fecha, 'util', a.ret - a.inv);
+    });
+
+    // 3. Gastos
+    gasSnap.docs.forEach(d => {
+      const g = d.data();
+      const v = parseFloat(g.valor) || 0;
+      if (v) bump(g.opId, g.fecha, 'gas', v);
+    });
+
+    _diData = acc;
+
+    // Poblar selector de operadores
+    const selOp = document.getElementById('di-operador');
+    if (selOp) {
+      const prev = selOp.value;
+      const lista = Object.entries(_diOps).sort((a,b)=>a[1].localeCompare(b[1]));
+      selOp.innerHTML = lista.map(([uid,n]) =>
+        `<option value="${uid}"${uid===prev?' selected':''}>${n}</option>`).join('');
+    }
+    // Poblar oficinas
+    const selOf = document.getElementById('di-oficina');
+    if (selOf) {
+      const prev = selOf.value;
+      const ofs = [...new Set(allUsers.filter(u=>u.rol==='operador'&&u.oficinaNombre).map(u=>u.oficinaNombre))].sort();
+      selOf.innerHTML = '<option value="">Todas</option>' +
+        ofs.map(o=>`<option value="${o}"${o===prev?' selected':''}>${o}</option>`).join('');
+    }
+
+    if (status) status.textContent = _adminMesLabel(mesKey);
+    renderDiario();
+  } catch(e) {
+    console.warn('cargarDiario:', e);
+    if (status) status.textContent = '⚠ Error al cargar';
+    toast('Error cargando datos diarios', 'error');
+  }
+}
+
+function renderDiario() {
+  const tbody = document.getElementById('di-tbody');
+  const titulo = document.getElementById('di-tabla-titulo');
+  if (!tbody) return;
+
+  let filas = [];   // {label, com, util, gas}
+  let tCom=0, tUtil=0, tGas=0;
+
+  if (_diVista === 'dia') {
+    const fecha = document.getElementById('di-fecha')?.value;
+    const ofic  = document.getElementById('di-oficina')?.value || '';
+    if (titulo) titulo.textContent = fecha ? `Operadores — ${fecha}` : 'Operadores';
+
+    let uids = Object.keys(_diOps);
+    if (ofic) {
+      const ofUids = new Set(allUsers.filter(u=>u.oficinaNombre===ofic&&u.rol==='operador').map(u=>u.uid));
+      uids = uids.filter(u => ofUids.has(u));
+    }
+    uids.forEach(uid => {
+      const d = (_diData[uid]||{})[fecha] || { com:0, util:0, gas:0 };
+      if (!d.com && !d.util && !d.gas) return;   // ocultar operadores sin movimiento ese día
+      filas.push({ label:_diOps[uid], com:d.com, util:d.util, gas:d.gas });
+      tCom+=d.com; tUtil+=d.util; tGas+=d.gas;
+    });
+    filas.sort((a,b)=>(b.com+b.util-b.gas)-(a.com+a.util-a.gas));
+
+  } else {
+    const uid = document.getElementById('di-operador')?.value;
+    if (titulo) titulo.textContent = uid ? `${_diOps[uid]} — ${_adminMesLabel(_diMesKey)}` : 'Operador';
+    const dias = _diData[uid] || {};
+    Object.keys(dias).sort().forEach(f => {
+      const d = dias[f];
+      filas.push({ label:f, com:d.com, util:d.util, gas:d.gas });
+      tCom+=d.com; tUtil+=d.util; tGas+=d.gas;
+    });
+  }
+
+  // KPIs
+  document.getElementById('di-kpi-com').textContent  = _diPeso(tCom);
+  document.getElementById('di-kpi-util').textContent = _diPeso(tUtil);
+  document.getElementById('di-kpi-gas').textContent  = tGas ? '-'+_diPeso(tGas) : '$0';
+  document.getElementById('di-kpi-tot').textContent  = _diPeso(tCom + tUtil - tGas);
+
+  if (!filas.length) {
+    tbody.innerHTML = '<tr><td colspan="5"><div class="empty"><div class="empty-icon">📆</div>Sin movimientos</div></td></tr>';
+    return;
+  }
+
+  const R = 'text-align:right';
+  tbody.innerHTML = filas.map(f => {
+    const tot = f.com + f.util - f.gas;
+    return `<tr>
+      <td style="font-weight:600">${f.label}</td>
+      <td style="${R};color:var(--blue)">${_diPeso(f.com)}</td>
+      <td style="${R};color:${f.util>=0?'var(--green)':'var(--red)'}">${_diPeso(f.util)}</td>
+      <td style="${R};color:var(--red)">${f.gas?'-'+_diPeso(f.gas):'$—'}</td>
+      <td style="${R};font-weight:700;color:${tot>=0?'var(--green)':'var(--red)'}">${_diPeso(tot)}</td>
+    </tr>`;
+  }).join('') + `<tr style="background:var(--bg3);font-weight:700">
+      <td>TOTAL</td>
+      <td style="${R}">${_diPeso(tCom)}</td>
+      <td style="${R}">${_diPeso(tUtil)}</td>
+      <td style="${R}">${tGas?'-'+_diPeso(tGas):'$—'}</td>
+      <td style="${R};color:${(tCom+tUtil-tGas)>=0?'var(--green)':'var(--red)'}">${_diPeso(tCom+tUtil-tGas)}</td>
+    </tr>`;
+}
+
+function exportDiarioCSV() {
+  const rows = [...document.querySelectorAll('#di-tbody tr')].map(tr =>
+    [...tr.querySelectorAll('td')].map(td => `"${td.textContent.trim()}"`).join(',')
+  );
+  if (!rows.length) { toast('Nada que exportar', 'error'); return; }
+  const head = _diVista==='dia' ? 'Operador,Comisiones,Utilidad,Gastos,Total' : 'Fecha,Comisiones,Utilidad,Gastos,Total';
+  const csv  = head + '\n' + rows.join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'}));
+  a.download = `diario_${_diMesKey||'export'}.csv`;
+  a.click();
+}
 
 // ═══════════════════════════════════════════════════════════════
 // ESF POR OPERADOR — Estado de Situación Financiera consolidado

@@ -1723,7 +1723,7 @@ select option { background: var(--bg3); }
 
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal('modal-intercambio')">Cancelar</button>
-      <button class="btn btn-gold" onclick="saveIntercambio()">📤 Enviar intercambio</button>
+      <button class="btn btn-gold" id="ix-btn-guardar" onclick="saveIntercambio()">📤 Enviar intercambio</button>
     </div>
   </div>
 </div>
@@ -5990,6 +5990,9 @@ function limpiarFiltrosIx() {
 // ── Helpers ──
 function setIxTipo(tipo) {
   document.getElementById('ix-tipo').value = tipo;
+  // Restaurar etiquetas por si quedaron sobrescritas
+  document.getElementById('ix-btn-c').textContent = '🔀 Cruzado — con otro operador';
+  document.getElementById('ix-btn-i').textContent = '↩ Interno — propio';
   document.getElementById('ix-btn-c').className = tipo==='C' ? 'btn btn-gold' : 'btn btn-ghost';
   document.getElementById('ix-btn-i').className = tipo==='I' ? 'btn btn-gold' : 'btn btn-ghost';
   document.getElementById('ix-op2-wrap').style.display = tipo==='C' ? '' : 'none';
@@ -6057,7 +6060,7 @@ async function saveIntercambio() {
   const fecha  = document.getElementById('int-fecha').value || today();
   if (!monto||!egresa||!ingresa) { toast('⚠ Completa todos los campos','error'); return; }
 
-  const btn = document.querySelector('#modal-intercambio .btn-gold:last-child');
+  const btn = document.getElementById('ix-btn-guardar');
   if (btn) { btn.disabled=true; btn.textContent='Enviando...'; }
 
   try {

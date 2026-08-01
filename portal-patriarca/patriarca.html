@@ -7862,7 +7862,7 @@ async function calcCierreClientes() {
 }
 
 // Calcula saldo actual por método al cierre del mes (mismo cálculo que pestaña Métodos)
-function calcCierreMetodos() {
+async function calcCierreMetodos() {
   const ci  = config.cupos_iniciales || {};
   const mk  = siMesActual();
   const _mv = mk ? allMovimientos.filter(m   => (m.fecha||'').startsWith(mk))  : allMovimientos;
@@ -7870,7 +7870,7 @@ function calcCierreMetodos() {
   const _gx = mk ? (allGastos||[]).filter(g  => (g.fecha||'').startsWith(mk))  : (allGastos||[]);
   const map = {};
   METODOS_CAJA.filter(m => !METODOS_VIRTUALES.has(m)).forEach(m => {
-    map[m] = { inicial: parseFloat(ci[m]) || 0, ix: 0, recargas: 0, pagos: 0, gastos: 0 };
+    map[m] = { inicial: parseFloat(ci[m]) || 0, ix: 0, recargas: 0, pagos: 0, gastos: 0, liqPago: 0 };
   });
   _mv.forEach(mv => {
     const met = normMetodo(mv.metodo);
@@ -7891,9 +7891,30 @@ function calcCierreMetodos() {
     const met = normMetodo(g.metodo);
     if (met && map[met]) map[met].gastos += parseFloat(g.valor) || 0;
   });
+
+  // Liquidación del mes anterior ya pagada — reduce el saldo del método (igual que el ESF)
+  try {
+    const uid = auth.currentUser?.uid;
+    const [yk, mkNum] = (mk || '').split('-').map(Number);
+    if (uid && yk && mkNum) {
+      const prevKey = new Date(yk, mkNum - 2, 1).toISOString().slice(0, 7);
+      const liqSnap = await db.collection('patriarca_liquidacion_txs')
+        .where('operadorId', '==', uid)
+        .where('mesKey',     '==', prevKey)
+        .where('estado',     '==', 'aprobado')
+        .get({ source: 'server' });
+      liqSnap.docs.forEach(d => {
+        const tx = d.data();
+        if (tx.tipo !== 'saldo') return;
+        const met = normMetodo(tx.metodo);
+        if (met && map[met]) map[met].liqPago += parseFloat(tx.monto) || 0;
+      });
+    }
+  } catch(e) { console.warn('calcCierreMetodos liq:', e); }
+
   const result = {};
   Object.entries(map).forEach(([m, d]) => {
-    const actual = d.inicial + d.ix - d.recargas + d.pagos - d.gastos;
+    const actual = d.inicial + d.ix - d.recargas + d.pagos - d.gastos - d.liqPago;
     if (actual !== 0 || d.inicial !== 0) result[m] = Math.round(actual * 100) / 100;
   });
   return result;
@@ -8016,7 +8037,7 @@ async function confirmarCierreMes() {
     const saldosClientes = await calcCierreClientes();
     const totalClientes  = Object.values(saldosClientes)
       .reduce((s, cm) => s + Object.values(cm).reduce((ss, v) => ss + (v || 0), 0), 0);
-    const saldosMetodos = calcCierreMetodos();
+    const saldosMetodos = await calcCierreMetodos();
     const ganancia      = calcCierreGanancia();
 
     // Array listo para mostrar en admin: clientes con saldo > 0 al cierre, con nombre real

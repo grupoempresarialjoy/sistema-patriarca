@@ -2256,6 +2256,7 @@ async function loadConfig() {
       };
       aplicarPermisos();
       document.getElementById('mes-badge').textContent = config.mes;
+      _asegurarEventosBase();   // crear los eventos base del mes si faltan
       // Actualiza KPIs
       const kpiCupo = document.getElementById('kpi-cupo');
       if (kpiCupo) kpiCupo.textContent = peso(config.cupo);
@@ -2351,6 +2352,7 @@ async function loadAllData() {
     allEventos = snap.docs.map(d => ({id:d.id,...d.data()})).sort((a,b) => (parseInt(a.num)||0) - (parseInt(b.num)||0));
     renderEventos();
     populateEventSelects();
+    _asegurarEventosBase();
   }, 'eventos');
 
   safeSnapshot(userColl('movimientos'), snap => {
@@ -3213,6 +3215,53 @@ function renderEventos() {
         <button class="btn-del" onclick="deleteDoc('eventos','${e.id}')">🗑</button>
       </td>
     </tr>`).join('');
+}
+
+// ── Eventos base: se crean solos cada mes, como si el operador los registrara ──
+const EVENTOS_BASE = ['RETIRO MES ANTERIOR', 'FALTA POR REGISTRAR', 'BONOS'];
+let _evBaseMesHecho = null;   // mesKey ya procesado en esta sesión
+
+async function _asegurarEventosBase() {
+  const mk = _mesKey(config.mes);
+  if (!mk || !opId) return;
+  if (_evBaseMesHecho === mk) return;          // ya se revisó este mes
+  if (_isMesLocked()) return;                  // mes cerrado sin autorización
+
+  const delMes    = allEventos.filter(ev => ev.mesKey === mk);
+  const nombres   = new Set(delMes.map(ev => (ev.nombre || '').toUpperCase()));
+  const faltantes = EVENTOS_BASE.filter(n => !nombres.has(n));
+
+  _evBaseMesHecho = mk;                        // marcar antes de escribir (evita reentradas)
+  if (!faltantes.length) return;
+
+  const dia1 = mk + '-01';
+  let num = delMes.length;
+
+  try {
+    for (const nombre of faltantes) {
+      num++;
+      // ID determinístico → si dos pestañas corren a la vez no se duplica
+      const docId = `${opId}_${mk}_${nombre.replace(/\s+/g, '_')}`;
+      await coll('eventos').doc(docId).set({
+        opId,
+        num,
+        mesKey:          mk,
+        nombre,
+        fecha_registro:  dia1,
+        fecha_evento:    dia1,
+        deporte:         'FUTBOL',
+        opciones:        '3 Opciones',
+        estado:          'CERRADO',
+        opcion_ganadora: '1',
+        auto_base:       true,
+        ts: firebase.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+    }
+    toast(`✅ ${faltantes.length} evento(s) base creados para el mes`, 'success');
+  } catch(e) {
+    console.warn('eventos base:', e);
+    _evBaseMesHecho = null;   // permitir reintentar
+  }
 }
 
 async function saveEvento() {

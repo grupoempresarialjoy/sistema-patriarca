@@ -6103,6 +6103,23 @@ async function rechazarCierreCajero(id) {
   } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
 }
 
+// Cache de nombres de clientes por operador — para reconstruir el desglose del cierre
+const _cacheNomClientes = {};
+async function _nombresClientes(opId) {
+  if (!opId) return {};
+  if (_cacheNomClientes[opId]) return _cacheNomClientes[opId];
+  const map = { '_externo_': 'Externo' };
+  try {
+    const snap = await db.collection('patriarca_clientes').where('opId', '==', opId).get();
+    snap.docs.forEach(d => {
+      const c = d.data();
+      map[d.id] = c.nombre_completo || c.nombre || d.id;
+    });
+  } catch(e) { console.warn('nombres clientes:', e); }
+  _cacheNomClientes[opId] = map;
+  return map;
+}
+
 // ── CIERRES DE MES ──────────────────────────────────────────────────────────
 let _cierresListener = null;
 
@@ -6115,9 +6132,25 @@ function initCierres() {
 
   _cierresListener = db.collection('patriarca_cierres')
     .orderBy('ts', 'desc')
-    .onSnapshot(snap => {
+    .onSnapshot(async snap => {
       const docs    = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       const pending = docs.filter(d => d.estado === 'pendiente');
+
+      // Reconstruir el desglose de clientes desde saldosClientes (incluye negativos).
+      // No depende de capitalActivoClientes, que en versiones viejas filtraba los negativos.
+      for (const r of docs) {
+        if (!r.saldosClientes) continue;
+        const nombres = await _nombresClientes(r.operadorId);
+        const arr = [];
+        Object.entries(r.saldosClientes).forEach(([cid, casaMap]) => {
+          const nombre = nombres[cid] || (cid === '_externo_' ? 'Externo' : cid);
+          Object.entries(casaMap || {}).forEach(([casa, saldo]) => {
+            const s = Math.round(saldo || 0);
+            if (s !== 0) arr.push({ nombre, casa, saldo: s });
+          });
+        });
+        if (arr.length) { arr.sort((a,b) => b.saldo - a.saldo); r.capitalActivoClientes = arr; }
+      }
 
       if (pending.length) {
         tabEl.textContent  = `📅 Cierres (${pending.length})`;

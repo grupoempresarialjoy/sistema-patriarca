@@ -8043,7 +8043,8 @@ async function confirmarCierreMes() {
     const saldosMetodos = await calcCierreMetodos();
     const ganancia      = calcCierreGanancia();
 
-    // Array listo para mostrar en admin: clientes con saldo > 0 al cierre, con nombre real
+    // Array para mostrar en admin: TODOS los saldos distintos de cero (incluidos negativos),
+    // para que el total del desglose coincida con el Saldo Clientes que se traslada.
     const _idToNom = { '_externo_': 'Externo' };
     allClientes.forEach(c => { _idToNom[c.id] = c.nombre_completo || c.nombre || c.id; });
 
@@ -8052,7 +8053,7 @@ async function confirmarCierreMes() {
       const nombre = _idToNom[cid] || cid;
       Object.entries(casaMap).forEach(([casa, saldo]) => {
         const s = Math.round(saldo || 0);
-        if (s > 0) capitalActivoClientes.push({ nombre, casa, saldo: s });
+        if (s !== 0) capitalActivoClientes.push({ nombre, casa, saldo: s });
       });
     });
     capitalActivoClientes.sort((a, b) => b.saldo - a.saldo);

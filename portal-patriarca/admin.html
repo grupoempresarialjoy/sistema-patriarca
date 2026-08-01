@@ -6173,21 +6173,21 @@ function initCierres() {
           .sort((a, b) => b[1].total - a[1].total)
           .map(([nombre, { total, casas }]) => {
             const casaStr = casas
-              .filter(c => c.saldo > 0)
+              .filter(c => c.saldo !== 0)
               .sort((a, b) => b.saldo - a.saldo)
-              .map(c => `<span style="color:var(--text2);font-size:10px">${c.casa}: ${fmtM(c.saldo)}</span>`)
+              .map(c => `<span style="color:${c.saldo < 0 ? '#e05050' : 'var(--text2)'};font-size:10px">${c.casa}: ${fmtM(c.saldo)}</span>`)
               .join('&nbsp;·&nbsp;');
             return `<div style="display:flex;justify-content:space-between;align-items:flex-start;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.05)">
               <div>
                 <span style="font-weight:600;font-size:11px">${nombre}</span>
                 ${casaStr ? `<div style="margin-top:2px">${casaStr}</div>` : ''}
               </div>
-              <span style="color:#24BF62;font-weight:700;margin-left:12px;white-space:nowrap">${fmtM(total)}</span>
+              <span style="color:${total < 0 ? '#e05050' : '#24BF62'};font-weight:700;margin-left:12px;white-space:nowrap">${fmtM(total)}</span>
             </div>`;
-          }).join('') + (capTotalClientes > 0 ? `
+          }).join('') + (capActivo.length ? `
           <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0 2px;margin-top:4px;border-top:1px solid rgba(255,255,255,.15)">
             <span style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Total Clientes</span>
-            <span style="font-size:13px;font-weight:800;color:#24BF62">${fmtM(capTotalClientes)}</span>
+            <span style="font-size:13px;font-weight:800;color:${capTotalClientes < 0 ? '#e05050' : '#24BF62'}">${fmtM(capTotalClientes)}</span>
           </div>` : '');
 
         return `
@@ -6227,8 +6227,8 @@ function initCierres() {
               <!-- Capital activo de clientes -->
               <details style="font-size:11px;margin-bottom:6px">
                 <summary style="cursor:pointer;color:#93c5fd;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center">
-                  <span>💰 Capital activo de clientes →</span>
-                  ${capTotalClientes > 0 ? `<span style="color:#24BF62;font-weight:700;font-size:12px">${fmtM(capTotalClientes)}</span>` : ''}
+                  <span>💰 Saldo de clientes por casa →</span>
+                  ${capActivo.length ? `<span style="color:${capTotalClientes < 0 ? '#e05050' : '#24BF62'};font-weight:700;font-size:12px">${fmtM(capTotalClientes)}</span>` : ''}
                 </summary>
                 <div style="background:var(--bg2);border-radius:6px;padding:8px 12px">
                   ${clientRows || '<span style="color:var(--text2)">Sin clientes con saldo activo</span>'}

@@ -632,7 +632,19 @@ select option{background:var(--bg3)}
         </div>
         <span id="cierres-pending-badge" style="background:rgba(251,191,36,.15);color:#fbbf24;border:1px solid rgba(251,191,36,.3);padding:4px 14px;border-radius:20px;font-size:11px;font-weight:700;display:none"></span>
       </div>
+      <!-- Cierres del cajero — alimentan la Caja General -->
+      <div class="panel" style="margin-bottom:16px">
+        <div class="panel-header">
+          <span class="panel-title">🏦 Cierres de Cajero</span>
+          <span style="font-size:11px;color:var(--text2)">Al aceptar, los saldos pasan a Caja General del mes siguiente</span>
+        </div>
+        <div class="panel-body" id="cierres-caj-list">
+          <div style="text-align:center;color:var(--text2);padding:20px">⏳ Cargando...</div>
+        </div>
+      </div>
+
       <div class="panel">
+        <div class="panel-header"><span class="panel-title">👤 Cierres de Operadores</span></div>
         <div class="panel-body" id="cierres-list">
           <div style="text-align:center;color:var(--text2);padding:24px">⏳ Cargando...</div>
         </div>
@@ -1190,9 +1202,79 @@ select option{background:var(--bg3)}
       </div>
     </div>
 
+    <!-- Permisos del Cajero -->
+    <div id="edit-cajero-section" style="display:none;margin-top:20px">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--gold);font-weight:700;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border)">🔐 Permisos del Portal Cajero</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:7px">
+          <input type="checkbox" id="perm-caj-importar" style="width:16px;height:16px;accent-color:var(--purple);cursor:pointer">
+          <span style="font-size:12px;font-weight:600">📋 Importar Excel</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:7px">
+          <input type="checkbox" id="perm-caj-eliminar" style="width:16px;height:16px;accent-color:var(--purple);cursor:pointer">
+          <span style="font-size:12px;font-weight:600">🗑 Eliminar Registros</span>
+        </label>
+      </div>
+      <div id="edit-cajero-status" style="font-size:11px;color:var(--text2);margin-top:8px"></div>
+    </div>
+
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal('modal-edit-usr')">Cancelar</button>
       <button class="btn btn-purple" onclick="guardarEdicionUsuario()">Guardar cambios</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL DETALLE DE GASTOS DEL DÍA -->
+<div class="modal-overlay" id="modal-gastos-dia">
+  <div class="modal" style="max-width:480px">
+    <h3 style="margin-bottom:4px">💳 Gastos del día</h3>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:14px">
+      <span id="gd-titulo" style="color:var(--text);font-weight:600"></span> · <span id="gd-fecha"></span>
+    </div>
+    <div class="table-wrap" style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:8px">
+      <table style="font-size:12px">
+        <thead><tr><th>Descripción</th><th>Método</th><th style="text-align:right">Valor</th></tr></thead>
+        <tbody id="gd-tbody"></tbody>
+      </table>
+    </div>
+    <div style="display:flex;justify-content:space-between;padding:12px 4px 0;font-weight:800;font-size:14px;border-top:1px solid var(--border);margin-top:10px">
+      <span>TOTAL</span><span id="gd-total" style="color:var(--red)">$0</span>
+    </div>
+    <div class="modal-footer" style="margin-top:12px">
+      <button class="btn btn-ghost" onclick="closeModal('modal-gastos-dia')">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL DETALLE DE APUESTAS DEL DÍA -->
+<div class="modal-overlay" id="modal-apuestas-dia">
+  <div class="modal" style="max-width:620px">
+    <h3 style="margin-bottom:4px">🎲 Apuestas cerradas</h3>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:14px">
+      <span id="ad-titulo" style="color:var(--text);font-weight:600"></span> · <span id="ad-fecha"></span>
+    </div>
+    <div class="table-wrap" style="max-height:380px;overflow-y:auto;border:1px solid var(--border);border-radius:8px">
+      <table style="font-size:12px">
+        <thead><tr>
+          <th>Evento</th>
+          <th style="text-align:right">Invertido</th>
+          <th style="text-align:right">Retorno</th>
+          <th style="text-align:right">Utilidad</th>
+        </tr></thead>
+        <tbody id="ad-tbody"></tbody>
+      </table>
+    </div>
+    <div style="display:flex;justify-content:space-between;padding:12px 4px 0;border-top:1px solid var(--border);margin-top:10px;font-size:12px">
+      <span style="font-weight:800">TOTAL</span>
+      <span style="display:flex;gap:20px">
+        <span style="color:var(--text2)">Inv. <strong id="ad-tot-inv">$0</strong></span>
+        <span style="color:var(--text2)">Ret. <strong id="ad-tot-ret">$0</strong></span>
+        <strong id="ad-tot-util" style="font-size:14px">$0</strong>
+      </span>
+    </div>
+    <div class="modal-footer" style="margin-top:12px">
+      <button class="btn btn-ghost" onclick="closeModal('modal-apuestas-dia')">Cerrar</button>
     </div>
   </div>
 </div>
@@ -2313,6 +2395,27 @@ async function abrirEditarUsuario(docId) {
     opSection.style.display = 'none';
   }
 
+  // ── Permisos del cajero ──
+  const cajSection = document.getElementById('edit-cajero-section');
+  const cajStatus  = document.getElementById('edit-cajero-status');
+  if (u.rol === 'cajero' && u.uid) {
+    cajSection.style.display = 'block';
+    cajStatus.textContent = 'Cargando permisos...';
+    try {
+      const snap = await db.collection('patriarca_config').doc(u.uid).get();
+      const p = snap.exists ? (snap.data().permisos || {}) : {};
+      document.getElementById('perm-caj-importar').checked = p.importarExcel !== false;
+      document.getElementById('perm-caj-eliminar').checked = p.eliminarTodo  !== false;
+      cajStatus.textContent = '✓ marcado = el cajero ve el botón en su portal';
+      cajStatus.style.color = 'var(--text2)';
+    } catch(e) {
+      cajStatus.textContent = '⚠ ' + e.message;
+      cajStatus.style.color = 'var(--red)';
+    }
+  } else {
+    cajSection.style.display = 'none';
+  }
+
   openModal('modal-edit-usr');
 }
 
@@ -2348,6 +2451,16 @@ async function guardarEdicionUsuario() {
         await opByEmail.docs[0].ref.update({ nombre, oficina, oficinaNombre, estado: estado === 'activo' ? 'Activo' : 'Inactivo' });
         if (resolvedUid) await db.collection('admin_usuarios').doc(docId).update({ uid: resolvedUid });
       }
+    }
+
+    // ── Permisos para cajeros (sin estructura financiera) ──
+    if (rol === 'cajero' && resolvedUid) {
+      await db.collection('patriarca_config').doc(resolvedUid).set({
+        permisos: {
+          importarExcel: document.getElementById('perm-caj-importar')?.checked ?? true,
+          eliminarTodo:  document.getElementById('perm-caj-eliminar')?.checked ?? true,
+        }
+      }, { merge: true });
     }
 
     // ── Guardar estructura financiera si es operador y tiene uid ──
@@ -4479,6 +4592,8 @@ let _diVista   = 'dia';   // 'dia' | 'op'
 let _diMesKey  = null;
 let _diData    = {};      // uid → { fecha → {com, util, gas} }
 let _diOps     = {};      // uid → nombre
+let _diGastos  = [];      // detalle de gastos del mes
+let _diApuestas = [];     // detalle de apuestas cerradas del mes
 
 const _diPeso = n => '$' + Math.round(n||0).toLocaleString('es-CO');
 
@@ -4548,22 +4663,41 @@ async function cargarDiario() {
       const k = inv.id_apuesta;
       if (!k) return;
       const key = inv.opId + '||' + k;
-      if (!apMap[key]) apMap[key] = { opId:inv.opId, fecha:inv.fecha, ret:0, inv:0, cerrado:false };
+      if (!apMap[key]) apMap[key] = {
+        opId:inv.opId, fecha:inv.fecha, ret:0, inv:0, cerrado:false,
+        apuesta:k, evento:inv.evento||'', cliente:inv.cliente||'', casa:inv.casa||''
+      };
       apMap[key].ret += parseFloat(inv.retorno_cliente) || 0;
       if ((inv.fondos||'').toUpperCase() !== 'BONIFICACION') apMap[key].inv += parseFloat(inv.monto) || 0;
       if (inv.estado_evento === 'CERRADO') apMap[key].cerrado = true;
+      if (!apMap[key].evento  && inv.evento)  apMap[key].evento  = inv.evento;
+      if (!apMap[key].cliente && inv.cliente) apMap[key].cliente = inv.cliente;
       // usar la fecha más temprana de la apuesta
       if (inv.fecha && inv.fecha < apMap[key].fecha) apMap[key].fecha = inv.fecha;
     });
+    // Guardar detalle de apuestas cerradas para poder consultarlas
+    _diApuestas = [];
     Object.values(apMap).forEach(a => {
-      if (a.cerrado) bump(a.opId, a.fecha, 'util', a.ret - a.inv);
+      if (!a.cerrado) return;
+      const util = a.ret - a.inv;
+      bump(a.opId, a.fecha, 'util', util);
+      _diApuestas.push({
+        opId:a.opId, fecha:a.fecha, apuesta:a.apuesta, evento:a.evento,
+        cliente:a.cliente, casa:a.casa, invertido:a.inv, retorno:a.ret, utilidad:util
+      });
     });
 
-    // 3. Gastos
+    // 3. Gastos — guardar también el detalle para poder consultarlo
+    _diGastos = [];
     gasSnap.docs.forEach(d => {
       const g = d.data();
       const v = parseFloat(g.valor) || 0;
-      if (v) bump(g.opId, g.fecha, 'gas', v);
+      if (!v) return;
+      bump(g.opId, g.fecha, 'gas', v);
+      _diGastos.push({
+        opId: g.opId, fecha: g.fecha, valor: v,
+        metodo: g.metodo || '', descripcion: g.descripcion || ''
+      });
     });
 
     _diData = acc;
@@ -4615,7 +4749,7 @@ function renderDiario() {
     uids.forEach(uid => {
       const d = (_diData[uid]||{})[fecha] || { com:0, util:0, gas:0 };
       if (!d.com && !d.util && !d.gas) return;   // ocultar operadores sin movimiento ese día
-      filas.push({ label:_diOps[uid], com:d.com, util:d.util, gas:d.gas });
+      filas.push({ label:_diOps[uid], com:d.com, util:d.util, gas:d.gas, uid, fecha });
       tCom+=d.com; tUtil+=d.util; tGas+=d.gas;
     });
     filas.sort((a,b)=>(b.com+b.util-b.gas)-(a.com+a.util-a.gas));
@@ -4626,7 +4760,7 @@ function renderDiario() {
     const dias = _diData[uid] || {};
     Object.keys(dias).sort().forEach(f => {
       const d = dias[f];
-      filas.push({ label:f, com:d.com, util:d.util, gas:d.gas });
+      filas.push({ label:f, com:d.com, util:d.util, gas:d.gas, uid, fecha:f });
       tCom+=d.com; tUtil+=d.util; tGas+=d.gas;
     });
   }
@@ -4645,11 +4779,20 @@ function renderDiario() {
   const R = 'text-align:right';
   tbody.innerHTML = filas.map(f => {
     const tot = f.com + f.util - f.gas;
+    const celdaGas = f.gas
+      ? `<td style="${R}"><span onclick="verGastosDia('${f.uid}','${f.fecha}')" title="Ver detalle de los gastos"
+           style="color:var(--red);cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px">-${_diPeso(f.gas)} 🔍</span></td>`
+      : `<td style="${R};color:var(--red)">$—</td>`;
+    const colU = f.util >= 0 ? 'var(--green)' : 'var(--red)';
+    const celdaUtil = f.util
+      ? `<td style="${R}"><span onclick="verApuestasDia('${f.uid}','${f.fecha}')" title="Ver las apuestas cerradas"
+           style="color:${colU};cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px">${_diPeso(f.util)} 🔍</span></td>`
+      : `<td style="${R};color:${colU}">${_diPeso(f.util)}</td>`;
     return `<tr>
       <td style="font-weight:600">${f.label}</td>
       <td style="${R};color:var(--blue)">${_diPeso(f.com)}</td>
-      <td style="${R};color:${f.util>=0?'var(--green)':'var(--red)'}">${_diPeso(f.util)}</td>
-      <td style="${R};color:var(--red)">${f.gas?'-'+_diPeso(f.gas):'$—'}</td>
+      ${celdaUtil}
+      ${celdaGas}
       <td style="${R};font-weight:700;color:${tot>=0?'var(--green)':'var(--red)'}">${_diPeso(tot)}</td>
     </tr>`;
   }).join('') + `<tr style="background:var(--bg3);font-weight:700">
@@ -4659,6 +4802,62 @@ function renderDiario() {
       <td style="${R}">${tGas?'-'+_diPeso(tGas):'$—'}</td>
       <td style="${R};color:${(tCom+tUtil-tGas)>=0?'var(--green)':'var(--red)'}">${_diPeso(tCom+tUtil-tGas)}</td>
     </tr>`;
+}
+
+// Detalle de los gastos de un operador en un día
+function verGastosDia(uid, fecha) {
+  const lista = _diGastos
+    .filter(g => g.opId === uid && g.fecha === fecha)
+    .sort((a,b) => b.valor - a.valor);
+
+  document.getElementById('gd-titulo').textContent = _diOps[uid] || uid;
+  document.getElementById('gd-fecha').textContent  = fecha;
+
+  const total = lista.reduce((s,g) => s + g.valor, 0);
+  document.getElementById('gd-total').textContent = _diPeso(total);
+
+  document.getElementById('gd-tbody').innerHTML = lista.length
+    ? lista.map(g => `<tr>
+        <td style="font-weight:600">${g.descripcion || '—'}</td>
+        <td style="color:var(--text2);font-size:11px">${g.metodo || '—'}</td>
+        <td style="text-align:right;font-weight:700;color:var(--red)">${_diPeso(g.valor)}</td>
+      </tr>`).join('')
+    : '<tr><td colspan="3" style="text-align:center;color:var(--text2);padding:20px">Sin gastos</td></tr>';
+
+  openModal('modal-gastos-dia');
+}
+
+// Detalle de las apuestas cerradas de un operador en un día
+function verApuestasDia(uid, fecha) {
+  const lista = _diApuestas
+    .filter(a => a.opId === uid && a.fecha === fecha)
+    .sort((a,b) => a.utilidad - b.utilidad);   // pérdidas primero
+
+  document.getElementById('ad-titulo').textContent = _diOps[uid] || uid;
+  document.getElementById('ad-fecha').textContent  = fecha;
+
+  let tInv=0, tRet=0, tUtil=0;
+  lista.forEach(a => { tInv+=a.invertido; tRet+=a.retorno; tUtil+=a.utilidad; });
+
+  document.getElementById('ad-tbody').innerHTML = lista.length
+    ? lista.map(a => `<tr>
+        <td>
+          <div style="font-weight:600">${a.evento || a.apuesta || '—'}</div>
+          <div style="font-size:10px;color:var(--text2)">${[a.cliente, a.casa].filter(Boolean).join(' · ') || ''}</div>
+        </td>
+        <td style="text-align:right;color:var(--text2)">${_diPeso(a.invertido)}</td>
+        <td style="text-align:right;color:var(--text2)">${_diPeso(a.retorno)}</td>
+        <td style="text-align:right;font-weight:700;color:${a.utilidad>=0?'var(--green)':'var(--red)'}">${_diPeso(a.utilidad)}</td>
+      </tr>`).join('')
+    : '<tr><td colspan="4" style="text-align:center;color:var(--text2);padding:20px">Sin apuestas cerradas</td></tr>';
+
+  document.getElementById('ad-tot-inv').textContent  = _diPeso(tInv);
+  document.getElementById('ad-tot-ret').textContent  = _diPeso(tRet);
+  const totEl = document.getElementById('ad-tot-util');
+  totEl.textContent = _diPeso(tUtil);
+  totEl.style.color = tUtil >= 0 ? 'var(--green)' : 'var(--red)';
+
+  openModal('modal-apuestas-dia');
 }
 
 function exportDiarioCSV() {
@@ -5799,10 +5998,116 @@ async function rechazarElimMovAdmin(movId) {
   } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
 }
 
+// ── CIERRES DE CAJERO ───────────────────────────────────────────────────────
+let _cierresCajListener = null;
+
+function initCierresCajero() {
+  if (_cierresCajListener) return;
+  const list = document.getElementById('cierres-caj-list');
+
+  _cierresCajListener = db.collection('cajero_cierres')
+    .orderBy('ts', 'desc')
+    .onSnapshot(snap => {
+      const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      if (!docs.length) {
+        list.innerHTML = '<div style="text-align:center;color:var(--text2);padding:20px">Sin cierres de cajero</div>';
+        return;
+      }
+      const pesoF = v => '$' + Math.round(v||0).toLocaleString('es-CO');
+
+      list.innerHTML = docs.map(c => {
+        const pend = c.estado === 'pendiente';
+        const badge = pend
+          ? '<span class="badge" style="background:rgba(251,191,36,.15);color:#fbbf24">⏳ Pendiente</span>'
+          : c.estado === 'aceptado'
+            ? '<span class="badge badge-green">✅ Aceptado</span>'
+            : '<span class="badge badge-red">❌ Rechazado</span>';
+
+        const difs = Object.entries(c.diferencias || {});
+        const difHtml = difs.length
+          ? `<div style="margin-top:8px;font-size:11px;color:var(--orange)">⚠ Descuadres: ${
+              difs.map(([m,v]) => `${m} ${v>0?'+':''}${pesoF(v)}`).join(' · ')}</div>`
+          : '';
+
+        const saldos = Object.entries(c.saldos || {}).filter(([,v]) => v);
+        const saldosHtml = saldos.map(([m,v]) =>
+          `<div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0">
+             <span style="color:var(--text2)">${m}</span><span style="font-weight:600">${pesoF(v)}</span>
+           </div>`).join('');
+
+        return `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+            <div>
+              <div style="font-weight:700">${c.oficina || '—'} · ${c.mes}</div>
+              <div style="font-size:11px;color:var(--text2)">${c.cajeroNombre || ''} → carga en <strong style="color:var(--gold)">${c.mesSiguiente}</strong></div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <span style="font-weight:800;color:var(--green)">${pesoF(c.totalSistema)}</span>
+              ${badge}
+            </div>
+          </div>
+          <details style="margin-top:6px">
+            <summary style="cursor:pointer;font-size:11px;color:var(--text2)">Ver saldos por método (${saldos.length})</summary>
+            <div style="margin-top:8px;padding:8px;background:var(--bg);border-radius:6px">${saldosHtml}</div>
+          </details>
+          ${difHtml}
+          ${pend ? `<div style="display:flex;gap:8px;margin-top:12px">
+            <button class="btn btn-purple btn-sm" onclick="aceptarCierreCajero('${c.id}')">✅ Aceptar</button>
+            <button class="btn btn-ghost btn-sm" onclick="rechazarCierreCajero('${c.id}')">❌ Rechazar</button>
+          </div>` : ''}
+        </div>`;
+      }).join('');
+    }, e => {
+      console.warn('cierres cajero:', e);
+      list.innerHTML = '<div style="text-align:center;color:var(--red);padding:20px">⚠ Error al cargar</div>';
+    });
+}
+
+async function aceptarCierreCajero(id) {
+  const snap = await db.collection('cajero_cierres').doc(id).get();
+  if (!snap.exists) { toast('⚠ Cierre no encontrado', 'error'); return; }
+  const d = snap.data();
+  if (!d.mesSiguiente) { toast('⚠ Sin mes siguiente definido', 'error'); return; }
+
+  if (!confirm(
+    `¿Aceptar el cierre de ${d.oficina || 'la oficina'} para ${d.mes}?\n\n` +
+    `✦ Los saldos se cargarán como Caja General de ${d.mesSiguiente}\n` +
+    `✦ Podrás editarlos después en Cupo Inicial si algo quedó mal`
+  )) return;
+
+  try {
+    const upd = {};
+    upd[`cupo_por_mes.${d.mesSiguiente}`] = d.saldos || {};
+    await db.collection('cajero_config').doc('main').set(upd, { merge: true });
+
+    await db.collection('cajero_cierres').doc(id).update({
+      estado:      'aceptado',
+      aceptadoPor: auth.currentUser?.email || 'admin',
+      aceptadoTs:  firebase.firestore.FieldValue.serverTimestamp()
+    });
+    toast(`✅ Caja General cargada en ${d.mesSiguiente}`, 'success');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+async function rechazarCierreCajero(id) {
+  const nota = prompt('Motivo del rechazo (opcional):') ?? null;
+  if (nota === null) return;
+  try {
+    await db.collection('cajero_cierres').doc(id).update({
+      estado:       'rechazado',
+      nota,
+      rechazadoPor: auth.currentUser?.email || 'admin',
+      rechazadoTs:  firebase.firestore.FieldValue.serverTimestamp()
+    });
+    toast('Cierre rechazado', 'info');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
 // ── CIERRES DE MES ──────────────────────────────────────────────────────────
 let _cierresListener = null;
 
 function initCierres() {
+  initCierresCajero();
   if (_cierresListener) return;
   const list  = document.getElementById('cierres-list');
   const badge = document.getElementById('cierres-pending-badge');

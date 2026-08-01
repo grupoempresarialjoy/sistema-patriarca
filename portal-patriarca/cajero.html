@@ -67,6 +67,13 @@ main{flex:1;padding:20px;overflow:auto}
 .sub-tab.active{color:var(--gold);border-bottom-color:var(--gold);font-weight:600}
 .panel-body{padding:16px}
 .tbl-wrap{overflow-x:auto}
+/* ── Columnas fijas al desplazar horizontalmente ──
+   .col-fija-1 → primera columna (nombre) · .col-fija-2 → segunda columna */
+.col-fija-1,.col-fija-2{position:sticky;z-index:2;background:var(--bg2)}
+.col-fija-1{left:0}
+.col-fija-2{left:var(--col1-w,180px);box-shadow:2px 0 5px -2px rgba(0,0,0,.35)}
+thead .col-fija-1,thead .col-fija-2{background:var(--bg3);z-index:4}
+tr:hover .col-fija-1,tr:hover .col-fija-2{background:var(--bg3)}
 table{width:100%;border-collapse:collapse;font-size:12px}
 th{background:var(--bg3);color:var(--text2);padding:8px 10px;text-align:left;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap}
 td{padding:8px 10px;border-bottom:1px solid var(--border);white-space:nowrap}
@@ -236,20 +243,24 @@ select option{background:var(--bg3)}
         </div>
       </div>
 
-      <!-- Conteo de dinero — compacto y horizontal -->
-      <div class="panel" style="margin-bottom:14px">
+      <!-- Conteo de dinero — tabla vertical, colapsable -->
+      <div class="panel" style="margin-bottom:14px;max-width:400px">
         <div class="panel-header" style="cursor:pointer" onclick="toggleConteo()">
           <span class="panel-title">🧮 Tabla de Conteo <span id="ef-conteo-caret" style="font-size:10px;color:var(--text2)">▾</span></span>
-          <div style="display:flex;gap:14px;align-items:center;font-size:12px">
-            <span style="color:var(--text2)">Contado <strong id="ef-ct-efectivo" style="color:var(--text)">$0</strong></span>
-            <span id="ef-ct-estado" style="font-weight:800">$0</span>
-            <span id="ef-conteo-status" style="font-size:11px;color:var(--text2)">Automático</span>
-          </div>
+          <span id="ef-conteo-status" style="font-size:11px;color:var(--text2)">Automático</span>
         </div>
         <div id="ef-conteo-body" style="padding:12px">
-          <div id="ef-conteo-tabla" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px"></div>
-          <div style="display:flex;gap:24px;justify-content:flex-end;border-top:1px solid var(--border);margin-top:12px;padding-top:10px;font-size:12px;flex-wrap:wrap">
-            <span>Registrado <strong id="ef-ct-registrado">$0</strong></span>
+          <table style="width:100%;font-size:12px;border-collapse:collapse" id="ef-conteo-tabla"></table>
+          <div style="border-top:2px solid var(--border);margin-top:10px;padding-top:10px">
+            <div style="display:flex;justify-content:space-between;padding:4px 0;font-weight:700">
+              <span>TOTAL REGISTRADO</span><span id="ef-ct-registrado">$0</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:4px 0;font-weight:700">
+              <span>EFECTIVO CONTADO</span><span id="ef-ct-efectivo">$0</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:8px 0;font-weight:800;font-size:14px;border-top:1px solid var(--border);margin-top:6px">
+              <span>ESTADO</span><span id="ef-ct-estado">$0</span>
+            </div>
           </div>
         </div>
       </div>
@@ -298,14 +309,17 @@ select option{background:var(--bg3)}
       <div id="dash-cruce-panel" style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden">
         <div style="background:var(--bg3);border-bottom:1px solid var(--border);padding:12px 18px;display:flex;align-items:center;justify-content:space-between">
           <div style="font-size:13px;font-weight:700;color:var(--gold)">⚖️ Cruce de Cajas</div>
-          <span style="font-size:11px;color:var(--text2)">Ingrese el saldo físico real — la diferencia debe ser $0</span>
+          <div style="display:flex;gap:10px;align-items:center">
+            <span style="font-size:11px;color:var(--text2)">Ingrese el saldo físico real — la diferencia debe ser $0</span>
+            <button class="btn btn-gold btn-sm" id="btn-cerrar-mes-caj" onclick="abrirCierreCajero()">📅 Cerrar Mes</button>
+          </div>
         </div>
         <div style="overflow-x:auto">
           <table style="width:100%;border-collapse:collapse;font-size:13px">
             <thead>
               <tr>
-                <th style="text-align:left;padding:10px 16px;background:var(--bg3);color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">Método</th>
-                <th style="text-align:right;padding:10px 16px;background:var(--bg3);color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">S. Inicial</th>
+                <th class="col-fija-1" style="text-align:left;padding:10px 16px;background:var(--bg3);color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">Método</th>
+                <th class="col-fija-2" style="text-align:right;padding:10px 16px;background:var(--bg3);color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">S. Inicial</th>
                 <th style="text-align:right;padding:10px 16px;background:var(--bg3);color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">Intercambios</th>
                 <th style="text-align:right;padding:10px 16px;background:var(--bg3);color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">Saldo Op.</th>
                 <th style="text-align:right;padding:10px 16px;background:var(--bg3);color:var(--red);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">Gastos (−)</th>
@@ -572,6 +586,40 @@ select option{background:var(--bg3)}
     </div>
 
   </main>
+</div>
+
+<!-- MODAL CIERRE DE MES — CAJERO -->
+<div class="modal-overlay" id="modal-cierre-caj">
+  <div class="modal" style="max-width:560px">
+    <h3 style="margin-bottom:6px">📅 Cerrar Mes <span id="cc-mes" style="color:var(--gold)"></span></h3>
+    <p style="font-size:12px;color:var(--text2);line-height:1.6;margin-bottom:14px">
+      Los saldos del sistema se enviarán al administrador. Al aprobarlos se cargarán como
+      <strong style="color:var(--gold)">Caja General</strong> de <span id="cc-mes-sig" style="color:var(--gold);font-weight:700"></span>.
+    </p>
+
+    <div id="cc-alerta" style="display:none;background:rgba(240,160,80,.12);border:1px solid rgba(240,160,80,.4);border-radius:8px;padding:10px 12px;font-size:12px;color:var(--orange);margin-bottom:12px"></div>
+
+    <div class="tbl-wrap" style="max-height:300px;overflow-y:auto;border:1px solid var(--border);border-radius:8px">
+      <table style="font-size:12px">
+        <thead><tr>
+          <th>Método</th>
+          <th style="text-align:right">Sistema</th>
+          <th style="text-align:right">Físico</th>
+          <th style="text-align:right">Dif.</th>
+        </tr></thead>
+        <tbody id="cc-tbody"></tbody>
+      </table>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;padding:12px 4px 0;border-top:1px solid var(--border);margin-top:10px;font-weight:800;font-size:14px">
+      <span>TOTAL A CARGAR</span><span id="cc-total" style="color:var(--green)">$0</span>
+    </div>
+
+    <div class="modal-footer" style="margin-top:14px">
+      <button class="btn btn-ghost" onclick="closeModal('modal-cierre-caj')">Cancelar</button>
+      <button class="btn btn-gold" id="cc-btn" onclick="enviarCierreCajero()">✅ Confirmar y Enviar</button>
+    </div>
+  </div>
 </div>
 
 <!-- MODAL IMPORTAR EFECTIVO -->
@@ -3534,8 +3582,8 @@ function _renderCruceInline(cards) {
     const sisClr = row.sistema < 0 ? 'var(--red)' : 'var(--green)';
     const fmtSigned = v => v === 0 ? '—' : (v > 0 ? '+' : '') + pesos(Math.abs(v));
     return `<tr id="cruce-row-${i}">
-      <td style="${TD};font-weight:600;white-space:nowrap">${row.metodo}</td>
-      <td style="${TD};text-align:right;color:var(--text2)">${row.ini ? pesos(row.ini) : '—'}</td>
+      <td class="col-fija-1" style="${TD};font-weight:600;white-space:nowrap">${row.metodo}</td>
+      <td class="col-fija-2" style="${TD};text-align:right;color:var(--text2)">${row.ini ? pesos(row.ini) : '—'}</td>
       <td style="${TD};text-align:right;font-weight:600;color:${ixClr}">${fmtSigned(row.ix)}</td>
       <td style="${TD};text-align:right;font-weight:600;color:${opClr}">${fmtSigned(row.op)}</td>
       <td style="${TD};text-align:right;font-weight:600;color:var(--red)">${row.gas ? '−'+pesos(row.gas) : '—'}</td>
@@ -3561,14 +3609,14 @@ function _renderCruceInline(cards) {
 
   document.getElementById('cruce-tfoot').innerHTML = `
     <tr style="background:var(--bg3);border-top:2px solid var(--border)">
-      <td style="padding:12px 16px;font-weight:800;font-size:13px">
+      <td class="col-fija-1" style="padding:12px 16px;font-weight:800;font-size:13px;background:var(--bg3)">
         TOTAL
         <button onclick="_copiarTodo()" title="Copiar todos los valores del sistema al físico real"
           style="margin-left:10px;background:rgba(53,204,47,.12);border:1px solid rgba(53,204,47,.3);border-radius:5px;color:var(--gold);cursor:pointer;font-size:11px;padding:3px 8px;font-weight:600">
           ← Copiar todo
         </button>
       </td>
-      <td id="cruce-tot-ini" style="padding:12px 16px;text-align:right;font-weight:700;color:var(--text2)">—</td>
+      <td class="col-fija-2" id="cruce-tot-ini" style="padding:12px 16px;text-align:right;font-weight:700;color:var(--text2);background:var(--bg3)">—</td>
       <td id="cruce-tot-ix"  style="padding:12px 16px;text-align:right;font-weight:700">—</td>
       <td id="cruce-tot-op"  style="padding:12px 16px;text-align:right;font-weight:700">—</td>
       <td id="cruce-tot-gas" style="padding:12px 16px;text-align:right;font-weight:700;color:var(--red)">—</td>
@@ -3579,7 +3627,131 @@ function _renderCruceInline(cards) {
     </tr>`;
 
   _actualizarCruce();
+  ajustarColsFijas();
 }
+
+// ═══════════════════════════════════════════════════════════════
+// CIERRE DE MES — CAJERO
+// Los saldos del sistema pasan a ser la Caja General del mes siguiente
+// ═══════════════════════════════════════════════════════════════
+function _mesSiguienteKey(mk) {
+  const [y, m] = (mk || '').split('-').map(Number);
+  if (!y || !m) return '';
+  return new Date(y, m, 1).toISOString().slice(0, 7);
+}
+
+async function abrirCierreCajero() {
+  if (!_cruceData.length) { toast('⚠ Aún no hay saldos calculados', 'error'); return; }
+
+  const mesSig = _mesSiguienteKey(mesActivo);
+  if (!mesSig) { toast('⚠ Mes inválido', 'error'); return; }
+
+  // ¿Ya existe un cierre para este mes?
+  try {
+    const prev = await db.collection('cajero_cierres')
+      .where('mes', '==', mesActivo)
+      .where('oficina', '==', cajeroOficina || '')
+      .get();
+    const activo = prev.docs.find(d => d.data().estado !== 'rechazado');
+    if (activo) {
+      toast(activo.data().estado === 'pendiente'
+        ? '⏳ Ya hay un cierre pendiente de aprobación'
+        : '✅ Este mes ya fue cerrado', 'info');
+      return;
+    }
+  } catch(e) { console.warn('cierre check:', e); }
+
+  document.getElementById('cc-mes').textContent     = mesActivo;
+  document.getElementById('cc-mes-sig').textContent = mesSig;
+
+  let total = 0, descuadres = 0, difTotal = 0;
+  const filas = _cruceData.map(r => {
+    const fisRaw = _cruceFisicoValues[r.metodo];
+    const tieneFis = fisRaw !== undefined && String(fisRaw).trim() !== '';
+    const fis = tieneFis ? parseCOP(String(fisRaw)) : null;
+    const dif = tieneFis ? fis - r.sistema : null;
+    total += r.sistema;
+    if (dif !== null && dif !== 0) { descuadres++; difTotal += dif; }
+    const difTxt = dif === null
+      ? '<span style="color:var(--text2)">sin contar</span>'
+      : dif === 0
+        ? '<span style="color:var(--green)">✓</span>'
+        : `<span style="color:${dif>0?'var(--orange)':'var(--red)'};font-weight:700">${dif>0?'+':''}${pesos(dif)}</span>`;
+    return `<tr>
+      <td style="font-weight:600">${r.metodo}</td>
+      <td style="text-align:right;font-weight:700;color:var(--green)">${pesos(r.sistema)}</td>
+      <td style="text-align:right;color:var(--text2)">${tieneFis ? pesos(fis) : '—'}</td>
+      <td style="text-align:right">${difTxt}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('cc-tbody').innerHTML = filas;
+  document.getElementById('cc-total').textContent = pesos(total);
+
+  const alerta = document.getElementById('cc-alerta');
+  if (descuadres) {
+    alerta.style.display = '';
+    alerta.innerHTML = `⚠ Hay <strong>${descuadres} método${descuadres>1?'s':''}</strong> con diferencia
+      (neto ${difTotal>0?'+':''}${pesos(difTotal)}). Puedes cerrar igual — el descuadre queda registrado
+      y el administrador podrá ajustar la Caja General.`;
+  } else {
+    alerta.style.display = 'none';
+  }
+
+  const btn = document.getElementById('cc-btn');
+  btn.disabled = false; btn.textContent = '✅ Confirmar y Enviar';
+  openModal('modal-cierre-caj');
+}
+
+async function enviarCierreCajero() {
+  const btn = document.getElementById('cc-btn');
+  btn.disabled = true; btn.textContent = 'Enviando…';
+
+  const mesSig = _mesSiguienteKey(mesActivo);
+  const saldos = {}, fisico = {}, diferencias = {};
+  _cruceData.forEach(r => {
+    saldos[r.metodo] = Math.round(r.sistema);
+    const fisRaw = _cruceFisicoValues[r.metodo];
+    if (fisRaw !== undefined && String(fisRaw).trim() !== '') {
+      const f = parseCOP(String(fisRaw));
+      fisico[r.metodo] = Math.round(f);
+      const d = Math.round(f - r.sistema);
+      if (d !== 0) diferencias[r.metodo] = d;
+    }
+  });
+
+  try {
+    await db.collection('cajero_cierres').add({
+      oficina:       cajeroOficina || '',
+      cajeroUid:     opId,
+      cajeroNombre:  opNombre,
+      mes:           mesActivo,
+      mesSiguiente:  mesSig,
+      saldos, fisico, diferencias,
+      totalSistema:  Object.values(saldos).reduce((s,v)=>s+v, 0),
+      estado:        'pendiente',
+      ts:            firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    closeModal('modal-cierre-caj');
+    toast('✅ Cierre enviado al administrador', 'success');
+  } catch(e) {
+    toast('⚠ ' + e.message, 'error');
+    btn.disabled = false; btn.textContent = '✅ Confirmar y Enviar';
+  }
+}
+
+// Mide el ancho real de la primera columna para posicionar la segunda columna fija.
+// Sirve para cualquier tabla que use .col-fija-1 / .col-fija-2
+function ajustarColsFijas() {
+  requestAnimationFrame(() => {
+    document.querySelectorAll('table').forEach(tabla => {
+      const primera = tabla.querySelector('.col-fija-1');
+      if (!primera) return;
+      tabla.style.setProperty('--col1-w', primera.offsetWidth + 'px');
+    });
+  });
+}
+window.addEventListener('resize', ajustarColsFijas);
 
 function _guardarFisico(idx, val) {
   const metodo = _cruceData[idx]?.metodo;
@@ -3930,15 +4102,17 @@ function toggleConteo() {
 function renderConteoTabla() {
   const t = document.getElementById('ef-conteo-tabla');
   if (!t) return;
-  const celda = (key, label) => `
-    <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px">
-      <div style="font-size:10px;color:var(--text2);margin-bottom:5px;letter-spacing:.3px">${label}</div>
-      <input type="number" min="0" id="ef-ct-${key}" value="${_efConteo[key]||''}" placeholder="0"
-        oninput="calcConteo();_efConteoAutoSave()"
-        style="width:100%;text-align:center;padding:5px;font-size:14px;font-weight:700;background:var(--bg);border:1px solid var(--border);border-radius:5px;color:var(--text);box-sizing:border-box">
-      <div style="font-size:11px;text-align:right;margin-top:5px;font-weight:600" id="ef-ctv-${key}">$0</div>
-    </div>`;
-  t.innerHTML = EF_DENOMS.map(d => celda(d, pesos(d))).join('') + celda('monedas', 'MONEDAS');
+  const fila = (key, label) => `
+    <tr>
+      <td style="padding:4px 6px;color:var(--text2)">${label}</td>
+      <td style="padding:4px 6px;width:80px">
+        <input type="number" min="0" id="ef-ct-${key}" value="${_efConteo[key]||''}" placeholder="0"
+          oninput="calcConteo();_efConteoAutoSave()"
+          style="width:100%;text-align:center;padding:4px;font-size:12px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);box-sizing:border-box">
+      </td>
+      <td style="padding:4px 6px;text-align:right;font-weight:600" id="ef-ctv-${key}">$0</td>
+    </tr>`;
+  t.innerHTML = EF_DENOMS.map(d => fila(d, pesos(d))).join('') + fila('monedas', 'MONEDAS');
   calcConteo();
 }
 

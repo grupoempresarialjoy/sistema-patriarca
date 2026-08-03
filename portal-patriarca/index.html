@@ -1213,7 +1213,7 @@
               <h3>📋 Libro de Movimientos</h3>
               <div class="sh-right">
                 <span id="mov-count-lbl" style="font-size:11px;color:var(--text-muted)"></span>
-                <button id="btn-mov-mes" onclick="_movSoloMes=!_movSoloMes;renderMovimientos()" class="btn btn-ghost" style="font-size:11px;font-weight:800;letter-spacing:.4px;padding:5px 12px;color:var(--green-primary);border-color:rgba(53,204,47,.4)" title="Filtrar por mes seleccionado / ver todos">📅 Mes actual</button>
+                <select id="sel-mov-mes" onchange="_movMesSel=this.value;renderMovimientos()" class="btn btn-ghost" style="font-size:11px;font-weight:800;letter-spacing:.4px;padding:5px 12px;color:var(--green-primary);border-color:rgba(53,204,47,.4);cursor:pointer;font-family:inherit" title="Filtrar el libro por mes"></select>
                 <button onclick="normalizarOp1()" class="btn btn-ghost" style="font-size:11px;font-weight:700;letter-spacing:.4px;padding:5px 12px;color:#f59e0b;border-color:rgba(245,158,11,.3)" title="Poner todos los movimientos en OP 1">🔧 Normalizar OP → 1</button>
                 <button onclick="toggleOpCheck()" class="btn btn-ghost" style="font-size:11px;font-weight:700;letter-spacing:.4px;padding:5px 12px" title="Verificar que débitos y créditos cuadren por OP">⚖️ Comprobar OPs</button>
               </div>
@@ -4374,7 +4374,31 @@ function renderSituacionFinanciera() {
 // CONTADOR — FILTROS MOVIMIENTOS
 // ============================================================
 let _movFilters = {op:'', fecha:'', cuenta:'', subcuenta:'', grupo:'', debito:'', credito:'', desc:''};
-let _movSoloMes = true; // true = solo mes seleccionado, false = todos los meses
+// '' = todos los meses · 'YYYY-MM' = ese mes. null = aún sin definir (usa el mes global)
+let _movMesSel = null;
+
+// Llena el selector con los meses que realmente tienen movimientos
+function _poblarSelectMovMes() {
+  const sel = document.getElementById('sel-mov-mes');
+  if (!sel) return;
+  const meses = [...new Set((contMovs||[]).map(m => (m.fecha||'').slice(0,7)).filter(x => /^\d{4}-\d{2}$/.test(x)))]
+    .sort().reverse();
+  if (_movMesSel === null) _movMesSel = meses.includes(getMesGlobal()) ? getMesGlobal() : (meses[0] || '');
+
+  const MES = {'01':'Enero','02':'Febrero','03':'Marzo','04':'Abril','05':'Mayo','06':'Junio',
+               '07':'Julio','08':'Agosto','09':'Septiembre','10':'Octubre','11':'Noviembre','12':'Diciembre'};
+  const conteo = {};
+  (contMovs||[]).forEach(m => { const k=(m.fecha||'').slice(0,7); if(k) conteo[k]=(conteo[k]||0)+1; });
+
+  sel.innerHTML = `<option value="">📅 Todos los meses (${(contMovs||[]).length})</option>` +
+    meses.map(mk => {
+      const [y,m] = mk.split('-');
+      return `<option value="${mk}"${mk===_movMesSel?' selected':''}>📅 ${MES[m]||m} ${y} (${conteo[mk]||0})</option>`;
+    }).join('');
+  sel.value = _movMesSel;
+  sel.style.color       = _movMesSel ? 'var(--green-primary)' : 'var(--text-muted)';
+  sel.style.borderColor = _movMesSel ? 'rgba(53,204,47,.4)' : 'var(--border)';
+}
 
 function applyMovFilter(key, val) {
   _movFilters[key] = (key === 'debito' || key === 'credito') ? val.trim() : val.toLowerCase();
@@ -4461,7 +4485,8 @@ function renderMovimientos() {
 
   // Aplicar filtros
   const f = _movFilters;
-  const mesFiltro = _movSoloMes ? (_esfConsMesKey || getMesGlobal()) : null;
+  _poblarSelectMovMes();
+  const mesFiltro = _movMesSel || null;
   const filtered = contMovs.filter(m => {
     const grp = m.origen === 'cierre_metodo' ? 'cierre' : (SUBCUENTA_IDX[m.subcuenta]?.grupo || '').toLowerCase();
     if(mesFiltro && !(m.fecha||'').startsWith(mesFiltro))                       return false;
@@ -4480,14 +4505,6 @@ function renderMovimientos() {
   if(lbl) lbl.textContent = filtered.length < contMovs.length
     ? `${filtered.length} de ${contMovs.length} líneas`
     : `${contMovs.length} líneas`;
-
-  // Actualizar botón toggle mes
-  const btnMes = document.getElementById('btn-mov-mes');
-  if(btnMes) {
-    btnMes.textContent   = _movSoloMes ? `📅 ${mesFiltro || 'Mes actual'}` : '📅 Todos los meses';
-    btnMes.style.color   = _movSoloMes ? 'var(--green-primary)' : 'var(--text-muted)';
-    btnMes.style.borderColor = _movSoloMes ? 'rgba(53,204,47,.4)' : 'var(--border)';
-  }
 
   // Refrescar panel de verificación si está abierto
   const opPanel = document.getElementById('op-check-panel');
@@ -5143,15 +5160,20 @@ function renderVariacionesComisiones() {
   const gananciaEsf = _sfGananciaMesActual || 0;
   const gananciaReg = (contMovs || [])
     .filter(m => m.cuenta === 'PATRIMONIO' && m.subcuenta === 'Ganancias Operadores'
-              && m.origen !== 'cierre_metodo'
+              && m.origen !== 'cierre_metodo' && m.origen !== 'cierre_liquidacion'
               && (mk ? (m.fecha || '').startsWith(mk) : true))
-    .reduce((s, m) => s + (m.credito || 0), 0);
+    .reduce((s, m) => s + (m.credito || 0) - (m.debito || 0), 0);
   const gananciaCierre = (contMovs || [])
     .filter(m => m.cuenta === 'PATRIMONIO' && m.subcuenta === 'Ganancias Operadores'
               && m.origen === 'cierre_metodo'
               && (mk ? (m.fecha || '').startsWith(mk) : true))
     .reduce((s, m) => s + (m.credito || 0) - (m.debito || 0), 0);
-  const gananciaSaldo = gananciaEsf - gananciaReg - gananciaCierre;
+  const gananciaLiq = (contMovs || [])
+    .filter(m => m.cuenta === 'PATRIMONIO' && m.subcuenta === 'Ganancias Operadores'
+              && m.origen === 'cierre_liquidacion'
+              && (mk ? (m.fecha || '').startsWith(mk) : true))
+    .reduce((s, m) => s + (m.credito || 0) - (m.debito || 0), 0);
+  const gananciaSaldo = gananciaEsf - gananciaReg - gananciaCierre - gananciaLiq;
   const gananciaCls = Math.abs(gananciaSaldo) < 100 ? 'var-zero' : gananciaSaldo > 0 ? 'var-pos' : 'var-neg';
 
   const patrimonioHtml = gananciaEsf ? `
@@ -5166,6 +5188,10 @@ function renderVariacionesComisiones() {
     ${gananciaCierre ? `<tr>
       <td style="padding-left:24px;color:#f59e0b">Variaciones Cierre Métodos <span style="font-size:9px;font-weight:700;opacity:.7">OP</span></td>
       <td style="color:#f59e0b">${fmt(-gananciaCierre)}</td>
+    </tr>` : ''}
+    ${gananciaLiq ? `<tr>
+      <td style="padding-left:24px;color:#f59e0b">Liquidación Pagada <span style="font-size:9px;font-weight:700;opacity:.7">OP</span></td>
+      <td style="color:#f59e0b">${fmt(-gananciaLiq)}</td>
     </tr>` : ''}
     <tr style="border-bottom:2px solid var(--border)">
       <td style="padding-left:24px;font-weight:700;font-size:11px;letter-spacing:.5px">SALDO</td>

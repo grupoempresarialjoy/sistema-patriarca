@@ -213,6 +213,7 @@ select option{background:var(--bg3)}
           <div class="sec-sub">Saldo anterior · Ingresos · Egresos · Saldo actual — <span id="cc-mes-lbl"></span></div>
         </div>
         <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost btn-sm btn-importar" onclick="abrirImportCorr('cuentas')">⬆ Importar</button>
           <button class="btn btn-ghost btn-sm" onclick="abrirModalCuenta()">+ Cuenta</button>
           <button class="btn btn-ghost btn-sm" onclick="abrirSaldoInicialCorr()">⚙️ Saldo Inicial</button>
         </div>
@@ -255,7 +256,10 @@ select option{background:var(--bg3)}
           <div class="sec-title">📝 Movimientos de Cuentas</div>
           <div class="sec-sub">Libro de ingresos y egresos — <span id="cm-mes-lbl"></span></div>
         </div>
-        <button class="btn btn-gold btn-sm" onclick="abrirModalCorrMov()">+ Registrar</button>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost btn-sm btn-importar" onclick="abrirImportCorr('movs')">⬆ Importar</button>
+          <button class="btn btn-gold btn-sm" onclick="abrirModalCorrMov()">+ Registrar</button>
+        </div>
       </div>
 
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
@@ -745,6 +749,45 @@ select option{background:var(--bg3)}
     <div class="modal-footer" style="margin-top:16px">
       <button class="btn btn-ghost" onclick="closeModal('modal-corr-mov')">Cancelar</button>
       <button class="btn btn-gold" onclick="guardarCorrMov()">✓ Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL IMPORTAR CORRESPONSAL -->
+<div class="modal-overlay" id="modal-imp-corr">
+  <div class="modal" style="max-width:760px">
+    <h3 style="margin-bottom:6px">⬆ Importar <span id="ic-modo-lbl"></span></h3>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:14px" id="ic-cols"></div>
+
+    <div class="form-group">
+      <label>Opción 1 — Copia las filas en Excel y pégalas aquí</label>
+      <textarea id="ic-paste" rows="5" oninput="parseImportCorr('paste')"
+        style="width:100%;font-family:monospace;font-size:11px;padding:8px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);resize:vertical"></textarea>
+    </div>
+
+    <div class="form-group">
+      <label>Opción 2 — Sube el archivo (.xlsx, .xlsb, .csv)</label>
+      <input type="file" id="ic-file" accept=".xlsx,.xlsb,.xls,.csv" onchange="parseImportCorr('file')"
+        style="width:100%;padding:8px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px">
+      <div id="ic-hojas-wrap" style="display:none;margin-top:8px">
+        <label style="font-size:11px">Hoja</label>
+        <select id="ic-hoja" onchange="parseImportCorr('hoja')" style="width:100%;padding:6px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px"></select>
+      </div>
+    </div>
+
+    <div id="ic-resumen" style="display:none;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:12px"></div>
+
+    <div id="ic-preview-wrap" style="display:none;max-height:220px;overflow:auto;border:1px solid var(--border);border-radius:8px;margin-bottom:12px">
+      <table style="width:100%;font-size:11px"><thead id="ic-thead"></thead><tbody id="ic-preview"></tbody></table>
+    </div>
+
+    <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);margin-bottom:10px">
+      <input type="checkbox" id="ic-reemplazar"> Borrar lo existente antes de importar
+    </label>
+
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-imp-corr')">Cancelar</button>
+      <button class="btn btn-gold" id="ic-btn" onclick="ejecutarImportCorr()" disabled>✓ Importar</button>
     </div>
   </div>
 </div>
@@ -4154,6 +4197,231 @@ async function guardarSaldoInicialCorr() {
     renderCorrCuentas();
     toast('✅ Saldo inicial guardado', 'success');
   } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+// ── IMPORTAR DESDE EXCEL ────────────────────────────────────────
+let _icModo  = 'cuentas';   // 'cuentas' | 'movs'
+let _icFilas = [];
+let _icWB    = null;
+
+function abrirImportCorr(modo) {
+  if (cajeroPermisos.importarExcel === false) { toast('⚠ Sin permiso para importar', 'error'); return; }
+  if (modo === 'movs' && !_corrCuentas.length) { toast('⚠ Primero importa o crea las cuentas', 'error'); return; }
+  _icModo = modo; _icFilas = []; _icWB = null;
+
+  document.getElementById('ic-modo-lbl').textContent = modo === 'cuentas' ? 'Cuentas' : 'Movimientos';
+  document.getElementById('ic-cols').innerHTML = modo === 'cuentas'
+    ? 'Hoja <strong>CLIENTES</strong> — columnas: <strong>ID · NOMBRE · SALDO · RESPONSABLE</strong><br><span style="color:var(--text2)">Crea las cuentas y carga el saldo inicial del mes ' + mesActivo + '</span>'
+    : 'Hoja <strong>TX. CLIENTES</strong> — columnas: <strong>OP · FECHA · NOMBRE CLIENTE · MONTO · MOVIMIENTO · ESPECIALISTA · DESCRIPCIÓN</strong>';
+
+  document.getElementById('ic-paste').value = '';
+  document.getElementById('ic-paste').placeholder = modo === 'cuentas'
+    ? '1\tAcademia Aj1.6\t40.263.726\tCorresponsal\n2\tMetodo Corresponsal\t0\tCorresponsal'
+    : '1\t1/07/26\tCaja Efecty 1 De Mayo\t2.900.000\tEgresos\tPaola Andrea Silva Rosas\tINTERCAMBIO OP 8';
+  document.getElementById('ic-file').value = '';
+  document.getElementById('ic-reemplazar').checked = false;
+  ['ic-hojas-wrap','ic-resumen','ic-preview-wrap'].forEach(id => document.getElementById(id).style.display = 'none');
+  document.getElementById('ic-btn').disabled = true;
+  openModal('modal-imp-corr');
+}
+
+async function parseImportCorr(origen) {
+  let filas = [];
+
+  if (origen === 'paste') {
+    const txt = document.getElementById('ic-paste').value.trim();
+    if (!txt) { _icRender([]); return; }
+    filas = txt.split(/\r?\n/).map(l => l.split('\t'));
+    if (filas[0].length < 3) filas = txt.split(/\r?\n/).map(l => l.split(/\t|;|\s{2,}/));
+  } else {
+    if (origen === 'file') {
+      const f = document.getElementById('ic-file').files[0];
+      if (!f) return;
+      try { _icWB = XLSX.read(await f.arrayBuffer(), { type:'array', cellDates:true }); }
+      catch(e) { toast('⚠ No se pudo leer el archivo', 'error'); return; }
+      const sel = document.getElementById('ic-hoja');
+      sel.innerHTML = _icWB.SheetNames.map(n => `<option value="${n}">${n}</option>`).join('');
+      const buscar = _icModo === 'cuentas' ? /^CLIENTES\s*$/i : /^TX\.?\s*CLIENTES/i;
+      sel.value = _icWB.SheetNames.find(n => buscar.test(n.trim())) || _icWB.SheetNames[0];
+      document.getElementById('ic-hojas-wrap').style.display = 'block';
+    }
+    if (!_icWB) return;
+    filas = XLSX.utils.sheet_to_json(_icWB.Sheets[document.getElementById('ic-hoja').value],
+      { header:1, raw:true, defval:null });
+  }
+
+  const out = [];
+  if (_icModo === 'cuentas') {
+    // Detectar la columna donde empieza el encabezado ID / NOMBRE
+    let c0 = 0;
+    for (const f of filas.slice(0, 20)) {
+      if (!f) continue;
+      const i = f.findIndex(c => /^ID\s*CLIENTES?/i.test(String(c||'').trim()));
+      if (i >= 0) { c0 = i; break; }
+    }
+    filas.forEach(f => {
+      if (!f) return;
+      const id     = f[c0], nombre = f[c0+1], saldo = f[c0+2], resp = f[c0+3];
+      const n = String(nombre||'').trim();
+      if (!n || !/^[\d.,]+$/.test(String(id??'').trim())) return;
+      if (/^NOMBRE/i.test(n)) return;
+      out.push({ orden: parseInt(id)||out.length+1, nombre: n,
+                 saldo: _impNum(saldo), responsable: String(resp||'Corresponsal').trim() });
+    });
+  } else {
+    let c0 = 0;
+    for (const f of filas.slice(0, 20)) {
+      if (!f) continue;
+      const i = f.findIndex(c => /^OP$/i.test(String(c||'').trim()));
+      if (i >= 0 && f.slice(i, i+8).some(c => /MOVIMIENTO/i.test(String(c||'')))) { c0 = i; break; }
+    }
+    filas.forEach(f => {
+      if (!f) return;
+      const fecha  = _impFecha(f[c0+1]);
+      const cuenta = String(f[c0+2]||'').trim();
+      const monto  = _impNum(f[c0+3]);
+      const tipoRaw= String(f[c0+4]||'').trim().toLowerCase();
+      if (!fecha || !cuenta || !monto) return;
+      const tipo = tipoRaw.startsWith('egres') ? 'Egresos' : tipoRaw.startsWith('ingres') ? 'Ingresos' : null;
+      if (!tipo) return;
+      out.push({ op: parseInt(f[c0])||null, fecha, cuenta, monto, movimiento: tipo,
+                 especialista: String(f[c0+5]||'').trim(), descripcion: String(f[c0+6]||'').trim() });
+    });
+  }
+  _icRender(out);
+}
+
+function _icRender(filas) {
+  const btn = document.getElementById('ic-btn');
+  const res = document.getElementById('ic-resumen');
+  _icFilas = filas;
+
+  if (!filas.length) {
+    res.style.display = 'none';
+    document.getElementById('ic-preview-wrap').style.display = 'none';
+    btn.disabled = true;
+    return;
+  }
+
+  res.style.display = 'block';
+  if (_icModo === 'cuentas') {
+    const tot = filas.reduce((s,f)=>s+f.saldo, 0);
+    res.innerHTML = `<strong>${filas.length}</strong> cuentas detectadas · saldo inicial total <strong>${_cPeso(tot)}</strong>`;
+    document.getElementById('ic-thead').innerHTML =
+      '<tr><th>#</th><th>Cuenta</th><th style="text-align:right">Saldo</th><th>Responsable</th></tr>';
+    document.getElementById('ic-preview').innerHTML = filas.map(f => `<tr>
+      <td style="color:var(--text2)">${f.orden}</td>
+      <td style="font-weight:600">${f.nombre}</td>
+      <td style="text-align:right;color:${f.saldo<0?'var(--red)':'var(--text)'}">${_cPeso(f.saldo)}</td>
+      <td style="color:var(--text2)">${f.responsable}</td></tr>`).join('');
+  } else {
+    const conocidas = new Set(_corrCuentas.map(c => c.nombre.toUpperCase()));
+    const desconocidas = [...new Set(filas.filter(f => !conocidas.has(f.cuenta.toUpperCase())).map(f=>f.cuenta))];
+    const sIn = filas.filter(f=>f.movimiento==='Ingresos').reduce((s,f)=>s+f.monto,0);
+    const sEg = filas.filter(f=>f.movimiento==='Egresos').reduce((s,f)=>s+f.monto,0);
+    const meses = [...new Set(filas.map(f=>f.fecha.slice(0,7)))].sort();
+    res.innerHTML = `<strong>${filas.length}</strong> movimientos · ${meses.join(', ')}<br>
+      Ingresos <span style="color:var(--green);font-weight:600">${_cPeso(sIn)}</span> ·
+      Egresos <span style="color:var(--red);font-weight:600">${_cPeso(sEg)}</span> ·
+      Neto <strong>${_cPeso(sIn-sEg)}</strong>
+      ${desconocidas.length ? `<div style="color:var(--orange);margin-top:5px">⚠ ${desconocidas.length} cuenta(s) que no existen se crearán automáticamente: ${desconocidas.slice(0,4).join(', ')}${desconocidas.length>4?'…':''}</div>` : ''}`;
+    document.getElementById('ic-thead').innerHTML =
+      '<tr><th>OP</th><th>Fecha</th><th>Cuenta</th><th style="text-align:right">Monto</th><th>Mov.</th><th>Descripción</th></tr>';
+    document.getElementById('ic-preview').innerHTML = filas.slice(0,60).map(f => `<tr>
+      <td style="color:var(--text2)">${f.op||''}</td><td>${f.fecha}</td>
+      <td>${f.cuenta}</td><td style="text-align:right">${_cPeso(f.monto)}</td>
+      <td><span class="badge ${f.movimiento==='Egresos'?'badge-red':'badge-green'}">${f.movimiento}</span></td>
+      <td style="color:var(--text2);font-size:10px">${f.descripcion||''}</td></tr>`).join('')
+      + (filas.length>60 ? `<tr><td colspan="6" style="text-align:center;color:var(--text2);padding:8px">… y ${filas.length-60} más</td></tr>` : '');
+  }
+
+  document.getElementById('ic-preview-wrap').style.display = 'block';
+  btn.disabled = false;
+}
+
+async function ejecutarImportCorr() {
+  const btn = document.getElementById('ic-btn');
+  btn.disabled = true; btn.textContent = '⏳ Importando…';
+  const of = cajeroOficina || '';
+
+  try {
+    if (_icModo === 'cuentas') {
+      if (document.getElementById('ic-reemplazar').checked) {
+        const snap = await db.collection('corresponsal_cuentas').where('oficina','==',of).get();
+        for (let i=0;i<snap.docs.length;i+=400) {
+          const b = db.batch();
+          snap.docs.slice(i,i+400).forEach(d => b.delete(d.ref));
+          await b.commit();
+        }
+      }
+      // Crear/actualizar cuentas con ID determinístico (evita duplicados)
+      const saldos = {};
+      for (let i=0;i<_icFilas.length;i+=400) {
+        const b = db.batch();
+        _icFilas.slice(i,i+400).forEach(f => {
+          const docId = `${of||'global'}_${f.nombre.replace(/[^\w]/g,'_')}`.slice(0,120);
+          b.set(db.collection('corresponsal_cuentas').doc(docId), {
+            oficina: of, nombre: f.nombre, responsable: f.responsable, orden: f.orden
+          }, { merge: true });
+          if (f.saldo) saldos[f.nombre] = f.saldo;
+        });
+        await b.commit();
+      }
+      // Guardar el saldo inicial del mes
+      await db.collection('corresponsal_saldo_inicial').doc(`${of||'global'}_${mesActivo}`).set({
+        oficina: of, mesKey: mesActivo, saldos,
+        ts: firebase.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+      _corrSI = saldos;
+      toast(`✅ ${_icFilas.length} cuentas importadas`, 'success');
+
+    } else {
+      if (document.getElementById('ic-reemplazar').checked) {
+        for (const mk of [...new Set(_icFilas.map(f=>f.fecha.slice(0,7)))]) {
+          const snap = await db.collection('corresponsal_movimientos')
+            .where('oficina','==',of).where('mesKey','==',mk).get();
+          for (let i=0;i<snap.docs.length;i+=400) {
+            const b = db.batch();
+            snap.docs.slice(i,i+400).forEach(d => b.delete(d.ref));
+            await b.commit();
+          }
+        }
+      }
+      // Crear las cuentas que no existan
+      const conocidas = new Set(_corrCuentas.map(c => c.nombre.toUpperCase()));
+      const nuevas = [...new Set(_icFilas.map(f=>f.cuenta).filter(n => !conocidas.has(n.toUpperCase())))];
+      if (nuevas.length) {
+        const b = db.batch();
+        nuevas.forEach((n, i) => {
+          const docId = `${of||'global'}_${n.replace(/[^\w]/g,'_')}`.slice(0,120);
+          b.set(db.collection('corresponsal_cuentas').doc(docId), {
+            oficina: of, nombre: n, responsable: 'Corresponsal', orden: _corrCuentas.length + i + 1
+          }, { merge: true });
+        });
+        await b.commit();
+      }
+      // Insertar movimientos
+      for (let i=0;i<_icFilas.length;i+=400) {
+        const b = db.batch();
+        _icFilas.slice(i,i+400).forEach((f, j) => {
+          b.set(db.collection('corresponsal_movimientos').doc(), {
+            oficina: of, fecha: f.fecha, cuenta: f.cuenta, monto: f.monto,
+            movimiento: f.movimiento, especialista: f.especialista,
+            descripcion: f.descripcion, mesKey: f.fecha.slice(0,7),
+            op: f.op || (i+j+1), importado: true,
+            ts: firebase.firestore.FieldValue.serverTimestamp(),
+          });
+        });
+        await b.commit();
+      }
+      toast(`✅ ${_icFilas.length} movimientos importados`, 'success');
+    }
+    closeModal('modal-imp-corr');
+  } catch(e) {
+    toast('⚠ ' + e.message, 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = '✓ Importar';
+  }
 }
 
 // ── Export ──

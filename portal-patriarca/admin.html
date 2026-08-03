@@ -630,7 +630,10 @@ select option{background:var(--bg3)}
           <div class="sec-title">📅 Cierres de Mes</div>
           <div class="sec-sub">Solicitudes de cierre enviadas por los operadores — al aceptar, el sistema carga los saldos del mes siguiente automáticamente</div>
         </div>
-        <span id="cierres-pending-badge" style="background:rgba(251,191,36,.15);color:#fbbf24;border:1px solid rgba(251,191,36,.3);padding:4px 14px;border-radius:20px;font-size:11px;font-weight:700;display:none"></span>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span id="cierres-pending-badge" style="background:rgba(251,191,36,.15);color:#fbbf24;border:1px solid rgba(251,191,36,.3);padding:4px 14px;border-radius:20px;font-size:11px;font-weight:700;display:none"></span>
+          <button class="btn btn-ghost btn-sm" onclick="abrirRegenerarAsientos()" title="Detectar y crear los asientos que falten en cierres ya aceptados">🔧 Revisar asientos</button>
+        </div>
       </div>
       <!-- Cierres del cajero — alimentan la Caja General -->
       <div class="panel" style="margin-bottom:16px">
@@ -1221,6 +1224,27 @@ select option{background:var(--bg3)}
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal('modal-edit-usr')">Cancelar</button>
       <button class="btn btn-purple" onclick="guardarEdicionUsuario()">Guardar cambios</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL REGENERAR ASIENTOS -->
+<div class="modal-overlay" id="modal-regen">
+  <div class="modal" style="max-width:640px">
+    <h3 style="margin-bottom:6px">🔧 Revisar asientos de cierre</h3>
+    <p style="font-size:12px;color:var(--text2);line-height:1.6;margin-bottom:14px">
+      Busca cierres ya aceptados a los que les falten asientos contables y los genera.
+      No duplica: si el asiento ya existe, lo deja como está.
+    </p>
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px">
+      <label style="font-size:12px;color:var(--text2)">Mes</label>
+      <input type="month" id="rg-mes" style="padding:6px 10px;font-size:12px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+      <button class="btn btn-ghost btn-sm" onclick="analizarAsientos()">🔍 Analizar</button>
+    </div>
+    <div id="rg-resultado" style="max-height:340px;overflow-y:auto;font-size:12px"></div>
+    <div class="modal-footer" style="margin-top:14px">
+      <button class="btn btn-ghost" onclick="closeModal('modal-regen')">Cerrar</button>
+      <button class="btn btn-purple" id="rg-btn" onclick="ejecutarRegenerar()" disabled>✓ Generar faltantes</button>
     </div>
   </div>
 </div>
@@ -6054,6 +6078,8 @@ function initCierresCajero() {
           ${pend ? `<div style="display:flex;gap:8px;margin-top:12px">
             <button class="btn btn-purple btn-sm" onclick="aceptarCierreCajero('${c.id}')">✅ Aceptar</button>
             <button class="btn btn-ghost btn-sm" onclick="rechazarCierreCajero('${c.id}')">❌ Rechazar</button>
+          </div>` : c.estado === 'aceptado' ? `<div style="margin-top:12px">
+            <button class="btn btn-ghost btn-sm" onclick="aceptarCierreCajero('${c.id}')" title="Vuelve a escribir los saldos en la Caja General">🔄 Volver a aplicar</button>
           </div>` : ''}
         </div>`;
       }).join('');
@@ -6076,9 +6102,20 @@ async function aceptarCierreCajero(id) {
   )) return;
 
   try {
-    const upd = {};
-    upd[`cupo_por_mes.${d.mesSiguiente}`] = d.saldos || {};
-    await db.collection('cajero_config').doc('main').set(upd, { merge: true });
+    // Objeto anidado + merge → conserva los demás meses.
+    // (con set() una llave "cupo_por_mes.2026-08" se guardaría literal, no como ruta)
+    await db.collection('cajero_config').doc('main').set({
+      cupo_por_mes: { [d.mesSiguiente]: d.saldos || {} }
+    }, { merge: true });
+
+    // Limpiar el campo basura que dejó la versión anterior: un campo de primer nivel
+    // llamado literalmente "cupo_por_mes.2026-08". FieldPath evita interpretar el punto.
+    try {
+      await db.collection('cajero_config').doc('main').update(
+        new firebase.firestore.FieldPath(`cupo_por_mes.${d.mesSiguiente}`),
+        firebase.firestore.FieldValue.delete()
+      );
+    } catch(e) { /* no existía, todo bien */ }
 
     await db.collection('cajero_cierres').doc(id).update({
       estado:      'aceptado',
@@ -6296,6 +6333,263 @@ function initCierres() {
     }, err => {
       list.innerHTML = `<div style="color:#e05050;padding:16px">Error: ${err.message}</div>`;
     });
+}
+
+// Cuenta de pasivo donde se registra el pago de liquidaciones
+const CUENTA_LIQ_PAGADA = 'Liquidación Operadores Pagada';
+
+// Asegura que la subcuenta exista en el catálogo
+async function _asegurarCuentaLiq() {
+  const q = await db.collection('cont_catalogo')
+    .where('subcuenta','==',CUENTA_LIQ_PAGADA).limit(1).get();
+  if (!q.empty) return;
+  await db.collection('cont_catalogo').add({
+    tipo: 'PASIVOS', grupo: '10 · Cuentas por Pagar', subcuenta: CUENTA_LIQ_PAGADA,
+    creadoPor: auth.currentUser?.email || 'sistema',
+    creadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+  });
+}
+
+// Genera el asiento por la liquidación del mes anterior que ya se pagó.
+// DÉBITO  PASIVOS    → Liquidación Operadores Pagada  (baja la deuda)
+// CRÉDITO PATRIMONIO → Ganancias Operadores           (la ganancia queda en bruto)
+// Devuelve el monto asentado (0 si no había liquidación o si ya existía el asiento).
+async function _asentarLiquidacion(operadorId, operadorNombre, mesKey, fechaCierre, desc, uid) {
+  try {
+    const [y, m] = mesKey.split('-').map(Number);
+    const prevKey = new Date(y, m - 2, 1).toISOString().slice(0, 7);
+
+    const liqSnap = await db.collection('patriarca_liquidacion_txs')
+      .where('operadorId','==',operadorId).where('mesKey','==',prevKey)
+      .where('tipo','==','saldo').where('estado','==','aprobado').get();
+    const total = Math.round(liqSnap.docs.reduce((s,d) => s + (parseFloat(d.data().monto)||0), 0));
+    if (!total) return 0;
+
+    // No duplicar si ya se generó
+    const yaSnap = await db.collection('cont_movimientos')
+      .where('cuenta','==','PASIVOS').where('subcuenta','==',CUENTA_LIQ_PAGADA).get();
+    const ya = yaSnap.docs.some(d => {
+      const x = d.data();
+      return x.origen === 'cierre_liquidacion' && x.operadorId === operadorId && (x.fecha||'').startsWith(mesKey);
+    });
+    if (ya) return 0;
+
+    await _asegurarCuentaLiq();
+
+    const contSnap = await db.collection('cont_movimientos').orderBy('op','desc').limit(1).get();
+    const op = contSnap.empty ? 1 : ((Number(contSnap.docs[0].data().op) || 0) + 1);
+    const notas = 'Asiento automático de cierre — liquidación pagada';
+    const b = db.batch();
+
+    b.set(db.collection('cont_movimientos').doc(), {
+      op, fecha: fechaCierre, cuenta: 'PASIVOS', subcuenta: CUENTA_LIQ_PAGADA,
+      debito: total, credito: 0, descripcion: desc, notas,
+      origen: 'cierre_liquidacion', operadorId, operadorNombre,
+      creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    b.set(db.collection('cont_movimientos').doc(), {
+      op, fecha: fechaCierre, cuenta: 'PATRIMONIO', subcuenta: 'Ganancias Operadores',
+      debito: 0, credito: total, descripcion: desc, notas,
+      origen: 'cierre_liquidacion', operadorId, operadorNombre,
+      creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    await b.commit();
+    return total;
+  } catch(e) { console.warn('_asentarLiquidacion:', e); return 0; }
+}
+
+// Genera SOLO los asientos de variación de métodos de un cierre ya aceptado.
+// No toca saldos iniciales ni el mes del operador — seguro de correr con el mes siguiente en marcha.
+async function _asentarVariacionMetodos(operadorId, operadorNombre, mesKey, fechaCierre, desc, uid) {
+  // No duplicar
+  const yaSnap = await db.collection('cont_movimientos').where('cuenta','==','PATRIMONIO').get();
+  const ya = yaSnap.docs.some(d => {
+    const x = d.data();
+    return x.origen === 'cierre_metodo' && (x.fecha||'').startsWith(mesKey) &&
+           (x.descripcion||'').includes(operadorNombre);
+  });
+  if (ya) return 0;
+
+  // ESF del operador
+  let cajasEsf = [], totalClientesEsf = 0;
+  const esfNew = await db.collection('patriarca_esf_resumen').doc(`${operadorId}_${mesKey}`).get();
+  if (esfNew.exists) {
+    cajasEsf = esfNew.data().cajas || [];
+    totalClientesEsf = esfNew.data().totalClientes || 0;
+  } else {
+    const esfOld = await db.collection('patriarca_esf_resumen').doc(operadorId).get();
+    if (esfOld.exists && esfOld.data().mesKey === mesKey) {
+      cajasEsf = esfOld.data().cajas || [];
+      totalClientesEsf = esfOld.data().totalClientes || 0;
+    }
+  }
+  if (!cajasEsf.length && !totalClientesEsf) throw new Error('Sin datos ESF para ' + operadorNombre);
+
+  const ESF_A_SF = {
+    'EFECTIVO OPERADOR':'Efectivo Operador','BE MOVIL CAJA':'Be Movil Caja','CUENTA BANCARIA':'Cuenta Bancaria',
+    'MEGA RED':'Mega Red','WPLAY UNITY':'Wplay Unity','SUPER GIROS UNITY':'Super Giros Unity',
+    'EFECTY 1 DE MAYO':'Efecty 1 De Mayo','SUPER GIROS MAQUINA':'Supergiros Maquina',
+    'CORRESPONSAL EL PARAMO':'Corresponsal El Paramo','EASY CHANGER':'Easy changer',
+    'PTM PROPIO':'Ptm Propio','BE MOVIL MASTER':'Be Movil Master','PUNTO RED UNITY':'Punto Red Unity','BET RED':'Bet Red',
+  };
+  const baseG5 = ['Efectivo Operador','Be Movil Caja','Cuenta Bancaria','Mega Red','Wplay Unity','Super Giros Unity','Efecty 1 De Mayo','Supergiros Maquina','Corresponsal El Paramo','Easy changer'];
+  const catG5 = (await db.collection('cont_catalogo').where('grupo','==','5 · Efectivo Operadores').get())
+    .docs.map(d => d.data().subcuenta).filter(Boolean);
+  const grupo5 = [...new Set([...baseG5, ...catG5, 'Saldo Clientes'])];
+
+  const cfg = await db.collection('patriarca_config').doc(operadorId).get();
+  const cuposIniciales = cfg.exists ? (cfg.data().cupos_por_mes?.[mesKey] || {}) : {};
+
+  const saldoFinalPorSF = {};
+  cajasEsf.forEach(c => { saldoFinalPorSF[ESF_A_SF[c.metodo] || c.metodo] = Math.round(c.valor || 0); });
+  saldoFinalPorSF['Saldo Clientes'] = Math.round(totalClientesEsf);
+  const SF_A_CUPO_KEY = { 'Saldo Clientes': 'SALDO CLIENTES ANTERIOR' };
+
+  const contSnap = await db.collection('cont_movimientos').orderBy('op','desc').limit(1).get();
+  const op = contSnap.empty ? 1 : ((Number(contSnap.docs[0].data().op) || 0) + 1);
+  const notas = 'Asiento automático de cierre — saldo método';
+  const batch = db.batch();
+  let n = 0;
+
+  grupo5.forEach(sfNombre => {
+    const cupoKey = SF_A_CUPO_KEY[sfNombre] || sfNombre.toUpperCase();
+    const inicial = Math.round(cuposIniciales[cupoKey] || 0);
+    const final_  = saldoFinalPorSF[sfNombre] !== undefined ? saldoFinalPorSF[sfNombre] : 0;
+    const val = final_ - inicial;
+    if (!val) return;
+    n++;
+    batch.set(db.collection('cont_movimientos').doc(), {
+      op, fecha: fechaCierre, cuenta: 'ACTIVOS', subcuenta: sfNombre,
+      debito: val > 0 ? val : 0, credito: val < 0 ? Math.abs(val) : 0,
+      descripcion: desc, notas, origen: 'cierre_metodo',
+      creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    batch.set(db.collection('cont_movimientos').doc(), {
+      op, fecha: fechaCierre, cuenta: 'PATRIMONIO', subcuenta: 'Ganancias Operadores',
+      debito: val < 0 ? Math.abs(val) : 0, credito: val > 0 ? val : 0,
+      descripcion: desc, notas, origen: 'cierre_metodo',
+      creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  });
+
+  if (n) await batch.commit();
+  return n;
+}
+
+// ── Revisar / regenerar asientos de cierres ya aceptados ────────────────────
+let _rgPendientes = [];
+
+function abrirRegenerarAsientos() {
+  const hoy = new Date();
+  const prev = new Date(hoy.getFullYear(), hoy.getMonth()-1, 1);
+  document.getElementById('rg-mes').value = `${prev.getFullYear()}-${String(prev.getMonth()+1).padStart(2,'0')}`;
+  document.getElementById('rg-resultado').innerHTML = '';
+  document.getElementById('rg-btn').disabled = true;
+  _rgPendientes = [];
+  openModal('modal-regen');
+}
+
+async function analizarAsientos() {
+  const mk = document.getElementById('rg-mes').value;
+  const cont = document.getElementById('rg-resultado');
+  if (!mk) { toast('Selecciona el mes', 'error'); return; }
+  cont.innerHTML = '<div style="padding:16px;color:var(--text2)">⏳ Analizando…</div>';
+
+  const fmtM = n => '$' + Math.round(n||0).toLocaleString('es-CO');
+  const [y, m] = mk.split('-').map(Number);
+  const prevKey = new Date(y, m-2, 1).toISOString().slice(0,7);
+
+  try {
+    // Cierres aceptados de ese mes
+    const cierres = (await db.collection('patriarca_cierres').where('estado','==','aceptado').get())
+      .docs.map(d => ({id:d.id, ...d.data()}))
+      .filter(c => {
+        const M = {enero:1,febrero:2,marzo:3,abril:4,mayo:5,junio:6,julio:7,agosto:8,septiembre:9,octubre:10,noviembre:11,diciembre:12};
+        const p = (c.mes||'').trim().toLowerCase().split(/\s+/);
+        return M[p[0]] === m && parseInt(p[1]) === y;
+      });
+
+    // Asientos existentes del mes
+    const movs = (await db.collection('cont_movimientos').get()).docs.map(d => d.data())
+      .filter(x => (x.fecha||'').startsWith(mk));
+    const tieneMetodo = new Set(movs.filter(x => x.origen==='cierre_metodo')
+      .map(x => (x.descripcion||'').replace(/^Cierre [^—]*—\s*/,'')));
+    const tieneLiq = new Set(movs.filter(x => x.origen==='cierre_liquidacion').map(x => x.operadorId));
+
+    // Liquidaciones del mes anterior
+    const liq = (await db.collection('patriarca_liquidacion_txs')
+      .where('mesKey','==',prevKey).where('tipo','==','saldo').where('estado','==','aprobado').get())
+      .docs.map(d => d.data());
+    const liqPorOp = {};
+    liq.forEach(t => liqPorOp[t.operadorId] = (liqPorOp[t.operadorId]||0) + (parseFloat(t.monto)||0));
+
+    _rgPendientes = [];
+    cierres.forEach(c => {
+      const faltas = [];
+      if (!tieneMetodo.has(c.operadorNombre)) faltas.push('variación de métodos');
+      const L = Math.round(liqPorOp[c.operadorId] || 0);
+      if (L && !tieneLiq.has(c.operadorId)) faltas.push(`liquidación ${fmtM(L)}`);
+      if (faltas.length) _rgPendientes.push({ cierre: c, faltas, liq: L });
+    });
+
+    if (!_rgPendientes.length) {
+      cont.innerHTML = `<div style="padding:16px;color:var(--green);text-align:center">✅ Todos los cierres de ${mk} tienen sus asientos completos</div>`;
+      document.getElementById('rg-btn').disabled = true;
+      return;
+    }
+
+    const totalLiq = _rgPendientes.reduce((s,p) => s + (p.faltas.some(f=>f.startsWith('liquidación')) ? p.liq : 0), 0);
+    cont.innerHTML = `
+      <div style="background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.3);border-radius:8px;padding:10px 12px;margin-bottom:10px">
+        <strong>${_rgPendientes.length}</strong> cierre(s) con asientos faltantes ·
+        liquidaciones por asentar <strong>${fmtM(totalLiq)}</strong>
+      </div>` +
+      _rgPendientes.map(p => {
+        const soloMet = p.faltas.length === 1 && p.faltas[0] === 'variación de métodos';
+        return `<div style="border-bottom:1px solid var(--border);padding:8px 4px">
+          <div style="font-weight:600">${p.cierre.operadorNombre}</div>
+          <div style="color:var(--orange);font-size:11px">Falta: ${p.faltas.join(' · ')}</div>
+          ${p.faltas.includes('variación de métodos')
+            ? '<div style="color:var(--text2);font-size:10px;margin-top:2px">Se generarán solo los asientos contables — no se tocan los saldos iniciales del mes siguiente</div>' : ''}
+        </div>`;
+      }).join('');
+    document.getElementById('rg-btn').disabled = false;
+
+  } catch(e) {
+    cont.innerHTML = `<div style="padding:16px;color:var(--red)">⚠ ${e.message}</div>`;
+  }
+}
+
+async function ejecutarRegenerar() {
+  const btn = document.getElementById('rg-btn');
+  btn.disabled = true; btn.textContent = '⏳ Generando…';
+  const mk = document.getElementById('rg-mes').value;
+  const [y, m] = mk.split('-').map(Number);
+  const ultimoDia = new Date(y, m, 0).getDate();
+  const fechaCierre = `${mk}-${String(ultimoDia).padStart(2,'0')}`;
+  const uid = auth.currentUser?.uid || '';
+  let nLiq = 0, nMet = 0;
+
+  try {
+    for (const p of _rgPendientes) {
+      const c = p.cierre;
+      const desc = `Cierre ${c.mes} — ${c.operadorNombre}`;
+      if (p.faltas.some(f => f.startsWith('liquidación'))) {
+        const v = await _asentarLiquidacion(c.operadorId, c.operadorNombre, mk, fechaCierre, desc, uid);
+        if (v) nLiq++;
+      }
+      if (p.faltas.includes('variación de métodos')) {
+        const n = await _asentarVariacionMetodos(c.operadorId, c.operadorNombre, mk, fechaCierre, desc, uid);
+        if (n) nMet++;
+      }
+    }
+    toast(`✅ ${nLiq} asiento(s) de liquidación y ${nMet} de variación de métodos generados`, 'success');
+    await analizarAsientos();
+  } catch(e) {
+    toast('⚠ ' + e.message, 'error');
+  } finally {
+    btn.textContent = '✓ Generar faltantes';
+  }
 }
 
 async function aceptarCierre(cierreId) {
@@ -6526,6 +6820,12 @@ async function aceptarCierre(cierreId) {
         });
 
         if (hayAsientosCajas) await batchCajas.commit();
+
+        // ── Asiento de liquidación pagada ──────────────────────────────────
+        // El saldo final del ESF ya viene con la liquidación descontada, pero el
+        // cupo inicial no la contempla. Sin este asiento el pago aparece como
+        // pérdida de caja. Pagar una liquidación cancela un pasivo, no es gasto.
+        await _asentarLiquidacion(data.operadorId, data.operadorNombre, mesKey, fechaCierre, desc, uid);
       }
     }
 

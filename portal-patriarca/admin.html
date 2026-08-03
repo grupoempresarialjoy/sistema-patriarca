@@ -6400,15 +6400,25 @@ async function _asentarLiquidacion(operadorId, operadorNombre, mesKey, fechaCier
 
 // Genera SOLO los asientos de variación de métodos de un cierre ya aceptado.
 // No toca saldos iniciales ni el mes del operador — seguro de correr con el mes siguiente en marcha.
-async function _asentarVariacionMetodos(operadorId, operadorNombre, mesKey, fechaCierre, desc, uid) {
-  // No duplicar
-  const yaSnap = await db.collection('cont_movimientos').where('cuenta','==','PATRIMONIO').get();
-  const ya = yaSnap.docs.some(d => {
+async function _asentarVariacionMetodos(operadorId, operadorNombre, mesKey, fechaCierre, desc, uid, forzar) {
+  // Localizar asientos existentes de este operador/mes
+  const todos = await db.collection('cont_movimientos').get();
+  const existentes = todos.docs.filter(d => {
     const x = d.data();
     return x.origen === 'cierre_metodo' && (x.fecha||'').startsWith(mesKey) &&
            (x.descripcion||'').includes(operadorNombre);
   });
-  if (ya) return 0;
+
+  if (existentes.length && !forzar) return 0;   // ya existen y no se pidió rehacer
+
+  // Rehacer: borrar los anteriores antes de recrear
+  if (existentes.length && forzar) {
+    for (let i = 0; i < existentes.length; i += 400) {
+      const b = db.batch();
+      existentes.slice(i, i+400).forEach(d => b.delete(d.ref));
+      await b.commit();
+    }
+  }
 
   // ESF del operador
   let cajasEsf = [], totalClientesEsf = 0;
@@ -6523,13 +6533,34 @@ async function analizarAsientos() {
     const liqPorOp = {};
     liq.forEach(t => liqPorOp[t.operadorId] = (liqPorOp[t.operadorId]||0) + (parseFloat(t.monto)||0));
 
+    // Ganancia del ESF y lo ya asentado, por operador → detectar descuadres
+    const esfSnap = await db.collection('patriarca_esf_resumen').where('mesKey','==',mk).get();
+    const ganPorOp = {};
+    esfSnap.docs.map(d=>d.data()).forEach(r => {
+      const g = Math.round((r.totalActivos||0)-(r.clientesMesAnt||0)-(r.cupoEnCajas||0));
+      if (g > 0 && r.uid) ganPorOp[r.uid] = g;
+    });
+    const asentado = {};
+    movs.filter(x => x.cuenta==='PATRIMONIO' && x.subcuenta==='Ganancias Operadores').forEach(x => {
+      const n = x.operadorNombre || (x.descripcion||'').replace(/^Cierre [^—]*—\s*/,'');
+      asentado[n] = (asentado[n]||0) + (x.credito||0) - (x.debito||0);
+    });
+
     _rgPendientes = [];
     cierres.forEach(c => {
       const faltas = [];
-      if (!tieneMetodo.has(c.operadorNombre)) faltas.push('variación de métodos');
+      const tieneMet = tieneMetodo.has(c.operadorNombre);
+      if (!tieneMet) faltas.push('variación de métodos');
       const L = Math.round(liqPorOp[c.operadorId] || 0);
       if (L && !tieneLiq.has(c.operadorId)) faltas.push(`liquidación ${fmtM(L)}`);
-      if (faltas.length) _rgPendientes.push({ cierre: c, faltas, liq: L });
+
+      // Descuadre: la ganancia del ESF no coincide con lo asentado
+      const g = ganPorOp[c.operadorId] || 0;
+      const d = g ? Math.round(g - (asentado[c.operadorNombre]||0)) : 0;
+      const desajustado = tieneMet && !faltas.length && Math.abs(d) > 100;
+      if (desajustado) faltas.push(`descuadre ${fmtM(d)} — rehacer métodos`);
+
+      if (faltas.length) _rgPendientes.push({ cierre: c, faltas, liq: L, descuadre: d, rehacer: desajustado });
     });
 
     if (!_rgPendientes.length) {
@@ -6549,7 +6580,9 @@ async function analizarAsientos() {
         return `<div style="border-bottom:1px solid var(--border);padding:8px 4px">
           <div style="font-weight:600">${p.cierre.operadorNombre}</div>
           <div style="color:var(--orange);font-size:11px">Falta: ${p.faltas.join(' · ')}</div>
-          ${p.faltas.includes('variación de métodos')
+          ${p.rehacer
+            ? '<div style="color:var(--red);font-size:10px;margin-top:2px">⚠ Se borrarán sus asientos de método actuales y se recrearán con el ESF de hoy</div>'
+            : p.faltas.includes('variación de métodos')
             ? '<div style="color:var(--text2);font-size:10px;margin-top:2px">Se generarán solo los asientos contables — no se tocan los saldos iniciales del mes siguiente</div>' : ''}
         </div>`;
       }).join('');
@@ -6578,8 +6611,8 @@ async function ejecutarRegenerar() {
         const v = await _asentarLiquidacion(c.operadorId, c.operadorNombre, mk, fechaCierre, desc, uid);
         if (v) nLiq++;
       }
-      if (p.faltas.includes('variación de métodos')) {
-        const n = await _asentarVariacionMetodos(c.operadorId, c.operadorNombre, mk, fechaCierre, desc, uid);
+      if (p.faltas.includes('variación de métodos') || p.rehacer) {
+        const n = await _asentarVariacionMetodos(c.operadorId, c.operadorNombre, mk, fechaCierre, desc, uid, !!p.rehacer);
         if (n) nMet++;
       }
     }

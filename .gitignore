@@ -1,1 +1,17 @@
 SUBIR-A-GITHUB.command
+
+# Dependencias — se reinstalan solas, no se versionan
+node_modules/
+**/node_modules/
+
+# Basura de macOS
+.DS_Store
+.fuse_hidden*
+
+# Respaldos temporales
+*.bak-tz
+*.check
+
+# Cache de Firebase
+.firebase/
+firebase-debug.log

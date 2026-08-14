@@ -6,11 +6,27 @@
       "ignore": [
         "firebase.json",
         "seed-users.html",
-        ".firebaserc"
+        ".firebaserc",
+        "functions/**",
+        "**/node_modules/**",
+        "**/.*"
       ]
     }
   ],
   "firestore": {
     "rules": "firestore.rules"
-  }
+  },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "runtime": "nodejs22",
+      "ignore": [
+        "node_modules",
+        ".git",
+        "firebase-debug.log",
+        "firebase-debug.*.log"
+      ]
+    }
+  ]
 }

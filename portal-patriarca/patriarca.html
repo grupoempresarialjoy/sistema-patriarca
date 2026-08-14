@@ -259,6 +259,7 @@ select option { background: var(--bg3); }
     <div class="tab" onclick="showTab('saldos')">💰 Saldos</div>
     <div class="tab" onclick="showTab('productividad')">📈 Productividad</div>
     <div class="tab" onclick="abrirTrixi()">🧮 Trixi</div>
+    <div class="tab" id="tab-trixibot" style="display:none" onclick="showTab('trixibot')">🤖 Trixi Bot</div>
     <div class="tab" onclick="showTab('esf')">📋 ESF</div>
     <div class="tab" onclick="showTab('gastos')">💳 Gastos</div>
     <div class="tab" id="tab-comisiones" onclick="showTab('comisiones')">💱 Comisiones</div>
@@ -1183,6 +1184,65 @@ select option { background: var(--bg3); }
     </div>
 
     <!-- ─────────────── GASTOS ─────────────── -->
+    <div class="section" id="sec-trixibot">
+      <div class="sec-header">
+        <div>
+          <div class="sec-title">🤖 Trixi Bot</div>
+          <div class="sec-subtitle">Busca apuestas seguras entre las casas · hora Colombia</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span id="tb-plan-badge" style="font-size:11px;padding:4px 10px;border-radius:6px;background:rgba(139,92,246,.15);color:#a78bfa;font-weight:700">—</span>
+          <button class="btn btn-gold" onclick="tbCargarCuotas()">＋ Cargar cuotas</button>
+        </div>
+      </div>
+
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:16px">
+        <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Casas a escanear</div>
+        <div id="tb-casas-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px"></div>
+
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+          <div>
+            <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Capital</div>
+            <input type="text" id="tb-capital" value="2.500.000" oninput="tbFmt(this)"
+              style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:7px 10px;font-size:13px;width:130px;text-align:right">
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Utilidad mínima %</div>
+            <input type="text" id="tb-umin" value="0,5"
+              style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:7px 10px;font-size:13px;width:90px;text-align:right">
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Mercado</div>
+            <select id="tb-mercado" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:7px 10px;font-size:13px">
+              <option value="1X2">1X2</option>
+            </select>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Ventana</div>
+            <select id="tb-dias" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:7px 10px;font-size:13px">
+              <option value="0">Solo hoy</option>
+              <option value="1" selected>Hoy y mañana</option>
+              <option value="2">3 días</option>
+            </select>
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);cursor:pointer;user-select:none">
+            <input type="checkbox" id="tb-solo-segura" style="width:15px;height:15px;cursor:pointer">
+            Ocultar arbitraje puro
+          </label>
+          <button class="btn btn-gold" id="tb-btn-buscar" onclick="tbBuscar()">🔍 Buscar cuotas</button>
+        </div>
+      </div>
+
+      <div class="kpi-grid" style="margin-bottom:16px">
+        <div class="kpi"><div class="kpi-label">Eventos escaneados</div><div class="kpi-value" id="tb-k-eventos">0</div></div>
+        <div class="kpi green"><div class="kpi-label">Oportunidades</div><div class="kpi-value" id="tb-k-ops">0</div></div>
+        <div class="kpi green"><div class="kpi-label">Mejor utilidad</div><div class="kpi-value" id="tb-k-mejor">—</div></div>
+        <div class="kpi"><div class="kpi-label">Búsquedas hoy</div><div class="kpi-value" id="tb-k-uso">0</div></div>
+      </div>
+
+      <div id="tb-resultados"></div>
+    </div>
+
     <div class="section" id="sec-gastos">
       <div class="sec-header">
         <div><div class="sec-title">Costos y Gastos</div><div class="sec-subtitle">Egresos operativos del mes</div></div>
@@ -1257,21 +1317,101 @@ select option { background: var(--bg3); }
         <div id="liq-estado-badge" style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;background:var(--bg3);color:var(--text2)">—</div>
       </div>
 
-      <!-- SALDOS POR MÉTODO -->
+      <!-- TU GANANCIA DEL MES — se libera a medida que pagas la liquidación -->
+      <div class="panel" id="liq-gan-panel" style="margin-bottom:20px;display:none">
+        <div class="panel-header">
+          <span class="panel-title">💼 Tu Ganancia del Mes</span>
+          <span id="liq-gan-estado" style="font-size:11px;font-weight:700;padding:3px 12px;border-radius:20px">—</span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1px;background:var(--border)">
+          <div style="background:var(--bg2);padding:18px 16px">
+            <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Ganancia del Mes</div>
+            <div id="liq-gan-total" style="font-size:22px;font-weight:800;color:var(--gold)">$0</div>
+            <div id="liq-gan-sub" style="font-size:10px;color:var(--text2);margin-top:4px">—</div>
+          </div>
+          <div style="background:var(--bg2);padding:18px 16px">
+            <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Liberado</div>
+            <div id="liq-gan-liberado" style="font-size:22px;font-weight:800;color:var(--green)">$0</div>
+            <div id="liq-gan-pct" style="font-size:10px;color:var(--text2);margin-top:4px">—</div>
+          </div>
+          <div style="background:var(--bg2);padding:18px 16px">
+            <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Retenido</div>
+            <div id="liq-gan-retenido" style="font-size:22px;font-weight:800;color:var(--text2)">$0</div>
+            <div style="font-size:10px;color:var(--text2);margin-top:4px">Se libera al terminar de pagar</div>
+          </div>
+        </div>
+        <div style="padding:14px 16px;background:var(--bg2)">
+          <div id="liq-gan-nota" style="font-size:12px;color:var(--text2)">—</div>
+          <div id="liq-gan-desglose" style="font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border)"></div>
+        </div>
+      </div>
+
+      <!-- LIQUIDACIÓN POR PAGAR — el mismo pasivo del Estado de Situación Financiera -->
       <div class="panel" style="margin-bottom:20px">
-        <div class="panel-header"><span class="panel-title">💰 Saldos por Método</span></div>
-        <div class="tbl-wrap">
-          <table>
-            <thead><tr>
-              <th style="text-align:left">Método</th>
-              <th>Al Cierre</th>
-              <th style="color:var(--green)">Pagado</th>
-              <th>Pendiente</th>
-            </tr></thead>
-            <tbody id="liq-saldos-tbody">
-              <tr><td colspan="4"><div class="empty">Selecciona un mes</div></td></tr>
-            </tbody>
-          </table>
+        <div class="panel-header">
+          <span class="panel-title">🧾 Liquidación por Pagar</span>
+          <span style="font-size:11px;color:var(--text2)">Es el pasivo del cierre — baja con cada pago aprobado</span>
+        </div>
+        <div id="liq-resumen" style="display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--border)">
+          <div style="background:var(--bg2);padding:18px 16px">
+            <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Saldo Inicial</div>
+            <div id="liq-res-ini" style="font-size:22px;font-weight:800">$0</div>
+          </div>
+          <div style="background:var(--bg2);padding:18px 16px">
+            <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Pagado</div>
+            <div id="liq-res-pag" style="font-size:22px;font-weight:800;color:var(--green)">$0</div>
+          </div>
+          <div style="background:var(--bg2);padding:18px 16px">
+            <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Le Falta</div>
+            <div id="liq-res-falta" style="font-size:22px;font-weight:800;color:var(--orange)">$0</div>
+          </div>
+        </div>
+        <div style="padding:0 16px 16px;background:var(--bg2)">
+          <div style="height:8px;border-radius:20px;background:var(--bg3);overflow:hidden">
+            <div id="liq-res-barra" style="height:100%;width:0%;background:var(--green);border-radius:20px;transition:width .4s"></div>
+          </div>
+          <div id="liq-res-nota" style="font-size:11px;color:var(--text2);margin-top:8px">—</div>
+        </div>
+      </div>
+
+      <!-- TU CUENTA EN EL CORRESPONSAL -->
+      <div class="panel" id="cta-panel" style="margin-bottom:20px;display:none">
+        <div class="panel-header">
+          <span class="panel-title" style="cursor:pointer" onclick="toggleCuentaCorr()">🏦 Tu Cuenta en el Corresponsal <span id="cta-caret" style="font-size:10px;color:var(--text2)">▸</span></span>
+          <span style="display:flex;align-items:center;gap:12px">
+            <span id="cta-saldo" style="font-size:18px;font-weight:800;color:var(--green)">$0</span>
+            <button class="btn btn-gold btn-sm" onclick="abrirModalRetiro()">↗ Solicitar retiro</button>
+          </span>
+        </div>
+        <div id="cta-body" style="display:none">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--border)">
+            <div style="background:var(--bg2);padding:14px 16px">
+              <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">Saldo Anterior</div>
+              <div id="cta-ant" style="font-size:16px;font-weight:700">$0</div>
+            </div>
+            <div style="background:var(--bg2);padding:14px 16px">
+              <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">Le Entró</div>
+              <div id="cta-in" style="font-size:16px;font-weight:700;color:var(--green)">$0</div>
+            </div>
+            <div style="background:var(--bg2);padding:14px 16px">
+              <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">Le Salió</div>
+              <div id="cta-eg" style="font-size:16px;font-weight:700;color:var(--red)">$0</div>
+            </div>
+          </div>
+          <div class="tbl-wrap" style="max-height:360px;overflow-y:auto">
+            <table>
+              <thead><tr>
+                <th style="text-align:left">Fecha</th>
+                <th>Movimiento</th>
+                <th style="text-align:right">Monto</th>
+                <th style="text-align:left">Concepto</th>
+                <th style="text-align:right">Saldo</th>
+              </tr></thead>
+              <tbody id="cta-tbody"></tbody>
+            </table>
+          </div>
+          <div id="cta-nota" style="padding:12px 16px;font-size:11px;color:var(--text2);background:var(--bg2)"></div>
+          <div id="cta-retiros" style="background:var(--bg2)"></div>
         </div>
       </div>
 
@@ -1753,6 +1893,7 @@ select option { background: var(--bg3); }
     <!-- Reasignación de Op2 (solo para Cruzados) -->
     <div id="corr-op2-wrap" style="display:none;background:rgba(74,158,255,.06);border:1px solid rgba(74,158,255,.25);border-radius:6px;padding:12px 14px;margin-bottom:12px">
       <div style="font-size:11px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">🔄 Reasignar Operador 2 (opcional)</div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:6px">Si lo mandaste como Propio y era contra otro operador, escógelo aquí.</div>
       <select id="corr-nuevo-op2" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);width:100%">
         <option value="">— Sin cambio de operador —</option>
         <option value="PROPIO">↩ Convertir a Interno (Propio)</option>
@@ -1770,6 +1911,53 @@ select option { background: var(--bg3); }
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal('modal-correccion')">Cancelar</button>
       <button class="btn btn-gold" id="corr-submit" disabled onclick="saveCorreccion()">📤 Enviar solicitud</button>
+    </div>
+  </div>
+</div>
+
+<!-- SOLICITAR RETIRO DE LA CUENTA DEL CORRESPONSAL -->
+<div class="modal-overlay" id="modal-retiro">
+  <div class="modal" style="max-width:470px">
+    <h3 style="margin-bottom:6px">↗ Solicitar Retiro</h3>
+    <p style="font-size:12px;color:var(--text2);margin-bottom:14px">
+      Le llega a la cajera. Cuando lo apruebe se descuenta de tu cuenta.
+      Disponible <strong id="ret-disp" style="color:var(--green)">$0</strong>.
+    </p>
+
+    <div class="form-group"><label>¿Para qué es?</label>
+      <select id="ret-tipo" onchange="_retTipoChange()">
+        <option value="efectivo">💵 Efectivo — me lo llevo en billetes</option>
+        <option value="deposito">🏦 Depósito a una cuenta mía</option>
+        <option value="pago">📄 Pagar un servicio o enviar a alguien</option>
+        <option value="inversion">📈 Invertir en mi cupo</option>
+      </select>
+      <div id="ret-hint" style="font-size:11px;color:var(--text2);margin-top:5px"></div>
+    </div>
+
+    <div class="form-group"><label>Monto</label>
+      <input type="number" id="ret-monto" min="1" placeholder="0"></div>
+
+    <div id="ret-wrap-banco" style="display:none">
+      <div class="form-grid">
+        <div class="form-group"><label>Banco</label>
+          <input type="text" id="ret-banco" placeholder="Ej: Bancolombia"></div>
+        <div class="form-group"><label>Número de cuenta</label>
+          <input type="text" id="ret-numero" placeholder="Ej: 123456789"></div>
+      </div>
+      <div class="form-group"><label>A nombre de</label>
+        <input type="text" id="ret-titular" placeholder="Titular de la cuenta"></div>
+    </div>
+
+    <div class="form-group" id="ret-wrap-benef" style="display:none">
+      <label>¿A quién o a qué?</label>
+      <input type="text" id="ret-beneficiario" placeholder="Ej: Tarjeta de crédito Bancolombia · ref 4321"></div>
+
+    <div class="form-group"><label>Nota <span style="color:var(--text2);font-weight:400">(opcional)</span></label>
+      <input type="text" id="ret-nota" maxlength="90" placeholder="Algo que la cajera deba saber"></div>
+
+    <div class="modal-footer" style="margin-top:14px">
+      <button class="btn btn-ghost" onclick="closeModal('modal-retiro')">Cancelar</button>
+      <button class="btn btn-gold" id="ret-btn" onclick="enviarRetiro()">📤 Solicitar</button>
     </div>
   </div>
 </div>
@@ -2144,6 +2332,7 @@ auth.onAuthStateChanged(async user => {
     loadActiveOperators();
     subscribeIncoming();
     _suscribirMesCerrado(); // verificar si el mes activo está cerrado
+    tbInit(); // Trixi Bot — muestra la pestaña solo si el admin la habilitó
     reloadDash(); // Render inmediato con nombre y config — los datos llenarán cuando lleguen los listeners
     // Cargar escalera desde Firestore según metodo_participacion del operador
     const metodoNombre = config.metodo_participacion || 'Escalera de Ganancia';
@@ -2198,14 +2387,17 @@ async function loadConfig() {
       // Normalizar cupos_cajero con normMetodo para deduplicar aliases (ej "Saldo Clientes" → "SALDO CLIENTES ANTERIOR")
       // NO filtrar por METODOS_CAJA para no descartar métodos válidos que aún no hayan cargado (ej CUENTA BANCARIA)
       const cuposCajeroRaw = d.cupos_cajero || {};
+      const NO_SON_METODOS = new Set(['CUPO TOTAL', 'CUPO TOTAL ASIGNADO', 'CUPO_RESIDUAL', 'COM_MES_ANT', 'LIQ_POR_PAGAR', 'CLI_MES_ANT']);
       const cuposCajero = {};
       Object.entries(cuposCajeroRaw).forEach(([k, v]) => {
+        if (NO_SON_METODOS.has(k)) return; // Filtrar CUPO TOTAL ANTES de normalizar
         const norm = normMetodo(k);
         if (!norm) return;
         // Deduplicar: si la misma clave normalizada aparece dos veces, conservar el mayor valor
         if (!(norm in cuposCajero) || v > cuposCajero[norm]) cuposCajero[norm] = v;
       });
-      const totalCajero = Object.values(cuposCajero).reduce((a,b) => a+b, 0);
+      const totalCajero = Object.entries(cuposCajero)
+        .reduce((a, [, v]) => a + v, 0);
 
       // Si cajero asignó cupos, usar esa suma (incluso si es 0); si no hay cupos de cajero, usar config.cupo
       const hayCuposCajero = Object.keys(cuposCajero).length > 0;
@@ -2233,6 +2425,7 @@ async function loadConfig() {
           if (mesKey && d.cupos_por_mes && d.cupos_por_mes[mesKey]) {
             const merged = {};
             Object.entries(d.cupos_por_mes[mesKey]).forEach(([k,v]) => {
+              if (NO_SON_METODOS.has(k)) return; // Filtrar CUPO TOTAL (NO_SON_METODOS ya se definió arriba)
               const norm = normMetodo(k) || k;
               if (v != null) merged[norm] = v;
             });
@@ -2598,6 +2791,7 @@ function showTab(name) {
   if (name==='equipo') loadEquipoTab();
   if (name==='comisiones') renderComisionesTab();
   if (name==='liquidacion') renderLiquidacion();
+  if (name==='trixibot') tbAbrir();
   if (name==='inversiones') showInvSubtab('historial');
 }
 
@@ -3646,7 +3840,9 @@ let _liqVariaciones  = null;
 let _liqTxsListener  = null;
 let _liqTxs          = [];
 let _liqMesKey       = null;
-let _liqSaldosIniciales = {};
+let _liqPasivoInicial = 0;
+let _liqParticipacion = null;   // lo que el CEO dejó guardado del mes
+const LIQ_UMBRAL_COBRO = 80;    // % de la liquidación que hay que pagar para poder cobrar
 let _liqCorrecciones = [];
 let _liqCorrListener = null;
 
@@ -3685,19 +3881,40 @@ async function renderLiquidacion() {
   const mesLabel = new Date(mesKey + '-02').toLocaleDateString('es-CO', { month: 'long', year: 'numeric' });
   document.getElementById('liq-subtitle').textContent = 'Liquidación — ' + mesLabel.charAt(0).toUpperCase() + mesLabel.slice(1);
 
-  // Cupo inicial por método (config global, refleja saldos reales asignados por admin)
-  _liqSaldosIniciales = config.cupos_iniciales || {};
+  // El pasivo del cierre: patriarca_saldo_inicial del mes SIGUIENTE guarda
+  // gananciaMesAnterior, que es exactamente la "Liquidación por Pagar" del ESF.
+  _liqPasivoInicial = 0;
+  try {
+    const [ly, lm] = mesKey.split('-').map(Number);
+    const sigKey = (lm===12 ? (ly+1)+'-01' : ly+'-'+String(lm+1).padStart(2,'0'));
+    const siSnap = await db.collection('patriarca_saldo_inicial').doc(`${uid}_${sigKey}`).get({ source: 'server' });
+    if (siSnap.exists) _liqPasivoInicial = Math.round(siSnap.data().gananciaMesAnterior || 0);
+  } catch(e) { console.warn('liq: pasivo inicial:', e); }
 
   // Leer variaciones del mes
   const varSnap = await db.collection('patriarca_variaciones').doc(`${uid}_${mesKey}`).get({ source: 'server' });
   if (!varSnap.exists) {
-    document.getElementById('liq-saldos-tbody').innerHTML = '<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--text2)">Sin datos de liquidación para este mes. El administrador debe aceptar el cierre primero.</td></tr>';
+    document.getElementById('liq-res-ini').textContent   = '$0';
+    document.getElementById('liq-res-pag').textContent   = '$0';
+    document.getElementById('liq-res-falta').textContent = '$0';
+    document.getElementById('liq-res-barra').style.width = '0%';
+    document.getElementById('liq-res-nota').textContent  = 'Sin datos de liquidación para este mes. El administrador debe aceptar el cierre primero.';
     document.getElementById('liq-coms-tbody').innerHTML   = '<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--text2)">—</td></tr>';
     document.getElementById('liq-pagos-tbody').innerHTML  = '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text2)">—</td></tr>';
     document.getElementById('liq-estado-badge').textContent = 'Sin datos';
     document.getElementById('btn-nuevo-pago').style.display = 'none';
     return;
   }
+
+  // La ganancia del mes la calcula y guarda el CEO
+  _liqParticipacion = null;
+  try {
+    const pSnap = await db.collection('patriarca_participacion').doc(`${uid}_${mesKey}`).get();
+    if (pSnap.exists) _liqParticipacion = pSnap.data();
+  } catch(e) { console.warn('liq: participacion:', e); }
+
+  cargarCuentaCorr();
+  _cargarMisRetiros();
 
   _liqVariaciones = varSnap.data();
   document.getElementById('btn-nuevo-pago').style.display = '';
@@ -3723,6 +3940,219 @@ async function renderLiquidacion() {
     });
 }
 
+
+// ── Tu cuenta en el Corresponsal ──────────────────────────────────────────
+// Es la cuenta corriente del operador con la oficina: lo que le han
+// entregado y lo que ha devuelto.
+let _ctaMovs = [];
+let _ctaUnsub = null;
+let _ctaExiste = false;    // el operador tiene cuenta abierta en el corresponsal
+let _ctaCuenta = '';
+let _ctaOficina = '';
+
+function _ctaNombre() { return 'Operador ' + (operadorNombre || '').trim(); }
+
+function toggleCuentaCorr() {
+  const b = document.getElementById('cta-body');
+  const c = document.getElementById('cta-caret');
+  const oculto = b.style.display === 'none';
+  b.style.display = oculto ? '' : 'none';
+  if (c) c.textContent = oculto ? '▾' : '▸';
+}
+
+async function cargarCuentaCorr() {
+  const panel = document.getElementById('cta-panel');
+  const uid = auth.currentUser?.uid;
+  if (!panel || !uid) return;
+
+  // Primero por enlace directo; si no, por el nombre
+  let cuenta = null;
+  try {
+    const enl = await db.collection('corresponsal_cuentas').where('operadorUid','==',uid).limit(1).get();
+    if (!enl.empty) { cuenta = enl.docs[0].data().nombre; _ctaOficina = enl.docs[0].data().oficina || ''; }
+  } catch(e) { console.warn('cta enlace:', e); }
+  let enlazada = !!cuenta;
+  if (!cuenta) {
+    cuenta = _ctaNombre();
+    try {
+      const porNom = await db.collection('corresponsal_cuentas').where('nombre','==',cuenta).limit(1).get();
+      enlazada = !porNom.empty;
+      if (enlazada) _ctaOficina = porNom.docs[0].data().oficina || '';
+    } catch(e) {}
+  }
+  _ctaExiste = enlazada;
+  _ctaCuenta = cuenta;
+
+  // Saldo con que abrió el mes
+  let anterior = 0;
+  const mk = siMesActual();
+  try {
+    const si = await db.collection('corresponsal_saldo_inicial').where('mesKey','==',mk).get();
+    si.docs.forEach(d => { anterior += parseFloat((d.data().saldos || {})[cuenta]) || 0; });
+  } catch(e) { console.warn('cta saldo inicial:', e); }
+
+  if (_ctaUnsub) _ctaUnsub();
+  _ctaUnsub = db.collection('corresponsal_movimientos').where('cuenta','==',cuenta)
+    .onSnapshot(s => {
+      _ctaMovs = s.docs.map(d => ({id:d.id, ...d.data()}))
+        .filter(m => (m.mesKey || (m.fecha||'').slice(0,7)) === mk)
+        .sort((a,b) => (a.fecha||'').localeCompare(b.fecha||'') || (a.op||0)-(b.op||0));
+      renderCuentaCorr(anterior);
+    }, e => console.warn('cta movs:', e));
+}
+
+function renderCuentaCorr(anterior) {
+  const panel = document.getElementById('cta-panel');
+  const tb    = document.getElementById('cta-tbody');
+  if (!panel || !tb) return;
+
+  // Se muestra si tiene cuenta abierta, así esté en cero
+  if (!_ctaExiste && !_ctaMovs.length && !anterior) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+
+  let din = 0, deg = 0, saldo = anterior;
+  const filas = _ctaMovs.map(m => {
+    const v   = parseFloat(m.monto) || 0;
+    const esIn = m.movimiento === 'Ingresos';
+    if (esIn) { din += v; saldo += v; } else { deg += v; saldo -= v; }
+    return `<tr>
+      <td style="white-space:nowrap">${m.fecha || ''}</td>
+      <td><span class="badge ${esIn ? 'badge-green' : 'badge-red'}">${m.movimiento || ''}</span></td>
+      <td style="text-align:right;font-weight:600">${peso(v)}</td>
+      <td style="font-size:11px;color:var(--text2)">${m.descripcion || ''}</td>
+      <td style="text-align:right;font-weight:700;color:${saldo<0?'var(--red)':'var(--green)'}">${peso(saldo)}</td>
+    </tr>`;
+  }).join('');
+
+  const total = anterior + din - deg;
+  _ctaSaldoActual = total;
+  document.getElementById('cta-ant').textContent = peso(anterior);
+  document.getElementById('cta-in').textContent  = peso(din);
+  document.getElementById('cta-eg').textContent  = peso(deg);
+  const elS = document.getElementById('cta-saldo');
+  elS.textContent = peso(total);
+  elS.style.color = total < 0 ? 'var(--red)' : 'var(--green)';
+
+  tb.innerHTML = filas || '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text2)">Sin movimientos este mes</td></tr>';
+
+  document.getElementById('cta-nota').textContent =
+      total === 0 ? `Tu cuenta ${_ctaCuenta} está en cero.`
+    : total > 0   ? `Tienes ${peso(total)} disponibles para retirar.`
+    :               `Tu cuenta está en rojo por ${peso(-total)}.`;
+}
+
+
+// ── Retiros de la cuenta del corresponsal ─────────────────────────────────
+// El operador pide, la cajera aprueba y ahí se descuenta. Así queda el
+// rastro de que todo lo que sale de su cuenta lo pidió él.
+const RET_TIPOS = {
+  efectivo:  { label:'Efectivo',            icono:'💵', hint:'La cajera te entrega los billetes.' },
+  deposito:  { label:'Depósito a mi cuenta',icono:'🏦', hint:'La cajera decide por cuál método lo envía.' },
+  pago:      { label:'Pago a un tercero',   icono:'📄', hint:'Servicios, tarjetas o transferencias a otra persona.' },
+  inversion: { label:'Inversión en cupo',   icono:'📈', hint:'Sale de tu cuenta y entra a Academia Aj1.6 como inversión.' },
+};
+
+let _retMios = [];
+let _retUnsub = null;
+let _ctaSaldoActual = 0;
+
+function _retTipoChange() {
+  const t = document.getElementById('ret-tipo').value;
+  document.getElementById('ret-hint').textContent = RET_TIPOS[t]?.hint || '';
+  document.getElementById('ret-wrap-banco').style.display = t === 'deposito' ? '' : 'none';
+  document.getElementById('ret-wrap-benef').style.display = t === 'pago'     ? '' : 'none';
+}
+
+function abrirModalRetiro() {
+  if (!_ctaExiste) { toast('⚠ Todavía no tienes cuenta en el corresponsal', 'error'); return; }
+  document.getElementById('ret-disp').textContent = peso(_ctaSaldoActual);
+  document.getElementById('ret-tipo').value  = 'efectivo';
+  ['ret-monto','ret-banco','ret-numero','ret-titular','ret-beneficiario','ret-nota']
+    .forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
+  _retTipoChange();
+  openModal('modal-retiro');
+}
+
+async function enviarRetiro() {
+  const tipo  = document.getElementById('ret-tipo').value;
+  const monto = parseInt(document.getElementById('ret-monto').value) || 0;
+  if (!monto) { toast('⚠ Escribe el monto', 'error'); return; }
+  if (monto > _ctaSaldoActual) {
+    if (!confirm(`Estás pidiendo ${peso(monto)} y tu cuenta tiene ${peso(_ctaSaldoActual)}.\n\n¿Solicitar de todos modos?`)) return;
+  }
+
+  const detalle = {};
+  if (tipo === 'deposito') {
+    detalle.banco   = document.getElementById('ret-banco').value.trim();
+    detalle.numero  = document.getElementById('ret-numero').value.trim();
+    detalle.titular = document.getElementById('ret-titular').value.trim();
+    if (!detalle.banco || !detalle.numero) { toast('⚠ Falta el banco y el número', 'error'); return; }
+  }
+  if (tipo === 'pago') {
+    detalle.beneficiario = document.getElementById('ret-beneficiario').value.trim();
+    if (!detalle.beneficiario) { toast('⚠ Escribe a quién o a qué', 'error'); return; }
+  }
+
+  const btn = document.getElementById('ret-btn');
+  btn.disabled = true; btn.textContent = '⏳ Enviando…';
+  try {
+    await db.collection('corresponsal_retiros').add({
+      operadorUid: auth.currentUser.uid,
+      operadorNombre: operadorNombre || '',
+      cuenta: _ctaCuenta,
+      oficina: _ctaOficina || '',
+      fecha: _hoyLocalOp(),
+      monto, tipo, detalle,
+      nota: document.getElementById('ret-nota').value.trim(),
+      estado: 'pendiente',
+      creadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    closeModal('modal-retiro');
+    toast('📤 Solicitud enviada — la cajera la va a revisar', 'success');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+  finally { btn.disabled = false; btn.textContent = '📤 Solicitar'; }
+}
+
+// Fecha de hoy en hora local — toISOString devuelve UTC y adelanta el día
+function _hoyLocalOp(d) {
+  d = d || new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function _cargarMisRetiros() {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return;
+  if (_retUnsub) _retUnsub();
+  _retUnsub = db.collection('corresponsal_retiros').where('operadorUid','==',uid)
+    .onSnapshot(s => {
+      _retMios = s.docs.map(d => ({id:d.id, ...d.data()}))
+        .sort((a,b) => (b.creadoEn?.seconds||0) - (a.creadoEn?.seconds||0));
+      renderMisRetiros();
+    }, e => console.warn('mis retiros:', e));
+}
+
+function renderMisRetiros() {
+  const c = document.getElementById('cta-retiros');
+  if (!c) return;
+  const recientes = _retMios.slice(0, 8);
+  if (!recientes.length) { c.innerHTML = ''; return; }
+
+  const badge = e => e === 'aprobado'  ? '<span style="color:var(--green);font-weight:700">✓ entregado</span>'
+               : e === 'rechazado' ? '<span style="color:var(--red);font-weight:700">✕ rechazado</span>'
+               : '<span style="color:var(--orange);font-weight:700">⏳ esperando</span>';
+
+  c.innerHTML = `<div style="padding:12px 16px;border-top:1px solid var(--border)">
+    <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Tus solicitudes</div>
+    ${recientes.map(r => `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:6px 0;font-size:12px;border-bottom:1px solid var(--border)">
+      <span style="color:var(--text2);white-space:nowrap">${r.fecha || ''}</span>
+      <span style="flex:1">${RET_TIPOS[r.tipo]?.icono || ''} ${RET_TIPOS[r.tipo]?.label || r.tipo}${
+        r.motivoRechazo ? `<br><span style="font-size:10px;color:var(--red)">${r.motivoRechazo}</span>` : ''}</span>
+      <strong>${peso(r.monto)}</strong>
+      <span style="min-width:90px;text-align:right">${badge(r.estado)}</span>
+    </div>`).join('')}
+  </div>`;
+}
+
 function _renderLiquidacionTablas() {
   const v = _liqVariaciones;
   if (!v) return;
@@ -3736,38 +4166,99 @@ function _renderLiquidacionTablas() {
     if (t.tipo === 'comision') pagadoC[t.metodo] = (pagadoC[t.metodo] || 0) + (t.monto || 0);
   });
 
-  // ── SALDOS ── (usa cupo inicial como fuente de verdad en lugar de saldosPorMetodo del cierre)
-  const saldosSrc = Object.keys(_liqSaldosIniciales).length ? _liqSaldosIniciales : (v.saldosPorMetodo || {});
-  let sHtml = '', totCierre = 0, totPS = 0, totPendS = 0;
-  Object.entries(saldosSrc).sort((a,b) => b[1]-a[1]).forEach(([met, val]) => {
-    if (!val) return; // omitir métodos con cupo 0
-    const pag = pagadoS[met] || 0;
-    const pend = val - pag;
-    totCierre += val; totPS += pag; totPendS += pend;
-    const pendCellS = pend === 0
-      ? '<span style="color:var(--green)">✓ Pagado</span>'
-      : `<span style="color:${pend > 0 ? 'var(--red)' : '#3b82f6'};font-weight:600">${peso(pend)}</span>`;
-    sHtml += `<tr>
-      <td>${met}</td>
-      <td style="font-weight:600">${peso(val)}</td>
-      <td style="color:var(--green)">${pag ? peso(pag) : '<span style="color:var(--text2)">—</span>'}</td>
-      <td>${pendCellS}</td>
-    </tr>`;
-  });
-  if (!Object.keys(saldosSrc).length) {
-    sHtml = '<tr><td colspan="4" style="text-align:center;color:var(--text2);padding:16px">Sin saldos registrados</td></tr>';
+  // ── LIQUIDACIÓN POR PAGAR ──
+  // Todo pago aprobado abona al pasivo, igual que en el ESF
+  const pagadoTotal = _liqTxs
+    .filter(t => t.estado === 'aprobado')
+    .reduce((acc, t) => acc + Math.round(t.monto || 0), 0);
+  const pasivoIni = Math.round(_liqPasivoInicial || 0);
+  const falta     = pasivoIni - pagadoTotal;
+  const pct       = pasivoIni > 0 ? Math.min(100, Math.max(0, (pagadoTotal / pasivoIni) * 100)) : (pagadoTotal > 0 ? 100 : 0);
+
+  document.getElementById('liq-res-ini').textContent   = peso(pasivoIni);
+  document.getElementById('liq-res-pag').textContent   = peso(pagadoTotal);
+
+  const elFalta = document.getElementById('liq-res-falta');
+  elFalta.textContent  = falta === 0 ? '✓ Liquidado' : peso(falta);
+  elFalta.style.color  = falta === 0 ? 'var(--green)' : falta > 0 ? 'var(--orange)' : '#3b82f6';
+
+  const barra = document.getElementById('liq-res-barra');
+  barra.style.width      = pct + '%';
+  barra.style.background = falta < 0 ? '#3b82f6' : 'var(--green)';
+
+  const nota = document.getElementById('liq-res-nota');
+  if (pasivoIni === 0 && pagadoTotal === 0) {
+    nota.textContent = 'Sin liquidación pendiente para este mes.';
+  } else if (falta === 0) {
+    nota.innerHTML = '<span style="color:var(--green);font-weight:700">✓ Liquidación completa.</span>';
+  } else if (falta < 0) {
+    nota.innerHTML = `<span style="color:#3b82f6;font-weight:700">Pagaste ${peso(-falta)} de más</span> — queda a tu favor.`;
   } else {
-    const totPendCellS = totPendS === 0
-      ? '<span style="color:var(--green)">✓</span>'
-      : `<span style="color:${totPendS > 0 ? 'var(--red)' : '#3b82f6'}">${peso(totPendS)}</span>`;
-    sHtml += `<tr style="background:var(--bg3);font-weight:800">
-      <td>TOTAL</td>
-      <td>${peso(totCierre)}</td>
-      <td style="color:var(--green)">${peso(totPS)}</td>
-      <td>${totPendCellS}</td>
-    </tr>`;
+    nota.textContent = `Has abonado ${Math.round(pct)}% de la liquidación.`;
   }
-  document.getElementById('liq-saldos-tbody').innerHTML = sHtml;
+
+  // ── TU GANANCIA DEL MES ──
+  // Se libera en la misma proporción en que se va pagando la liquidación,
+  // y solo se puede cobrar después de abonar el umbral.
+  const panelGan = document.getElementById('liq-gan-panel');
+  if (_liqParticipacion && (_liqParticipacion.gananciaOperador || 0) > 0) {
+    panelGan.style.display = '';
+    const g        = Math.round(_liqParticipacion.gananciaOperador || 0);
+    const liberado = Math.round(g * Math.min(1, Math.max(0, pct / 100)));
+    const retenido = g - liberado;
+    const habilitado = pct >= LIQ_UMBRAL_COBRO;
+
+    document.getElementById('liq-gan-total').textContent    = peso(g);
+    document.getElementById('liq-gan-liberado').textContent = habilitado ? peso(liberado) : peso(0);
+    document.getElementById('liq-gan-retenido').textContent = peso(habilitado ? retenido : g);
+    document.getElementById('liq-gan-pct').textContent      = `${Math.round(pct)}% de tu ganancia`;
+
+    const esc = _liqParticipacion;
+    document.getElementById('liq-gan-sub').textContent =
+      `Productividad ${peso(esc.productividad)} · ${esc.participacion}%${esc.bonoPct ? ' + ' + esc.bonoPct + '% bono' : ''}`;
+
+    // La primera vez que cruza el umbral, celebrarlo — una sola vez por mes
+    if (habilitado && liberado > 0) {
+      _felizUnaVez('cobro',
+        '\u00a1YA PUEDES COBRAR!',
+        `Pasaste el ${LIQ_UMBRAL_COBRO}% de tu liquidación \ud83d\udcb8`,
+        peso(liberado),
+        _liqMesKey,
+        'Disponible para cobrar');
+    }
+
+    const badge = document.getElementById('liq-gan-estado');
+    if (habilitado) {
+      badge.textContent = '✅ Habilitado para cobrar';
+      badge.style.color = 'var(--green)';
+      badge.style.background = 'rgba(36,191,98,.12)';
+    } else {
+      badge.textContent = `🔒 Bloqueado — falta llegar al ${LIQ_UMBRAL_COBRO}%`;
+      badge.style.color = 'var(--orange)';
+      badge.style.background = 'rgba(251,146,60,.12)';
+    }
+
+    const nota = document.getElementById('liq-gan-nota');
+    if (!habilitado) {
+      const faltaPct  = LIQ_UMBRAL_COBRO - pct;
+      const faltaPlata = Math.round(pasivoIni * (faltaPct / 100));
+      nota.innerHTML = `Llevas <strong>${Math.round(pct)}%</strong> de tu liquidación pagada. `
+        + `Abonando <strong style="color:var(--orange)">${peso(faltaPlata)}</strong> más llegas al ${LIQ_UMBRAL_COBRO}% `
+        + `y podrás cobrar ${peso(Math.round(g * LIQ_UMBRAL_COBRO / 100))}.`;
+    } else if (retenido > 0) {
+      nota.innerHTML = `Puedes cobrar <strong style="color:var(--green)">${peso(liberado)}</strong>. `
+        + `Los ${peso(retenido)} restantes se liberan a medida que termines de pagar la liquidación.`;
+    } else {
+      nota.innerHTML = `<strong style="color:var(--green)">Liquidación al día.</strong> Puedes cobrar tu ganancia completa.`;
+    }
+
+    document.getElementById('liq-gan-desglose').innerHTML =
+      `Rango ${esc.rango} · Rojo ${esc.rojo ? peso(esc.rojo) : 'exento'} · `
+      + `Base neta ${peso(esc.baseNeta)} · Bruta ${peso(esc.bruta)}`
+      + (esc.interesCapital ? ` · Interés de capital −${peso(esc.interesCapital)}` : ' · Sin interés de capital');
+  } else {
+    panelGan.style.display = 'none';
+  }
 
   // ── COMISIONES ──
   let cHtml = '', totCom = 0, totPC = 0, totPendC = 0;
@@ -3838,7 +4329,7 @@ function _renderLiquidacionTablas() {
   document.getElementById('liq-pagos-tbody').innerHTML = pHtml;
 
   // ── BADGE ESTADO ──
-  const totalPend = totPendS + totPendC;
+  const totalPend = falta;
   const badge = document.getElementById('liq-estado-badge');
   if (totalPend <= 0) {
     badge.textContent = '✅ Liquidado'; badge.style.color = 'var(--green)'; badge.style.background = 'rgba(36,191,98,.12)';
@@ -4024,12 +4515,8 @@ function updatePagoLiqMetodos() {
 
   let fuente;
   if (tipo === 'saldo') {
-    // Para saldo: mostrar métodos con cupo inicial > 0, o todos los físicos si no hay saldo inicial
-    const saldosSrc = Object.keys(_liqSaldosIniciales).length ? _liqSaldosIniciales : {};
-    const metConSaldo = Object.entries(saldosSrc).filter(([,v]) => v > 0).map(([m]) => m);
-    fuente = metConSaldo.length
-      ? metConSaldo.sort()
-      : METODOS_CAJA.filter(m => !METODOS_VIRTUALES.has(m)).sort();
+    // Para saldo: cualquier método físico sirve para abonar la liquidación
+    fuente = METODOS_CAJA.filter(m => !METODOS_VIRTUALES.has(m)).sort();
   } else {
     const mapaTotal = _liqVariaciones?.comisionesPorMetodo || {};
     fuente = Object.entries(mapaTotal)
@@ -6408,9 +6895,11 @@ function solicitarCorreccion(docId, globalId, tipo) {
   // Mostrar selector de Op2 solo para intercambios cruzados
   const op2Wrap = document.getElementById('corr-op2-wrap');
   const op2Sel  = document.getElementById('corr-nuevo-op2');
-  if (ix.tipo === 'C' && op2Wrap && op2Sel) {
+  if ((ix.tipo === 'C' || ix.tipo === 'I') && op2Wrap && op2Sel) {
     op2Wrap.style.display = '';
-    op2Sel.innerHTML = '<option value="">— Sin cambio de operador —</option><option value="PROPIO">↩ Convertir a Interno (Propio)</option>';
+    // Si ya es Interno no tiene sentido ofrecer "convertir a Interno"
+    op2Sel.innerHTML = '<option value="">— Sin cambio de operador —</option>'
+      + (ix.tipo === 'C' ? '<option value="PROPIO">↩ Convertir a Interno (Propio)</option>' : '');
     // Agregar otros operadores activos (excluyendo el Op2 actual y el propio)
     const op2ActualUid = ix.operador2_uid || '';
     activeOperators.filter(op => op.uid !== op2ActualUid && op.uid !== opId).forEach(op => {
@@ -6677,7 +7166,7 @@ async function renderMetodosSaldo() {
     const mesKey = siMesActual();
     if (uid && mesKey) {
       const [yk, mk] = mesKey.split('-').map(Number);
-      const prevKey = new Date(yk, mk - 2, 1).toISOString().slice(0, 7);
+      const prevKey = (mk===1 ? (yk-1)+'-12' : yk+'-'+String(mk-1).padStart(2,'0'));
       const liqSnap = await db.collection('patriarca_liquidacion_txs')
         .where('operadorId', '==', uid)
         .where('mesKey',     '==', prevKey)
@@ -7094,7 +7583,7 @@ async function renderESF() {
   let _liqPrevDocs = [];
   try {
     const [yk, mk] = mesKey.split('-').map(Number);
-    const prevKey = new Date(yk, mk - 2, 1).toISOString().slice(0, 7); // mes anterior
+    const prevKey = (mk===1 ? (yk-1)+'-12' : yk+'-'+String(mk-1).padStart(2,'0')); // mes anterior
     if (prevKey) {
       const liqSnap = await db.collection('patriarca_liquidacion_txs')
         .where('operadorId', '==', uid)
@@ -7843,7 +8332,7 @@ window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', _u
 function nextMesKey(mesKey) {
   const [y, m] = (mesKey || '').split('-').map(Number);
   if (!y || !m) return '';
-  return new Date(y, m, 1).toISOString().slice(0, 7); // m es 1-indexed → new Date(y,m,1) = mes siguiente
+  return (m===12 ? (y+1)+'-01' : y+'-'+String(m+1).padStart(2,'0')); // m es 1-indexed → new Date(y,m,1) = mes siguiente
 }
 
 // Calcula saldo actual por clienteId/casa al cierre del mes (mismo cálculo que pestaña Saldos)
@@ -7949,7 +8438,7 @@ async function calcCierreMetodos() {
     const uid = auth.currentUser?.uid;
     const [yk, mkNum] = (mk || '').split('-').map(Number);
     if (uid && yk && mkNum) {
-      const prevKey = new Date(yk, mkNum - 2, 1).toISOString().slice(0, 7);
+      const prevKey = (mkNum===1 ? (yk-1)+'-12' : yk+'-'+String(mkNum-1).padStart(2,'0'));
       const liqSnap = await db.collection('patriarca_liquidacion_txs')
         .where('operadorId', '==', uid)
         .where('mesKey',     '==', prevKey)
@@ -8211,8 +8700,10 @@ let _felizBonoActivo = null;
 let _felizMetaActiva = null;
 let _gastosLoaded    = false; // esperar que gastos carguen antes de animar (evita valor inflado)
 
-function _lanzarMonedas() {
-  const emojis = ['🪙','💰','💵','✨','🎉','⭐'];
+function _lanzarMonedas(set) {
+  const emojis = set === 'cobro'
+    ? ['💸','💵','🤑','💰','🪙','✅']
+    : ['🪙','💰','💵','✨','🎉','⭐'];
   const total  = 38;
   for (let i = 0; i < total; i++) {
     setTimeout(() => {
@@ -8229,14 +8720,18 @@ function _lanzarMonedas() {
   }
 }
 
-function mostrarFeliz(tipo, titulo, sub, monto) {
+function mostrarFeliz(tipo, titulo, sub, monto, label) {
   document.getElementById('feliz-emoji').textContent =
-    tipo === 'bono' ? '🎯' : '🏆';
+    tipo === 'bono' ? '🎯' : tipo === 'cobro' ? '💸' : '🏆';
   document.getElementById('feliz-titulo').textContent = titulo;
   document.getElementById('feliz-sub').textContent    = sub;
   document.getElementById('feliz-monto').textContent  = monto;
+  const lbl = document.querySelector('.feliz-monto-label');
+  if (lbl) lbl.textContent = label || 'Ganancia acumulada del mes';
+  const btn = document.querySelector('.feliz-btn');
+  if (btn) btn.textContent = tipo === 'cobro' ? '¡A cobrar! 💸' : '¡Excelente! 🚀';
 
-  _lanzarMonedas();
+  _lanzarMonedas(tipo);
   setTimeout(() => {
     const m = document.getElementById('modal-feliz');
     m.style.display = 'flex';
@@ -8256,13 +8751,13 @@ function _felizMesKey() {
 }
 
 // Muestra la celebracion una sola vez por logro y por mes
-function _felizUnaVez(tipo, titulo, sub, monto) {
-  const mk = _felizMesKey();
+function _felizUnaVez(tipo, titulo, sub, monto, mesKeyProp, label) {
+  const mk = mesKeyProp || _felizMesKey();
   if (!mk) return;
   const key = `_feliz_${mk}_${tipo}`;
   if (localStorage.getItem(key)) return;   // ya se mostro este mes
   localStorage.setItem(key, '1');
-  mostrarFeliz(tipo, titulo, sub, monto);
+  mostrarFeliz(tipo, titulo, sub, monto, label);
 }
 
 // Llamado desde reloadDash() cuando se supera la meta
@@ -8281,6 +8776,610 @@ function _checkFelizBono(bonoStatus, bonoPct, ganOpeConBono) {
   const label = bonoStatus === 'combo' ? `Bono ${bonoPct}% combinado` : `Bono ${bonoPct}% alcanzado`;
   _felizUnaVez('bono', '\u00a1BONO DESBLOQUEADO!', label + ' \ud83c\udfaf', peso(ganOpeConBono));
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// TRIXI BOT — buscador de surebets con comisión
+// ════════════════════════════════════════════════════════════════════════════
+
+// ── Hora Colombia, sin importar dónde esté conectado el navegador ──
+function tbHoyBogota() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota',
+    year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+}
+function tbFechaBogota(offsetDias) {
+  const base = new Date(tbHoyBogota() + 'T12:00:00');
+  base.setDate(base.getDate() + (offsetDias || 0));
+  const y = base.getFullYear(), m = String(base.getMonth()+1).padStart(2,'0'), d = String(base.getDate()).padStart(2,'0');
+  return `${y}-${m}-${d}`;
+}
+function tbHoraBogota() {
+  return new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota',
+    hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date());
+}
+
+// ── Comisión por casa + método (misma tabla que TRIXI) ──
+const TB_COM = {
+  'BET PLAY|SUPER GIROS UNITY':2, 'BET PLAY|SUPER GIROS MAQUINA':2,
+  'BETSSON|BE MOVIL CAJA':2, 'BETSSON|BE MOVIL MASTER':2, 'BETSSON|PTM PROPIO':1.68, 'BETSSON|MEGA RED':1.6,
+  'BWIN|BE MOVIL CAJA':2.5, 'BWIN|BE MOVIL MASTER':2.5,
+  'LUCKIA|BE MOVIL CAJA':2, 'LUCKIA|BE MOVIL MASTER':2, 'LUCKIA|PTM PROPIO':1.93, 'LUCKIA|MEGA RED':1.68,
+  'RUSHBET|BE MOVIL CAJA':3, 'RUSHBET|BE MOVIL MASTER':3, 'RUSHBET|PTM PROPIO':2.1, 'RUSHBET|MEGA RED':2.1,
+  'SPORTIUM|BE MOVIL CAJA':3, 'SPORTIUM|BE MOVIL MASTER':3, 'SPORTIUM|PTM PROPIO':1.85, 'SPORTIUM|MEGA RED':1.68,
+  'WPLAY|WPLAY UNITY':3, 'WPLAY|EASY CHANGER':3,
+  'YA JUEGOS|BE MOVIL CAJA':3, 'YA JUEGOS|BE MOVIL MASTER':3, 'YA JUEGOS|PTM PROPIO':1.68
+};
+
+// Todos los métodos con comisión de una casa, de mayor a menor
+function tbMetodosDe(casa) {
+  const c = (casa||'').toUpperCase().trim();
+  const out = [];
+  Object.keys(TB_COM).forEach(k => {
+    const [ca, me] = k.split('|');
+    if (ca === c) out.push({ metodo: me, pct: TB_COM[k] });
+  });
+  return out.sort((a,b) => b.pct - a.pct);
+}
+
+// Mejor comisión disponible para una casa (la que más le deja al operador)
+function tbMejorComision(casa) {
+  const c = (casa||'').toUpperCase().trim();
+  let mejor = { pct: 0, metodo: null };
+  Object.keys(TB_COM).forEach(k => {
+    const [ca, me] = k.split('|');
+    if (ca === c && TB_COM[k] > mejor.pct) mejor = { pct: TB_COM[k], metodo: me };
+  });
+  return mejor;
+}
+
+// ── Catálogo de mercados. Agregar uno aquí no requiere tocar el motor ──
+const TB_MERCADOS = {
+  '1X2':    { nombre: '1X2', vias: ['1','X','2'], etiquetas: {'1':'Gana local','X':'Empate','2':'Gana visitante'}, conLinea: false },
+  'GOL_OU': { nombre: 'Over/Under goles', vias: ['OVER','UNDER'], etiquetas: {'OVER':'Más de','UNDER':'Menos de'}, conLinea: true }
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// MOTOR: dado un evento y un mercado, encuentra la mejor combinación
+//   cuotasMercado = { 'WPLAY': {'1':2.60,'X':3.40,'2':3.10}, 'BETSSON': {...} }
+//   Devuelve null si no hay oportunidad con utilidad neta positiva.
+// ════════════════════════════════════════════════════════════════════════════
+function tbBuscarOportunidad(cuotasMercado, vias, capital, casasPermitidas) {
+  const casas = Object.keys(cuotasMercado).filter(c => !casasPermitidas || casasPermitidas.includes(c));
+  if (casas.length === 0) return null;
+
+  // 1. Para cada vía, la casa que mejor la paga.
+  //    Empate de cuotas → gana la de mayor comisión: misma cuota, más plata.
+  //    Sobre 2,5 M la diferencia entre 2% y 3% es 25.000 por operación.
+  const mejores = {};
+  for (const via of vias) {
+    let best = null;
+    for (const casa of casas) {
+      const cuota = parseFloat(cuotasMercado[casa]?.[via]);
+      if (!cuota || cuota <= 1) continue;
+      const com = tbMejorComision(casa).pct;
+      // CUOTA EFECTIVA. Para garantizar un retorno R hay que apostar R/cuota,
+      // y la comisión devuelve com% de ese stake. El costo real de la pata es
+      // (1-com)/cuota, así que la mejor casa es la de mayor cuota/(1-com).
+      // Sin esto, una casa sin comisión con cuota apenas mejor gana
+      // indebidamente contra una con 3% — el caso de Stake.
+      const efectiva = cuota / (1 - com/100);
+      if (!best || efectiva > best.efectiva + 1e-9) best = { casa, cuota, com, efectiva };
+    }
+    if (!best) return null;          // falta una vía → no se puede cubrir el evento
+    mejores[via] = best;
+  }
+
+  // 2. Probabilidad implícita: si suma menos de 1 hay arbitraje puro
+  let sumaImplicita = 0;
+  vias.forEach(v => { sumaImplicita += 1 / mejores[v].cuota; });
+
+  // 3. Stakes proporcionales para que el retorno sea igual salga lo que salga.
+  //    La última pata absorbe el redondeo para que la suma dé exacto el capital.
+  let acumulado = 0;
+  const patas = vias.map((via, i) => {
+    const { casa, cuota } = mejores[via];
+    const exacto = capital * (1 / cuota) / sumaImplicita;
+    const stake  = (i === vias.length - 1) ? (capital - acumulado) : Math.round(exacto);
+    acumulado   += stake;
+    const com    = tbMejorComision(casa);
+    return {
+      via, casa, cuota,
+      stake,
+      metodo:   com.metodo,
+      comPct:   com.pct,
+      comValor: Math.round(stake * com.pct / 100),
+      retorno:  Math.round(stake * cuota)
+    };
+  });
+
+  // 4. Utilidad. La comisión SUMA porque el operador la cobra, no la paga.
+  const totalStake   = patas.reduce((s,p) => s + p.stake, 0);
+  const totalCom     = patas.reduce((s,p) => s + p.comValor, 0);
+  const retornoMin   = Math.min(...patas.map(p => p.retorno));
+  const utilidadPura = retornoMin - totalStake;
+  const utilidadNeta = utilidadPura + totalCom;
+
+  // 5. Clasificación por riesgo de que la casa marque la cuenta.
+  //    El arbitraje puro (<100%) es lo que persigue todo el mundo y es lo que
+  //    dispara las limitaciones. La franja 100%–(1/(1-com)) se ve como una
+  //    apuesta perdedora normal y solo es rentable gracias a la comisión.
+  const comPromedio = totalStake > 0 ? (totalCom / totalStake) : 0;
+  const techo       = comPromedio < 1 ? 1 / (1 - comPromedio) : Infinity;
+  let zona;
+  if (sumaImplicita < 1)            zona = 'arbitraje';   // rentable pero expone la cuenta
+  else if (sumaImplicita <= techo)  zona = 'segura';      // la que les sirve
+  else                              zona = 'inviable';
+
+  return {
+    patas, sumaImplicita,
+    totalStake, totalCom, retornoMin,
+    utilidadPura, utilidadNeta,
+    utilidadPct: totalStake > 0 ? (utilidadNeta / totalStake * 100) : 0,
+    esArbitrajePuro: sumaImplicita < 1,
+    zona, techoSuma: techo, comPromedio
+  };
+}
+
+// ── Escanea todos los eventos cargados y devuelve las oportunidades rentables ──
+function tbEscanear(eventos, opciones) {
+  const { capital, casasPermitidas, utilidadMinPct, mercadoId, soloZonaSegura } = opciones;
+  const salida = [];
+
+  eventos.forEach(ev => {
+    Object.entries(ev.cuotas || {}).forEach(([claveMercado, cuotasPorCasa]) => {
+      const [mid, linea] = claveMercado.split('|');
+      if (mercadoId && mid !== mercadoId) return;
+      const def = TB_MERCADOS[mid];
+      if (!def) return;
+
+      const op = tbBuscarOportunidad(cuotasPorCasa, def.vias, capital, casasPermitidas);
+      if (!op) return;
+      if (op.utilidadPct < (utilidadMinPct || 0)) return;
+      if (soloZonaSegura && op.zona !== 'segura') return;
+
+      salida.push({
+        evento: ev, mercadoId: mid, mercadoNombre: def.nombre,
+        linea: linea || null, etiquetas: def.etiquetas, ...op
+      });
+    });
+  });
+
+  // Prioridad: primero la zona segura (no levanta sospecha), después el
+  // arbitraje puro, que aunque deja más también expone las cuentas.
+  return salida.sort((a,b) => b.utilidadNeta - a.utilidadNeta);
+}
+
+
+// ── TRIXI BOT · interfaz del operador ───────────────────────────────────────
+let _tbCfg      = { activo:false, plan:'basico', limiteDiario:1 };
+let _tbUrls     = {};
+let _tbCasas    = [];
+let _tbSelec    = new Set();
+let _tbEventos  = [];
+let _tbUso      = 0;
+
+const TB_PLANES = {
+  basico: { nombre:'Básico', limite:1,       color:'#8a8a8a' },
+  full:   { nombre:'Full',   limite:Infinity, color:'#a78bfa' }
+};
+
+function tbFmt(el){
+  const n = el.value.replace(/\D/g,'');
+  el.value = n ? Number(n).toLocaleString('es-CO') : '';
+}
+function tbNum(id){
+  return parseFloat((document.getElementById(id)?.value||'0').replace(/\./g,'').replace(',','.')) || 0;
+}
+function tbPeso(n){
+  return (n<0?'-$':'$') + Math.abs(Math.round(n)).toLocaleString('es-CO');
+}
+
+// Activación: solo se muestra la pestaña si el administrador la habilitó
+async function tbInit(){
+  const uid = auth.currentUser?.uid; if (!uid) return;
+  try {
+    const s = await db.collection('patriarca_config').doc(uid).get();
+    _tbCfg = (s.exists && s.data().trixibot) || { activo:false, plan:'basico', limiteDiario:1 };
+  } catch(_) {}
+  const tab = document.getElementById('tab-trixibot');
+  if (tab) tab.style.display = _tbCfg.activo ? '' : 'none';
+}
+
+async function tbAbrir(){
+  const uid = auth.currentUser?.uid; if (!uid) return;
+
+  const plan = TB_PLANES[_tbCfg.plan] || TB_PLANES.basico;
+  const lim  = _tbCfg.limiteDiario || plan.limite;
+  const badge = document.getElementById('tb-plan-badge');
+  if (badge){
+    const sinTope = (lim === Infinity || lim >= 9999);
+    badge.textContent = 'Plan ' + plan.nombre + (sinTope ? ' · sin límite' : ' · ' + lim + '/día');
+    badge.style.color = plan.color;
+  }
+
+  // Casas desde la configuración del administrador
+  try {
+    const c = await db.collection('admin_config').doc('casas').get();
+    _tbCasas = (c.exists && c.data().lista) || [];
+  } catch(_) { _tbCasas = []; }
+
+  // Enlaces de cada casa, para el botón "abrir ↗" al cargar cuotas
+  try {
+    const t = await db.collection('admin_config').doc('trixibot').get();
+    _tbUrls = (t.exists && t.data().urls) || {};
+  } catch(_) { _tbUrls = {}; }
+  if (!_tbSelec.size) _tbCasas.forEach(c => _tbSelec.add(c));
+  tbPintarChips();
+
+  // Uso de hoy, en fecha Bogotá
+  try {
+    const u = await db.collection('trixibot_uso').doc(uid + '_' + tbHoyBogota()).get();
+    _tbUso = u.exists ? (u.data().busquedas||0) : 0;
+  } catch(_) { _tbUso = 0; }
+  document.getElementById('tb-k-uso').textContent = _tbUso;
+}
+
+function tbPintarChips(){
+  const cont = document.getElementById('tb-casas-chips'); if (!cont) return;
+  cont.innerHTML = _tbCasas.map(c => {
+    const on = _tbSelec.has(c);
+    return `<span onclick="tbToggleCasa('${c.replace(/'/g,"\\'")}')" style="cursor:pointer;user-select:none;font-size:11px;padding:5px 11px;border-radius:6px;font-weight:600;
+      background:${on?'rgba(139,92,246,.18)':'var(--bg3)'};color:${on?'#a78bfa':'var(--text2)'};
+      border:1px solid ${on?'rgba(139,92,246,.4)':'var(--border)'}">${c}${on?' ✓':''}</span>`;
+  }).join('');
+}
+function tbToggleCasa(c){
+  _tbSelec.has(c) ? _tbSelec.delete(c) : _tbSelec.add(c);
+  tbPintarChips();
+}
+
+async function tbBuscar(){
+  const uid = auth.currentUser?.uid; if (!uid) return;
+  const plan  = TB_PLANES[_tbCfg.plan] || TB_PLANES.basico;
+  const lim   = _tbCfg.limiteDiario || plan.limite;
+
+  if (lim < 9999 && _tbUso >= lim){
+    toast(`Llegaste al límite del plan ${plan.nombre}: ${lim} búsqueda${lim>1?'s':''} por día`, 'error');
+    return;
+  }
+  if (_tbSelec.size < 2){
+    toast('Selecciona al menos 2 casas para poder comparar', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('tb-btn-buscar');
+  btn.disabled = true; btn.textContent = '⏳ Buscando...';
+
+  try {
+    // Ventana de fechas en hora Colombia
+    const dias  = parseInt(document.getElementById('tb-dias').value || '1', 10);
+    const desde = tbHoyBogota();
+    const hasta = tbFechaBogota(dias);
+
+    const snap = await db.collection('trixibot_eventos')
+      .where('fecha','>=',desde).where('fecha','<=',hasta).get({source:'server'});
+    _tbEventos = snap.docs.map(d => ({ id:d.id, ...d.data() }));
+
+    const ops = tbEscanear(_tbEventos, {
+      capital:         tbNum('tb-capital'),
+      casasPermitidas: [..._tbSelec],
+      utilidadMinPct:  tbNum('tb-umin'),
+      mercadoId:       document.getElementById('tb-mercado').value,
+      soloZonaSegura:  document.getElementById('tb-solo-segura')?.checked
+    });
+
+    // El plan Básico solo revela la mejor oportunidad
+    const visibles = (_tbCfg.plan === 'full') ? ops : ops.slice(0, 1);
+    tbPintarResultados(visibles, ops.length, _tbEventos.length, plan);
+
+    _tbUso++;
+    document.getElementById('tb-k-uso').textContent = _tbUso;
+    await db.collection('trixibot_uso').doc(uid + '_' + tbHoyBogota()).set({
+      uid, fecha: tbHoyBogota(), busquedas: _tbUso,
+      ultima: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge:true });
+
+  } catch(e){
+    toast('Error buscando: ' + e.message, 'error');
+  }
+  btn.disabled = false; btn.textContent = '🔍 Buscar cuotas';
+}
+
+function tbPintarResultados(ops, totalOps, totalEventos, plan){
+  document.getElementById('tb-k-eventos').textContent = totalEventos;
+  document.getElementById('tb-k-ops').textContent     = totalOps;
+  document.getElementById('tb-k-mejor').textContent   = totalOps ? ops[0].utilidadPct.toFixed(2)+'%' : '—';
+
+  const cont = document.getElementById('tb-resultados');
+  if (!totalEventos){
+    cont.innerHTML = `<div class="empty"><div class="empty-icon">📭</div>
+      <p>No hay cuotas cargadas para esa ventana de fechas.</p>
+      <p style="font-size:12px;color:var(--text2)">Usa <b>＋ Cargar cuotas</b> para ingresar partidos.</p></div>`;
+    return;
+  }
+  if (!totalOps){
+    cont.innerHTML = `<div class="empty"><div class="empty-icon">🔍</div>
+      <p>Revisé ${totalEventos} evento${totalEventos>1?'s':''} y ninguno deja utilidad positiva.</p>
+      <p style="font-size:12px;color:var(--text2)">Prueba bajando la utilidad mínima o agregando más casas.</p></div>`;
+    return;
+  }
+
+  _tbOps = ops;
+  let html = ops.map((o,i) => tbTarjeta(o,i)).join('');
+  const ocultas = totalOps - ops.length;
+  if (ocultas > 0){
+    html += `<div style="background:rgba(139,92,246,.08);border:1px dashed rgba(139,92,246,.4);border-radius:10px;padding:16px;text-align:center;margin-top:12px">
+      <div style="font-weight:700;color:#a78bfa;margin-bottom:4px">🔒 ${ocultas} oportunidad${ocultas>1?'es':''} más disponible${ocultas>1?'s':''}</div>
+      <div style="font-size:12px;color:var(--text2)">El plan ${plan.nombre} muestra solo la mejor. Habla con el administrador para pasar a Full.</div>
+    </div>`;
+  }
+  cont.innerHTML = html;
+}
+
+let _tbOps = [];
+function tbTarjeta(o, idx){
+  const ev  = o.evento;
+  const pos = o.utilidadNeta > 0;
+  const col = pos ? 'var(--green)' : 'var(--red)';
+  const filas = o.patas.map(p => `
+    <tr>
+      <td style="padding:6px 0;font-size:12px">${o.etiquetas[p.via] || p.via}</td>
+      <td style="font-size:12px;font-weight:600">${p.casa}</td>
+      <td style="text-align:right;font-size:12px">${p.cuota.toFixed(2)}</td>
+      <td style="text-align:right;font-size:12px;font-weight:700">${tbPeso(p.stake)}</td>
+      <td style="text-align:right;font-size:11px;color:var(--text2)">${p.metodo ? p.metodo + ' <b style="color:#a78bfa">'+p.comPct+'%</b>' : 'sin comisión'}</td>
+      <td style="text-align:right;font-size:12px;color:var(--green)">+${tbPeso(p.comValor)}</td>
+    </tr>`).join('');
+
+  return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:12px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px">
+      <div style="font-size:15px;font-weight:700">${ev.local} vs ${ev.visitante}</div>
+      <div style="font-size:12px;font-weight:800;color:${col}">${tbPeso(o.utilidadNeta)} · ${o.utilidadPct.toFixed(2)}%</div>
+    </div>
+    <div style="font-size:11px;color:var(--text2);margin-bottom:12px">
+      ${ev.liga||'—'} · ${ev.fecha} ${ev.hora||''} · ${o.mercadoNombre}${o.linea?' '+o.linea:''} ·
+      suma implícita ${(o.sumaImplicita*100).toFixed(2)}%
+      ${o.zona==='segura'
+          ? '<span style="color:#a78bfa;font-weight:700"> · gana por comisión</span>'
+          : '<span style="color:var(--green);font-weight:700"> · surebet · gana por las dos vías</span>'}
+    </div>
+    <table style="width:100%;border-collapse:collapse">
+      <tr style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">
+        <td>Resultado</td><td>Casa</td><td style="text-align:right">Cuota</td>
+        <td style="text-align:right">Apostar</td><td style="text-align:right">Método</td><td style="text-align:right">Comisión</td>
+      </tr>
+      ${filas}
+    </table>
+    <div style="border-top:1px solid var(--border);margin-top:10px;padding-top:10px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <div style="font-size:11px;color:var(--text2)">
+        Inviertes ${tbPeso(o.totalStake)} · cobras ${tbPeso(o.retornoMin)} pase lo que pase ·
+        sin comisión sería <span style="color:${o.utilidadPura>=0?'var(--green)':'var(--red)'}">${tbPeso(o.utilidadPura)}</span>
+        ${o.zona==='segura' ? ' · se ve como apuesta normal' : ' · la cuota ya es ganadora sola'}
+      </div>
+      <button class="btn btn-gold" onclick="tbAjustar(${idx})">🧮 Ajustar y colocar</button>
+    </div>
+  </div>`;
+}
+
+function tbAjustar(idx){
+  const o=_tbOps[idx]; if(!o) return;
+  const ev=o.evento;
+  const V=['1','X','2'], COL={'1':'#e6a23c','X':'#8890a8','2':'#5aa9e6'};
+  const cel=(f)=>V.map((v,i)=>`<td style="text-align:center;padding:8px 10px">${f(i,v)}</td>`).join('');
+  const IN='background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:7px 9px;font-size:13px;text-align:center';
+
+  const cuerpo=`
+  <div style="background:rgba(76,175,80,.07);border:1px solid rgba(76,175,80,.22);border-radius:8px;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+    <span style="font-size:12px;color:var(--text2);text-transform:uppercase;letter-spacing:.6px">Retorno objetivo</span>
+    <span id="tb-aj-obj" style="font-size:22px;font-weight:800;color:var(--green)">—</span>
+  </div>
+
+  <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">Inversión (retorno a garantizar)</div>
+  <input id="tb-aj-cap" type="text" value="${o.retornoMin.toLocaleString('es-CO')}" oninput="tbFmt(this);tbRecalc()"
+    style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:10px 13px;font-size:16px;font-weight:700;margin-bottom:14px">
+
+  <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px">
+    <input value="${ev.local}" readonly style="flex:1;${IN};text-align:left">
+    <span style="font-size:12px;color:var(--text2);font-weight:700">vs</span>
+    <input value="${ev.visitante}" readonly style="flex:1;${IN};text-align:left">
+  </div>
+
+  <table style="width:100%;border-collapse:collapse">
+    <tr style="background:var(--bg3)">
+      <td style="width:105px"></td>
+      ${V.map(v=>`<td style="text-align:center;padding:10px;font-size:17px;font-weight:800;color:${COL[v]}">${v}</td>`).join('')}
+    </tr>
+    <tr><td style="font-size:11px;color:var(--text2);font-weight:700;padding:8px 4px">CASA</td>
+      ${cel(i=>{
+        const l=(_tbCasas&&_tbCasas.length?_tbCasas.slice():[o.patas[i].casa]);
+        if(!l.includes(o.patas[i].casa)) l.unshift(o.patas[i].casa);
+        return `<select class="tb-aj-casa" data-i="${i}" onchange="tbCambiaCasa(${i})" style="width:100%;max-width:170px;${IN};text-align:left;font-weight:600">
+          ${l.map(c=>`<option${c===o.patas[i].casa?' selected':''}>${c}</option>`).join('')}</select>`;
+      })}</tr>
+    <tr><td style="font-size:11px;color:var(--text2);font-weight:700;padding:8px 4px">MÉTODO</td>
+      ${cel(i=>{
+        const ms=tbMetodosDe(o.patas[i].casa);
+        return `<select class="tb-aj-met" data-i="${i}" onchange="tbCambiaMetodo(${i})" style="width:100%;max-width:170px;${IN};text-align:left;font-size:12px">
+          ${ms.map(m=>`<option value="${m.metodo}" data-pct="${m.pct}"${m.metodo===o.patas[i].metodo?' selected':''}>${m.metodo}</option>`).join('')}
+          <option value="" data-pct="0"${o.patas[i].metodo?'':' selected'}>— sin comisión —</option></select>`;
+      })}</tr>
+    <tr><td style="font-size:11px;color:var(--text2);font-weight:700;padding:8px 4px">CUOTA</td>
+      ${cel(i=>`<input class="tb-aj-c" data-i="${i}" value="${o.patas[i].cuota}" oninput="tbRecalc()" style="width:88px;${IN}">`)}</tr>
+    <tr><td style="font-size:11px;color:var(--text2);font-weight:700;padding:8px 4px">INVERSIÓN</td>
+      ${cel(i=>`<span id="tb-aj-s${i}" style="display:inline-block;min-width:96px;${IN};font-weight:700">—</span>`)}</tr>
+    <tr><td style="font-size:11px;color:var(--text2);font-weight:700;padding:8px 4px">RETORNO</td>
+      ${cel(i=>`<span id="tb-aj-r${i}" style="font-size:13px;font-weight:700;color:var(--green)">—</span>`)}</tr>
+    ${V.map((v,i)=>`<input type="hidden" class="tb-aj-com" data-i="${i}" value="${o.patas[i].comPct}">`).join('')}
+  </table>
+
+  <div id="tb-aj-res" style="background:var(--bg3);border-radius:8px;margin-top:16px;padding:14px"></div>`;
+
+  _tbModal(`${ev.local} vs ${ev.visitante}`, cuerpo, ()=>false);
+  const ok=document.getElementById('tb-modal-ok'); if(ok) ok.style.display='none';
+  tbRecalc();
+}
+
+function tbCambiaCasa(i){
+  const c=document.querySelector(`.tb-aj-casa[data-i="${i}"]`);
+  const m=document.querySelector(`.tb-aj-met[data-i="${i}"]`);
+  const k=document.querySelector(`.tb-aj-com[data-i="${i}"]`);
+  if(!c||!m) return;
+  const ms=tbMetodosDe(c.value);
+  m.innerHTML = ms.map(x=>`<option value="${x.metodo}" data-pct="${x.pct}">${x.metodo}</option>`).join('')
+    + `<option value="" data-pct="0"${ms.length?'':' selected'}>— sin comisión —</option>`;
+  if(k) k.value = ms.length ? ms[0].pct : 0;
+  tbRecalc();
+}
+
+function tbCambiaMetodo(i){
+  const m=document.querySelector(`.tb-aj-met[data-i="${i}"]`);
+  const k=document.querySelector(`.tb-aj-com[data-i="${i}"]`);
+  if(m&&k) k.value = m.selectedOptions[0]?.dataset.pct ?? 0;
+  tbRecalc();
+}
+
+// Mismo modelo que Trixi General: se parte del retorno a garantizar
+function tbRecalc(){
+  const R=tbNum('tb-aj-cap');
+  const cuotas=[...document.querySelectorAll('.tb-aj-c')].map(e=>parseFloat((e.value||'').replace(',','.'))||0);
+  const coms  =[...document.querySelectorAll('.tb-aj-com')].map(e=>parseFloat(e.value)||0);
+  if(!R||!cuotas.length||cuotas.some(c=>c<=1)) return;
+
+  const inv=cuotas.map(c=>Math.round(R/c));
+  const total=inv.reduce((a,b)=>a+b,0);
+  const totCom=Math.round(inv.reduce((s,x,i)=>s+x*coms[i]/100,0));
+  const util=R-total+totCom;
+
+  const obj=document.getElementById('tb-aj-obj'); if(obj) obj.textContent=tbPeso(R);
+  inv.forEach((x,i)=>{
+    const a=document.getElementById('tb-aj-s'+i); if(a) a.textContent=tbPeso(x);
+    const b=document.getElementById('tb-aj-r'+i); if(b) b.textContent=tbPeso(Math.round(x*cuotas[i]));
+  });
+
+  const col=util>=0?'var(--green)':'var(--red)';
+  document.getElementById('tb-aj-res').innerHTML=`
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;text-align:center">
+      <div><div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Total apostado</div>
+        <div style="font-size:17px;font-weight:800;color:var(--gold,#e6a23c)">${tbPeso(total)}</div></div>
+      <div><div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Com. ganada</div>
+        <div style="font-size:17px;font-weight:800;color:var(--green)">${tbPeso(totCom)}</div></div>
+      <div><div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Util. neta $</div>
+        <div style="font-size:17px;font-weight:800;color:${col}">${tbPeso(util)}</div></div>
+      <div><div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Util. neta %</div>
+        <div style="font-size:17px;font-weight:800;color:${col}">${util>=0?'+':''}${(util/total*100).toFixed(2)}%</div></div>
+    </div>`;
+}
+
+
+// ── TRIXI BOT · carga de cuotas (fuente desacoplada del motor) ──────────────
+function tbCargarCuotas(){
+  const casas = _tbCasas.length ? _tbCasas : ['WPLAY','BET PLAY','BETSSON','RUSHBET','BETANO'];
+  const hoy   = tbHoyBogota();
+
+  const filas = casas.map(c => `
+    <tr>
+      <td style="font-size:12px;padding:4px 6px 4px 0;white-space:nowrap">${c}</td>
+      <td><input class="tb-cuota" data-casa="${c}" data-via="1" type="text" placeholder="—" style="width:70px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;color:var(--text1);padding:5px;font-size:12px;text-align:right"></td>
+      <td><input class="tb-cuota" data-casa="${c}" data-via="X" type="text" placeholder="—" style="width:70px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;color:var(--text1);padding:5px;font-size:12px;text-align:right"></td>
+      <td><input class="tb-cuota" data-casa="${c}" data-via="2" type="text" placeholder="—" style="width:70px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;color:var(--text1);padding:5px;font-size:12px;text-align:right"></td>
+      <td style="padding-left:6px">${_tbLinkCasa(c)}</td>
+    </tr>`).join('');
+
+  const html = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+      <div><div style="font-size:11px;color:var(--text2);margin-bottom:4px">Local</div>
+        <input id="tb-c-local" type="text" placeholder="Nacional" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:7px 10px;font-size:13px"></div>
+      <div><div style="font-size:11px;color:var(--text2);margin-bottom:4px">Visitante</div>
+        <input id="tb-c-visita" type="text" placeholder="Millonarios" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:7px 10px;font-size:13px"></div>
+      <div><div style="font-size:11px;color:var(--text2);margin-bottom:4px">Liga</div>
+        <input id="tb-c-liga" type="text" placeholder="Liga BetPlay" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:7px 10px;font-size:13px"></div>
+      <div style="display:grid;grid-template-columns:1fr 90px;gap:6px">
+        <div><div style="font-size:11px;color:var(--text2);margin-bottom:4px">Fecha (Colombia)</div>
+          <input id="tb-c-fecha" type="date" value="${hoy}" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:6px 8px;font-size:13px"></div>
+        <div><div style="font-size:11px;color:var(--text2);margin-bottom:4px">Hora</div>
+          <input id="tb-c-hora" type="time" value="19:30" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:6px 8px;font-size:13px"></div>
+      </div>
+    </div>
+    <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin:14px 0 6px">Cuotas 1X2 — deja en blanco las casas que no tengan el partido</div>
+    <table style="width:100%;border-collapse:collapse">
+      <tr style="font-size:10px;color:var(--text2);text-transform:uppercase">
+        <td style="padding-bottom:4px">Casa</td><td style="text-align:right">1</td><td style="text-align:right">X</td><td style="text-align:right">2</td><td></td>
+      </tr>
+      ${filas}
+    </table>`;
+
+  _tbModal('Cargar cuotas de un partido', html, tbGuardarEvento);
+}
+
+function _tbLinkCasa(casa){
+  const url = (_tbUrls && _tbUrls[casa]) || '';
+  return url ? `<a href="${url}" target="_blank" rel="noopener" style="font-size:11px;color:#a78bfa;text-decoration:none">abrir ↗</a>` : '';
+}
+
+async function tbGuardarEvento(){
+  const local  = (document.getElementById('tb-c-local')?.value  || '').trim();
+  const visita = (document.getElementById('tb-c-visita')?.value || '').trim();
+  const fecha  = document.getElementById('tb-c-fecha')?.value || tbHoyBogota();
+  if (!local || !visita){ toast('Falta el nombre de los equipos', 'error'); return false; }
+
+  const cuotas = {};
+  document.querySelectorAll('.tb-cuota').forEach(inp => {
+    const v = parseFloat((inp.value||'').replace(',','.'));
+    if (!v || v <= 1) return;
+    const casa = inp.dataset.casa;
+    cuotas[casa] = cuotas[casa] || {};
+    cuotas[casa][inp.dataset.via] = v;
+  });
+
+  const completas = Object.keys(cuotas).filter(c => cuotas[c]['1'] && cuotas[c]['X'] && cuotas[c]['2']);
+  if (completas.length < 2){
+    toast('Necesito el 1, X y 2 completos de al menos 2 casas', 'error');
+    return false;
+  }
+
+  try {
+    await db.collection('trixibot_eventos').add({
+      fecha, hora: document.getElementById('tb-c-hora')?.value || '',
+      deporte: 'Fútbol',
+      liga:  (document.getElementById('tb-c-liga')?.value || '').trim(),
+      local, visitante: visita,
+      cuotas: { '1X2': cuotas },
+      creadoPor: auth.currentUser?.uid || '',
+      creadoEn:  firebase.firestore.FieldValue.serverTimestamp()
+    });
+    toast(`Guardado: ${local} vs ${visita} · ${completas.length} casas`);
+    return true;
+  } catch(e){
+    toast('Error guardando: ' + e.message, 'error');
+    return false;
+  }
+}
+
+// Modal genérico reutilizable
+function _tbModal(titulo, cuerpoHtml, onGuardar){
+  let ov = document.getElementById('tb-modal-ov');
+  if (ov) ov.remove();
+  ov = document.createElement('div');
+  ov.id = 'tb-modal-ov';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9998;display:flex;align-items:center;justify-content:center;padding:20px';
+  ov.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;max-width:640px;width:100%;max-height:88vh;overflow:auto;padding:20px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div style="font-size:16px;font-weight:700">${titulo}</div>
+        <span onclick="document.getElementById('tb-modal-ov').remove()" style="cursor:pointer;font-size:20px;color:var(--text2);line-height:1">×</span>
+      </div>
+      <div id="tb-modal-body">${cuerpoHtml}</div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px">
+        <button class="btn" onclick="document.getElementById('tb-modal-ov').remove()">Cancelar</button>
+        <button class="btn btn-gold" id="tb-modal-ok">Guardar</button>
+      </div>
+    </div>`;
+  document.body.appendChild(ov);
+  document.getElementById('tb-modal-ok').onclick = async () => {
+    const ok = await onGuardar();
+    if (ok !== false) ov.remove();
+  };
+}
+
 </script>
 
 <!-- Modal Celebración -->

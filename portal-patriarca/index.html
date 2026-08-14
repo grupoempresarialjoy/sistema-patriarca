@@ -320,7 +320,7 @@
   .dot-live { width:8px; height:8px; border-radius:50%; background:var(--green-primary); animation: pulse 2s infinite; }
   @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.4; } }
 
-  .page-content { padding:28px; max-width:1440px; }
+  .page-content { padding:28px 32px; max-width:2100px; margin:0 auto; }
   .module-page { display:none; }
   .module-page.active { display:block; }
 
@@ -334,6 +334,9 @@
   .sf-group-hdr { padding:6px 16px; font-size:9px; font-weight:800; color:var(--text-muted); letter-spacing:1.5px; background:var(--bg-card2); border-bottom:1px solid var(--border); text-transform:uppercase; }
   .sf-row { display:flex; justify-content:space-between; align-items:center; padding:5px 16px; border-bottom:1px solid rgba(255,255,255,.03); }
   .sf-row-name { font-size:12px; color:var(--text-dim); flex:1; padding-right:16px; }
+  .sf-contable { cursor:pointer; }
+  .sf-contable:hover { background:var(--bg-card2); }
+  .sf-contable:hover .sf-row-name::after { content:' 🧮'; font-size:10px; }
   .sf-row-val { font-size:12px; font-weight:700; font-family:monospace; letter-spacing:-.5px; }
   .sf-val-pos  { color:var(--green-primary); }
   .sf-val-neg  { color:var(--red); }
@@ -367,7 +370,11 @@
   .esf-cons-table th:first-child { text-align:left; min-width:180px; position:sticky; top:0; left:0; background:var(--bg-dark); z-index:20; }
   .esf-cons-table th.th-total { background:#1a2a1a; color:var(--green-primary); }
   .esf-cons-table td { padding:6px 12px; text-align:right; border-bottom:1px solid rgba(42,47,63,.5); color:var(--text); white-space:nowrap; }
-  .esf-cons-table td:first-child { text-align:left; color:var(--text-muted); font-size:11px; position:sticky; left:0; background:var(--bg-card); z-index:1; }
+  .esf-cons-table td:first-child { text-align:left; color:var(--text-muted); font-size:11px; position:sticky; left:0; background:var(--bg-card); z-index:5; }
+  /* El encabezado debe quedar por encima de la primera columna al desplazar en diagonal */
+  .esf-cons-table thead th { z-index:30; }
+  .esf-cons-table thead th:first-child { z-index:40; }
+  .esf-cons-table .row-section td:first-child, .esf-cons-table .row-total td:first-child { z-index:6; }
   .esf-cons-table tr:hover td { background:var(--bg-card2); }
   .esf-cons-table tr:hover td:first-child { background:var(--bg-card2); }
   .esf-cons-table .row-section th, .esf-cons-table .row-section td { background:var(--bg-dark); color:var(--text-muted); font-size:9px; font-weight:800; letter-spacing:1.5px; padding:10px 12px; border-top:2px solid var(--border); border-bottom:1px solid var(--border); }
@@ -510,7 +517,7 @@
     letter-spacing:1px;
     text-align:left;
     border-bottom:1px solid var(--border);
-    background:#080808;
+    background:var(--bg-card2);
   }
   tbody tr { border-bottom:1px solid var(--border); transition:background .1s; }
   tbody tr:hover { background:var(--bg-card2); }
@@ -873,10 +880,12 @@
             </div>
           </div>
           <div class="stats-row stats-4" style="margin-bottom:20px" id="sf-kpis">
-            <div class="stat-card"><div class="stat-label">TOTAL ACTIVO</div><div class="stat-value stat-green" id="kpi-activo">—</div></div>
+            <div class="stat-card" style="cursor:pointer" onclick="abrirConteoSF('', 0)" title="Abrir la calculadora de efectivo"><div class="stat-label">TOTAL ACTIVO 🧮</div><div class="stat-value stat-green" id="kpi-activo">—</div></div>
             <div class="stat-card"><div class="stat-label">TOTAL PASIVO</div><div class="stat-value stat-red"   id="kpi-pasivo">—</div></div>
             <div class="stat-card"><div class="stat-label">PATRIMONIO NETO</div><div class="stat-value"        id="kpi-patrim">—</div></div>
-            <div class="stat-card"><div class="stat-label">ESTADO BALANCE</div><div class="stat-value" id="kpi-estado">—</div><div class="stat-sub" id="kpi-dif"></div></div>
+            <div class="stat-card"><div class="stat-label">ESTADO BALANCE</div><div class="stat-value" id="kpi-estado">—</div><div class="stat-sub" id="kpi-dif"></div>
+              <div id="sf-dif-detalle" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--border)"></div>
+            </div>
           </div>
           <div class="sf-grid" id="sf-grid">
             <div class="sf-section"><div class="sf-section-title sf-title-activo"><span>ACTIVOS</span><span id="sf-total-activo-lbl">$ 0</span></div><div id="sf-activos-body"></div></div>
@@ -1222,7 +1231,7 @@
             <div id="op-check-panel" style="display:none">
               <div id="op-check-content"></div>
             </div>
-            <div style="overflow-x:auto;max-height:600px;overflow-y:auto">
+            <div style="overflow-x:auto;max-height:calc(100vh - 330px);min-height:420px;overflow-y:auto">
               <table class="mov-table">
                 <thead>
                   <tr>
@@ -1306,6 +1315,56 @@
       </div><!-- /page-contador -->
 
       <!-- ══════════════════════════════════════════════════════════ -->
+      <!-- PARTICIPACIÓN DE OPERADORES                                -->
+      <!-- ══════════════════════════════════════════════════════════ -->
+      <div class="module-page" id="page-participacion">
+        <div style="padding:24px">
+
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:20px">
+            <div>
+              <div style="font-size:18px;font-weight:900;letter-spacing:-.3px">💼 Participación de Operadores</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Escalera de ganancia, bono e interés de capital — mes cerrado</div>
+            </div>
+            <div style="display:flex;gap:10px;align-items:center">
+              <select id="par-mes" onchange="cargarParticipacion()"
+                style="padding:7px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);font-size:12px;font-family:inherit"></select>
+              <button class="btn" id="par-btn-recalc" onclick="cargarParticipacion(true)"
+                style="padding:7px 14px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);font-size:12px;cursor:pointer;font-family:inherit">🔄 Recalcular</button>
+              <button class="btn" id="par-btn-guardar" onclick="guardarParticipacion()"
+                style="padding:7px 14px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);font-size:12px;cursor:pointer;font-family:inherit">💾 Guardar el mes</button>
+            </div>
+          </div>
+
+          <div id="par-estado" style="font-size:12px;color:var(--text-muted);margin-bottom:12px">Selecciona un mes</div>
+
+          <div class="section-card" style="overflow-x:auto">
+            <table style="width:100%;border-collapse:collapse;font-size:12px" id="par-tabla">
+              <thead>
+                <tr style="border-bottom:2px solid var(--border);text-align:right">
+                  <th style="text-align:left;padding:10px 8px">Operador</th>
+                  <th style="padding:10px 8px">Productividad</th>
+                  <th style="padding:10px 8px">Rango</th>
+                  <th style="padding:10px 8px">Rojo</th>
+                  <th style="padding:10px 8px">Base Neta</th>
+                  <th style="padding:10px 8px">Particip.</th>
+                  <th style="padding:10px 8px">Bono</th>
+                  <th style="padding:10px 8px">Bruta</th>
+                  <th style="padding:10px 8px">Int. Capital</th>
+                  <th style="padding:10px 8px;color:var(--green-primary)">Ganancia Operador</th>
+                </tr>
+              </thead>
+              <tbody id="par-tbody">
+                <tr><td colspan="10" style="text-align:center;padding:26px;color:var(--text-muted)">—</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div id="par-detalle-bono" style="margin-top:16px"></div>
+
+        </div>
+      </div><!-- /page-participacion -->
+
+      <!-- ══════════════════════════════════════════════════════════ -->
       <!-- SOLICITUDES                                                -->
       <!-- ══════════════════════════════════════════════════════════ -->
       <div class="module-page" id="page-solicitudes">
@@ -1334,6 +1393,59 @@
       </div><!-- /page-solicitudes -->
 
     </div><!-- /page-content -->
+
+  <!-- ── CALCULADORA DE EFECTIVO — ventana flotante ── -->
+  <div id="cef-win" style="display:none;position:fixed;z-index:9000;top:90px;right:32px;width:660px;max-width:calc(100vw - 40px);
+       background:var(--bg-card);border:1px solid var(--border);border-radius:14px;box-shadow:0 24px 70px rgba(0,0,0,.45);overflow:hidden">
+    <div id="cef-drag" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;
+         background:var(--bg-card2);border-bottom:1px solid var(--border);cursor:move;user-select:none">
+      <span style="font-size:13px;font-weight:800">🧮 Calculadora de Efectivo</span>
+      <span style="display:flex;gap:8px;align-items:center">
+        <span id="cef-estado-guardado" style="font-size:10px;color:var(--text-muted)">Automático</span>
+        <button onclick="cerrarConteoSF()" style="background:transparent;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;line-height:1;padding:2px 6px">✕</button>
+      </span>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);max-height:calc(100vh - 190px);overflow-y:auto">
+
+      <!-- Conteo contra una cuenta -->
+      <div style="background:var(--bg-card);padding:14px 16px">
+        <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Contra una cuenta</div>
+        <select id="cef-cuenta" onchange="_cefPintar()" style="width:100%;padding:7px 10px;margin-bottom:10px;border-radius:8px;
+                border:1px solid var(--border);background:var(--bg-card2);color:var(--text);font-size:12px;font-family:inherit"></select>
+        <table style="width:100%;font-size:12px;border-collapse:collapse" id="cef-t1"></table>
+        <div style="border-top:2px solid var(--border);margin-top:10px;padding-top:10px">
+          <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:12px">
+            <span style="color:var(--text-muted)">Contado</span><strong id="cef-contado">$0</strong></div>
+          <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:12px">
+            <span style="color:var(--text-muted)">En la cuenta</span><strong id="cef-cuenta-val">$0</strong></div>
+          <div style="display:flex;justify-content:space-between;padding:8px 0 0;margin-top:4px;border-top:1px solid var(--border);font-size:14px;font-weight:800">
+            <span>Diferencia</span><span id="cef-dif">$0</span></div>
+          <div id="cef-nota" style="font-size:11px;color:var(--text-muted);margin-top:6px"></div>
+        </div>
+        <button onclick="_cefLimpiar(1)" style="width:100%;margin-top:12px;padding:7px;border-radius:8px;border:1px solid var(--border);
+                background:transparent;color:var(--text-muted);font-size:12px;cursor:pointer;font-family:inherit">🧹 Limpiar</button>
+      </div>
+
+      <!-- Conteo suelto -->
+      <div style="background:var(--bg-card);padding:14px 16px">
+        <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Conteo libre</div>
+        <input type="text" id="cef-nota2" placeholder="¿Qué estás contando?" maxlength="60" oninput="_cefGuardar()"
+               style="width:100%;padding:7px 10px;margin-bottom:10px;border-radius:8px;border:1px solid var(--border);
+                      background:var(--bg-card2);color:var(--text);font-size:12px;font-family:inherit;box-sizing:border-box">
+        <table style="width:100%;font-size:12px;border-collapse:collapse" id="cef-t2"></table>
+        <div style="border-top:2px solid var(--border);margin-top:10px;padding-top:10px">
+          <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:11px;color:var(--text-muted)">
+            <span>Billetes</span><span id="cef-billetes2">0</span></div>
+          <div style="display:flex;justify-content:space-between;padding:8px 0 0;border-top:1px solid var(--border);font-size:14px;font-weight:800">
+            <span>Total</span><span id="cef-total2" style="color:var(--green-primary)">$0</span></div>
+        </div>
+        <button onclick="_cefLimpiar(2)" style="width:100%;margin-top:12px;padding:7px;border-radius:8px;border:1px solid var(--border);
+                background:transparent;color:var(--text-muted);font-size:12px;cursor:pointer;font-family:inherit">🧹 Limpiar</button>
+      </div>
+
+    </div>
+  </div>
   </div><!-- /main-content -->
 </div><!-- /app-shell -->
 
@@ -1683,6 +1795,7 @@ const NAV_ITEMS = {
   ceo: [
     { id:'administradores', icon:'👑', label:'Administradores' },
     { id:'contador',        icon:'📊', label:'Contador' },
+    { id:'participacion',   icon:'💼', label:'Participación' },
     { id:'solicitudes',     icon:'📋', label:'Solicitudes' },
     { id:'portales', icon:'🔗', label:'Portales', group: true, children: [
       { id:'admin-link',  icon:'⚡', label:'Portal Admin',    external:'admin.html' },
@@ -1858,12 +1971,517 @@ function goTo(page) {
   if(p) p.classList.add('active');
   const n = document.getElementById('nav-' + page);
   if(n) n.classList.add('active');
-  const titulos = { administradores:'Administradores', contador:'Contador — Situación Financiera', solicitudes:'Solicitudes Pendientes' };
+  const titulos = { administradores:'Administradores', contador:'Contador — Situación Financiera', solicitudes:'Solicitudes Pendientes', participacion:'Participación de Operadores' };
   document.getElementById('topbar-title').textContent = titulos[page] || page;
   if(page==='administradores') loadAdministradores();
   if(page==='contador')        loadContador();
   if(page==='solicitudes')     loadSolicitudes();
+  if(page==='participacion')   initParticipacion();
 }
+
+
+// ══════════════════════════════════════════════════════════════════
+// PARTICIPACIÓN DE OPERADORES
+// Misma fórmula del portal del operador: escalera → bono → interés.
+// ══════════════════════════════════════════════════════════════════
+let _parEscaleras = {};   // nombre del método → { rangos, interes_capital, bono }
+let _parFilas     = [];   // resultado del mes en pantalla
+let _parMesKey    = null;
+
+const _MESES_PAR = ['Enero','Febrero','Marzo','Abril','Mayo','Junio',
+                    'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+function _parMesLabel(mk) {
+  const [y, m] = (mk || '').split('-').map(Number);
+  return (_MESES_PAR[m - 1] || '') + ' ' + y;
+}
+
+function initParticipacion() {
+  const sel = document.getElementById('par-mes');
+  if (sel && !sel.options.length) {
+    const now = new Date();
+    for (let i = 1; i <= 12; i++) {
+      const d  = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const mk = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+      const o  = document.createElement('option');
+      o.value = mk; o.textContent = _parMesLabel(mk);
+      sel.appendChild(o);
+    }
+  }
+  cargarParticipacion();
+}
+
+// El rango donde cae la productividad
+function _parEscalera(productividad, vinc, metodo, participacionManual) {
+  if ((vinc || '').toLowerCase() === 'socio') {
+    return { rango:'Socio', rojo:0, participacion: participacionManual || 50,
+             interesCapital:false, interesDiario:false, esSocio:true };
+  }
+  const cfg = _parEscaleras[metodo || 'Escalera de Ganancia'] || {};
+  const rangos = (cfg.rangos && cfg.rangos.length) ? cfg.rangos : _PAR_RANGOS_FALLBACK;
+  const orden = [...rangos].sort((a,b) => (a.desde||0) - (b.desde||0));
+  for (let i = 0; i < orden.length; i++) {
+    const r = orden[i];
+    const desde = r.desde || 0;
+    const hasta = (r.hasta == null) ? Infinity : r.hasta;
+    if (productividad >= desde && productividad <= hasta) {
+      return { rango: i + 1, rojo: r.rojo || 0, participacion: r.participacion || 50,
+               interesCapital: !!r.interesCapital, interesDiario: !!r.interesDiario };
+    }
+  }
+  const ult = orden[orden.length - 1] || {};
+  return { rango: orden.length, rojo:0, participacion: ult.participacion || 50,
+           interesCapital:false, interesDiario:false };
+}
+
+const _PAR_RANGOS_FALLBACK = [
+  { desde:0,       hasta:2799999, rojo:600000, participacion:50, interesCapital:true,  interesDiario:true  },
+  { desde:2800000, hasta:2999999, rojo:300000, participacion:50, interesCapital:true,  interesDiario:true  },
+  { desde:3000000, hasta:3999999, rojo:0,      participacion:45, interesCapital:true,  interesDiario:true  },
+  { desde:4000000, hasta:4999999, rojo:0,      participacion:50, interesCapital:true,  interesDiario:true  },
+  { desde:5000000, hasta:5999999, rojo:0,      participacion:50, interesCapital:true,  interesDiario:false },
+  { desde:6000000, hasta:null,    rojo:0,      participacion:50, interesCapital:false, interesDiario:false },
+];
+
+// El bono sale del volumen de recargas: Wplay 1:1, Be Movil ponderado por casa
+function _parBono(movsRecargas, bonoCfg) {
+  const b       = bonoCfg || {};
+  const meta    = b.meta || 40000000;
+  const cWplay  = (b.canal_wplay   || 'WPLAY UNITY').toUpperCase();
+  const cBemov  = (b.canal_bemovil || 'BE MOVIL CAJA').toUpperCase();
+  const factor  = {};
+  (b.casas || []).forEach(c => { factor[(c.casa||'').toUpperCase()] = (parseFloat(c.factor) || 100) / 100; });
+
+  let wplay = 0, bemovil = 0;
+  movsRecargas.forEach(mv => {
+    const met   = (mv.metodo || '').toUpperCase();
+    const monto = parseFloat(mv.monto) || 0;
+    if (met === cWplay) wplay += monto;
+    else if (met === cBemov) bemovil += monto * (factor[(mv.casa||'SIN CASA').toUpperCase()] ?? 1);
+  });
+
+  if (wplay >= meta || bemovil >= meta) return { pct: b.pct_solo || 5,  tipo:'solo',  wplay, bemovil, meta };
+  if (wplay + bemovil >= meta)          return { pct: b.pct_combo || 3, tipo:'combo', wplay, bemovil, meta };
+  return { pct: 0, tipo:'sin', wplay, bemovil, meta };
+}
+
+async function cargarParticipacion(forzar) {
+  const mk = document.getElementById('par-mes')?.value;
+  if (!mk) return;
+  _parMesKey = mk;
+  const est  = document.getElementById('par-estado');
+  const tb   = document.getElementById('par-tbody');
+  est.textContent = '⏳ Cargando…';
+  tb.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:26px;color:var(--text-muted)">—</td></tr>';
+  document.getElementById('par-detalle-bono').innerHTML = '';
+
+  try {
+    // Lo guardado se pinta de una — los meses cerrados no cambian
+    const guardadoSnap = await db.collection('patriarca_participacion').where('mesKey','==',mk).get();
+    const guardado = {};
+    guardadoSnap.docs.forEach(d => { const x = d.data(); if (x.uid) guardado[x.uid] = x; });
+
+    if (!forzar && guardadoSnap.size) {
+      _parFilas = Object.values(guardado)
+        .map(f => ({ ...f, yaGuardado: true }))
+        .sort((a,b) => b.gananciaOperador - a.gananciaOperador);
+      renderParticipacion(true);
+      return;
+    }
+
+    est.textContent = '⏳ Calculando…';
+
+    // Escaleras y config del bono
+    const escSnap = await db.collection('patriarca_escalera').get();
+    _parEscaleras = {};
+    escSnap.docs.forEach(d => { const x = d.data(); if (x.nombre) _parEscaleras[x.nombre] = x; });
+
+    // El nombre bueno vive en admin_usuarios, que es donde el admin lo edita
+    const admSnap = await db.collection('admin_usuarios').where('rol','==','operador').get();
+    const nombrePorUid = {}, nombrePorEmail = {};
+    admSnap.docs.forEach(d => {
+      const u = d.data();
+      const n = (u.nombre || '').trim();
+      if (!n || n === '—') return;
+      if (u.uid)   nombrePorUid[u.uid] = n;
+      if (u.email) nombrePorEmail[(u.email || '').toLowerCase()] = n;
+    });
+
+    // Operadores activos
+    const opsSnap = await db.collection('patriarca_operadores').get();
+    const ops = opsSnap.docs.map(d => {
+      const o = d.data();
+      const uid = o.uid || d.id;
+      const email = (o.email || '').toLowerCase();
+      const nombre = nombrePorUid[uid] || nombrePorEmail[email]
+                  || o.nombre || o.email || d.id;
+      return { uid, nombre, estado: o.estado };
+    }).filter(o => o.uid && o.estado !== 'Inactivo');
+
+    const mesLabel = _parMesLabel(mk);
+    const filas = [];
+
+    for (const op of ops) {
+      // 1. Productividad — del cierre si existe, si no del ESF
+      let productividad = null, fuente = '';
+      const cieSnap = await db.collection('patriarca_cierres')
+        .where('operadorId','==',op.uid).where('mes','==',mesLabel).get();
+      const cierre = cieSnap.docs.map(d => d.data())
+        .sort((a,b) => (b.ts?.seconds||0) - (a.ts?.seconds||0))[0];
+      if (cierre && cierre.ganancia && cierre.ganancia.total != null) {
+        productividad = Math.round(cierre.ganancia.total); fuente = 'cierre';
+      } else {
+        const esf = await db.collection('patriarca_esf_resumen').doc(`${op.uid}_${mk}`).get();
+        if (esf.exists) {
+          const e = esf.data();
+          productividad = Math.round((e.utilidad||0) - (e.totalGastos||0) + (e.totalComisiones||0));
+          fuente = 'esf';
+        }
+      }
+      if (productividad == null) continue;
+
+      // 2. Configuración del operador
+      const cfgSnap = await db.collection('patriarca_config').doc(op.uid).get();
+      const cfg = cfgSnap.exists ? cfgSnap.data() : {};
+
+      // 3. Escalera
+      const esc = _parEscalera(productividad, cfg.vinc, cfg.metodo_participacion, cfg.participacion);
+
+      // 4. Bono — recargas del mes por los dos canales
+      // Acotado al mes para no traer todo el histórico
+      let movDocs;
+      try {
+        movDocs = (await db.collection('patriarca_movimientos')
+          .where('opId','==',op.uid)
+          .where('fecha','>=', mk + '-01').where('fecha','<=', mk + '-31').get()).docs;
+      } catch(e) {
+        // Si falta el índice compuesto, caer al histórico completo
+        movDocs = (await db.collection('patriarca_movimientos').where('opId','==',op.uid).get()).docs;
+      }
+      const recargas = movDocs.map(d => d.data()).filter(m =>
+        (m.tipo||'').toUpperCase() === 'RECARGAS' && (m.fecha||'').startsWith(mk));
+      const escCfg = _parEscaleras[cfg.metodo_participacion || 'Escalera de Ganancia'] || {};
+      const bono = esc.esSocio ? { pct:0, tipo:'sin', wplay:0, bemovil:0, meta:0 }
+                               : _parBono(recargas, escCfg.bono);
+
+      // 5. Cuentas
+      const baseNeta = Math.max(0, productividad - esc.rojo);
+      const pct      = esc.participacion + bono.pct;
+      const bruta    = baseNeta * (pct / 100);
+      const capAsig  = cfg.capital_asignado || 0;
+      const tasaCap  = (escCfg.interes_capital != null ? escCfg.interes_capital : 5) / 100;
+      const intCap   = esc.interesCapital ? capAsig * tasaCap : 0;
+      const neta     = Math.round(bruta - intCap);
+
+      filas.push({
+        uid: op.uid, nombre: op.nombre, mesKey: mk, fuente,
+        productividad, rango: esc.rango, rojo: esc.rojo, baseNeta,
+        participacion: esc.participacion, bonoPct: bono.pct, bonoTipo: bono.tipo,
+        bonoWplay: Math.round(bono.wplay), bonoBemovil: Math.round(bono.bemovil), bonoMeta: bono.meta,
+        bruta: Math.round(bruta), interesCapital: Math.round(intCap), capitalAsignado: capAsig,
+        gananciaOperador: neta,
+        yaGuardado: !!guardado[op.uid],
+      });
+    }
+
+    filas.sort((a,b) => b.gananciaOperador - a.gananciaOperador);
+    _parFilas = filas;
+    renderParticipacion();
+  } catch(e) {
+    est.textContent = '⚠ ' + e.message;
+    console.warn('participacion:', e);
+  }
+}
+
+function renderParticipacion(desdeGuardado) {
+  const tb  = document.getElementById('par-tbody');
+  const est = document.getElementById('par-estado');
+  const p   = v => '$' + Math.round(v || 0).toLocaleString('es-CO');
+
+  if (!_parFilas.length) {
+    tb.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:26px;color:var(--text-muted)">Sin datos para este mes</td></tr>';
+    est.textContent = 'No hay cierres ni ESF para ' + _parMesLabel(_parMesKey);
+    return;
+  }
+
+  const t = _parFilas.reduce((a, f) => ({
+    prod: a.prod + f.productividad, rojo: a.rojo + f.rojo, base: a.base + f.baseNeta,
+    bruta: a.bruta + f.bruta, int: a.int + f.interesCapital, neta: a.neta + f.gananciaOperador,
+  }), { prod:0, rojo:0, base:0, bruta:0, int:0, neta:0 });
+
+  const td = 'padding:9px 8px;text-align:right';
+  tb.innerHTML = _parFilas.map(f => `
+    <tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:9px 8px;font-weight:700">${f.nombre}
+        ${f.fuente === 'esf' ? '<span title="Mes sin cierre — calculado del ESF" style="color:var(--text-muted);font-size:10px;margin-left:4px">ESF</span>' : ''}</td>
+      <td style="${td}">${p(f.productividad)}</td>
+      <td style="${td};color:var(--text-muted)">${f.rango}</td>
+      <td style="${td};color:${f.rojo ? '#f87171' : 'var(--text-muted)'}">${f.rojo ? p(f.rojo) : 'Exento'}</td>
+      <td style="${td}">${p(f.baseNeta)}</td>
+      <td style="${td};font-weight:700">${f.participacion}%${f.bonoPct ? `<span style="color:#facc15">+${f.bonoPct}%</span>` : ''}</td>
+      <td style="${td};color:${f.bonoPct ? '#facc15' : 'var(--text-muted)'}">${f.bonoPct ? f.bonoTipo : '—'}</td>
+      <td style="${td}">${p(f.bruta)}</td>
+      <td style="${td};color:${f.interesCapital ? '#f87171' : 'var(--text-muted)'}">${f.interesCapital ? p(f.interesCapital) : 'Exento'}</td>
+      <td style="${td};font-weight:800;color:var(--green-primary)">${p(f.gananciaOperador)}</td>
+    </tr>`).join('') + `
+    <tr style="border-top:2px solid var(--border);font-weight:900">
+      <td style="padding:11px 8px">TOTAL</td>
+      <td style="${td}">${p(t.prod)}</td>
+      <td style="${td}"></td>
+      <td style="${td}">${p(t.rojo)}</td>
+      <td style="${td}">${p(t.base)}</td>
+      <td style="${td}"></td>
+      <td style="${td}"></td>
+      <td style="${td}">${p(t.bruta)}</td>
+      <td style="${td}">${p(t.int)}</td>
+      <td style="${td};color:var(--green-primary)">${p(t.neta)}</td>
+    </tr>`;
+
+  const guardados = _parFilas.filter(f => f.yaGuardado).length;
+  est.innerHTML = `${_parFilas.length} operadores · ${_parMesLabel(_parMesKey)} · `
+    + (desdeGuardado
+        ? '<span style="color:var(--green-primary)">✓ guardado</span> — usa Recalcular si cambió algo'
+        : guardados ? `<span style="color:var(--green-primary)">${guardados} ya guardados</span>`
+                    : '<span style="color:#facc15">sin guardar</span>');
+
+  // Detalle del bono
+  const conBono = _parFilas.filter(f => f.bonoWplay || f.bonoBemovil);
+  document.getElementById('par-detalle-bono').innerHTML = conBono.length ? `
+    <div class="section-card">
+      <div style="font-size:12px;font-weight:800;margin-bottom:10px">🎯 Base del bono — meta ${p(conBono[0].bonoMeta)}</div>
+      <table style="width:100%;border-collapse:collapse;font-size:11px">
+        <thead><tr style="border-bottom:1px solid var(--border);text-align:right">
+          <th style="text-align:left;padding:6px 8px">Operador</th>
+          <th style="padding:6px 8px">Wplay Unity</th>
+          <th style="padding:6px 8px">Be Movil (ponderado)</th>
+          <th style="padding:6px 8px">Combinado</th>
+          <th style="padding:6px 8px">Bono</th>
+        </tr></thead>
+        <tbody>${conBono.map(f => `<tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:6px 8px">${f.nombre}</td>
+          <td style="${td}">${p(f.bonoWplay)}</td>
+          <td style="${td}">${p(f.bonoBemovil)}</td>
+          <td style="${td}">${p(f.bonoWplay + f.bonoBemovil)}</td>
+          <td style="${td};color:${f.bonoPct?'#facc15':'var(--text-muted)'};font-weight:700">${f.bonoPct ? f.bonoPct+'% '+f.bonoTipo : '—'}</td>
+        </tr>`).join('')}</tbody>
+      </table>
+    </div>` : '';
+}
+
+// Deja el mes registrado para no depender de recalcular
+async function guardarParticipacion() {
+  if (!_parFilas.length) { alert('No hay nada que guardar'); return; }
+  const btn = document.getElementById('par-btn-guardar');
+  btn.disabled = true; btn.textContent = '⏳ Guardando…';
+  try {
+    for (let i = 0; i < _parFilas.length; i += 400) {
+      const b = db.batch();
+      _parFilas.slice(i, i + 400).forEach(f => {
+        const { yaGuardado, ...datos } = f;
+        b.set(db.collection('patriarca_participacion').doc(`${f.uid}_${f.mesKey}`), {
+          ...datos, guardadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+      });
+      await b.commit();
+    }
+    _parFilas.forEach(f => f.yaGuardado = true);
+    renderParticipacion();
+    btn.textContent = '✓ Guardado';
+    setTimeout(() => { btn.textContent = '💾 Guardar el mes'; }, 2000);
+  } catch(e) {
+    alert('Error: ' + e.message);
+    btn.textContent = '💾 Guardar el mes';
+  } finally { btn.disabled = false; }
+}
+
+
+// ══════════════════════════════════════════════════════════════════
+// CALCULADORA DE EFECTIVO — ventana flotante de la Situación Financiera
+// Dos conteos: uno se compara contra la cuenta que escojas y el otro es
+// libre. Lo que escribas queda guardado aunque cierres la ventana.
+// ══════════════════════════════════════════════════════════════════
+const CEF_DENOMS = [100000, 50000, 20000, 10000, 5000, 2000, 1000];
+let _cefDatos = { c1:{}, c2:{}, cuenta:'', nota:'' };
+let _cefCuentas = [];      // [{nombre, saldo}] de la SF
+let _cefTimer = null;
+
+function _cefKey() { return 'cef_' + (getMesGlobal() || 'global'); }
+
+function _cefCargar() {
+  try { _cefDatos = JSON.parse(localStorage.getItem(_cefKey()) || 'null') || { c1:{}, c2:{}, cuenta:'', nota:'' }; }
+  catch(e) { _cefDatos = { c1:{}, c2:{}, cuenta:'', nota:'' }; }
+  _cefDatos.c1 = _cefDatos.c1 || {}; _cefDatos.c2 = _cefDatos.c2 || {};
+}
+
+function _cefGuardar() {
+  CEF_DENOMS.concat('monedas').forEach(d => {
+    _cefDatos.c1[d] = parseInt(document.getElementById('cef-1-'+d)?.value) || 0;
+    _cefDatos.c2[d] = parseInt(document.getElementById('cef-2-'+d)?.value) || 0;
+  });
+  _cefDatos.cuenta = document.getElementById('cef-cuenta')?.value || '';
+  _cefDatos.nota   = document.getElementById('cef-nota2')?.value || '';
+  try { localStorage.setItem(_cefKey(), JSON.stringify(_cefDatos)); } catch(e) {}
+
+  const st = document.getElementById('cef-estado-guardado');
+  if (st) { st.textContent = '⏳ Guardando…'; }
+  clearTimeout(_cefTimer);
+  _cefTimer = setTimeout(async () => {
+    try {
+      await db.collection('cont_conteo_efectivo').doc(getMesGlobal() || 'global').set({
+        ..._cefDatos, mesKey: getMesGlobal() || '',
+        ts: firebase.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+      if (st) { st.textContent = '✓ Guardado'; st.style.color = 'var(--green-primary)'; }
+    } catch(e) { if (st) { st.textContent = '⚠ Solo local'; st.style.color = '#f59e0b'; } }
+  }, 700);
+}
+
+// Las cuentas de la SF que tienen sentido contar
+function _cefLeerCuentas() {
+  const out = [];
+  document.querySelectorAll('#sf-activos-col .sf-row, .sf-row').forEach(r => {
+    const n = r.querySelector('.sf-row-name');
+    const v = r.querySelector('.sf-row-val');
+    if (!n || !v) return;
+    const nombre = n.textContent.replace(/\s*(ESF|OP)\s*$/,'').trim();
+    if (!nombre || out.some(x => x.nombre === nombre)) return;
+    const saldo = parseFloat(v.textContent.replace(/[^\d,.-]/g,'').replace(/\./g,'').replace(',','.')) || 0;
+    out.push({ nombre, saldo });
+  });
+  return out;
+}
+
+function abrirConteoSF(cuenta, saldo) {
+  _cefCargar();
+  _cefCuentas = _cefLeerCuentas();
+  if (cuenta && !_cefCuentas.some(c => c.nombre === cuenta)) _cefCuentas.unshift({ nombre: cuenta, saldo });
+
+  const sel = document.getElementById('cef-cuenta');
+  const elegida = cuenta || _cefDatos.cuenta || '';
+  sel.innerHTML = '<option value="">— Escoge la cuenta —</option>'
+    + _cefCuentas.map(c => `<option value="${c.nombre.replace(/"/g,'&quot;')}"${c.nombre===elegida?' selected':''}>${c.nombre}</option>`).join('');
+
+  document.getElementById('cef-nota2').value = _cefDatos.nota || '';
+  _cefTabla(1); _cefTabla(2);
+  document.getElementById('cef-win').style.display = '';
+  _cefPintar();
+  _cefSincronizar();
+}
+
+function cerrarConteoSF() { document.getElementById('cef-win').style.display = 'none'; }
+
+function _cefTabla(n) {
+  const t = document.getElementById('cef-t' + n);
+  if (!t) return;
+  const datos = n === 1 ? _cefDatos.c1 : _cefDatos.c2;
+  const fila = (k, label) => `
+    <tr>
+      <td style="padding:3px 4px;color:var(--text-muted)">${label}</td>
+      <td style="padding:3px 4px;width:70px">
+        <input type="number" min="0" id="cef-${n}-${k}" value="${datos[k] || ''}" placeholder="0"
+          oninput="_cefPintar();_cefGuardar()"
+          style="width:100%;text-align:center;padding:4px;font-size:12px;background:var(--bg-card2);
+                 border:1px solid var(--border);border-radius:5px;color:var(--text);box-sizing:border-box;font-family:inherit">
+      </td>
+      <td style="padding:3px 4px;text-align:right;font-weight:600" id="cef-v${n}-${k}">$0</td>
+    </tr>`;
+  t.innerHTML = CEF_DENOMS.map(d => fila(d, '$' + d.toLocaleString('es-CO'))).join('') + fila('monedas', 'MONEDAS');
+}
+
+function _cefTotal(n) {
+  let tot = 0;
+  CEF_DENOMS.forEach(d => { tot += (parseInt(document.getElementById(`cef-${n}-${d}`)?.value) || 0) * d; });
+  return tot + (parseInt(document.getElementById(`cef-${n}-monedas`)?.value) || 0);
+}
+
+function _cefPintar() {
+  const p = v => '$' + Math.round(v || 0).toLocaleString('es-CO');
+  let billetes2 = 0;
+  [1, 2].forEach(n => {
+    CEF_DENOMS.forEach(d => {
+      const c = parseInt(document.getElementById(`cef-${n}-${d}`)?.value) || 0;
+      if (n === 2) billetes2 += c;
+      const e = document.getElementById(`cef-v${n}-${d}`);
+      if (e) e.textContent = p(c * d);
+    });
+    const m = parseInt(document.getElementById(`cef-${n}-monedas`)?.value) || 0;
+    const em = document.getElementById(`cef-v${n}-monedas`);
+    if (em) em.textContent = p(m);
+  });
+
+  const contado = _cefTotal(1);
+  const nom = document.getElementById('cef-cuenta')?.value || '';
+  const cta = _cefCuentas.find(c => c.nombre === nom);
+  const saldo = cta ? cta.saldo : 0;
+  const dif = contado - saldo;
+
+  document.getElementById('cef-contado').textContent    = p(contado);
+  document.getElementById('cef-cuenta-val').textContent = nom ? p(saldo) : '—';
+
+  const eD = document.getElementById('cef-dif');
+  const eN = document.getElementById('cef-nota');
+  if (!nom) {
+    eD.textContent = '—'; eD.style.color = 'var(--text-muted)';
+    eN.textContent = 'Escoge contra qué cuenta comparar.';
+  } else if (Math.abs(dif) < 1) {
+    eD.textContent = '✅ CORRECTO'; eD.style.color = 'var(--green-primary)';
+    eN.textContent = 'El efectivo contado coincide.';
+  } else {
+    eD.textContent = (dif > 0 ? '+' : '') + p(dif);
+    eD.style.color = dif > 0 ? '#f59e0b' : '#ef4444';
+    eN.textContent = dif > 0 ? `Sobran ${p(dif)}` : `Faltan ${p(-dif)}`;
+  }
+
+  document.getElementById('cef-billetes2').textContent = billetes2.toLocaleString('es-CO');
+  document.getElementById('cef-total2').textContent    = p(_cefTotal(2));
+}
+
+function _cefLimpiar(n) {
+  if (!confirm('¿Borrar este conteo?')) return;
+  CEF_DENOMS.concat('monedas').forEach(d => {
+    const i = document.getElementById(`cef-${n}-${d}`);
+    if (i) i.value = '';
+  });
+  if (n === 2) document.getElementById('cef-nota2').value = '';
+  _cefPintar(); _cefGuardar();
+}
+
+// Traer lo guardado en Firestore, por si se contó desde otro equipo
+async function _cefSincronizar() {
+  try {
+    const d = await db.collection('cont_conteo_efectivo').doc(getMesGlobal() || 'global').get();
+    if (!d.exists) return;
+    const r = d.data();
+    if (document.activeElement && /^cef-/.test(document.activeElement.id || '')) return;
+    _cefDatos = { c1: r.c1 || {}, c2: r.c2 || {}, cuenta: r.cuenta || '', nota: r.nota || '' };
+    try { localStorage.setItem(_cefKey(), JSON.stringify(_cefDatos)); } catch(e) {}
+    _cefTabla(1); _cefTabla(2);
+    const sel = document.getElementById('cef-cuenta');
+    if (sel && _cefDatos.cuenta) sel.value = _cefDatos.cuenta;
+    document.getElementById('cef-nota2').value = _cefDatos.nota || '';
+    _cefPintar();
+  } catch(e) {}
+}
+
+// Arrastrar la ventana
+(function () {
+  let ox = 0, oy = 0, mov = false;
+  document.addEventListener('mousedown', e => {
+    const h = e.target.closest('#cef-drag');
+    if (!h) return;
+    const w = document.getElementById('cef-win');
+    const r = w.getBoundingClientRect();
+    ox = e.clientX - r.left; oy = e.clientY - r.top; mov = true;
+    w.style.right = 'auto'; w.style.left = r.left + 'px'; w.style.top = r.top + 'px';
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', e => {
+    if (!mov) return;
+    const w = document.getElementById('cef-win');
+    w.style.left = Math.max(0, Math.min(window.innerWidth  - 120, e.clientX - ox)) + 'px';
+    w.style.top  = Math.max(0, Math.min(window.innerHeight - 60,  e.clientY - oy)) + 'px';
+  });
+  document.addEventListener('mouseup', () => { mov = false; });
+})();
 
 // ============================================================
 // UTILS
@@ -2182,6 +2800,21 @@ let _sfCajasMesActual     = {}; // { metodo: total } cajas por método → grupo
 let _sfClientesMesActual  = 0;  // totalClientes ESF → Saldo Clientes grupo 5 SF
 let _sfInvertidoMesActual = 0;  // invertido ESF → Invertido Mes Actual grupo 5 SF
 
+// El ESF y el libro contable cargan por separado y en cualquier orden. Cuando el ESF
+// publica sus valores hay que redibujar la SF, porque pudo haberse dibujado antes.
+// Componentes del descuadre de la vista ajustada, para poder explicarlo en pantalla
+let _sfDbgG5 = 0, _sfDbgG3 = 0, _sfDbgGan = 0;
+
+let _sfRedibujoTimer = null;
+function _sfPedirRedibujo() {
+  if (typeof contMovs === 'undefined') return;
+  clearTimeout(_sfRedibujoTimer);
+  _sfRedibujoTimer = setTimeout(() => {
+    try { renderSituacionFinanciera(); } catch(e) { console.warn('SF redibujo:', e); }
+    try { renderVariaciones(); }        catch(e) {}
+  }, 150);
+}
+
 // Mapeo nombre SF → clave ESF (compartido entre renderVariaciones y renderSituacionFinanciera)
 const SF_A_ESF_G5 = {
   'Saldo Clientes':         '__clientes__',
@@ -2256,10 +2889,12 @@ async function toggleMesCerrado(uid, emailOp, mesKey) {
     await ref.update({ autorizado: true, autorizadoPor: admin, autorizadoEn: firebase.firestore.FieldValue.serverTimestamp() });
     _mesCerradoMap[docId] = { autorizado: true };
   } else {
-    // Volver a cerrar (revocar autorización)
-    if (!confirm(`¿Revocar autorización de edición para ${emailOp} en ${mesKey}?`)) return;
-    await ref.update({ autorizado: false });
-    _mesCerradoMap[docId] = { autorizado: false };
+    // Reabrir del todo — se borra el cierre y el mes queda como si nunca se hubiera cerrado
+    if (!confirm(`¿Reabrir el mes ${mesKey} para ${emailOp}?\n\n`
+      + `El candado desaparece y el operador vuelve a trabajar normal.\n`
+      + `Si solo querías quitarle el permiso temporal, cancela y ciérralo de nuevo.`)) return;
+    await ref.delete();
+    delete _mesCerradoMap[docId];
   }
 
   // Re-renderizar ESF
@@ -2325,7 +2960,7 @@ async function recalcularEsfCeo() {
         let _liqCeoDocs = [];
         try {
           const [yk0, mk0] = mesKey.split('-').map(Number);
-          const prevKey0 = new Date(yk0, mk0 - 2, 1).toISOString().slice(0, 7);
+          const prevKey0 = (mk0===1 ? (yk0-1)+'-12' : yk0+'-'+String(mk0-1).padStart(2,'0'));
           if (prevKey0) {
             const liqS0 = await db.collection('patriarca_liquidacion_txs')
               .where('operadorId', '==', op.uid)
@@ -2536,13 +3171,36 @@ function loadEsfConsolidado() {
     const soloDatos = document.getElementById('esf-cons-solo-datos')?.checked;
     const docsFiltrados = soloDatos ? docs.filter(d => (d.totalActivos || 0) !== 0) : docs;
     container._lastDocs = docsFiltrados;
-    // Cargar mapa de meses cerrados antes de renderizar
-    _cargarMesCerradoMap(docsFiltrados, mesKey).then(() => {
+    // Cargar meses cerrados + cupo asignado por el administrador antes de renderizar
+    Promise.all([
+      _cargarMesCerradoMap(docsFiltrados, mesKey),
+      _cargarCupoAdmin(docsFiltrados)
+    ]).then(() => {
       container.innerHTML = _renderEsfConsolidado(docsFiltrados, mesKey);
     });
   }, err => {
     container.innerHTML = `<div style="padding:32px;text-align:center;color:#ef4444">Error: ${err.message}</div>`;
   });
+}
+
+// Cupo que el administrador tiene registrado para cada operador (capital propio + asignado).
+// Es un dato de referencia: no entra en el balance, sirve para contrastar contra el ESF.
+let _esfCupoAdmin = {};   // uid → { propio, asignado, total }
+async function _cargarCupoAdmin(ops) {
+  try {
+    const snaps = await Promise.all(
+      ops.map(op => op.uid ? db.collection('patriarca_config').doc(op.uid).get() : Promise.resolve(null))
+    );
+    const nuevo = {};
+    snaps.forEach((s, i) => {
+      if (!s || !s.exists) return;
+      const d = s.data();
+      const propio   = Math.round(d.capital_propio   || 0);
+      const asignado = Math.round(d.capital_asignado || 0);
+      nuevo[ops[i].uid] = { propio, asignado, total: propio + asignado };
+    });
+    _esfCupoAdmin = nuevo;
+  } catch(e) { console.warn('cupo admin:', e); }
 }
 
 function _renderEsfConsolidado(ops, mesKey) {
@@ -2584,7 +3242,10 @@ function _renderEsfConsolidado(ops, mesKey) {
 
   const totalActivos   = ops.reduce((s, op) => s + (op.totalActivos || 0), 0);
   const totalPatrimonio = ops.reduce((s, op) => s + (op.totalPatrimonio || 0), 0);
-  const allCuadre = Math.abs(totalActivos - totalPatrimonio) <= ops.length;
+  // La ecuación del ESF es Activos = Pasivos + Patrimonio. Comparar contra el patrimonio
+  // solo funcionaba mientras los pasivos eran cero; con liquidación pendiente hay que sumarlos.
+  const totalPasivosC = ops.reduce((s, op) => s + (op.totalPasivos || 0), 0);
+  const allCuadre = Math.abs(totalActivos - totalPasivosC - totalPatrimonio) <= ops.length;
 
   // Cabeceras — con toggle para incluir/excluir del cálculo de utilidad + botón cerrar mes
   const mesKeyEsf = _esfConsMesKey || getMesGlobal();
@@ -2594,7 +3255,10 @@ function _renderEsfConsolidado(ops, mesKey) {
     const cerrado = _mesCerradoMap[docId];
     const autorizado = cerrado?.autorizado === true;
     const lockColor  = cerrado ? (autorizado ? '#f59e0b' : '#ef4444') : '#6b7280';
-    const lockTitle  = cerrado ? (autorizado ? 'Mes cerrado (autorizado para editar) · Click para reabrir' : 'Mes cerrado · Click para autorizar edición') : 'Cerrar mes para este operador';
+    const lockTitle  = cerrado
+      ? (autorizado ? 'Autorizado para editar · Click para reabrir el mes del todo'
+                    : 'Mes cerrado · Click para autorizar edición')
+      : 'Cerrar mes para este operador';
     const lockIcon   = cerrado ? (autorizado ? '🔓' : '🔒') : '🔓';
     return `<th style="${excl ? 'opacity:.45;font-style:italic' : ''}">
       ${(op.nombre || op.uid).split(' ')[0]}
@@ -2642,6 +3306,27 @@ function _renderEsfConsolidado(ops, mesKey) {
 
   let html = '';
 
+  // ── CUPO ASIGNADO (referencia del administrador) ──
+  // No entra en el balance. Es el capital que la casa le tiene registrado a cada
+  // operador (propio + asignado) y sirve para contrastarlo contra lo que muestra el ESF.
+  const cupoDe   = op => (_esfCupoAdmin[op.uid]?.total) || 0;
+  const totalCupo = ops.reduce((s, op) => s + cupoDe(op), 0);
+  if (totalCupo) {
+    const celdas = ops.map(op => {
+      const c = _esfCupoAdmin[op.uid];
+      const t = c?.total || 0;
+      const tip = c ? `Propio $${_fmtN(c.propio)} · Asignado $${_fmtN(c.asignado)}` : '';
+      return `<td title="${tip}"><span class="esf-cons-v" style="color:#a070ff;font-weight:700">${
+        t ? '$' + _fmtN(t) : '—'}</span></td>`;
+    }).join('');
+    html += `<tr style="background:rgba(160,112,255,.06);border-bottom:2px solid rgba(160,112,255,.25)">
+      <td style="font-weight:700;color:#a070ff">🎯 Cupo Asignado
+        <span style="font-size:9px;font-weight:600;opacity:.75">ADMIN</span></td>
+      ${celdas}
+      <td class="col-total" style="color:#a070ff;font-weight:800">$${_fmtN(totalCupo)}</td>
+    </tr>`;
+  }
+
   // ── ACTIVOS ──
   html += seccion('ACTIVOS');
   html += fila('Clientes', ops.map(op => op.totalClientes), sum('totalClientes'), fmt, true);
@@ -2678,18 +3363,19 @@ function _renderEsfConsolidado(ops, mesKey) {
   html += filaTotal('TOTAL PASIVOS', ops.map(op => op.gananciaMesAnt || 0), totalPasivos);
 
   // ── PATRIMONIO ──
-  // Utilidad derivada = Total Activos − (CMA + Cupo)
-  // Solo suma los operadores NO excluidos (toggle por columna)
-  const utilCalc      = op => (op.totalActivos || 0) - (op.clientesMesAnt || 0) - (op.cupoEnCajas || 0);
+  // Lo que el operador produjo en el mes: comisiones + utilidad de apuestas − gastos.
+  // Antes se calculaba como Patrimonio − Cupo Asignado, pero eso depende de que el
+  // cupo registrado por el administrador esté al día; cuando no lo está —como le pasó
+  // a Youfrens— la cifra se dispara. Esta sale del ESF y no depende de nadie más.
+  const utilCalc = op =>
+    Math.round((op.totalComisiones || 0) + (op.utilidad || 0) - (op.totalGastos || 0));
   const totalUtilCalc = ops
     .filter(op => !_esfExcluidos.has(op.uid))
     .reduce((s, op) => s + utilCalc(op), 0);
 
   // Publicar al SF: "Ganancia o Perdida Mes actual" en grupo 15 · Resultados
-  if (_sfGananciaMesActual !== totalUtilCalc) {
-    _sfGananciaMesActual = totalUtilCalc;
-    if (typeof contMovs !== 'undefined' && contMovs.length >= 0) { setTimeout(renderSituacionFinanciera, 0); setTimeout(renderVariaciones, 0); }
-  }
+  _sfGananciaMesActual = totalUtilCalc;
+  _sfPedirRedibujo();   // el SF puede haberse dibujado antes de que llegara el ESF
 
   html += seccion('PATRIMONIO');
   html += fila('Clientes Mes Anterior', ops.map(op => op.clientesMesAnt), sum('clientesMesAnt'), fmt, true);
@@ -2703,10 +3389,8 @@ function _renderEsfConsolidado(ops, mesKey) {
     newComs[metodo] = sumCom(metodo);
     html += fila(`Com. ${metodo}`, vals, sumCom(metodo), fmtOrange);
   });
-  if (JSON.stringify(newComs) !== JSON.stringify(_sfComisionesMesActual)) {
-    _sfComisionesMesActual = newComs;
-    if (typeof contMovs !== 'undefined' && contMovs.length >= 0) { setTimeout(renderSituacionFinanciera, 0); setTimeout(renderVariaciones, 0); }
-  }
+  _sfComisionesMesActual = newComs;
+  _sfPedirRedibujo();
   html += filaTotal('TOTAL PATRIMONIO', ops.map(op => op.totalPatrimonio), totalPatrimonio);
 
   // Fila de verificación: Utilidad derivada = Activos − (CMA + Cupo)
@@ -2725,12 +3409,14 @@ function _renderEsfConsolidado(ops, mesKey) {
       <td class="col-total" style="color:#a070ff;font-style:italic">${st}</td>
     </tr>`;
   };
-  html += filaDeriv('Utilidad derivada = Activos − (CMA + Cupo)',
+  html += filaDeriv('Ganancia del mes = Comisiones + Utilidad − Gastos',
     ops.map(op => _esfExcluidos.has(op.uid) ? null : utilCalc(op)),
     totalUtilCalc);
 
   const cuadreBar = `<div class="esf-cuadre-bar ${allCuadre ? 'ok' : 'err'}">
-    ${allCuadre ? '✓ CUADRE CONSOLIDADO' : '✗ DESCUADRE'} — Activos ${fmtTotal(totalActivos)} / Patrimonio ${fmtTotal(totalPatrimonio)}
+    ${allCuadre ? '✓ CUADRE CONSOLIDADO' : '✗ DESCUADRE'} — Activos ${fmtTotal(totalActivos)} =
+    Pasivos ${fmtTotal(totalPasivosC)} + Patrimonio ${fmtTotal(totalPatrimonio)}${
+      allCuadre ? '' : ` · Diferencia ${fmtTotal(totalActivos - totalPasivosC - totalPatrimonio)}`}
   </div>`;
 
   return `
@@ -4153,7 +4839,19 @@ function renderSituacionFinanciera() {
   if (opTotal) opTotal.textContent = `/ ${maxOpTotal}`;
   if (opBadge) opBadge.style.display = (_sfMaxOp !== null) ? '' : 'none';
 
-  const saldos = calcSaldos(sfMovs);
+  // En vista ajustada el balance es "al cierre del mes seleccionado": se corta el
+  // libro al último día de ese mes para poder compararlo contra el ESF del mismo mes.
+  // La vista base no se toca — sigue mostrando el acumulado completo.
+  const _mesSel = _esfConsMesKey || getMesGlobal();
+  const _cortarAlMes = !_sfModoBase && _sfMaxOp === null && _mesSel;
+  let _finMes = null;
+  if (_cortarAlMes) {
+    const [_y, _m] = _mesSel.split('-').map(Number);
+    _finMes = `${_mesSel}-${String(new Date(_y, _m, 0).getDate()).padStart(2, '0')}`;
+  }
+  const movsBase = _finMes ? sfMovs.filter(m => (m.fecha || '') <= _finMes) : sfMovs;
+
+  const saldos = calcSaldos(movsBase);
   const n = sfMovs.length;
 
   // Totales
@@ -4166,43 +4864,58 @@ function renderSituacionFinanciera() {
   });
   // Los ajustes ESF solo aplican en vista completa (sin filtro de op histórico)
   if (!_sfModoBase && _sfMaxOp === null) {
+    const mesKey    = _mesSel;
     const _comTotal = Object.values(_sfComisionesMesActual).reduce((s,v)=>s+v,0);
-    const saldosG5  = calcSaldos(sfMovs);
-    let   _g5Delta  = 0;
+    const delMes    = movsBase.filter(m => mesKey ? (m.fecha || '').startsWith(mesKey) : true);
+
+    // ── GRUPO 5 · cuánto cambiaron los métodos ──
+    // El saldo del libro se reemplaza por el del ESF. Si el mes ya está cerrado
+    // ambos coinciden y el delta es cero; si no, la diferencia es lo que falta registrar.
+    let totalA_g5Delta = 0;
     Object.entries(SF_A_ESF_G5).forEach(([nombreSF]) => {
       const esfV = _esfValG5(nombreSF);
       if (esfV === null) return;
-      const reg = saldosG5[nombreSF]?.saldo || 0;
-      _g5Delta += esfV - reg;
-      totalA   -= reg;
-      totalA   += esfV;
+      const reg = saldos[nombreSF]?.saldo || 0;
+      totalA_g5Delta += esfV - reg;
+      totalA -= reg;
+      totalA += esfV;
     });
-    // Comisiones ya están en el diario — no agregar de ESF para evitar doble conteo
-    // cierre_metodo también ya está en el diario (PATRIMONIO/Ganancias Operadores) → restarlo también
-    const mesKey = _esfConsMesKey || getMesGlobal();
-    const _cierrePatNet = sfMovs
-      .filter(m => m.origen === 'cierre_metodo' && m.cuenta === 'PATRIMONIO'
-                && (mesKey ? (m.fecha||'').startsWith(mesKey) : true))
+
+    // ── PRODUCTIVIDAD · ganancia del mes que el libro todavía no registra ──
+    // Se excluyen los OP que trasladan a "Utilidad Mes Anterior": ese asiento cierra
+    // la cuenta al final del mes y sin excluirlo un mes ya cerrado pediría el ajuste completo.
+    const opsTraslado = new Set(
+      delMes.filter(m => m.subcuenta === 'Utilidad Mes Anterior').map(m => String(m.op))
+    );
+    const _ganRegistrada = delMes
+      .filter(m => m.cuenta === 'PATRIMONIO' && m.subcuenta === 'Ganancias Operadores'
+                && !opsTraslado.has(String(m.op)))
       .reduce((s,m) => s + (m.credito||0) - (m.debito||0), 0);
-    _sfGananciaBalance = _sfGananciaMesActual - _cierrePatNet;
+    _sfGananciaBalance = _sfGananciaMesActual - _ganRegistrada;
     totalT += _sfGananciaBalance;
 
-    // G3 ESF: comisiones mes actual pendientes → también suman al TOTAL ACTIVO
+    // ── GRUPO 3 · comisiones del mes pendientes de cobrar ──
     let opMesRegG3 = 0;
-    sfMovs.forEach(mov => {
+    delMes.forEach(mov => {
       if (mov.cuenta !== 'ACTIVOS') return;
       const metodo = _metodoFromSubcuentaOp(mov.subcuenta);
       if (!metodo || _sfComisionesMesActual[metodo] === undefined) return;
-      if (mesKey && !(mov.fecha || '').startsWith(mesKey)) return;
       opMesRegG3 += (mov.debito || 0);
     });
     const g3EsfDelta = _comTotal - opMesRegG3;
     if (g3EsfDelta > 0) totalA += g3EsfDelta;
+
+    // Guardar los componentes para poder explicar el descuadre en pantalla
+    _sfDbgG5  = totalA_g5Delta;
+    _sfDbgG3  = g3EsfDelta > 0 ? g3EsfDelta : 0;
+    _sfDbgGan = _sfGananciaBalance;
   }
 
   const totalPP = totalP + totalT;
   const dif = totalA - totalPP;
-  const ok = Math.abs(dif) < 25;
+  // En vista base se exige cuadre exacto. En ajustada se toleran redondeos del ESF
+  // (los saldos del ESF traen decimales que el libro guarda enteros).
+  const ok = Math.abs(dif) < (_sfModoBase ? 25 : 5000);
 
   // KPIs
   document.getElementById('kpi-activo').textContent = fmt(totalA);
@@ -4214,6 +4927,36 @@ function renderSituacionFinanciera() {
   document.getElementById('kpi-dif').innerHTML = ok
     ? `Activo = Pasivo + Patrimonio${Math.abs(dif) > 0.01 ? ` <span style="font-size:10px;color:#94a3b8;margin-left:6px" title="Diferencia de precisión tolerada">Δ ${fmt(dif)}</span>` : ''}`
     : `Diferencia: ${fmt(dif)}`;
+
+  // ── Desglose del descuadre (solo vista ajustada) ──
+  // No es plata faltante: es la brecha entre lo que reporta el ESF y lo que tiene el
+  // libro. Se muestra separada por origen para poder corregir la causa, no taparla.
+  const cajaDif = document.getElementById('sf-dif-detalle');
+  if (cajaDif) {
+    if (_sfModoBase || Math.abs(dif) < 1) {
+      cajaDif.style.display = 'none';
+    } else {
+      cajaDif.style.display = '';
+      const item = (etq, val, nota) => `
+        <div style="display:flex;justify-content:space-between;gap:12px;padding:3px 0">
+          <span style="color:var(--text-muted)">${etq}${nota ? ` <span style="opacity:.6;font-size:10px">${nota}</span>` : ''}</span>
+          <span style="font-family:monospace;color:${val < 0 ? '#ef4444' : '#f59e0b'}">${fmt(val)}</span>
+        </div>`;
+      cajaDif.innerHTML = `
+        <div style="font-size:11px;font-weight:800;color:#f59e0b;margin-bottom:6px;letter-spacing:.5px">
+          ⚠ DIFERENCIA POR CUADRAR · ${fmt(dif)}
+        </div>
+        <div style="font-size:11px;line-height:1.5">
+          ${item('Métodos — ESF vs libro', _sfDbgG5, 'grupo 5')}
+          ${item('Comisiones pendientes',  _sfDbgG3, 'grupo 3')}
+          ${item('Productividad no registrada', _sfDbgGan, '')}
+          <div style="border-top:1px solid var(--border);margin-top:6px;padding-top:5px;color:var(--text-muted);font-size:10px">
+            Si la cifra es pequeña son redondeos del ESF. Si es grande, revisa el saldo
+            inicial del mes o los cierres pendientes de aprobar.
+          </div>
+        </div>`;
+    }
+  }
   document.getElementById('sf-subtitle').textContent = `${n} líneas de movimiento registradas`;
   document.getElementById('sf-total-activo-lbl').textContent = fmt(totalA);
   document.getElementById('sf-total-patrim-lbl').textContent = fmt(totalT);
@@ -4300,7 +5043,10 @@ function renderSituacionFinanciera() {
             <span class="sf-row-val ${cls}">${fmt(f.saldo)}</span>
           </div>`;
         } else {
-          htmlA += `<div class="sf-row"><span class="sf-row-name" title="${f.sub}">${f.sub}</span><span class="sf-row-val ${cls}">${fmt(f.saldo)}</span></div>`;
+          htmlA += `<div class="sf-row sf-contable" title="Clic para contar el efectivo de esta cuenta"
+            onclick="abrirConteoSF('${String(f.sub).replace(/'/g,"\\'")}', ${f.saldo})">
+            <span class="sf-row-name">${f.sub}</span>
+            <span class="sf-row-val ${cls}">${fmt(f.saldo)}</span></div>`;
         }
       }
     });
@@ -4980,7 +5726,9 @@ async function renderVariaciones() {
       snaps.forEach(snap => {
         if (!snap || !snap.exists) return;
         const cupos = snap.data().cupos_por_mes?.[mesKey] || {};
+        const NO_SON_METODOS = new Set(['CUPO TOTAL', 'CUPO TOTAL ASIGNADO', 'CUPO_RESIDUAL', 'COM_MES_ANT', 'LIQ_POR_PAGAR', 'CLI_MES_ANT']);
         Object.entries(cupos).forEach(([key, val]) => {
+          if (NO_SON_METODOS.has(key)) return; // Filtrar CUPO TOTAL
           const sfNombre = CUPO_KEY_TO_SF[key.toUpperCase()];
           if (sfNombre) cuposREG[sfNombre] = (cuposREG[sfNombre] || 0) + (parseFloat(val) || 0);
         });
@@ -5160,7 +5908,7 @@ function renderVariacionesComisiones() {
   const gananciaEsf = _sfGananciaMesActual || 0;
   const gananciaReg = (contMovs || [])
     .filter(m => m.cuenta === 'PATRIMONIO' && m.subcuenta === 'Ganancias Operadores'
-              && m.origen !== 'cierre_metodo' && m.origen !== 'cierre_liquidacion'
+              && m.origen !== 'cierre_metodo'
               && (mk ? (m.fecha || '').startsWith(mk) : true))
     .reduce((s, m) => s + (m.credito || 0) - (m.debito || 0), 0);
   const gananciaCierre = (contMovs || [])
@@ -5168,12 +5916,7 @@ function renderVariacionesComisiones() {
               && m.origen === 'cierre_metodo'
               && (mk ? (m.fecha || '').startsWith(mk) : true))
     .reduce((s, m) => s + (m.credito || 0) - (m.debito || 0), 0);
-  const gananciaLiq = (contMovs || [])
-    .filter(m => m.cuenta === 'PATRIMONIO' && m.subcuenta === 'Ganancias Operadores'
-              && m.origen === 'cierre_liquidacion'
-              && (mk ? (m.fecha || '').startsWith(mk) : true))
-    .reduce((s, m) => s + (m.credito || 0) - (m.debito || 0), 0);
-  const gananciaSaldo = gananciaEsf - gananciaReg - gananciaCierre - gananciaLiq;
+  const gananciaSaldo = gananciaEsf - gananciaReg - gananciaCierre;
   const gananciaCls = Math.abs(gananciaSaldo) < 100 ? 'var-zero' : gananciaSaldo > 0 ? 'var-pos' : 'var-neg';
 
   const patrimonioHtml = gananciaEsf ? `
@@ -5188,10 +5931,6 @@ function renderVariacionesComisiones() {
     ${gananciaCierre ? `<tr>
       <td style="padding-left:24px;color:#f59e0b">Variaciones Cierre Métodos <span style="font-size:9px;font-weight:700;opacity:.7">OP</span></td>
       <td style="color:#f59e0b">${fmt(-gananciaCierre)}</td>
-    </tr>` : ''}
-    ${gananciaLiq ? `<tr>
-      <td style="padding-left:24px;color:#f59e0b">Liquidación Pagada <span style="font-size:9px;font-weight:700;opacity:.7">OP</span></td>
-      <td style="color:#f59e0b">${fmt(-gananciaLiq)}</td>
     </tr>` : ''}
     <tr style="border-bottom:2px solid var(--border)">
       <td style="padding-left:24px;font-weight:700;font-size:11px;letter-spacing:.5px">SALDO</td>

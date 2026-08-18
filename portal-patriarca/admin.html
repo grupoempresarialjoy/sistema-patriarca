@@ -7,7 +7,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800&display=swap" rel="stylesheet">
 <script>(function(){var t=localStorage.getItem('aj16-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)})();</script>
 <style>
-:root{--bg:#0d0f14;--bg2:#13161d;--bg3:#1a1e28;--border:#2a2f3f;--gold:#35CC2F;--gold2:#24BF62;--red:#e05050;--green:#24BF62;--blue:#4a9eff;--orange:#f0a050;--purple:#a070ff;--text:#e8eaf0;--text2:#8890a8;--radius:8px;--row-hover:rgba(255,255,255,.03)}
+:root{--bg:#0d0f14;--bg2:#13161d;--bg3:#1a1e28;--border:#2a2f3f;--gold:#35CC2F;--gold2:#24BF62;--red:#e05050;--green:#24BF62;--blue:#4a9eff;--orange:#f0a050;--purple:#35CC2F;--text:#e8eaf0;--text2:#8890a8;--radius:8px;--row-hover:rgba(255,255,255,.03)}
 [data-theme="light"]{--bg:#f0f2f8;--bg2:#ffffff;--bg3:#e8eaf2;--border:#cdd0e0;--text:#1a1e2e;--text2:#5a6480;--row-hover:rgba(0,0,0,.04)}
 @media(prefers-color-scheme:light){:root:not([data-theme="dark"]){--bg:#f0f2f8;--bg2:#ffffff;--bg3:#e8eaf2;--border:#cdd0e0;--text:#1a1e2e;--text2:#5a6480;--row-hover:rgba(0,0,0,.04)}}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -24,7 +24,7 @@ body{background:var(--bg);color:var(--text);font-family:'Montserrat','Segoe UI',
 #app{display:none;flex-direction:column;min-height:100vh}
 header{background:var(--bg2);border-bottom:1px solid var(--border);padding:0 20px;display:flex;align-items:center;justify-content:space-between;height:52px;flex-shrink:0}
 .header-logo{font-size:15px;font-weight:800;color:var(--purple);letter-spacing:2px}
-.header-badge{background:rgba(160,112,255,.15);border:1px solid rgba(160,112,255,.3);border-radius:20px;padding:3px 12px;font-size:11px;color:var(--purple);font-weight:700}
+.header-badge{background:rgba(53,204,47,.15);border:1px solid rgba(53,204,47,.30);border-radius:20px;padding:3px 12px;font-size:11px;color:var(--purple);font-weight:700}
 .header-right{display:flex;align-items:center;gap:10px}
 .header-user{font-size:11px;color:var(--text2)}
 .btn-logout{background:transparent;border:1px solid var(--border);border-radius:6px;padding:5px 12px;color:var(--text2);cursor:pointer;font-size:12px}
@@ -47,6 +47,13 @@ nav{overflow:visible}
 .navgrp-item{padding:9px 16px;font-size:12px;color:var(--text2);cursor:pointer;white-space:nowrap;border-left:2px solid transparent;transition:all .12s}
 .navgrp-item:hover{background:var(--bg3);color:var(--text)}
 .navgrp-item.active{color:var(--purple);font-weight:600;border-left-color:var(--purple);background:var(--bg3)}
+/* Avisos de pendientes. Van tanto en el grupo del menú como en la opción de
+   adentro: sin el del grupo hay que abrir cada menú para enterarse. */
+.nav-aviso{display:inline-block;min-width:17px;height:17px;line-height:17px;padding:0 5px;
+  border-radius:9px;background:var(--orange);color:#1a1a1a;font-size:10px;font-weight:800;
+  text-align:center;margin-left:6px;vertical-align:middle}
+.navgrp-item{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.navgrp-item .nav-aviso{margin-left:auto}
 main{flex:1;padding:20px;overflow:auto}
 .section{display:none}
 .section.active{display:block}
@@ -56,7 +63,14 @@ main{flex:1;padding:20px;overflow:auto}
 .kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(175px,1fr));gap:12px;margin-bottom:20px}
 .kpi{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:16px}
 .kpi-label{font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}
-.kpi-value{font-size:22px;font-weight:700;color:var(--purple)}
+.kpi-value{font-size:22px;font-weight:700;color:var(--gold)}
+/* El color del número lo define la variante del contenedor: rojo para gastos y
+   egresos, verde para ingresos, azul para dato informativo. Antes todos salían
+   del mismo color y un gasto se leía como si fuera ganancia. */
+.kpi.red    .kpi-value{color:var(--red)}
+.kpi.green  .kpi-value{color:var(--green)}
+.kpi.blue   .kpi-value{color:var(--blue)}
+.kpi.orange .kpi-value{color:var(--orange)}
 .kpi-sub{font-size:11px;color:var(--text2);margin-top:3px}
 .panel{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:20px}
 .panel-header{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
@@ -72,7 +86,7 @@ tr:hover td{background:var(--row-hover)}
 .badge-green{background:rgba(36,191,98,.15);color:var(--green)}
 .badge-red{background:rgba(224,80,80,.15);color:var(--red)}
 .badge-blue{background:rgba(74,158,255,.15);color:var(--blue)}
-.badge-purple{background:rgba(160,112,255,.15);color:var(--purple)}
+.badge-purple{background:rgba(53,204,47,.15);color:var(--purple)}
 .badge-orange{background:rgba(240,160,80,.15);color:var(--orange)}
 .badge-gray{background:var(--bg3);color:var(--text2)}
 .btn{padding:8px 16px;border-radius:6px;border:none;cursor:pointer;font-size:12px;font-weight:600;transition:all .15s;font-family:inherit}
@@ -205,7 +219,7 @@ select option{background:var(--bg3)}
       <span class="header-logo">⚡ AJ1.6</span>
       <span class="header-badge">ADMINISTRADOR</span>
       <span id="admin-mes-badge" onclick="openAdminMesModal()" title="Cambiar mes"
-        style="background:rgba(160,112,255,.12);border:1px solid rgba(160,112,255,.3);border-radius:20px;padding:3px 12px;font-size:11px;color:var(--purple);font-weight:700;cursor:pointer;user-select:none">
+        style="background:rgba(53,204,47,.12);border:1px solid rgba(53,204,47,.30);border-radius:20px;padding:3px 12px;font-size:11px;color:var(--purple);font-weight:700;cursor:pointer;user-select:none">
         📅 —
       </span>
     </div>
@@ -268,7 +282,7 @@ select option{background:var(--bg3)}
         <div class="navgrp-item" data-sec="correcciones" onclick="showTab('correcciones')">🔧 Correcciones</div>
         <div class="navgrp-item" data-sec="solicitudes"  id="tab-solicitudes" onclick="showTab('solicitudes')">🗑 Solicitudes</div>
         <div class="navgrp-item" data-sec="cierres"      id="tab-cierres" onclick="showTab('cierres');initCierres()">📅 Cierres</div>
-        <div class="navgrp-item" data-sec="trixibot"     onclick="showTab('trixibot');initTrixiBot()">🤖 Trixi Bot</div>
+        <div class="navgrp-item" data-sec="trixibot"     onclick="showTab('trixibot');initTrixiBot()">🤖 Servicios</div>
       </div>
     </div>
 
@@ -677,24 +691,57 @@ select option{background:var(--bg3)}
     <div class="section" id="sec-trixibot">
       <div class="sec-header">
         <div>
-          <div class="sec-title">🤖 Trixi Bot</div>
-          <div class="sec-subtitle">Habilita el buscador de apuestas seguras por operador</div>
+          <div class="sec-title">🤖 Servicios del operador</div>
+          <div class="sec-subtitle">Trixi Bot y Combinadas Pro · se habilitan uno por uno</div>
         </div>
         <button class="btn btn-gold" onclick="tbAdminGuardar()">💾 Guardar</button>
       </div>
 
-      <div style="background:rgba(139,92,246,.06);border:1px solid rgba(139,92,246,.25);border-radius:10px;padding:12px 14px;margin-bottom:16px;font-size:12px;color:var(--text2)">
-        El plan <b style="color:#a78bfa">Básico</b> revela una sola oportunidad por búsqueda y limita las búsquedas diarias.
-        El plan <b style="color:#a78bfa">Full</b> muestra todas las que encuentre, sin tope.
+      <div style="background:rgba(53,204,47,.06);border:1px solid rgba(53,204,47,.25);border-radius:10px;padding:12px 14px;margin-bottom:16px;font-size:12px;color:var(--text2)">
+        El plan <b style="color:var(--gold)">Básico</b> revela una sola oportunidad por búsqueda y limita las búsquedas diarias.
+        El plan <b style="color:var(--gold)">Full</b> muestra todas las que encuentre, sin tope.<br>
+        <b style="color:var(--gold)">Mercados:</b> el operador solo ve los que le marques aquí. Un mercado nuevo se prueba
+        primero en un portal de confianza antes de abrirlo al resto — si la lectura de una casa falla, el bot muestra
+        ganancias que no existen.<br>
+        <b style="color:var(--gold)">Combinadas Pro:</b> módulo aparte. <b>Sí</b> muestra los cupones con una
+        etiqueta de riesgo; <b>Sí + detalle</b> agrega probabilidades y porcentajes, para quien esté analizando.
       </div>
 
+      <style>
+        /* Desplegable de mercados. Se abre hacia abajo empujando la fila en vez
+           de flotar: el contenedor de la tabla tiene scroll y recortaría un
+           panel flotante. */
+        .tba-dd { position:relative; display:inline-block; min-width:150px }
+        .tba-dd > summary {
+          list-style:none; cursor:pointer; user-select:none;
+          background:var(--bg3); border:1px solid var(--border); border-radius:6px;
+          color:var(--text1); padding:5px 26px 5px 9px; font-size:12px;
+          white-space:nowrap; overflow:hidden; text-overflow:ellipsis; position:relative }
+        .tba-dd > summary::-webkit-details-marker { display:none }
+        .tba-dd > summary::after {
+          content:'▾'; position:absolute; right:9px; top:50%; transform:translateY(-50%);
+          font-size:10px; color:var(--text2) }
+        .tba-dd[open] > summary { border-color:var(--gold); color:var(--gold) }
+        .tba-dd-panel {
+          margin-top:5px; background:var(--bg2); border:1px solid var(--border);
+          border-radius:7px; padding:7px; display:flex; flex-direction:column; gap:2px }
+        .tba-dd-panel label {
+          display:flex; align-items:center; gap:7px; font-size:12px; cursor:pointer;
+          user-select:none; padding:4px 6px; border-radius:5px; color:var(--text2) }
+        .tba-dd-panel label:hover { background:var(--bg3) }
+        .tba-dd-panel input { width:14px; height:14px; cursor:pointer; flex-shrink:0 }
+        .tba-dd-panel label.on { color:var(--gold); font-weight:600 }
+      </style>
       <div style="overflow:auto">
         <table class="tbl" id="tb-admin-tabla">
           <thead><tr>
             <th>Operador</th><th style="text-align:center">Activo</th>
-            <th>Plan</th><th style="text-align:right">Búsquedas / día</th><th style="text-align:right">Uso hoy</th>
+            <th>Plan</th><th style="text-align:right">Búsquedas / día</th>
+            <th>Mercados habilitados</th>
+            <th style="text-align:center">Combinadas<br><span style="font-size:9px;font-weight:400;color:var(--text2)">PRO</span></th>
+            <th style="text-align:right">Uso hoy</th>
           </tr></thead>
-          <tbody id="tb-admin-body"><tr><td colspan="5" style="text-align:center;color:var(--text2);padding:20px">Cargando…</td></tr></tbody>
+          <tbody id="tb-admin-body"><tr><td colspan="7" style="text-align:center;color:var(--text2);padding:20px">Cargando…</td></tr></tbody>
         </table>
       </div>
 
@@ -830,6 +877,7 @@ select option{background:var(--bg3)}
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
         <button class="aud-stab active" id="di-tab-dia" onclick="setDiarioVista('dia')">📅 Un día — todos</button>
         <button class="aud-stab" id="di-tab-op" onclick="setDiarioVista('op')">👤 Un operador — todo el mes</button>
+        <button class="aud-stab" id="di-tab-mes" onclick="setDiarioVista('mes')">📊 Todos — todo el mes</button>
       </div>
 
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
@@ -853,6 +901,9 @@ select option{background:var(--bg3)}
         </div>
         <span id="di-status" style="font-size:11px;color:var(--text2);margin-left:auto"></span>
       </div>
+
+      <!-- Matriz días × operadores -->
+      <div id="di-matriz-wrap" style="display:none"></div>
 
       <!-- KPIs resumen -->
       <div class="kpi-grid" style="margin-bottom:16px">
@@ -918,7 +969,7 @@ select option{background:var(--bg3)}
       <div class="form-group span2"><label>Descripción (opcional)</label><input type="text" id="ofic-desc" placeholder="Ej: Oficina principal calle 5"></div>
       <div class="form-group"><label>Color identificador</label>
         <select id="ofic-color">
-          <option value="#a070ff">Púrpura</option>
+          <option value="var(--gold)">Púrpura</option>
           <option value="#4a9eff">Azul</option>
           <option value="#24BF62">Verde</option>
           <option value="#f0a050">Naranja</option>
@@ -1662,6 +1713,11 @@ function initAdmin() {
   precargarEscaleras();
   // Iniciar listeners para badges de notificación
   setTimeout(() => { initSolicitudes(); initCierres(); }, 800);
+  // Avisos del menú: se enteran solos, sin entrar a cada sección.
+  // Se repinta unas veces al arranque porque otras rutinas reescriben el menú
+  // mientras cargan y podrían borrar el aviso.
+  avEscuchar();
+  [1200, 2500, 5000].forEach(ms => setTimeout(avPintar, ms));
   // Mostrar mes actual en el badge del header
   document.getElementById('admin-mes-badge').textContent = '📅 ' + _adminMesLabel(_adminMes);
 }
@@ -1670,6 +1726,7 @@ function initAdmin() {
 function showTab(name) {
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
   document.querySelectorAll('.tab, .navgrp-item').forEach(t => t.classList.remove('active'));
+  if (typeof avPintar === 'function') setTimeout(avPintar, 60);
   const sec = document.getElementById('sec-' + name);
   if (sec) sec.classList.add('active');
 
@@ -1832,15 +1889,15 @@ function renderCupoInicialAdmin(cupoData, cupoTotalData = {}) {
   html += '</tr></thead><tbody>';
 
   // ── Fila especial: CUPO TOTAL ASIGNADO (capital propio + asignado) ──────────
-  html += `<tr style="background:rgba(139,92,246,.12);border-bottom:2px solid rgba(139,92,246,.4)">
-    <td style="font-weight:800;color:#a78bfa;font-size:13px">🎯 CUPO TOTAL ASIGNADO</td>
+  html += `<tr style="background:rgba(74,158,255,.12);border-bottom:2px solid rgba(74,158,255,.40)">
+    <td style="font-weight:800;color:var(--blue);font-size:13px">🎯 CUPO TOTAL ASIGNADO</td>
     <td style="text-align:right;color:var(--text2);font-size:11px;font-style:italic">— por operador</td>`;
   ciOps.forEach(op => {
     const v = cupoTotalData[op.uid] || 0;
     html += `<td style="text-align:right">
       <input class="ci-inp" type="text" id="ci-${op.uid}-CUPO_TOTAL"
         value="${v ? ciNumToCOP(v) : ''}" placeholder="0"
-        style="border-color:#a78bfa;font-weight:700"
+        style="border-color:var(--blue);font-weight:700"
         oninput="ciFormatInput(this)">
     </td>`;
   });
@@ -1937,8 +1994,8 @@ function renderCupoInicialAdmin(cupoData, cupoTotalData = {}) {
   html += `<td style="text-align:right;color:var(--text2)">—</td></tr>`;
 
   // ── PATRIMONIO ──
-  html += `<tr style="background:rgba(139,92,246,.08);border-top:2px solid rgba(139,92,246,.3)">
-    <td style="font-weight:800;color:#a78bfa;font-size:13px">👑 PATRIMONIO</td>
+  html += `<tr style="background:rgba(74,158,255,.08);border-top:2px solid rgba(74,158,255,.30)">
+    <td style="font-weight:800;color:var(--blue);font-size:13px">👑 PATRIMONIO</td>
     <td style="text-align:right;color:var(--text2);font-size:11px">—</td>`;
   ciOps.forEach(op => {
     html += `<td style="text-align:center"><span style="opacity:.6">↓</span></td>`;
@@ -1946,7 +2003,7 @@ function renderCupoInicialAdmin(cupoData, cupoTotalData = {}) {
   html += `<td style="text-align:right;color:var(--text2)">—</td></tr>`;
 
   // Clientes Mes Anterior
-  html += `<tr style="background:rgba(139,92,246,.03)">
+  html += `<tr style="background:rgba(74,158,255,.04)">
     <td style="padding-left:20px;font-size:12px">Clientes Mes Anterior</td>
     <td style="text-align:right;color:var(--text2);font-size:11px">—</td>`;
   ciOps.forEach(op => {
@@ -1955,7 +2012,7 @@ function renderCupoInicialAdmin(cupoData, cupoTotalData = {}) {
   html += `<td style="text-align:right;color:var(--text2)">—</td></tr>`;
 
   // Cupo Residual
-  html += `<tr style="background:rgba(139,92,246,.03)">
+  html += `<tr style="background:rgba(74,158,255,.04)">
     <td style="padding-left:20px;font-size:12px">Cupo Residual</td>
     <td style="text-align:right;color:var(--text2);font-size:11px">—</td>`;
   ciOps.forEach(op => {
@@ -1964,19 +2021,19 @@ function renderCupoInicialAdmin(cupoData, cupoTotalData = {}) {
   html += `<td style="text-align:right;color:var(--text2)">—</td></tr>`;
 
   // TOTAL PATRIMONIO (clientes mes ant. + cupo residual)
-  html += `<tr style="background:rgba(139,92,246,.12)">
-    <td style="padding-left:20px;font-size:12px;color:#a78bfa;font-weight:800">▸ TOTAL PATRIMONIO</td>
+  html += `<tr style="background:rgba(74,158,255,.12)">
+    <td style="padding-left:20px;font-size:12px;color:var(--blue);font-weight:800">▸ TOTAL PATRIMONIO</td>
     <td style="text-align:right;color:var(--text2);font-size:11px">—</td>`;
   ciOps.forEach(op => {
-    html += `<td id="ci-totq-${op.uid}" style="text-align:right;color:#a78bfa;font-weight:800;padding:6px">—</td>`;
+    html += `<td id="ci-totq-${op.uid}" style="text-align:right;color:var(--blue);font-weight:800;padding:6px">—</td>`;
   });
   html += `<td style="text-align:right;color:var(--text2)">—</td></tr>`;
 
   // ══════════════════════════════════════════════════════════════════════════
   // VERIFICACIÓN: TOTAL ACTIVOS = TOTAL PASIVOS + TOTAL PATRIMONIO
   // ══════════════════════════════════════════════════════════════════════════
-  html += `<tr style="background:rgba(100,150,255,.14);border-top:2px solid rgba(100,150,255,.35);font-weight:700;font-size:12px">
-    <td style="padding-left:20px;color:#64c8ff;font-weight:800">✓ VERIFICACIÓN (A = P + PA)</td>
+  html += `<tr style="background:rgba(74,158,255,.12);border-top:2px solid rgba(74,158,255,.35);font-weight:700;font-size:12px">
+    <td style="padding-left:20px;color:var(--blue);font-weight:800">✓ VERIFICACIÓN (A = P + PA)</td>
     <td style="text-align:right;color:var(--text2)">—</td>`;
   ciOps.forEach(op => {
     html += `<td id="ci-verif-${op.uid}" style="text-align:center;font-weight:800;padding:6px">—</td>`;
@@ -2251,6 +2308,8 @@ function toast(msg, type='info') {
 // ── DASHBOARD ESF — Resumen por operador ──
 let _dashEsfData = [];
 
+let _dashUltMov = {};   // uid → fecha del último movimiento del mes
+
 async function loadDashboardESF() {
   const lbl = document.getElementById('dash-esf-mes-lbl');
   if (lbl) lbl.textContent = _adminMesLabel(_adminMes);
@@ -2258,6 +2317,23 @@ async function loadDashboardESF() {
     const snap = await db.collection('patriarca_esf_resumen')
       .where('mesKey', '==', _adminMes).get();
     _dashEsfData = snap.docs.map(d => d.data());
+
+    // Última actividad real de cada operador en el mes. Sirve para avisar
+    // cuando la foto del ESF quedó vieja: si hay movimientos posteriores al
+    // cálculo, las cifras de la tarjeta ya no son las de hoy.
+    _dashUltMov = {};
+    try {
+      const [y, m] = _adminMes.split('-').map(Number);
+      const fin = new Date(y, m, 0).getDate();
+      const mvs = await db.collection('patriarca_movimientos')
+        .where('fecha', '>=', `${_adminMes}-01`)
+        .where('fecha', '<=', `${_adminMes}-${String(fin).padStart(2,'0')}`).get();
+      mvs.docs.forEach(d => {
+        const x = d.data();
+        if (!x.opId || !x.fecha) return;
+        if (!_dashUltMov[x.opId] || x.fecha > _dashUltMov[x.opId]) _dashUltMov[x.opId] = x.fecha;
+      });
+    } catch(e) { console.warn('ultMov:', e); }
     // Poblar selector de oficinas usando oficinaNombre
     const nombresOf = [...new Set(allUsers.filter(u=>u.oficinaNombre).map(u=>u.oficinaNombre))].sort((a,b)=>{
       if(a==='Unity') return -1; if(b==='Unity') return 1; return a.localeCompare(b);
@@ -2297,14 +2373,33 @@ function renderDashboardESF() {
   }
 
   // Totales para fila de resumen
-  let totCom=0, totUtil=0, totGan=0;
+  let totCom=0, totUtil=0, totGan=0, totVencidos=0;
   const cards = data.map(r => {
     const com  = r.totalComisiones || 0;
     const util = (r.utilidad||0) - (r.totalGastos||0);
     // La ganancia sale del patrimonio: hay que descontar el pasivo (liquidación por pagar)
     const gan  = (r.totalActivos||0) - (r.totalPasivos||0) - (r.clientesMesAnt||0) - (r.cupoEnCajas||0);
     totCom+=com; totUtil+=util; totGan+=gan;
-    return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:8px">
+
+    // ¿La foto quedó vieja? Se compara cuándo se calculó el ESF contra el
+    // último movimiento registrado. Si hay movimientos después, estas cifras
+    // no incluyen todo y hay que recalcular.
+    const calc = r.actualizadoEn?.seconds ? new Date(r.actualizadoEn.seconds*1000) : null;
+    const fechaCalc = calc ? new Intl.DateTimeFormat('es-CO',{timeZone:'America/Bogota',
+      day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit', hour12:false}).format(calc) : null;
+    const diaCalc = calc ? new Intl.DateTimeFormat('en-CA',{timeZone:'America/Bogota',
+      year:'numeric',month:'2-digit',day:'2-digit'}).format(calc) : null;
+    const ultMov = _dashUltMov[r.uid] || null;
+    const vencido = !!(calc && ultMov && ultMov >= diaCalc);
+    if (vencido) totVencidos++;
+
+    const pie = !calc
+      ? `<div style="font-size:9px;color:var(--text2);margin-top:2px">sin fecha de cálculo</div>`
+      : vencido
+        ? `<div style="font-size:9px;color:var(--orange);margin-top:2px" title="Hay movimientos del ${ultMov} posteriores a este cálculo. Recalcula el ESF para ver las cifras al día.">⚠ calculado ${fechaCalc} · hay movimientos después</div>`
+        : `<div style="font-size:9px;color:var(--text2);margin-top:2px">calculado ${fechaCalc}</div>`;
+
+    return `<div style="background:var(--bg2);border:1px solid ${vencido?'rgba(240,160,80,.45)':'var(--border)'};border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:8px">
       <div style="font-weight:700;font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${r.nombre}">${r.nombre}</div>
       <div style="display:flex;flex-direction:column;gap:5px">
         <div style="display:flex;justify-content:space-between;font-size:11px">
@@ -2319,6 +2414,7 @@ function renderDashboardESF() {
           <span style="color:var(--text2);font-weight:600">Ganancia Total</span>
           <span style="color:${col(gan)};font-weight:700">${fmt(gan)}</span>
         </div>
+        ${pie}
       </div>
     </div>`;
   });
@@ -2339,6 +2435,11 @@ function renderDashboardESF() {
         <span style="color:var(--text2);font-weight:700">Ganancia Total</span>
         <span style="color:${col(totGan)};font-weight:800">${fmt(totGan)}</span>
       </div>
+      ${totVencidos
+        ? `<div style="font-size:9px;color:var(--orange);margin-top:4px;line-height:1.4">
+             ⚠ ${totVencidos} operador(es) con movimientos posteriores al cálculo.<br>
+             Estas cifras están incompletas — recalcula el ESF o mira Ganancia Diaria.</div>`
+        : `<div style="font-size:9px;color:var(--green);margin-top:4px">✓ todas las cifras al día</div>`}
     </div>
   </div>`);
 
@@ -2410,7 +2511,7 @@ function renderOficinasGrid() {
     return;
   }
   grid.innerHTML = oficinas.map(o => {
-    const color = o.color || '#a070ff';
+    const color = o.color || 'var(--gold)';
     return `
     <div style="background:var(--bg2);border:1px solid var(--border);border-left:4px solid ${color};border-radius:var(--radius);padding:16px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
@@ -2461,7 +2562,7 @@ function renderOficinasTabla() {
     return;
   }
   tbody.innerHTML = oficinas.map(o => {
-    const color = o.color || '#a070ff';
+    const color = o.color || 'var(--gold)';
     return `<tr>
       <td><span style="font-weight:700;color:${color}">${o.nombre}</span> <span style="color:var(--text2);font-size:11px">${o.codigo||''}</span></td>
       <td id="tbl-ops-${o.id}" style="color:var(--text2)">—</td>
@@ -2519,7 +2620,7 @@ function editarOficina(id) {
   document.getElementById('ofic-nombre').value  = o.nombre || '';
   document.getElementById('ofic-codigo').value  = o.codigo || '';
   document.getElementById('ofic-desc').value    = o.descripcion || '';
-  document.getElementById('ofic-color').value   = o.color || '#a070ff';
+  document.getElementById('ofic-color').value   = o.color || 'var(--gold)';
   document.getElementById('ofic-estado').value  = o.estado || 'activa';
   document.getElementById('modal-ofic-title').textContent = 'Editar Oficina';
   openModal('modal-oficina');
@@ -2536,7 +2637,7 @@ function limpiarModalOficina() {
     const el = document.getElementById(i); if(el) el.value = '';
   });
   document.getElementById('modal-ofic-title').textContent = 'Nueva Oficina';
-  document.getElementById('ofic-color').value = '#a070ff';
+  document.getElementById('ofic-color').value = 'var(--gold)';
   document.getElementById('ofic-estado').value = 'activa';
 }
 
@@ -2599,15 +2700,15 @@ function renderUsuarios() {
       ? `<button class="btn-icon" onclick="toggleInformativo('${u.id}',${esInfo})"
            title="${esInfo?'Marcar como Principal':'Marcar como Informativo'}"
            style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;
-             background:${esInfo?'rgba(160,112,255,.2)':'rgba(128,128,128,.12)'};
-             color:${esInfo?'#a070ff':'var(--text2)'};border:1px solid ${esInfo?'rgba(160,112,255,.4)':'var(--border)'}">
+             background:${esInfo?'rgba(53,204,47,.20)':'rgba(128,128,128,.12)'};
+             color:${esInfo?'var(--gold)':'var(--text2)'};border:1px solid ${esInfo?'rgba(53,204,47,.40)':'var(--border)'}">
            ${esInfo?'ℹ INFO':'— PPAL'}
          </button>` : '';
     const uidDisplay = u.uid
       ? `<span style="font-size:10px;font-family:monospace;color:var(--text2);cursor:pointer" title="Click para copiar" onclick="navigator.clipboard.writeText('${u.uid}');toast('UID copiado','success')">${u.uid.slice(0,8)}…</span>`
       : '<span style="color:var(--text2)">—</span>';
     return `<tr style="${estado==='inactivo'?'opacity:.55':''}${esInfo?';font-style:italic':''}">
-      <td style="font-weight:600">${u.nombre}${esInfo?' <span style="font-size:9px;color:#a070ff;font-weight:400">(informativo)</span>':''}</td>
+      <td style="font-weight:600">${u.nombre}${esInfo?' <span style="font-size:9px;color:var(--gold);font-weight:400">(informativo)</span>':''}</td>
       <td style="color:var(--text2);font-size:12px">${u.email || '—'}</td>
       <td>${uidDisplay}</td>
       <td><span class="badge ${rolBadge}">${u.rol}</span></td>
@@ -4956,12 +5057,19 @@ function initDiario() {
 
 function setDiarioVista(v) {
   _diVista = v;
-  document.getElementById('di-tab-dia').classList.toggle('active', v==='dia');
-  document.getElementById('di-tab-op').classList.toggle('active',  v==='op');
+  ['dia','op','mes'].forEach(k=>{
+    const b=document.getElementById('di-tab-'+k);
+    if(b) b.classList.toggle('active', v===k);
+  });
   document.getElementById('di-wrap-fecha').style.display   = v==='dia' ? 'flex' : 'none';
   document.getElementById('di-wrap-op').style.display      = v==='op'  ? 'flex' : 'none';
-  document.getElementById('di-wrap-oficina').style.display = v==='dia' ? 'flex' : 'none';
+  document.getElementById('di-wrap-oficina').style.display = (v==='dia'||v==='mes') ? 'flex' : 'none';
   document.getElementById('di-th1').textContent = v==='dia' ? 'Operador' : 'Fecha';
+  // La matriz reemplaza a la tabla normal
+  const mat = document.getElementById('di-matriz-wrap');
+  const tabla = document.getElementById('di-tbody')?.closest('.panel') || document.getElementById('di-tbody')?.closest('div');
+  if (mat)  mat.style.display   = v==='mes' ? '' : 'none';
+  if (tabla) tabla.style.display = v==='mes' ? 'none' : '';
   renderDiario();
 }
 
@@ -5074,7 +5182,111 @@ async function cargarDiario() {
   }
 }
 
+// Matriz de días × operadores: la cuarta combinación del reporte.
+// Sirve para ver qué días rinden más y quién viene cayendo.
+function renderDiarioMatriz() {
+  const cont = document.getElementById('di-matriz-wrap');
+  if (!cont) return;
+
+  const ofic = document.getElementById('di-oficina')?.value || '';
+  let uids = Object.keys(_diOps);
+  if (ofic) {
+    const ofUids = new Set(allUsers.filter(u=>u.oficinaNombre===ofic && u.rol==='operador').map(u=>u.uid));
+    uids = uids.filter(u => ofUids.has(u));
+  }
+
+  // Días con movimiento en el mes
+  const dias = [...new Set(uids.flatMap(u => Object.keys(_diData[u] || {})))].sort();
+  const tot = (uid,f) => { const d=(_diData[uid]||{})[f]; return d ? (d.com + d.util - d.gas) : 0; };
+
+  // Ordenar operadores por lo que aportan en el mes
+  const porOp = {};
+  uids.forEach(u => { porOp[u] = dias.reduce((s,f)=>s+tot(u,f), 0); });
+  uids.sort((a,b)=>porOp[b]-porOp[a]);
+
+  let gCom=0, gUtil=0, gGas=0;
+  uids.forEach(u => dias.forEach(f => {
+    const d=(_diData[u]||{})[f]; if(!d) return;
+    gCom+=d.com; gUtil+=d.util; gGas+=d.gas;
+  }));
+  document.getElementById('di-kpi-com').textContent  = _diPeso(gCom);
+  document.getElementById('di-kpi-util').textContent = _diPeso(gUtil);
+  document.getElementById('di-kpi-gas').textContent  = gGas ? '-'+_diPeso(gGas) : '$0';
+  const _tot = gCom + gUtil - gGas;
+  const _elTot = document.getElementById('di-kpi-tot');
+  _elTot.textContent = _diPeso(_tot);
+  _elTot.style.color = _tot < 0 ? 'var(--red)' : 'var(--green)';
+
+  if (!dias.length || !uids.length) {
+    cont.innerHTML = '<div class="panel"><div class="empty"><div class="empty-icon">📆</div>Sin movimientos este mes</div></div>';
+    return;
+  }
+
+  const TH = 'padding:9px 10px;background:var(--bg3);font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--text2);white-space:nowrap;border-bottom:1px solid var(--border)';
+  const TD = 'padding:8px 10px;border-bottom:1px solid var(--border);text-align:right;white-space:nowrap';
+  const nom = u => (_diOps[u]||'').split('@')[0];
+
+  const cab = `<tr>
+    <th style="${TH};text-align:left;position:sticky;left:0;z-index:2">Día</th>
+    ${uids.map(u=>`<th style="${TH};text-align:right">${nom(u)}</th>`).join('')}
+    <th style="${TH};text-align:right;color:var(--gold)">Total día</th></tr>`;
+
+  const cuerpo = dias.map(f => {
+    const totDia = uids.reduce((s,u)=>s+tot(u,f), 0);
+    const dow = ['dom','lun','mar','mié','jue','vie','sáb'][new Date(f+'T12:00:00').getDay()];
+    return `<tr>
+      <td style="${TD};text-align:left;font-weight:600;position:sticky;left:0;background:var(--bg2);z-index:1">
+        ${f.slice(8)}/${f.slice(5,7)} <span style="color:var(--text2);font-size:10px">${dow}</span></td>
+      ${uids.map(u=>{
+        const v = tot(u,f);
+        if (!v) return `<td style="${TD};color:var(--text2)">—</td>`;
+        return `<td style="${TD};color:${v>=0?'var(--green)':'var(--red)'}">${_diPeso(v)}</td>`;
+      }).join('')}
+      <td style="${TD};font-weight:700;color:${totDia>=0?'var(--green)':'var(--red)'}">${_diPeso(totDia)}</td>
+    </tr>`;
+  }).join('');
+
+  const pie = `<tr style="background:var(--bg3);font-weight:800">
+    <td style="${TD};text-align:left;position:sticky;left:0;background:var(--bg3);z-index:1">TOTAL</td>
+    ${uids.map(u=>`<td style="${TD};color:${porOp[u]>=0?'var(--green)':'var(--red)'}">${_diPeso(porOp[u])}</td>`).join('')}
+    <td style="${TD};color:var(--gold)">${_diPeso(gCom+gUtil-gGas)}</td></tr>`;
+
+  cont.innerHTML = `<div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">📊 ${_adminMesLabel(_diMesKey)} — ${uids.length} operador(es) · ${dias.length} día(s)</span>
+      <button class="btn btn-ghost btn-sm" onclick="exportarMatrizDiaria()">⬇ CSV</button>
+    </div>
+    <div style="overflow:auto;max-height:70vh">
+      <table style="width:100%;border-collapse:separate;border-spacing:0;font-size:12px">
+        <thead>${cab}</thead><tbody>${cuerpo}${pie}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+function exportarMatrizDiaria() {
+  const ofic = document.getElementById('di-oficina')?.value || '';
+  let uids = Object.keys(_diOps);
+  if (ofic) {
+    const ofUids = new Set(allUsers.filter(u=>u.oficinaNombre===ofic && u.rol==='operador').map(u=>u.uid));
+    uids = uids.filter(u => ofUids.has(u));
+  }
+  const dias = [...new Set(uids.flatMap(u => Object.keys(_diData[u] || {})))].sort();
+  const tot = (uid,f) => { const d=(_diData[uid]||{})[f]; return d ? (d.com + d.util - d.gas) : 0; };
+  const filas = [['Dia', ...uids.map(u=>_diOps[u]), 'Total dia']];
+  dias.forEach(f => filas.push([f, ...uids.map(u=>tot(u,f)), uids.reduce((s,u)=>s+tot(u,f),0)]));
+  filas.push(['TOTAL', ...uids.map(u=>dias.reduce((s,f)=>s+tot(u,f),0)),
+              uids.reduce((s,u)=>s+dias.reduce((a,f)=>a+tot(u,f),0),0)]);
+  const csv = filas.map(r=>r.join(';')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'}));
+  a.download = `ganancia-diaria-${_diMesKey}.csv`;
+  a.click();
+}
+
 function renderDiario() {
+  if (_diVista === 'mes') return renderDiarioMatriz();
+
   const tbody = document.getElementById('di-tbody');
   const titulo = document.getElementById('di-tabla-titulo');
   if (!tbody) return;
@@ -5115,7 +5327,10 @@ function renderDiario() {
   document.getElementById('di-kpi-com').textContent  = _diPeso(tCom);
   document.getElementById('di-kpi-util').textContent = _diPeso(tUtil);
   document.getElementById('di-kpi-gas').textContent  = tGas ? '-'+_diPeso(tGas) : '$0';
-  document.getElementById('di-kpi-tot').textContent  = _diPeso(tCom + tUtil - tGas);
+  const _tot = tCom + tUtil - tGas;
+  const _elTot = document.getElementById('di-kpi-tot');
+  _elTot.textContent = _diPeso(_tot);
+  _elTot.style.color = _tot < 0 ? 'var(--red)' : 'var(--green)';
 
   if (!filas.length) {
     tbody.innerHTML = '<tr><td colspan="5"><div class="empty"><div class="empty-icon">📆</div>Sin movimientos</div></td></tr>';
@@ -6025,6 +6240,80 @@ function _esfRenderTabla(esfMap, mes) {
   </table></div>`;
 }
 
+// ── AVISOS DE PENDIENTES ────────────────────────────────────────────────────
+// Cuentan lo que espera aprobación y lo pintan en el menú. Se enteran solos:
+// escuchan Firestore desde que abre el administrador, sin necesidad de entrar
+// a la sección. Antes un pago quedaba días pendiente sin que nadie lo viera.
+const _avisos = {};          // sección → cuántos pendientes
+
+function avPintar(){
+  // Punto por opción del menú
+  document.querySelectorAll('.navgrp-item[data-sec]').forEach(el => {
+    const n = _avisos[el.getAttribute('data-sec')] || 0;
+    let b = el.querySelector('.nav-aviso');
+    if (n > 0){
+      if (!b){ b = document.createElement('span'); b.className = 'nav-aviso'; el.appendChild(b); }
+      b.textContent = n > 99 ? '99+' : n;
+    } else if (b) b.remove();
+  });
+  // Suma en el grupo, para verlo con el menú cerrado
+  document.querySelectorAll('.navgrp').forEach(grp => {
+    const total = [...grp.querySelectorAll('.navgrp-item[data-sec]')]
+      .reduce((s, el) => s + (_avisos[el.getAttribute('data-sec')] || 0), 0);
+    // El encabezado es el .tab hijo directo. Se busca a mano en vez de con
+    // ':scope >' para no depender de soporte del navegador.
+    const tab = [...grp.children].find(x => x.classList.contains('tab'));
+    if (!tab) return;
+    let b = tab.querySelector('.nav-aviso');
+    if (total > 0){
+      if (!b){ b = document.createElement('span'); b.className = 'nav-aviso'; tab.appendChild(b); }
+      b.textContent = total > 99 ? '99+' : total;
+    } else if (b) b.remove();
+  });
+  // Y en el título de la pestaña del navegador, para verlo sin mirar el portal
+  const total = Object.values(_avisos).reduce((a, b) => a + b, 0);
+  document.title = (total ? '(' + total + ') ' : '') + 'Administrador — AJ1.6';
+}
+
+// Cada fuente reporta su cuenta bajo una clave propia, para que dos fuentes de
+// la misma sección no se pisen (liquidaciones tiene pagos y correcciones).
+const _avisoFuentes = {};
+function avReportar(seccion, fuente, n){
+  _avisoFuentes[fuente] = { seccion, n };
+  const suma = {};
+  Object.values(_avisoFuentes).forEach(f => { suma[f.seccion] = (suma[f.seccion] || 0) + f.n; });
+  Object.keys(_avisos).forEach(k => delete _avisos[k]);
+  Object.assign(_avisos, suma);
+  avPintar();
+}
+
+function avEscuchar(){
+  const cuenta = (col, filtro, seccion, fuente) =>
+    db.collection(col).onSnapshot(
+      snap => avReportar(seccion, fuente, snap.docs.filter(d => filtro(d.data())).length),
+      e => console.warn('aviso ' + fuente + ':', e.message));
+
+  const pend = d => d.estado === 'pendiente';
+
+  // Liquidaciones: pagos que el operador registró y correcciones que pidió
+  cuenta('patriarca_liquidacion_txs',  pend, 'liquidaciones', 'liq-pagos');
+  cuenta('patriarca_liq_correcciones', pend, 'liquidaciones', 'liq-corr');
+  // Cierres de mes
+  cuenta('patriarca_cierres',          pend, 'cierres',       'cierres');
+  // Solicitudes de eliminación
+  cuenta('patriarca_ix_delete_requests',  pend, 'solicitudes', 'sol-ix');
+  cuenta('patriarca_inv_delete_requests', pend, 'solicitudes', 'sol-inv');
+  // Movimientos con eliminación pedida y todavía sin resolver
+  db.collection('patriarca_movimientos').where('solicitud_eliminar', '==', true).onSnapshot(
+    snap => avReportar('solicitudes', 'sol-mov',
+      snap.docs.filter(d => { const x = d.data(); return !x.solicitud_aprobada && !x.solicitud_rechazada; }).length),
+    e => console.warn('aviso sol-mov:', e.message));
+  // Correcciones NO lleva aviso: esa pantalla es una herramienta de renumeración,
+  // no una bandeja de aprobaciones. patriarca_variaciones es la foto que se
+  // guarda al cerrar el mes para la hoja de liquidación — un documento por
+  // operador y mes, nada que aprobar.
+}
+
 // ── SOLICITUDES DE ELIMINACIÓN ──────────────────────────────────────────────
 let _solAdminListener = null;
 let _solMovListener   = null;
@@ -6038,10 +6327,10 @@ function _updateSolBadge() {
   const tabEl = document.getElementById('tab-solicitudes');
   const badge = document.getElementById('sol-pending-badge');
   if (total > 0) {
-    if (tabEl) tabEl.textContent = `🗑 Solicitudes (${total})`;
+    if (tabEl && !tabEl.querySelector('.nav-aviso')) tabEl.textContent = '🗑 Solicitudes';
     if (badge) { badge.textContent = `${total} pendiente${total > 1 ? 's' : ''}`; badge.style.display = ''; }
   } else {
-    if (tabEl) tabEl.textContent = '🗑 Solicitudes';
+    if (tabEl && !tabEl.querySelector('.nav-aviso')) tabEl.textContent = '🗑 Solicitudes';
     if (badge) badge.style.display = 'none';
   }
   // Actualizar badges individuales
@@ -6540,11 +6829,11 @@ function initCierres() {
       }
 
       if (pending.length) {
-        tabEl.textContent  = `📅 Cierres (${pending.length})`;
+        if (!tabEl.querySelector('.nav-aviso')) tabEl.textContent = '📅 Cierres';
         badge.textContent  = `${pending.length} pendiente${pending.length > 1 ? 's' : ''}`;
         badge.style.display = '';
       } else {
-        tabEl.textContent  = '📅 Cierres';
+        if (!tabEl.querySelector('.nav-aviso')) tabEl.textContent = '📅 Cierres';
         badge.style.display = 'none';
       }
       _syncGrpBadge();
@@ -8110,6 +8399,44 @@ function tbHoyBogotaAdmin(){
     year:'numeric', month:'2-digit', day:'2-digit' }).format(new Date());
 }
 
+// Mercados que el administrador puede habilitar por operador. Por defecto solo
+// 1X2: es el único verificado a fondo. Los demás se abren uno por uno.
+const TBA_MERCADOS = [
+  { id:'1X2',     nombre:'1X2' },
+  { id:'GOL_OU',  nombre:'Goles +/−' },
+  { id:'BTTS',    nombre:'Ambos anotan' },
+  { id:'DC',      nombre:'Doble oport.' }
+];
+const TBA_MERCADOS_DEF = ['1X2'];
+
+// Texto del desplegable cerrado. Con todos marcados no tiene sentido listarlos.
+function tbaResumen(ids){
+  if (!ids.length) return '1X2';
+  if (ids.length === TBA_MERCADOS.length) return 'Todos (' + ids.length + ')';
+  const nombres = TBA_MERCADOS.filter(m => ids.includes(m.id)).map(m => m.nombre);
+  return nombres.length <= 2 ? nombres.join(', ') : nombres[0] + ' +' + (nombres.length - 1);
+}
+
+// Al marcar o desmarcar, refrescar el resumen sin cerrar el panel
+function tbaMktCambio(uid, inp){
+  inp.closest('label').classList.toggle('on', inp.checked);
+  const ids = [...document.querySelectorAll('.tba-mkt-' + uid)].filter(x => x.checked).map(x => x.value);
+  const res = document.getElementById('tba-res-' + uid);
+  if (res) res.textContent = tbaResumen(ids);
+}
+
+// Un solo desplegable abierto a la vez, o la tabla se vuelve un desorden
+function tbaCerrarOtros(uid){
+  const abierto = document.getElementById('tba-dd-' + uid);
+  if (!abierto || !abierto.open) return;
+  document.querySelectorAll('.tba-dd[open]').forEach(d => { if (d !== abierto) d.open = false; });
+}
+
+function tbaMercadosDe(cfg){
+  const m = cfg && cfg.mercados;
+  return Array.isArray(m) && m.length ? m : TBA_MERCADOS_DEF.slice();
+}
+
 async function initTrixiBot(){
   const body = document.getElementById('tb-admin-body');
   if (!body) return;
@@ -8126,8 +8453,9 @@ async function initTrixiBot(){
     await Promise.all(_tbAdminOps.map(async op => {
       try {
         const c = await db.collection('patriarca_config').doc(op.uid).get();
-        op.cfg = (c.exists && c.data().trixibot) || { activo:false, plan:'basico', limiteDiario:1 };
-      } catch(_) { op.cfg = { activo:false, plan:'basico', limiteDiario:1 }; }
+        op.cfg  = (c.exists && c.data().trixibot)   || { activo:false, plan:'basico', limiteDiario:1 };
+        op.comb = (c.exists && c.data().combinadas) || { activo:false, detalle:false };
+      } catch(_) { op.cfg = { activo:false, plan:'basico', limiteDiario:1 }; op.comb = { activo:false, detalle:false }; }
       try {
         const u = await db.collection('trixibot_uso').doc(op.uid + '_' + hoy).get();
         op.usoHoy = u.exists ? (u.data().busquedas || 0) : 0;
@@ -8152,7 +8480,27 @@ async function initTrixiBot(){
             ${op.cfg.plan==='full'?'disabled':''}
             style="width:70px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:5px;font-size:12px;text-align:right">
         </td>
-        <td style="text-align:right;font-size:12px;color:${op.usoHoy?'#a78bfa':'var(--text2)'}">${op.usoHoy}</td>
+        <td>
+          <details class="tba-dd" id="tba-dd-${op.uid}" ontoggle="tbaCerrarOtros('${op.uid}')">
+            <summary id="tba-res-${op.uid}">${tbaResumen(tbaMercadosDe(op.cfg))}</summary>
+            <div class="tba-dd-panel">
+              ${TBA_MERCADOS.map(m => {
+                const on = tbaMercadosDe(op.cfg).includes(m.id);
+                return `<label class="${on?'on':''}">
+                  <input type="checkbox" class="tba-mkt-${op.uid}" value="${m.id}" ${on?'checked':''}
+                    onchange="tbaMktCambio('${op.uid}',this)">${m.nombre}</label>`;
+              }).join('')}
+            </div>
+          </details>
+        </td>
+        <td style="text-align:center">
+          <select id="tba-comb-${op.uid}" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:5px 7px;font-size:11px">
+            <option value=""        ${!op.comb?.activo?'selected':''}>— sin acceso</option>
+            <option value="si"      ${op.comb?.activo && !op.comb?.detalle?'selected':''}>Sí</option>
+            <option value="detalle" ${op.comb?.detalle?'selected':''}>Sí + detalle</option>
+          </select>
+        </td>
+        <td style="text-align:right;font-size:12px;color:${op.usoHoy?'var(--gold)':'var(--text2)'}">${op.usoHoy}</td>
       </tr>`).join('');
 
     // Enlaces de las casas
@@ -8169,7 +8517,7 @@ async function initTrixiBot(){
       </div>`).join('');
 
   } catch(e){
-    body.innerHTML = `<tr><td colspan="5" style="color:var(--red);padding:20px">Error: ${e.message}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="7" style="color:var(--red);padding:20px">Error: ${e.message}</td></tr>`;
   }
 }
 
@@ -8189,9 +8537,22 @@ async function tbAdminGuardar(){
       const plan   = document.getElementById('tba-plan-'+op.uid)?.value || 'basico';
       const limRaw = parseInt(document.getElementById('tba-lim-'+op.uid)?.value || '1', 10);
       const limite = plan === 'full' ? 999999 : (limRaw > 0 ? limRaw : 1);
+      // Sin ningún mercado marcado el bot no serviría de nada, así que 1X2
+      // queda siempre como piso.
+      let mercados = [...document.querySelectorAll('.tba-mkt-' + op.uid)]
+        .filter(x => x.checked).map(x => x.value);
+      if (!mercados.length) mercados = TBA_MERCADOS_DEF.slice();
+      // "detalle" muestra probabilidades y porcentajes; sin él solo etiquetas
+      const combVal = document.getElementById('tba-comb-'+op.uid)?.value || '';
       return db.collection('patriarca_config').doc(op.uid).set({
         trixibot: {
-          activo, plan, limiteDiario: limite,
+          activo, plan, limiteDiario: limite, mercados,
+          activadoPor: auth.currentUser?.email || 'admin',
+          activadoEn:  firebase.firestore.FieldValue.serverTimestamp()
+        },
+        combinadas: {
+          activo:  combVal !== '',
+          detalle: combVal === 'detalle',
           activadoPor: auth.currentUser?.email || 'admin',
           activadoEn:  firebase.firestore.FieldValue.serverTimestamp()
         }

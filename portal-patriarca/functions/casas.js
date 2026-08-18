@@ -26,6 +26,69 @@ const VIRTUAL = /cyber|virtual|esoccer|e-?sports|\(\d+x\d+|fifa|efootball|simula
 // ── KAMBI (Bet Play y Rushbet comparten plataforma) ────────────────────────
 const MAPA_KAMBI = { OT_ONE: '1', OT_CROSS: 'X', OT_TWO: '2' };
 
+// Mercados extra de Kambi. Obliga a una petición por partido, así que solo se
+// pide para los que interesan y con un tope, para no dispararse en tiempo.
+const MAPA_OU = { OT_OVER: 'OVER', OT_UNDER: 'UNDER' };
+const MAPA_DC = { OT_ONE_OR_CROSS: '1X', OT_ONE_OR_TWO: '12', OT_CROSS_OR_TWO: 'X2' };
+
+// Kambi publica el mismo mercado para el partido completo, para el primer
+// tiempo y para el segundo, con el nombre casi idéntico. Mezclarlos produce
+// "surebets" falsas enormes: ambos anotan del 1.º tiempo paga 3.30 mientras el
+// del partido completo paga 1.43. Cualquier criterio con período se descarta.
+const KAMBI_PERIODO = /\d\s*\.?\s*[ªa]?\s*parte|primera parte|segunda parte|primer tiempo|segundo tiempo|mitad|half|descanso|per[ií]odo|\bht\b/i;
+
+async function leerKambiMercados(marca, eventoId) {
+  const url = `https://us.offering-api.kambicdn.com/offering/v2018/${marca}` +
+              `/betoffer/event/${eventoId}.json?lang=es_CO&market=CO`;
+  const j = await traer(url, { json: true });
+  const mercados = {};
+
+  (j.betOffers || []).forEach(bo => {
+    const etiqueta = bo.criterion?.label || '';
+    const outs = bo.outcomes || [];
+    if (KAMBI_PERIODO.test(etiqueta)) return;   // solo el partido completo
+
+    // Total de goles del partido — se descartan los "de <equipo>"
+    if (/^total de goles$/i.test(etiqueta)) {
+      const linea = (outs[0]?.line || 0) / 1000;
+      if (!linea) return;
+      const m = {};
+      outs.forEach(o => { const k = MAPA_OU[o.type]; if (k) m[k] = o.odds / 1000; });
+      if (m.OVER && m.UNDER) mercados['GOL_OU|' + String(linea).replace('.', '_')] = m;
+      return;
+    }
+    // Ambos equipos marcarán (solo el del partido completo)
+    if (/^ambos equipos marcar[aá]n?$/i.test(etiqueta)) {
+      const m = {};
+      outs.forEach(o => {
+        if (/^s[ií]$/i.test(o.label||'')) m['SI'] = o.odds / 1000;
+        if (/^no$/i.test(o.label||''))    m['NO'] = o.odds / 1000;
+      });
+      if (m.SI && m.NO) mercados['BTTS'] = m;
+      return;
+    }
+    // Doble oportunidad
+    if (/^doble oportunidad$/i.test(etiqueta)) {
+      const m = {};
+      outs.forEach(o => { const k = MAPA_DC[o.type]; if (k) m[k] = o.odds / 1000; });
+      if (m['1X'] && m['12'] && m['X2']) mercados['DC'] = m;
+    }
+  });
+  return mercados;
+}
+
+// Kambi entrega la ruta completa del evento: Fútbol → País → Liga. El país es
+// el nivel siguiente al deporte. Es mucho más confiable que deducirlo del
+// nombre: "Liga Pro" existe en Ecuador y en Portugal, "Premier League" en
+// Inglaterra y en Rusia.
+function paisKambi(ev) {
+  const p = ev.path || [];
+  if (p.length < 2) return '';
+  const i = p.findIndex(x => /^(f[uú]tbol|football|soccer)$/i.test(x.name || x.englishName || ''));
+  const nodo = p[(i >= 0 ? i : 0) + 1];
+  return (nodo && nodo.name) || '';
+}
+
 async function leerKambi(casa, marca) {
   const url = `https://us.offering-api.kambicdn.com/offering/v2018/${marca}` +
               `/listView/football.json?lang=es_CO&market=CO&ncid=${Date.now()}`;
@@ -34,13 +97,18 @@ async function leerKambi(casa, marca) {
   (j.events || []).forEach(e => {
     const ev = e.event || {};
     if (VIRTUAL.test((ev.group || '') + ' ' + (ev.name || ''))) return;
+    // Partido en curso: sus cuotas ya reflejan el marcador. Cruzarlas con las
+    // de otra casa que todavía publica las de antes del pitazo inventa
+    // surebets enormes que no se pueden jugar.
+    if (ev.state && ev.state !== 'NOT_STARTED') return;
     const bo = (e.betOffers || []).find(b => (b.outcomes || []).some(o => MAPA_KAMBI[o.type]));
     if (!bo) return;
     const c = {};
     bo.outcomes.forEach(o => { const k = MAPA_KAMBI[o.type]; if (k) c[k] = o.odds / 1000; });
     if (!(c['1'] && c['X'] && c['2'])) return;
     out.push({ casa, local: ev.homeName, visita: ev.awayName,
-               inicio: ev.start, liga: ev.group || '', c });
+               inicio: ev.start, liga: ev.group || '', pais: paisKambi(ev), c,
+               kambiId: ev.id, kambiMarca: marca });
   });
   return out;
 }
@@ -53,19 +121,54 @@ async function leerYaJuegos() {
   const j = await traer(url, { json: true, headers: { 'Referer': 'https://sports.yajuego.co/' } });
   if (j.R !== 'OK') throw new Error('respuesta ' + j.R);
   const G = (j.D && j.D.G) || {};
+  const C = (j.D && (j.D.C || j.D.CAT)) || {};
   const out = [];
   (j.D.E || []).forEach(e => {
     const o = e.O || {};
     if (!(o.S_1X2_1 && o.S_1X2_X && o.S_1X2_2)) return;
     const p = String(e.N || '').split('||v||').map(s => s.replace(/\|/g, '').trim());
     if (p.length !== 2 || !p[0] || !p[1]) return;
-    const liga = (G[e.GID] || {}).G_DESC || '';
+    const g    = G[e.GID] || {};
+    const liga = g.G_DESC || '';
+    // El bundle agrupa las ligas bajo una categoría que es el país. Según la
+    // versión del feed viene con uno u otro nombre, así que se prueban varios
+    // y si ninguno está, se deja vacío y el país lo aporta otra casa.
+    const pais = (C[g.CATID] || C[g.CID] || {}).C_DESC || g.C_DESC || g.CAT_DESC || '';
     if (VIRTUAL.test(liga + ' ' + e.N)) return;
     // Ya Juegos entrega hora de Colombia; se normaliza a UTC para comparar
     const inicio = new Date(String(e.D).replace(' ', 'T') + 'Z').getTime() + 5 * 3600 * 1000;
+    // Mercados: el bundle ya los trae todos, no cuesta peticiones extra
+    const mercados = { '1X2': { '1': +o.S_1X2_1, 'X': +o.S_1X2_X, '2': +o.S_1X2_2 } };
+
+    // Over/Under de goles — una entrada por línea, la línea va en la clave
+    Object.keys(o).forEach(k => {
+      const m = /^S_OU@([\d.]+)_(U|O)$/.exec(k);
+      if (!m) return;
+      const clave = 'GOL_OU|' + m[1].replace('.', '_');
+      mercados[clave] = mercados[clave] || {};
+      mercados[clave][m[2] === 'O' ? 'OVER' : 'UNDER'] = +o[k];
+    });
+
+    // Ambos anotan
+    if (o.S_GGNG_Y && o.S_GGNG_N) mercados['BTTS'] = { 'SI': +o.S_GGNG_Y, 'NO': +o.S_GGNG_N };
+
+    // Doble oportunidad
+    if (o.S_DC_1X && o.S_DC_12 && o.S_DC_X2)
+      mercados['DC'] = { '1X': +o.S_DC_1X, '12': +o.S_DC_12, 'X2': +o.S_DC_X2 };
+
+    // Solo dejar los mercados extra que quedaron completos. El 1X2 no se toca:
+    // sin él la lectura no sirve para nada y ya viene validado arriba.
+    Object.keys(mercados).forEach(k => {
+      if (k === '1X2') return;
+      const v = mercados[k];
+      const n = Object.values(v).filter(x => x > 1).length;
+      const esperados = k.startsWith('GOL_OU') ? 2 : k === 'BTTS' ? 2 : 3;
+      if (n !== esperados) delete mercados[k];
+    });
+
     out.push({ casa: 'YA JUEGOS', local: p[0], visita: p[1],
-               inicio: new Date(inicio).toISOString(), liga,
-               c: { '1': +o.S_1X2_1, 'X': +o.S_1X2_X, '2': +o.S_1X2_2 } });
+               inicio: new Date(inicio).toISOString(), liga, pais,
+               c: mercados['1X2'], mercados });
   });
   return out;
 }
@@ -83,8 +186,19 @@ const LIGAS_WPLAY = [
 const MESES = { ene:0, feb:1, mar:2, abr:3, may:4, jun:5,
                 jul:6, ago:7, sep:8, oct:9, nov:10, dic:11 };
 
-function fechaWplay(hora, fecha) {
-  // hora "21:00", fecha "22 Ago" — hora de Colombia, se devuelve en UTC
+// Wplay muestra las horas en la zona de quien consulta, no en la de Colombia:
+// depende de la IP y de la cookie GN_TZ_MODE. Desde un navegador en Madrid la
+// página marca GMT +2; desde los servidores de Google puede marcar otra cosa.
+// En vez de suponerla, se lee del propio selector de la página.
+function offsetWplay($) {
+  const v = $('select[name="tz_offset"] option[selected]').attr('value');
+  const n = parseFloat(v);
+  return isNaN(n) ? -5 : n;            // sin dato, se asume Colombia
+}
+
+function fechaWplay(hora, fecha, offset) {
+  // hora "21:00", fecha "22 Ago" en la zona que reporte la página → UTC
+  const off = (typeof offset === 'number' && !isNaN(offset)) ? offset : -5;
   const mh = /^(\d{1,2}):(\d{2})$/.exec(String(hora || '').trim());
   const mf = /^(\d{1,2})\s+([A-Za-zÁÉÍÓÚáéíóú]{3})/.exec(String(fecha || '').trim());
   if (!mh || !mf) return null;
@@ -97,20 +211,27 @@ function fechaWplay(hora, fecha) {
   // Si el mes ya pasó, el partido es del año entrante (cambio de año)
   if (mes < hoyCO.getUTCMonth() - 6) anio++;
 
-  const ms = Date.UTC(anio, mes, +mf[1], +mh[1], +mh[2]) + 5 * 3600 * 1000;
+  const ms = Date.UTC(anio, mes, +mf[1], +mh[1], +mh[2]) - off * 3600 * 1000;
   return new Date(ms).toISOString();
 }
 
 function parsearWplay(html, cheerio) {
   const $ = cheerio.load(html);
+  const off = offsetWplay($);
 
-  // Mapa id de evento → hora de inicio
+  // Mapa id de evento → hora de inicio. Los partidos en curso traen el
+  // cronómetro en ese mismo campo ("45:00 1ª Mitad") y no tienen fecha, así
+  // que se descartan: sus cuotas ya reflejan el marcador.
   const horas = {};
+  const envivo = new Set();
   $('.ev').each((_, el) => {
     const id = (String($(el).attr('class') || '').match(/ev-(\d+)/) || [])[1];
     if (!id) return;
-    const iso = fechaWplay($(el).find('.time').first().text(), $(el).find('.date').first().text());
-    if (iso) horas[id] = iso;
+    const t = $(el).find('.time').first().text().trim();
+    const f = $(el).find('.date').first().text().trim();
+    if (!/^\d{1,2}:\d{2}$/.test(t) || !f) { envivo.add(id); return; }
+    const iso = fechaWplay(t, f, off);
+    if (iso) horas[id] = iso; else envivo.add(id);
   });
 
   const grupos = {};
@@ -134,8 +255,9 @@ function parsearWplay(html, cheerio) {
     const X = s.find(x => x.empate);
     const otros = s.filter(x => !x.empate);
     if (!X || otros.length !== 2) return;   // sin empate identificable → se descarta
+    if (envivo.has(g.ev) || !horas[g.ev]) return;   // en vivo o sin hora → fuera
     out.push({ casa: 'WPLAY', local: otros[0].nombre, visita: otros[1].nombre,
-               inicio: horas[g.ev] || null, liga: '',
+               inicio: horas[g.ev], liga: '',
                c: { '1': otros[0].cuota, 'X': X.cuota, '2': otros[1].cuota } });
   });
   return out;
@@ -156,4 +278,4 @@ async function leerWplay(cheerio) {
   return out;
 }
 
-module.exports = { leerKambi, leerYaJuegos, leerWplay, parsearWplay, fechaWplay, VIRTUAL };
+module.exports = { traer, leerKambi, paisKambi, offsetWplay, leerKambiMercados, leerYaJuegos, leerWplay, parsearWplay, fechaWplay, VIRTUAL };

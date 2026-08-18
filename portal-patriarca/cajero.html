@@ -71,14 +71,14 @@ main{flex:1;padding:20px;overflow:auto}
    .col-fija-1 → primera columna (nombre) · .col-fija-2 → segunda columna
    Ancho fijo: medirlo por JS fallaba y las columnas terminaban superpuestas. */
 .col-fija-1,.col-fija-2{position:sticky;z-index:3;background:var(--bg2)}
-.col-fija-1{left:0;width:78px;min-width:78px;max-width:78px;
+.col-fija-1{left:0;width:190px;min-width:190px;max-width:190px;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.col-fija-2{left:78px;min-width:230px;box-shadow:6px 0 8px -6px rgba(0,0,0,.45)}
+.col-fija-2{left:190px;min-width:130px;box-shadow:6px 0 8px -6px rgba(0,0,0,.45)}
 thead .col-fija-1,thead .col-fija-2{background:var(--bg3);z-index:6}
 tr:hover .col-fija-1,tr:hover .col-fija-2{background:var(--bg3)}
 @media(max-width:760px){
-  .col-fija-1{width:56px;min-width:56px;max-width:56px}
-  .col-fija-2{left:56px;min-width:160px}
+  .col-fija-1{width:132px;min-width:132px;max-width:132px}
+  .col-fija-2{left:132px;min-width:110px}
 }
 /* ── Las tres del corresponsal van juntas; Efecty aparte ── */
 .nav-sep{width:1px;align-self:stretch;margin:8px 10px;background:var(--border)}
@@ -579,6 +579,7 @@ select option{background:var(--bg3)}
         <div class="kpi red"><div class="kpi-label">Recargas</div><div class="kpi-value" id="pm-kpi-rec">$0</div></div>
         <div class="kpi green"><div class="kpi-label">Pagos</div><div class="kpi-value" id="pm-kpi-pag">$0</div></div>
         <div class="kpi"><div class="kpi-label">Intercambios</div><div class="kpi-value" id="pm-kpi-ix">$0</div></div>
+        <div class="kpi red"><div class="kpi-label">Liquidación / Asientos</div><div class="kpi-value" id="pm-kpi-asi">$0</div></div>
         <div class="kpi"><div class="kpi-label">Saldo Final</div><div class="kpi-value" id="pm-kpi-fin">$0</div></div>
       </div>
 
@@ -844,7 +845,8 @@ select option{background:var(--bg3)}
                 <th class="col-fija-1" style="text-align:left;padding:10px 16px;background:var(--bg3);color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">Método</th>
                 <th class="col-fija-2" style="text-align:right;padding:10px 16px;background:var(--bg3);color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">S. Inicial</th>
                 <th style="text-align:right;padding:10px 16px;background:var(--bg3);color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">Intercambios</th>
-                <th style="text-align:right;padding:10px 16px;background:var(--bg3);color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">Saldo Op.</th>
+                <th style="text-align:right;padding:10px 16px;background:var(--bg3);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border);color:var(--green)">Pagos (+)</th>
+                <th style="text-align:right;padding:10px 16px;background:var(--bg3);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border);color:var(--red)">Recargas (−)</th>
                 <th style="text-align:right;padding:10px 16px;background:var(--bg3);color:var(--red);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">Gastos (−)</th>
                 <th style="text-align:right;padding:10px 16px;background:var(--bg3);color:var(--red);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">Liq. (−)</th>
                 <th style="text-align:right;padding:10px 16px;background:var(--bg3);color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)">Sistema</th>
@@ -3012,7 +3014,7 @@ async function renderDashboard() {
     const liq = liqPorMet[m] || 0;
     const fin = ini + ix - rec + pag - gas - liq;
     if (ini === 0 && ix === 0 && rec === 0 && pag === 0 && gas === 0 && liq === 0) return;
-    cards.push({ m, ini, ix, op: pag - rec, gas, liq, fin });
+    cards.push({ m, ini, ix, op: pag - rec, pag, rec, gas, liq, fin });
   });
 
   const grid = document.getElementById('dash-metodos-grid');
@@ -4489,6 +4491,8 @@ function _renderCruceInline(cards) {
     ini:     c.ini  || 0,
     ix:      c.ix   || 0,
     op:      c.op   || 0,
+    pag:     c.pag  || 0,
+    rec:     c.rec  || 0,
     gas:     c.gas  || 0,
     liq:     c.liq  || 0,
     sistema: c.fin
@@ -4508,7 +4512,8 @@ function _renderCruceInline(cards) {
       <td class="col-fija-1" style="${TD};font-weight:600;white-space:nowrap">${row.metodo}</td>
       <td class="col-fija-2" style="${TD};text-align:right;color:var(--text2)">${row.ini ? pesos(row.ini) : '—'}</td>
       <td style="${TD};text-align:right;font-weight:600;color:${ixClr}">${fmtSigned(row.ix)}</td>
-      <td style="${TD};text-align:right;font-weight:600;color:${opClr}">${fmtSigned(row.op)}</td>
+      <td style="${TD};text-align:right;font-weight:600;color:${row.pag?'var(--green)':'var(--text2)'}">${row.pag ? '+'+pesos(row.pag) : '—'}</td>
+      <td style="${TD};text-align:right;font-weight:600;color:${row.rec?'var(--red)':'var(--text2)'}">${row.rec ? '−'+pesos(row.rec) : '—'}</td>
       <td style="${TD};text-align:right;font-weight:600;color:var(--red)">${row.gas ? '−'+pesos(row.gas) : '—'}</td>
       <td style="${TD};text-align:right;font-weight:600;color:var(--red)">${row.liq ? '−'+pesos(row.liq) : '—'}</td>
       <td style="${TD};text-align:right;font-weight:700;color:${sisClr}">
@@ -4541,7 +4546,8 @@ function _renderCruceInline(cards) {
       </td>
       <td class="col-fija-2" id="cruce-tot-ini" style="padding:12px 16px;text-align:right;font-weight:700;color:var(--text2);background:var(--bg3)">—</td>
       <td id="cruce-tot-ix"  style="padding:12px 16px;text-align:right;font-weight:700">—</td>
-      <td id="cruce-tot-op"  style="padding:12px 16px;text-align:right;font-weight:700">—</td>
+      <td id="cruce-tot-pag" style="padding:12px 16px;text-align:right;font-weight:700">—</td>
+      <td id="cruce-tot-rec" style="padding:12px 16px;text-align:right;font-weight:700">—</td>
       <td id="cruce-tot-gas" style="padding:12px 16px;text-align:right;font-weight:700;color:var(--red)">—</td>
       <td id="cruce-tot-liq" style="padding:12px 16px;text-align:right;font-weight:700;color:var(--red)">—</td>
       <td id="cruce-tot-sis" style="padding:12px 16px;text-align:right;font-weight:800;font-size:14px"></td>
@@ -4670,6 +4676,9 @@ function _cargarMovsCorr() {
       renderCorrCuentas();
       renderCorrMovs();
       renderBalanceCorr();
+      // La hoja del Paramo también muestra estos asientos (liquidaciones);
+      // sin esto quedaba en cero porque se pintaba antes de que llegaran.
+      if (typeof renderParamo === 'function' && document.getElementById('pm-tbody')) renderParamo();
     }, e => console.warn('corr movs:', e));
 }
 
@@ -4685,6 +4694,7 @@ async function _cargarSICorr() {
   } catch(e) { _corrSI = {}; }
   renderCorrCuentas();
   renderBalanceCorr();
+  if (typeof renderParamo === 'function' && document.getElementById('pm-tbody')) renderParamo();
 }
 
 
@@ -4982,19 +4992,43 @@ function _paramoMovs() {
       });
     });
   }
+  // Asientos del corresponsal contra esta misma cuenta — ahí viven los pagos
+  // de liquidación que los operadores hacen por este método.
+  (typeof _corrMovs !== 'undefined' ? _corrMovs : []).forEach(m => {
+    if ((m.cuenta || '') !== p.cuenta) return;
+    const eg = m.movimiento === 'Egresos';
+    out.push({
+      op: m.op || null,
+      fecha: m.fecha || '',
+      monto: parseFloat(m.monto) || 0,
+      clase: 'asi',
+      tipo: 'Asiento',
+      signo: eg ? -1 : 1,
+      estado: m.movimiento || '',
+      cliente: m.descripcion || '—',
+      operador: m.especialista || '',
+    });
+  });
+
   return out.sort((a,b) => (a.fecha||'').localeCompare(b.fecha||'') || (a.op||0)-(b.op||0));
 }
 
 // El saldo que alimenta la cuenta del cliente
 function _paramoTotales() {
   const movs = _paramoMovs();
-  let rec = 0, pag = 0, ix = 0;
+  let rec = 0, pag = 0, ix = 0, asi = 0;
   movs.forEach(m => {
-    if (m.clase === 'rec') rec += m.monto;
+    if      (m.clase === 'rec') rec += m.monto;
     else if (m.clase === 'pag') pag += m.monto;
+    else if (m.clase === 'asi') asi += (m.signo || 0) * m.monto;
     else ix += (m.signo || 0) * m.monto;
   });
-  return { movs, rec, pag, ix, neto: pag - rec + ix };
+  // OJO: `neto` es lo que consume el puente hacia la pestaña Cuentas y NO debe
+  // incluir los asientos — allá ya se suman aparte. `netoVista` sí los incluye
+  // y es el que se muestra en esta pantalla.
+  return { movs, rec, pag, ix, asi,
+           neto: pag - rec + ix,
+           netoVista: pag - rec + ix + asi };
 }
 
 function renderParamo() {
@@ -5006,7 +5040,7 @@ function renderParamo() {
     return;
   }
 
-  const { movs, rec, pag, ix, neto } = _paramoTotales();
+  const { movs, rec, pag, ix, asi, netoVista } = _paramoTotales();
   const ini = parseFloat(_corrSI[p.cuenta]) || 0;
 
   document.getElementById('pm-kpi-ini').textContent = _cPeso(ini);
@@ -5015,8 +5049,13 @@ function renderParamo() {
   const eIx = document.getElementById('pm-kpi-ix');
   eIx.textContent = _cPeso(ix);
   eIx.style.color = ix < 0 ? 'var(--red)' : ix > 0 ? 'var(--blue)' : '';
+  const eAsi = document.getElementById('pm-kpi-asi');
+  if (eAsi) {
+    eAsi.textContent = _cPeso(asi);
+    eAsi.style.color = asi < 0 ? 'var(--red)' : asi > 0 ? 'var(--green)' : '';
+  }
   const eFin = document.getElementById('pm-kpi-fin');
-  const fin = ini + neto;
+  const fin = ini + netoVista;
   eFin.textContent = _cPeso(fin);
   eFin.style.color = fin < 0 ? 'var(--red)' : 'var(--green)';
 
@@ -5028,7 +5067,10 @@ function renderParamo() {
     else if (m.clase === 'pag') saldo += m.monto;
     else saldo += (m.signo || 0) * m.monto;
     if (f && f !== m.clase) return '';
-    const badge = m.clase === 'rec' ? 'badge-red' : m.clase === 'pag' ? 'badge-green' : 'badge-gray';
+    const badge = m.clase === 'rec' ? 'badge-red'
+                : m.clase === 'pag' ? 'badge-green'
+                : m.clase === 'asi' ? (m.signo < 0 ? 'badge-red' : 'badge-green')
+                : 'badge-gray';
     return `<tr>
       <td style="text-align:center;color:var(--text2)">${m.op || ''}</td>
       <td style="white-space:nowrap">${m.fecha}</td>
@@ -5048,7 +5090,7 @@ function renderParamo() {
 function imprimirParamo() {
   const p = _corrPuente();
   if (!p) return;
-  const { movs, rec, pag, ix, neto } = _paramoTotales();
+  const { movs, rec, pag, ix, asi, netoVista } = _paramoTotales();
   const ini = parseFloat(_corrSI[p.cuenta]) || 0;
   let saldo = ini;
   const filas = movs.map(m => {
@@ -5083,7 +5125,8 @@ function imprimirParamo() {
       <div class="kpi"><span>Recargas</span><b>${_cPeso(rec)}</b></div>
       <div class="kpi"><span>Pagos</span><b>${_cPeso(pag)}</b></div>
       <div class="kpi"><span>Intercambios</span><b>${_cPeso(ix)}</b></div>
-      <div class="kpi"><span>Saldo final</span><b>${_cPeso(ini + neto)}</b></div>
+      <div class="kpi"><span>Liquidación / Asientos</span><b>${_cPeso(asi)}</b></div>
+      <div class="kpi"><span>Saldo final</span><b>${_cPeso(ini + netoVista)}</b></div>
     </div>
     <table><thead><tr><th>OP</th><th>Fecha</th><th class="r">Monto</th><th>Tipo</th>
       <th>Cliente</th><th>Operador</th><th class="r">Saldo</th></tr></thead>
@@ -7599,7 +7642,8 @@ function _actualizarCruce() {
   const totSis = _cruceData.reduce((s,r) => s + r.sistema, 0);
   const totIni = _cruceData.reduce((s,r) => s + (r.ini||0), 0);
   const totIx  = _cruceData.reduce((s,r) => s + (r.ix||0),  0);
-  const totOp  = _cruceData.reduce((s,r) => s + (r.op||0),  0);
+  const totPag = _cruceData.reduce((s,r) => s + (r.pag||0), 0);
+  const totRec = _cruceData.reduce((s,r) => s + (r.rec||0), 0);
   const totGas = _cruceData.reduce((s,r) => s + (r.gas||0),  0);
   const totLiq = _cruceData.reduce((s,r) => s + (r.liq||0),  0);
 
@@ -7636,7 +7680,8 @@ function _actualizarCruce() {
   const totDifEl = document.getElementById('cruce-tot-dif');
   const totIniEl = document.getElementById('cruce-tot-ini');
   const totIxEl  = document.getElementById('cruce-tot-ix');
-  const totOpEl  = document.getElementById('cruce-tot-op');
+  const totPagEl = document.getElementById('cruce-tot-pag');
+  const totRecEl = document.getElementById('cruce-tot-rec');
   const totGasEl = document.getElementById('cruce-tot-gas');
   const totLiqEl = document.getElementById('cruce-tot-liq');
   if (!totSisEl) return;
@@ -7647,9 +7692,13 @@ function _actualizarCruce() {
     totIxEl.textContent = totIx ? (totIx>0?'+':'')+pesos(Math.abs(totIx)) : '—';
     totIxEl.style.color = totIx > 0 ? 'var(--green)' : totIx < 0 ? 'var(--red)' : 'var(--text2)';
   }
-  if (totOpEl)  {
-    totOpEl.textContent = totOp ? (totOp>0?'+':'')+pesos(Math.abs(totOp)) : '—';
-    totOpEl.style.color = totOp > 0 ? 'var(--green)' : totOp < 0 ? 'var(--red)' : 'var(--text2)';
+  if (totPagEl) {
+    totPagEl.textContent = totPag ? '+'+pesos(totPag) : '—';
+    totPagEl.style.color = totPag ? 'var(--green)' : 'var(--text2)';
+  }
+  if (totRecEl) {
+    totRecEl.textContent = totRec ? '−'+pesos(totRec) : '—';
+    totRecEl.style.color = totRec ? 'var(--red)' : 'var(--text2)';
   }
   if (totGasEl) { totGasEl.textContent = totGas ? '−'+pesos(totGas) : '—'; totGasEl.style.color = totGas ? 'var(--red)' : 'var(--text2)'; }
   if (totLiqEl) { totLiqEl.textContent = totLiq ? '−'+pesos(totLiq) : '—'; totLiqEl.style.color = totLiq ? 'var(--red)' : 'var(--text2)'; }

@@ -258,8 +258,8 @@ select option { background: var(--bg3); }
     <div class="tab" onclick="showTab('clientes')">👥 Clientes</div>
     <div class="tab" onclick="showTab('saldos')">💰 Saldos</div>
     <div class="tab" onclick="showTab('productividad')">📈 Productividad</div>
-    <div class="tab" onclick="abrirTrixi()">🧮 Trixi</div>
-    <div class="tab" id="tab-trixibot" style="display:none" onclick="showTab('trixibot')">🤖 Trixi Bot</div>
+    <div class="tab" id="tab-trixi" onclick="showTab('trixibot')">🧮 Trixi</div>
+    <div class="tab" id="tab-combinadas" style="display:none" onclick="showTab('combinadas')">🎰 Combinadas</div>
     <div class="tab" onclick="showTab('esf')">📋 ESF</div>
     <div class="tab" onclick="showTab('gastos')">💳 Gastos</div>
     <div class="tab" id="tab-comisiones" onclick="showTab('comisiones')">💱 Comisiones</div>
@@ -1088,6 +1088,93 @@ select option { background: var(--bg3); }
     </div>
 
     <!-- ─────────────── ESF ─────────────── -->
+    <!-- COMBINADAS PRO -->
+    <div class="section" id="sec-combinadas">
+      <div class="sec-header">
+        <div>
+          <div class="sec-title">🎰 Combinadas Pro</div>
+          <div class="sec-subtitle">Cupones armados con las mejores cuotas del día · hora Colombia</div>
+        </div>
+      </div>
+
+      <div style="background:rgba(53,204,47,.06);border:1px solid rgba(53,204,47,.25);border-radius:10px;padding:12px 14px;margin-bottom:16px;font-size:12px;color:var(--text2);line-height:1.6">
+        Cada cupón trae <b style="color:var(--gold)">las mejores opciones del día</b>, con qué probabilidad pega
+        y en qué casa te pagan más por el mismo tiquete. Escoge con los números al frente.
+      </div>
+
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:16px">
+        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+          <div>
+            <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Opciones por cupón</div>
+            <select id="cp-patas" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:7px 10px;font-size:13px">
+              <option value="2">2</option><option value="3" selected>3</option>
+              <option value="4">4</option><option value="5">5</option><option value="6">6</option>
+            </select>
+          </div>
+          <div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:4px">
+              <span style="font-size:11px;color:var(--text2)">Cuota por opción</span>
+              <span id="cp-modo" onclick="cpModoCuota()" style="cursor:pointer;user-select:none;font-size:10px;color:var(--gold)">✎ a mano</span>
+            </div>
+            <div id="cp-cuota-listas" style="display:flex;gap:5px;align-items:center">
+              <select id="cp-cmin-sel" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:7px 9px;font-size:13px">
+                <option value="1">Libre</option><option value="1.3">1.30</option>
+                <option value="1.6" selected>1.60 · bonos</option>
+                <option value="2">2.00</option><option value="2.5">2.50</option>
+              </select>
+              <span style="font-size:11px;color:var(--text2)">a</span>
+              <select id="cp-cmax-sel" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:7px 9px;font-size:13px">
+                <option value="2">2.00</option><option value="3">3.00</option>
+                <option value="5" selected>5.00</option><option value="99">Libre</option>
+              </select>
+            </div>
+            <div id="cp-cuota-manual" style="display:none;gap:5px;align-items:center">
+              <input type="text" id="cp-cmin" value="1,60" placeholder="1,60"
+                style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:7px 8px;font-size:13px;width:64px;text-align:center">
+              <span style="font-size:11px;color:var(--text2)">a</span>
+              <input type="text" id="cp-cmax" value="5,00" placeholder="5,00"
+                style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:7px 8px;font-size:13px;width:64px;text-align:center">
+            </div>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Importe por cupón</div>
+            <input type="text" id="cp-importe" value="10.000" oninput="tbFmt(this)"
+              style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:7px 10px;font-size:13px;width:110px;text-align:right">
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Ventana</div>
+            <select id="cp-dias" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:7px 10px;font-size:13px">
+              <option value="0">Solo hoy</option><option value="1" selected>Hoy y mañana</option><option value="2">3 días</option>
+            </select>
+          </div>
+          <div id="cp-mercado-wrap">
+            <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Mercados</div>
+            <details class="tb-mdd" id="cp-mercado">
+              <summary id="cp-merc-res">Todos</summary>
+              <div class="tb-mdd-panel" id="cp-merc-panel"></div>
+            </details>
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);cursor:pointer;user-select:none">
+            <input type="checkbox" id="cp-solo-top" checked style="width:15px;height:15px;cursor:pointer">
+            Solo ligas principales
+          </label>
+          <button class="btn btn-gold" id="cp-btn" onclick="cpBuscar()">🎟 Armar cupones</button>
+        </div>
+      </div>
+
+      <div class="kpi-grid" style="margin-bottom:16px">
+        <div class="kpi"><div class="kpi-label">Partidos disponibles</div><div class="kpi-value" id="cp-k-ev">0</div></div>
+        <div class="kpi"><div class="kpi-label">Opciones disponibles</div><div class="kpi-value" id="cp-k-patas">0</div></div>
+        <div class="kpi"><div class="kpi-label">Cupones armados</div><div class="kpi-value" id="cp-k-cup">0</div></div>
+      </div>
+      <div id="cp-aprendizaje" style="display:none;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin-bottom:16px"></div>
+
+      <div id="cp-cuerpo">
+        <div class="empty"><div class="empty-icon">🎟</div>
+          <p>Ajusta los filtros y dale a <b>Armar cupones</b>.</p></div>
+      </div>
+    </div>
+
     <div class="section" id="sec-esf">
       <div class="sec-header">
         <div><div class="sec-title">Estado de Situación Financiera</div><div class="sec-subtitle" id="esf-periodo-label">Activos · Pasivos · Patrimonio</div></div>
@@ -1126,10 +1213,10 @@ select option { background: var(--bg3); }
           <div class="esf-card">
             <h4>Patrimonio</h4>
             <!-- Sección informativa: Cupo Total Asignado vs Clientes Mes Anterior -->
-            <div id="esf-cupo-total-box" style="display:none;background:rgba(139,92,246,.08);border:1px solid rgba(139,92,246,.3);border-radius:8px;padding:10px 12px;margin-bottom:10px">
-              <div class="esf-row" style="font-weight:700;color:#a78bfa"><span>🎯 Cupo Total Asignado</span><span id="esf-cupo-total-val">$0</span></div>
+            <div id="esf-cupo-total-box" style="display:none;background:rgba(74,158,255,.08);border:1px solid rgba(74,158,255,.30);border-radius:8px;padding:10px 12px;margin-bottom:10px">
+              <div class="esf-row" style="font-weight:700;color:var(--blue)"><span>🎯 Cupo Total Asignado</span><span id="esf-cupo-total-val">$0</span></div>
               <div class="esf-row" style="font-size:12px;color:var(--text2)"><span>Clientes Mes Anterior</span><span id="esf-cupo-total-cma">$0</span></div>
-              <div style="border-top:1px dashed rgba(139,92,246,.3);margin:6px 0"></div>
+              <div style="border-top:1px dashed rgba(74,158,255,.30);margin:6px 0"></div>
               <div class="esf-row" style="font-weight:700"><span>Cupo Residual</span><span id="esf-cupo-total-residual" style="font-weight:800">$0</span></div>
             </div>
             <div class="esf-row" style="font-weight:600"><span>Clientes Mes Anterior</span><span id="esf-mes-ant">$0</span></div>
@@ -1185,20 +1272,85 @@ select option { background: var(--bg3); }
 
     <!-- ─────────────── GASTOS ─────────────── -->
     <div class="section" id="sec-trixibot">
+      <!-- Sub-pestañas -->
+      <div style="display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:0">
+        <div id="tx-subtab-bot" onclick="showTrixiSubtab('bot')"
+          style="padding:8px 16px;cursor:pointer;font-size:12px;font-weight:600;color:var(--gold);border-bottom:2px solid var(--gold);margin-bottom:-1px">🤖 Trixi Bot</div>
+        <div id="tx-subtab-calc" onclick="showTrixiSubtab('calc')"
+          style="padding:8px 16px;cursor:pointer;font-size:12px;font-weight:600;color:var(--text2);border-bottom:2px solid transparent;margin-bottom:-1px">🧮 Trixi Calculadora</div>
+      </div>
+
+      <style>
+        /* Selector de mercados: varios a la vez. Flota sobre el contenido para
+           no empujar la barra de filtros cada vez que se abre. */
+        .tb-mdd { position:relative; display:inline-block }
+        .tb-mdd > summary {
+          list-style:none; cursor:pointer; user-select:none; min-width:190px; max-width:240px;
+          background:var(--bg3); border:1px solid var(--border); border-radius:6px;
+          color:var(--text1); padding:7px 26px 7px 10px; font-size:13px;
+          white-space:nowrap; overflow:hidden; text-overflow:ellipsis; position:relative }
+        .tb-mdd > summary::-webkit-details-marker { display:none }
+        .tb-mdd > summary::after {
+          content:'▾'; position:absolute; right:10px; top:50%; transform:translateY(-50%);
+          font-size:11px; color:var(--text2) }
+        .tb-mdd[open] > summary { border-color:var(--gold); color:var(--gold) }
+        .tb-mdd-panel {
+          position:absolute; z-index:50; left:0; top:calc(100% + 5px); min-width:250px;
+          max-height:340px; overflow:auto; background:var(--bg2);
+          border:1px solid var(--border); border-radius:9px; padding:8px;
+          box-shadow:0 8px 24px rgba(0,0,0,.28) }
+        .tb-mdd-panel label {
+          display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer;
+          user-select:none; padding:5px 7px; border-radius:5px; color:var(--text2);
+          white-space:nowrap }
+        .tb-mdd-panel label:hover { background:var(--bg3) }
+        .tb-mdd-panel label.on { color:var(--gold); font-weight:600 }
+        .tb-mdd-panel input { width:14px; height:14px; cursor:pointer; flex-shrink:0 }
+        .tb-mdd-panel .grupo {
+          font-size:10px; color:var(--text2); text-transform:uppercase; letter-spacing:.5px;
+          padding:8px 7px 3px; border-top:1px solid var(--border); margin-top:5px }
+        .tb-mdd-panel .cuenta { margin-left:auto; font-size:10px; color:var(--text2) }
+      </style>
+      <div id="tx-panel-bot">
       <div class="sec-header">
         <div>
           <div class="sec-title">🤖 Trixi Bot</div>
           <div class="sec-subtitle">Busca apuestas seguras entre las casas · hora Colombia</div>
         </div>
         <div style="display:flex;gap:8px;align-items:center">
-          <span id="tb-plan-badge" style="font-size:11px;padding:4px 10px;border-radius:6px;background:rgba(139,92,246,.15);color:#a78bfa;font-weight:700">—</span>
+          <span id="tb-plan-badge" style="font-size:11px;padding:4px 10px;border-radius:6px;background:rgba(53,204,47,.15);color:var(--gold);font-weight:700">—</span>
           <button class="btn btn-gold" onclick="tbCargarCuotas()">＋ Cargar cuotas</button>
         </div>
       </div>
 
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:16px">
-        <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Casas a escanear</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <span style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Casas a escanear</span>
+          <span style="display:flex;gap:6px;align-items:center">
+            <span id="tb-casas-cuenta" style="font-size:11px;color:var(--text2);margin-right:4px">—</span>
+            <span onclick="tbSelTodas(true)"  style="cursor:pointer;user-select:none;font-size:11px;padding:3px 10px;border-radius:5px;border:1px solid var(--border);color:var(--text2)">Todas</span>
+            <span onclick="tbSelTodas(false)" style="cursor:pointer;user-select:none;font-size:11px;padding:3px 10px;border-radius:5px;border:1px solid var(--border);color:var(--text2)">Ninguna</span>
+          </span>
+        </div>
         <div id="tb-casas-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px"></div>
+
+        <div style="border-top:1px solid var(--border);margin:12px 0;padding-top:12px">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Ligas</span>
+            <span style="display:flex;gap:6px;align-items:center">
+              <span id="tb-ligas-cuenta" style="font-size:11px;color:var(--text2);margin-right:4px">—</span>
+              <span id="tb-ligas-top" onclick="tbLigasPrincipales()" style="cursor:pointer;user-select:none;font-size:11px;padding:3px 10px;border-radius:5px;border:1px solid rgba(76,175,80,.45);color:var(--green);font-weight:600">⭐ Principales</span>
+              <span onclick="tbLigasTodas(true)"  style="cursor:pointer;user-select:none;font-size:11px;padding:3px 10px;border-radius:5px;border:1px solid var(--border);color:var(--text2)">Todas</span>
+              <span onclick="tbLigasTodas(false)" style="cursor:pointer;user-select:none;font-size:11px;padding:3px 10px;border-radius:5px;border:1px solid var(--border);color:var(--text2)">Ninguna</span>
+              <span onclick="tbLigasPanel()" id="tb-ligas-toggle" style="cursor:pointer;user-select:none;font-size:11px;padding:3px 10px;border-radius:5px;border:1px solid rgba(53,204,47,.40);color:var(--gold);font-weight:600">▶ Elegir</span>
+            </span>
+          </div>
+          <div id="tb-ligas-box" style="display:none;margin-top:10px">
+            <input id="tb-ligas-buscar" type="text" placeholder="Buscar liga..." oninput="tbPintarLigas()"
+              style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:7px 10px;font-size:12px;margin-bottom:8px">
+            <div id="tb-ligas-lista" style="max-height:230px;overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:4px"></div>
+          </div>
+        </div>
 
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
           <div>
@@ -1211,11 +1363,12 @@ select option { background: var(--bg3); }
             <input type="text" id="tb-umin" value="0,5"
               style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:7px 10px;font-size:13px;width:90px;text-align:right">
           </div>
-          <div>
-            <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Mercado</div>
-            <select id="tb-mercado" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:7px 10px;font-size:13px">
-              <option value="1X2">1X2</option>
-            </select>
+          <div id="tb-mercado-wrap">
+            <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Mercados</div>
+            <details class="tb-mdd" id="tb-mercado">
+              <summary id="tb-merc-res">Todos</summary>
+              <div class="tb-mdd-panel" id="tb-merc-panel"></div>
+            </details>
           </div>
           <div>
             <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Ventana</div>
@@ -1241,6 +1394,18 @@ select option { background: var(--bg3); }
       </div>
 
       <div id="tb-resultados"></div>
+      </div><!-- /tx-panel-bot -->
+
+      <div id="tx-panel-calc" style="display:none">
+        <div class="sec-header">
+          <div>
+            <div class="sec-title">🧮 Trixi Calculadora</div>
+            <div class="sec-subtitle">Reparte la inversión entre las opciones y calcula la comisión</div>
+          </div>
+        </div>
+        <iframe id="tx-calc-frame" src="trixi.html"
+          style="width:100%;height:calc(100vh - 260px);min-height:560px;border:1px solid var(--border);border-radius:10px;background:var(--bg2)"></iframe>
+      </div>
     </div>
 
     <div class="section" id="sec-gastos">
@@ -2791,7 +2956,8 @@ function showTab(name) {
   if (name==='equipo') loadEquipoTab();
   if (name==='comisiones') renderComisionesTab();
   if (name==='liquidacion') renderLiquidacion();
-  if (name==='trixibot') tbAbrir();
+  if (name==='trixibot') showTrixiSubtab(_tbCfg.activo ? 'bot' : 'calc');
+  if (name==='combinadas'){ cpPintarMercados(); cpAvance(); }
   if (name==='inversiones') showInvSubtab('historial');
 }
 
@@ -8831,11 +8997,113 @@ function tbMejorComision(casa) {
   return mejor;
 }
 
+// ── Banderas ────────────────────────────────────────────────────────────────
+// El captador guarda el país tal como lo nombra la casa (en español). Se pasa
+// a código ISO y de ahí a bandera: los emoji de bandera son dos letras en el
+// bloque de indicadores regionales, así que no hace falta ninguna imagen.
+const TB_PAIS_ISO = {
+  'alemania':'DE','arabia saudita':'SA','arabia saudi':'SA','albania':'AL','argelia':'DZ','argentina':'AR','armenia':'AM',
+  'australia':'AU','austria':'AT','azerbaiyan':'AZ','belgica':'BE','bielorrusia':'BY',
+  'bolivia':'BO','bosnia y herzegovina':'BA','bosnia-herzegovina':'BA','bosnia & herzegovina':'BA','brasil':'BR',
+  'bulgaria':'BG','canada':'CA','catar':'QA','qatar':'QA','chequia':'CZ','republica checa':'CZ',
+  'chile':'CL','china':'CN','chipre':'CY','colombia':'CO','corea del sur':'KR','costa rica':'CR',
+  'croacia':'HR','dinamarca':'DK','ecuador':'EC','egipto':'EG','el salvador':'SV',
+  'emiratos arabes unidos':'AE','escocia':'GB','eslovaquia':'SK','eslovenia':'SI',
+  'espana':'ES','estados unidos':'US','estonia':'EE','finlandia':'FI','francia':'FR',
+  'gales':'GB','georgia':'GE','ghana':'GH','grecia':'GR','guatemala':'GT','honduras':'HN',
+  'hungria':'HU','india':'IN','indonesia':'ID','inglaterra':'GB','irak':'IQ','iran':'IR',
+  'irlanda':'IE','irlanda del norte':'GB','islandia':'IS','israel':'IL','italia':'IT',
+  'islas feroe':'FO','islas feroes':'FO','feroe':'FO','jamaica':'JM','japon':'JP','kazajistan':'KZ','kenia':'KE','kosovo':'XK','letonia':'LV',
+  'lituania':'LT','luxemburgo':'LU','macedonia del norte':'MK','malasia':'MY','malta':'MT',
+  'marruecos':'MA','mexico':'MX','moldavia':'MD','montenegro':'ME','mozambique':'MZ',
+  'nicaragua':'NI','nigeria':'NG','noruega':'NO','nueva zelanda':'NZ','paises bajos':'NL',
+  'holanda':'NL','panama':'PA','paraguay':'PY','peru':'PE','polonia':'PL','portugal':'PT',
+  'reino unido':'GB','rumania':'RO','rusia':'RU','serbia':'RS','singapur':'SG','siria':'SY',
+  'sudafrica':'ZA','suecia':'SE','suiza':'CH','tailandia':'TH','taiwan':'TW','tunez':'TN',
+  'turquia':'TR','ucrania':'UA','uruguay':'UY','uzbekistan':'UZ','venezuela':'VE','vietnam':'VN'
+};
+// Los torneos que no son de un país llevan símbolo en vez de bandera
+const TB_PAIS_SIMBOLO = {
+  'internacional':'🌍','mundial':'🌍','amistosos':'🤝','amistoso':'🤝',
+  'europa':'🇪🇺','uefa':'🇪🇺','conmebol':'🌎','sudamerica':'🌎',
+  'america':'🌎','concacaf':'🌎','africa':'🌍','asia':'🌏','oceania':'🌏'
+};
+
+function tbNormPais(p){
+  return String(p||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
+}
+function tbBandera(pais){
+  const k = tbNormPais(pais);
+  if (!k) return '';
+  const iso = TB_PAIS_ISO[k];
+  if (iso) return iso.replace(/./g, c => String.fromCodePoint(0x1F1E6 + c.charCodeAt(0) - 65));
+  for (const [clave, simbolo] of Object.entries(TB_PAIS_SIMBOLO)) if (k.includes(clave)) return simbolo;
+  return '🏳';
+}
+// "Premier League (Inglaterra) 🇬🇧" — sin país devuelve solo la liga
+function tbLigaConPais(liga, pais){
+  return pais ? `${liga} <span style="opacity:.75">(${pais})</span> ${tbBandera(pais)}` : liga;
+}
+
 // ── Catálogo de mercados. Agregar uno aquí no requiere tocar el motor ──
 const TB_MERCADOS = {
-  '1X2':    { nombre: '1X2', vias: ['1','X','2'], etiquetas: {'1':'Gana local','X':'Empate','2':'Gana visitante'}, conLinea: false },
-  'GOL_OU': { nombre: 'Over/Under goles', vias: ['OVER','UNDER'], etiquetas: {'OVER':'Más de','UNDER':'Menos de'}, conLinea: true }
+  '1X2':    { nombre: '1X2', vias: ['1','X','2'],
+              etiquetas: {'1':'Gana local','X':'Empate','2':'Gana visitante'}, conLinea: false },
+  'GOL_OU': { nombre: 'Goles', vias: ['OVER','UNDER'],
+              etiquetas: {'OVER':'Más de','UNDER':'Menos de'}, conLinea: true },
+  'BTTS':   { nombre: 'Ambos anotan', vias: ['SI','NO'],
+              etiquetas: {'SI':'Ambos anotan','NO':'No ambos'}, conLinea: false },
+  // Doble oportunidad NO entra como mercado de tres vías: apostando 1X, 12 y X2
+  // a la vez cualquier resultado paga DOS patas, no una, y la suma implícita
+  // mentiría. Se parte en pares que cubren el resultado exactamente una vez,
+  // cruzando la doble oportunidad de una casa con el 1X2 de otra.
+  'DC_1X_2': { nombre: 'Doble oport. 1X vs 2', vias: ['1X','2'],
+               etiquetas: {'1X':'Local o empate','2':'Gana visitante'}, conLinea: false },
+  'DC_X2_1': { nombre: 'Doble oport. X2 vs 1', vias: ['X2','1'],
+               etiquetas: {'X2':'Empate o visitante','1':'Gana local'}, conLinea: false },
+  'DC_12_X': { nombre: 'Doble oport. 12 vs X', vias: ['12','X'],
+               etiquetas: {'12':'Local o visitante','X':'Empate'}, conLinea: false }
 };
+
+// Pares de doble oportunidad: [clave, vía que sale de DC, vía que sale de 1X2]
+const TB_PARES_DC = [['DC_1X_2','1X','2'], ['DC_X2_1','X2','1'], ['DC_12_X','12','X']];
+
+// Devuelve todos los mercados escaneables de un evento, incluidos los que se
+// arman cruzando dos mercados distintos de la misma casa.
+function tbMercadosDeEvento(ev){
+  const lista = [];
+  Object.entries(ev.cuotas || {}).forEach(([clave, porCasa]) => {
+    if (clave.split('|')[0] === 'DC') return;      // se expande abajo
+    lista.push({ clave, porCasa });
+  });
+
+  const dc = (ev.cuotas || {})['DC'], x12 = (ev.cuotas || {})['1X2'];
+  if (dc && x12){
+    TB_PARES_DC.forEach(([clave, viaDC, via12]) => {
+      const porCasa = {};
+      // Cada casa aporta las dos patas que ella misma publica; el motor
+      // después elige, vía por vía, la casa que mejor la paga.
+      new Set([...Object.keys(dc), ...Object.keys(x12)]).forEach(casa => {
+        const a = dc[casa]?.[viaDC], b = x12[casa]?.[via12];
+        if (a || b) porCasa[casa] = { [viaDC]: a, [via12]: b };
+      });
+      if (Object.keys(porCasa).length) lista.push({ clave, porCasa });
+    });
+  }
+  return lista;
+}
+
+// La línea viaja en la clave con guion bajo porque Firestore no lleva bien los
+// puntos dentro de las claves de un mapa: 'GOL_OU|2_5' → "2.5"
+function tbLinea(v){ return v ? String(v).replace('_', '.') : ''; }
+
+// Nombre para mostrar de una clave de mercado completa
+function tbNombreMercado(clave){
+  const [mid, linea] = String(clave).split('|');
+  const def = TB_MERCADOS[mid];
+  if (!def) return clave;
+  return def.conLinea ? def.nombre + ' ' + tbLinea(linea) : def.nombre;
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 // MOTOR: dado un evento y un mercado, encuentra la mejor combinación
@@ -8915,19 +9183,25 @@ function tbBuscarOportunidad(cuotasMercado, vias, capital, casasPermitidas) {
     utilidadPura, utilidadNeta,
     utilidadPct: totalStake > 0 ? (utilidadNeta / totalStake * 100) : 0,
     esArbitrajePuro: sumaImplicita < 1,
+    // Cubrir las dos vías en la MISMA casa es la firma más evidente de un
+    // arbitrador: la casa ve una cuenta apostando contra sí misma en un solo
+    // evento. Se avisa, no se descarta: a veces es la única combinación.
+    mismaCasa: new Set(patas.map(p => p.casa)).size === 1,
     zona, techoSuma: techo, comPromedio
   };
 }
 
 // ── Escanea todos los eventos cargados y devuelve las oportunidades rentables ──
 function tbEscanear(eventos, opciones) {
-  const { capital, casasPermitidas, utilidadMinPct, mercadoId, soloZonaSegura } = opciones;
+  const { capital, casasPermitidas, utilidadMinPct, mercadosSel, soloZonaSegura, ligasPermitidas } = opciones;
   const salida = [];
 
   eventos.forEach(ev => {
-    Object.entries(ev.cuotas || {}).forEach(([claveMercado, cuotasPorCasa]) => {
+    if (ligasPermitidas && !ligasPermitidas.includes(ev.liga || '—')) return;
+    tbMercadosDeEvento(ev).forEach(({ clave: claveMercado, porCasa: cuotasPorCasa }) => {
       const [mid, linea] = claveMercado.split('|');
-      if (mercadoId && mid !== mercadoId) return;
+      if (!tbMercadoHabilitado(mid)) return;          // permiso del administrador
+      if (mercadosSel && !mercadosSel(mid, claveMercado)) return;   // elección del operador
       const def = TB_MERCADOS[mid];
       if (!def) return;
 
@@ -8937,8 +9211,9 @@ function tbEscanear(eventos, opciones) {
       if (soloZonaSegura && op.zona !== 'segura') return;
 
       salida.push({
-        evento: ev, mercadoId: mid, mercadoNombre: def.nombre,
-        linea: linea || null, etiquetas: def.etiquetas, ...op
+        evento: ev, mercadoId: mid, claveMercado,
+        mercadoNombre: def.nombre, linea: linea ? tbLinea(linea) : null,
+        etiquetas: def.etiquetas, ...op
       });
     });
   });
@@ -8949,8 +9224,384 @@ function tbEscanear(eventos, opciones) {
 }
 
 
+// ── Catálogo de mercados para cupones ──────────────────────────────────────
+// Ojo: acá la doble oportunidad va como mercado normal de tres vías, no como
+// los pares cruzados de Trixi Bot. Allá se cubrían todas las salidas; acá cada
+// vía es una pata suelta que puede entrar en un cupón.
+const CP_MERCADOS = {
+  '1X2':    { nombre:'1X2', vias:['1','X','2'],
+              etiquetas:{'1':'Gana local','X':'Empate','2':'Gana visitante'} },
+  'GOL_OU': { nombre:'Goles', vias:['OVER','UNDER'], conLinea:true,
+              etiquetas:{'OVER':'Más de','UNDER':'Menos de'} },
+  'BTTS':   { nombre:'Ambos anotan', vias:['SI','NO'],
+              etiquetas:{'SI':'Ambos anotan','NO':'No ambos anotan'} },
+  'DC':     { nombre:'Doble oportunidad', vias:['1X','12','X2'],
+              etiquetas:{'1X':'Local o empate','12':'Local o visitante','X2':'Empate o visitante'} }
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// COMBINADAS PRO — motor
+// Arma cupones de varias patas. A diferencia de Trixi Bot, acá NO hay certeza:
+// el cupón pierde si falla una sola pata. Lo que aporta el motor es escoger las
+// patas mejor pagadas y decir con qué probabilidad pega, sin adornos.
+// ════════════════════════════════════════════════════════════════════════════
+
+// BetPlay y Rushbet corren sobre el mismo motor (Kambi): medido, se separan
+// 1,87% en la mediana contra 8,2% frente a Ya Juegos. Son UNA opinión, no dos.
+// Si se contaran aparte, el consenso quedaría sesgado hacia Kambi.
+const CP_MOTOR = { 'BET PLAY':'kambi', 'RUSHBET':'kambi' };
+const cpMotorDe = casa => CP_MOTOR[casa] || casa;
+
+// Probabilidad justa de cada vía. Se le quita el margen a cada casa por
+// separado (método proporcional) y después se promedian las opiniones.
+function cpProbJusta(cuotasPorCasa, vias) {
+  const porMotor = {};
+  Object.entries(cuotasPorCasa || {}).forEach(([casa, c]) => {
+    if (!vias.every(v => c && c[v] > 1)) return;      // mercado incompleto
+    const suma = vias.reduce((s, v) => s + 1 / c[v], 0);
+    if (!(suma > 0)) return;
+    const m = cpMotorDe(casa);
+    (porMotor[m] = porMotor[m] || []).push(
+      Object.fromEntries(vias.map(v => [v, (1 / c[v]) / suma]))
+    );
+  });
+  const motores = Object.values(porMotor);
+  if (!motores.length) return null;
+
+  // Dentro de un motor se promedia (BetPlay y Rushbet), y luego entre motores
+  const porVia = {};
+  vias.forEach(v => {
+    const xs = motores.map(g => g.reduce((s, p) => s + p[v], 0) / g.length);
+    porVia[v] = xs.reduce((a, b) => a + b, 0) / xs.length;
+  });
+  return { p: porVia, opiniones: motores.length };
+}
+
+// Todas las patas jugables del día, con su ventaja contra el consenso
+function cpCandidatas(eventos, o) {
+  const { casasPermitidas, mercadosPermitidos, ligasPermitidas,
+          cuotaMin = 1, cuotaMax = 99 } = o;
+  const fuera = [];
+
+  eventos.forEach(ev => {
+    if (ligasPermitidas && !ligasPermitidas.includes(ev.liga || '—')) return;
+
+    Object.entries(ev.cuotas || {}).forEach(([clave, porCasa]) => {
+      const [mid, linea] = clave.split('|');
+      const def = CP_MERCADOS[mid];
+      if (!def) return;
+      if (mercadosPermitidos && mercadosPermitidos.size &&
+          !(mercadosPermitidos.has(mid) || mercadosPermitidos.has(clave))) return;
+
+      const justa = cpProbJusta(porCasa, def.vias);
+      if (!justa) return;
+
+      def.vias.forEach(via => {
+        // Mejor precio entre las casas donde el operador puede jugar
+        let mejor = null;
+        Object.entries(porCasa).forEach(([casa, c]) => {
+          if (casasPermitidas && !casasPermitidas.includes(casa)) return;
+          const cuota = c && c[via];
+          if (!(cuota > 1)) return;
+          if (!mejor || cuota > mejor.cuota) mejor = { casa, cuota };
+        });
+        if (!mejor) return;
+        if (mejor.cuota < cuotaMin || mejor.cuota > cuotaMax) return;
+
+        fuera.push({
+          evento: ev, clave, mid, linea: linea || null, via,
+          etiqueta: def.etiquetas[via] || via,
+          casa: mejor.casa, cuota: mejor.cuota,
+          prob: justa.p[via],
+          // Ventaja: cuánto paga de más respecto a lo que vale. Negativa casi
+          // siempre — es el margen de la casa. Se busca la menos mala.
+          ventaja: mejor.cuota * justa.p[via] - 1,
+          opiniones: justa.opiniones,
+          cuotasTodas: Object.fromEntries(
+            Object.entries(porCasa).map(([casa, c]) => [casa, c && c[via]]).filter(x => x[1] > 1))
+        });
+      });
+    });
+  });
+  return fuera.sort((a, b) => b.ventaja - a.ventaja);
+}
+
+// Arma varios cupones distintos. Una pata por partido: dos selecciones del
+// mismo encuentro están relacionadas y la casa reajusta el tiquete.
+function cpArmarCupones(candidatas, o) {
+  const { patas = 3, cuantos = 5, totalMin = 0, totalMax = Infinity } = o;
+  const cupones = [];
+  const usadas = new Set();
+
+  for (let k = 0; k < cuantos * 4 && cupones.length < cuantos; k++) {
+    const partidos = new Set();
+    const sel = [];
+    for (const c of candidatas) {
+      if (sel.length >= patas) break;
+      const idPartido = c.evento.id || (c.evento.local + '|' + c.evento.visitante);
+      if (partidos.has(idPartido)) continue;
+      const id = idPartido + '|' + c.clave + '|' + c.via;
+      if (usadas.has(id)) continue;
+      partidos.add(idPartido);
+      sel.push(c);
+    }
+    if (sel.length < patas) break;
+    sel.forEach(c => usadas.add(
+      (c.evento.id || (c.evento.local + '|' + c.evento.visitante)) + '|' + c.clave + '|' + c.via));
+
+    // Una combinada va completa en una sola casa. Tomar la mejor cuota de cada
+    // casa daría un total que NO se puede jugar en ningún lado.
+    const porCasa = cpTotalPorCasa(sel);
+    if (!porCasa.length) continue;              // ninguna casa tiene todas
+    const elegida = porCasa[0];                 // la que mejor paga el cupón entero
+    const total = elegida.total;
+    if (total < totalMin || total > totalMax) continue;
+
+    // El cupón pega solo si pegan todas: las probabilidades se multiplican
+    const prob = sel.reduce((s, c) => s * c.prob, 1);
+
+    cupones.push({
+      patas: sel.map(c => ({ ...c, cuotaEn: c.cuotasTodas[elegida.casa] })),
+      casa: elegida.casa,
+      total, prob,
+      // Ventaja con el precio real de esa casa, no con el mejor de cada una
+      ventaja: total * prob - 1,
+      porCasa
+    });
+  }
+  return cupones.sort((a, b) => b.ventaja - a.ventaja);
+}
+
+// Cuánto paga el mismo cupón en cada casa. Solo aparecen las que tienen las
+// tres patas: si a una le falta un partido, ahí no se puede jugar.
+function cpTotalPorCasa(patas) {
+  const casas = [...new Set(patas.flatMap(p => Object.keys(p.cuotasTodas)))];
+  return casas.map(casa => {
+    if (!patas.every(p => p.cuotasTodas[casa] > 1)) return null;
+    return { casa, total: patas.reduce((s, p) => s * p.cuotasTodas[casa], 1) };
+  }).filter(Boolean).sort((a, b) => b.total - a.total);
+}
+
+// ── Avance del aprendizaje ──────────────────────────────────────────────────
+// El motor de cupones todavía calcula solo con las cuotas. Las fichas de los
+// equipos se van llenando con cada jornada y esta barra dice cuánto falta para
+// que tengan sustancia — construir el motor antes sería a ciegas.
+const CP_META_EQUIPOS = 150;   // equipos con 8 partidos o más
+
+async function cpAvance(){
+  const caja = document.getElementById('cp-aprendizaje');
+  if (!caja) return;
+  try{
+    const d = await db.collection('trixibot_estado').doc('aprendizaje').get();
+    if (!d.exists){
+      caja.style.display = '';
+      caja.innerHTML = `<div style="font-size:12px;color:var(--text2)">
+        🧠 <b style="color:var(--gold)">Aprendizaje</b> — todavía sin datos.
+        Empieza a llenarse tras el primer cierre, de madrugada.</div>`;
+      return;
+    }
+    const x = d.data();
+    const listos = x.equiposListos || 0;
+    const pct = Math.min(100, Math.round(listos / CP_META_EQUIPOS * 100));
+    const ok = listos >= CP_META_EQUIPOS;
+    caja.style.display = '';
+    caja.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:10px;margin-bottom:8px">
+        <span style="font-size:12px;color:var(--text2)">🧠 <b style="color:var(--gold)">Aprendizaje</b> ·
+          ${(x.partidosAprendidos||0).toLocaleString('es-CO')} partidos ·
+          ${(x.equiposConFicha||0).toLocaleString('es-CO')} equipos con ficha</span>
+        <span style="font-size:11px;color:${ok?'var(--green)':'var(--text2)'};font-weight:${ok?'700':'400'}">
+          ${listos} de ${CP_META_EQUIPOS} equipos con 8 partidos o más</span>
+      </div>
+      <div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">
+        <div style="height:100%;width:${pct}%;background:${ok?'var(--green)':'var(--gold)'};transition:width .4s"></div>
+      </div>
+      <div style="font-size:11px;color:${ok?'var(--green)':'var(--text2)'};margin-top:7px">
+        ${ok ? '✅ Ya hay datos suficientes para que el bot use las fichas. Pídeme el motor.'
+             : 'Los cupones todavía se arman solo con las cuotas. Cuando esta barra se llene, las fichas de los equipos entran al cálculo.'}
+      </div>`;
+  }catch(e){ console.warn('avance:', e); }
+}
+
+// ── COMBINADAS PRO · interfaz ───────────────────────────────────────────────
+let _cpEventos = [];
+let _cpMercSel = new Set();
+
+function cpPeso(n){ return '$' + Math.round(n||0).toLocaleString('es-CO'); }
+
+// Las cuotas se escriben con coma en Colombia (1,60) pero también con punto
+function cpCuota(id, porDefecto){
+  const v = parseFloat(String(document.getElementById(id)?.value || '').replace(',', '.'));
+  return (isFinite(v) && v > 0) ? v : porDefecto;
+}
+// Alterna entre escoger de la lista o escribir la cuota. Al pasar a mano se
+// arrastra lo que estaba seleccionado, para no empezar de cero.
+let _cpManual = false;
+function cpModoCuota(){
+  _cpManual = !_cpManual;
+  const L = document.getElementById('cp-cuota-listas');
+  const M = document.getElementById('cp-cuota-manual');
+  const b = document.getElementById('cp-modo');
+  if (_cpManual){
+    document.getElementById('cp-cmin').value = document.getElementById('cp-cmin-sel').value.replace('.', ',');
+    document.getElementById('cp-cmax').value = document.getElementById('cp-cmax-sel').value.replace('.', ',');
+  }
+  L.style.display = _cpManual ? 'none' : 'flex';
+  M.style.display = _cpManual ? 'flex' : 'none';
+  b.textContent   = _cpManual ? '☰ de la lista' : '✎ a mano';
+}
+
+function cpPintarMercados(){
+  const panel = document.getElementById('cp-merc-panel');
+  const res   = document.getElementById('cp-merc-res');
+  if (!panel) return;
+  const lista = Object.entries(CP_MERCADOS).map(([id,d]) => ({id, nombre:d.nombre}));
+  panel.innerHTML = `<div style="display:flex;gap:6px;margin-bottom:6px">
+      <span onclick="cpMercTodos(true)"  style="cursor:pointer;font-size:11px;padding:3px 10px;border-radius:5px;border:1px solid var(--border);color:var(--text2)">Todos</span>
+      <span onclick="cpMercTodos(false)" style="cursor:pointer;font-size:11px;padding:3px 10px;border-radius:5px;border:1px solid var(--border);color:var(--text2)">Ninguno</span>
+    </div>` + lista.map(m => {
+      const on = _cpMercSel.has(m.id);
+      return `<label class="${on?'on':''}" onclick="event.preventDefault();cpMercToggle('${m.id}')">
+        <input type="checkbox" ${on?'checked':''} onclick="event.preventDefault()"><span>${m.nombre}</span></label>`;
+    }).join('');
+  if (res) res.textContent = !_cpMercSel.size ? 'Todos'
+    : _cpMercSel.size === lista.length ? 'Todos'
+    : _cpMercSel.size === 1 ? CP_MERCADOS[[..._cpMercSel][0]].nombre
+    : _cpMercSel.size + ' mercados';
+}
+function cpMercToggle(id){ _cpMercSel.has(id)?_cpMercSel.delete(id):_cpMercSel.add(id); cpPintarMercados(); }
+function cpMercTodos(si){ _cpMercSel = si ? new Set(Object.keys(CP_MERCADOS)) : new Set(); cpPintarMercados(); }
+
+document.addEventListener('click', e => {
+  const dd = document.getElementById('cp-mercado');
+  if (dd && dd.open && !dd.contains(e.target)) dd.open = false;
+});
+
+async function cpBuscar(){
+  const btn = document.getElementById('cp-btn');
+  btn.disabled = true; btn.textContent = '⏳ Armando...';
+  try{
+    const dias = parseInt(document.getElementById('cp-dias').value||'1',10);
+    const snap = await db.collection('trixibot_eventos')
+      .where('fecha','>=',tbHoyBogota()).where('fecha','<=',tbFechaBogota(dias)).get({source:'server'});
+    _cpEventos = snap.docs.map(d => ({ id:d.id, ...d.data() }));
+
+    const soloTop = document.getElementById('cp-solo-top').checked;
+    const ligas = soloTop
+      ? [...new Set(_cpEventos.filter(e => tbEsLigaPrincipal(e.liga, e.pais)).map(e => e.liga||'—'))]
+      : null;
+
+    const cand = cpCandidatas(_cpEventos, {
+      casasPermitidas: null,
+      mercadosPermitidos: _cpMercSel,
+      ligasPermitidas: ligas,
+      cuotaMin: _cpManual ? cpCuota('cp-cmin', 1)  : parseFloat(document.getElementById('cp-cmin-sel').value),
+      cuotaMax: _cpManual ? cpCuota('cp-cmax', 99) : parseFloat(document.getElementById('cp-cmax-sel').value)
+    });
+
+    const cupones = cpArmarCupones(cand, {
+      patas: parseInt(document.getElementById('cp-patas').value,10),
+      cuantos: 6
+    });
+    // Sin el detalle a la vista, el operador escogería el que más pague — que
+    // siempre es el menos probable. Ordenando por probabilidad, el más sensato
+    // le queda de primero sin necesidad de esconderle nada.
+    if (!cpVerDetalle()) cupones.sort((a,b) => b.prob - a.prob);
+
+    document.getElementById('cp-k-ev').textContent    = _cpEventos.length;
+    document.getElementById('cp-k-patas').textContent = cand.length;
+    document.getElementById('cp-k-cup').textContent   = cupones.length;
+    cpPintar(cupones);
+  }catch(e){ toast('Error armando cupones: ' + e.message, 'error'); }
+  btn.disabled = false; btn.textContent = '🎟 Armar cupones';
+}
+
+function cpPintar(cupones){
+  const cont = document.getElementById('cp-cuerpo');
+  if (!cupones.length){
+    cont.innerHTML = `<div class="empty"><div class="empty-icon">🎟</div>
+      <p>No hay suficientes opciones para armar cupones con esos filtros.</p>
+      <p style="font-size:12px;color:var(--text2)">Baja la cuota mínima, quita el filtro de ligas principales o amplía la ventana.</p></div>`;
+    return;
+  }
+  const importe = tbNum('cp-importe') || 10000;
+  cont.innerHTML = cupones.map((c,i) => cpTarjeta(c, i, importe)).join('');
+}
+
+function cpTarjeta(c, idx, importe){
+  const filas = c.patas.map(p => `
+    <tr>
+      <td style="padding:7px 0;font-size:12px;font-weight:600">${p.etiqueta}${p.linea?' '+tbLinea(p.linea):''}
+        <div style="font-size:10px;color:var(--text2);font-weight:400">${p.evento.local} vs ${p.evento.visitante}</div>
+        <div style="font-size:10px;color:var(--text2);font-weight:400">${tbLigaConPais(p.evento.liga||'—', p.evento.pais)} · ${p.evento.fecha} ${p.evento.hora||''}</div></td>
+      <td style="text-align:right;font-size:13px;font-weight:700;vertical-align:top;padding-top:7px">${(p.cuotaEn||p.cuota).toFixed(2)}</td>
+    </tr>`).join('');
+
+  // La probabilidad sale del consenso de las casas, no de un pronóstico propio
+  const pct  = (c.prob*100);
+  const unaDe = c.prob > 0 ? (1/c.prob) : 0;
+  // La ventaja contra el consenso es casi siempre negativa: es lo que cobra la
+  // casa. Se muestra como "margen" en positivo, que se entiende mejor.
+  const margen = -c.ventaja * 100;
+  // Pero el margen del cupón entero no sirve para juzgar el precio: se
+  // multiplica con cada opción, así que un cupón de 3 siempre sale peor que uno
+  // de 2 aunque esté mejor pagado. Se compara por opción.
+  const porOp = (1 - Math.pow(1 + c.ventaja, 1 / c.patas.length)) * 100;
+  const etq   = cpEtiqueta(c.prob);
+  const casas = c.porCasa.map(x => { const on = x.casa === c.casa;
+    return `<span style="font-size:11px;padding:3px 9px;border-radius:5px;
+      border:1px solid ${on?'var(--gold)':'var(--border)'};color:${on?'var(--gold)':'var(--text2)'};font-weight:${on?'700':'400'}">
+      ${x.casa} ${x.total.toFixed(2)}</span>`; }).join('');
+
+  return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:12px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
+      <div style="font-size:14px;font-weight:700">Cupón ${idx+1} · ${c.patas.length} opciones
+        <span style="font-size:11px;font-weight:600;color:var(--gold);margin-left:6px">en ${c.casa}</span></div>
+      <div style="font-size:16px;font-weight:800;color:var(--gold)">${c.total.toFixed(2)}</div>
+    </div>
+    <table style="width:100%;border-collapse:collapse">${filas}</table>
+    <div style="border-top:1px solid var(--border);margin-top:10px;padding-top:10px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px">
+      <div style="font-size:12px;color:var(--text2)">
+        Con ${cpPeso(importe)} cobras <b style="color:var(--green)">${cpPeso(importe*c.total)}</b><br>
+        ${cpVerDetalle() ? `
+          Probabilidad de pegar <b style="color:${pct>=25?'var(--green)':pct>=12?'var(--orange)':'var(--red)'}">${pct.toFixed(1)}%</b>
+          <span style="opacity:.7">· uno de cada ${unaDe.toFixed(0)}</span><br>
+          Precio <b style="color:${porOp<4.5?'var(--green)':porOp<6.5?'var(--orange)':'var(--red)'}">${porOp<4.5?'muy bueno':porOp<6.5?'normal':'flojo'}</b>
+          <span style="opacity:.7">· ${porOp.toFixed(1)}% por opción · ${margen.toFixed(1)}% el cupón</span>`
+        : `<b style="color:${etq.col}">${etq.txt}</b>
+          <span style="opacity:.7">· precio ${porOp<4.5?'muy bueno':porOp<6.5?'normal':'flojo'}</span>`}
+      </div>
+      <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:flex-start">${casas}</div>
+    </div>
+  </div>`;
+}
+
 // ── TRIXI BOT · interfaz del operador ───────────────────────────────────────
-let _tbCfg      = { activo:false, plan:'basico', limiteDiario:1 };
+let _tbCfg      = { activo:false, plan:'basico', limiteDiario:1, mercados:['1X2'] };
+let _cpCfg      = { activo:false, detalle:false };
+// Con "detalle" se ven probabilidades y porcentajes. Sin él, solo la etiqueta:
+// al operador el número crudo lo desanima y no le cambia la decisión.
+function cpVerDetalle(){ return !!(_cpCfg && _cpCfg.detalle); }
+// Etiqueta de riesgo a partir de la probabilidad del cupón
+function cpEtiqueta(p){
+  if (p >= 0.25) return { txt:'Sólido',      col:'var(--green)'  };
+  if (p >= 0.12) return { txt:'Equilibrado', col:'var(--gold)'   };
+  return                 { txt:'Arriesgado', col:'var(--orange)' };
+}
+
+// Mercados habilitados por el administrador. Si nunca se configuró, solo 1X2:
+// es el único verificado a fondo, y un mercado mal leído muestra ganancias que
+// no existen.
+function tbMercadosPermitidos(){
+  const m = _tbCfg && _tbCfg.mercados;
+  return (Array.isArray(m) && m.length) ? m : ['1X2'];
+}
+// Los pares de doble oportunidad dependen del mercado 'DC'
+function tbMercadoHabilitado(mid){
+  const p = tbMercadosPermitidos();
+  if (String(mid).startsWith('DC_')) return p.includes('DC');
+  return p.includes(mid);
+}
 let _tbUrls     = {};
 let _tbCasas    = [];
 let _tbSelec    = new Set();
@@ -8959,7 +9610,7 @@ let _tbUso      = 0;
 
 const TB_PLANES = {
   basico: { nombre:'Básico', limite:1,       color:'#8a8a8a' },
-  full:   { nombre:'Full',   limite:Infinity, color:'#a78bfa' }
+  full:   { nombre:'Full',   limite:Infinity, color:'var(--gold)' }
 };
 
 function tbFmt(el){
@@ -8978,10 +9629,33 @@ async function tbInit(){
   const uid = auth.currentUser?.uid; if (!uid) return;
   try {
     const s = await db.collection('patriarca_config').doc(uid).get();
-    _tbCfg = (s.exists && s.data().trixibot) || { activo:false, plan:'basico', limiteDiario:1 };
+    _tbCfg = (s.exists && s.data().trixibot) || { activo:false, plan:'basico', limiteDiario:1, mercados:['1X2'] };
+    _cpCfg = (s.exists && s.data().combinadas) || { activo:false, detalle:false };
   } catch(_) {}
-  const tab = document.getElementById('tab-trixibot');
-  if (tab) tab.style.display = _tbCfg.activo ? '' : 'none';
+  // Combinadas Pro es un módulo aparte: si el administrador no lo habilitó,
+  // la pestaña ni siquiera existe para el operador.
+  const tabC = document.getElementById('tab-combinadas');
+  if (tabC) tabC.style.display = _cpCfg.activo ? '' : 'none';
+  // La pestaña Trixi siempre está — la calculadora es para todos.
+  // Lo que se habilita o no es la sub-pestaña del buscador.
+  const sub = document.getElementById('tx-subtab-bot');
+  if (sub) sub.style.display = _tbCfg.activo ? '' : 'none';
+}
+
+// Alterna entre el buscador y la calculadora dentro de la pestaña Trixi
+function showTrixiSubtab(cual){
+  const paneles = { bot:'tx-panel-bot', calc:'tx-panel-calc' };
+  const tabs    = { bot:'tx-subtab-bot', calc:'tx-subtab-calc' };
+  Object.entries(paneles).forEach(([k,id])=>{
+    const el=document.getElementById(id); if(el) el.style.display = (k===cual) ? '' : 'none';
+  });
+  Object.entries(tabs).forEach(([k,id])=>{
+    const el=document.getElementById(id); if(!el) return;
+    const on = k===cual;
+    el.style.color = on ? 'var(--gold)' : 'var(--text2)';
+    el.style.borderBottomColor = on ? 'var(--gold)' : 'transparent';
+  });
+  if (cual==='bot') tbAbrir();
 }
 
 async function tbAbrir(){
@@ -9007,7 +9681,8 @@ async function tbAbrir(){
     const t = await db.collection('admin_config').doc('trixibot').get();
     _tbUrls = (t.exists && t.data().urls) || {};
   } catch(_) { _tbUrls = {}; }
-  if (!_tbSelec.size) _tbCasas.forEach(c => _tbSelec.add(c));
+  // Restaurar lo que el operador dejó elegido; si nunca eligió, marcar todas
+  if (!tbCargarSel() && !_tbSelec.size) _tbCasas.forEach(c => _tbSelec.add(c));
   tbPintarChips();
 
   // Uso de hoy, en fecha Bogotá
@@ -9016,6 +9691,386 @@ async function tbAbrir(){
     _tbUso = u.exists ? (u.data().busquedas||0) : 0;
   } catch(_) { _tbUso = 0; }
   document.getElementById('tb-k-uso').textContent = _tbUso;
+
+  tbCargarMerc();
+  await tbCargarCatalogoLigas();
+  const selDias = document.getElementById('tb-dias');
+  if (selDias && !selDias._tbHook) { selDias._tbHook = true; selDias.addEventListener('change', tbCargarCatalogoLigas); }
+}
+
+
+// ── Catálogo de ligas principales ───────────────────────────────────────────
+// No es "primera división" sino "mercado grande": donde apostar fuerte se ve
+// normal. La primera de Islas Feroe es primera división y no sirve; el
+// Championship inglés es segunda y mueve más que muchas primeras.
+
+// Se descarta antes de mirar nada más: reservas, juveniles, femenino y
+// categorías inferiores, aunque el nombre traiga el de una liga grande
+// ("Liga MX Femenil", "Primera División Reservas").
+const TB_LIGA_EXCLUIR = new RegExp([
+  'reserva', 'reserves', 'sub-?\\d', '\\bu\\d{2}\\b', 'juvenil', 'youth', 'academy',
+  'femenin', 'femenil', 'women', '\\(f\\)', 'damallsvenskan', 'feminin',
+  'amateur', 'next pro', 'primavera', 'segunda', '2\\.?[ªa]? divisi', '\\bii\\b',
+  'primera [bc]\\b', 'ascenso', 'ligue [23]', 'la liga 2', 'superettan',
+  'eerste divisie', 'serie [bcd]\\b', '\\b[23]\\. ?liga', 'league [23]\\b',
+  'regionalliga', 'national [23]', 'virtual|cyber|esoccer|esports',
+  'challenger', 'liga de ascenso', 'torneo federal', '\\bdeild\\b(?! ?karla)'
+].join('|'), 'i');
+
+const TB_LIGA_TOP = new RegExp([
+  // Europa — las cinco grandes y el Championship
+  'premier league', 'la ?liga(?! ?2)', 'serie a\\b', 'bundesliga(?! ?2)', 'ligue 1',
+  'championship',
+  // Europa — segundo escalón con mercado
+  'eredivisie', 'primeira liga', 'pro league', 's[uü]per lig', 'premier liga',
+  'super league', 'superliga', 'allsvenskan(?!.*dam)', 'eliteserien', 'ekstraklasa',
+  'liga i\\b', 'fortuna liga', 'jupiler',
+  // Sudamérica
+  'brasileir', 'liga profesional argentina', 'betplay', 'primera a\\b',
+  'primera divisi[oó]n de chile', 'liga 1\\b', 'ligapro', 'divisi[oó]n profesional',
+  // Norte y Centroamérica
+  'liga mx(?!.*femen)', '\\bmls\\b(?!.*next)', 'promerica', 'liga paname',
+  'liga nacional', 'costa rica primera',
+  // Asia, Oceanía, África
+  'j1', 'k league 1', 'chinese super', 'saudi pro', 'a-?league', 'indian super',
+  'thai league 1', 'egyptian premier', 'botola', '\\bpsl\\b',
+  // Torneos internacionales
+  'champions league', 'europa league', 'conference league', 'libertadores',
+  'sudamericana', 'concacaf', 'mundial', 'eliminatorias', 'copa am[eé]rica',
+  'eurocopa', 'euro \\d', 'nations league', 'recopa',
+  // Copas nacionales grandes
+  'fa cup', 'copa del rey', 'coppa italia', 'dfb', 'copa de francia',
+  'copa do brasil', 'copa argentina', 'copa colombia', 'carabao'
+].join('|'), 'i');
+
+// ── Ligas principales, ahora por PAÍS + nombre ─────────────────────────────
+// Antes se decidía solo por el nombre y eso confundía la Premier League de
+// Inglaterra con la Premier Liga de Rusia, o la Liga Pro de Ecuador con la de
+// Portugal. Con el país que entrega el feed la decisión es exacta.
+//
+// La regla de fondo: si el país NO está en esta tabla, ninguna de sus ligas es
+// principal. Es más seguro dejar por fuera un torneo bueno que meter uno donde
+// apostar 2,5 millones queda marcado.
+const TB_TOP_POR_PAIS_TXT = {
+  // Europa — las cinco grandes
+  'inglaterra':      'premier league|championship|fa cup|efl cup|carabao|community shield',
+  'espana':          'la ?liga|copa del rey|supercopa',
+  'italia':          'serie a|coppa italia|supercoppa',
+  'alemania':        'bundesliga|dfb|copa de alemania|supercopa',
+  'francia':         'ligue 1|copa de francia|coupe de france|trofeo de campeones',
+  // Europa — segundo escalón con mercado real
+  'paises bajos':    'eredivisie|knvb|copa de los paises bajos',
+  'holanda':         'eredivisie|knvb',
+  'portugal':        'primeira liga|liga portugal|ta[cç]a de portugal',
+  'belgica':         'pro league|jupiler|primera divisi',
+  'turquia':         's[uü]per lig|copa de turqu',
+  'rusia':           'premier liga|premier league|copa de rusia',
+  'escocia':         'premiership|copa de escocia',
+  'austria':         'bundesliga|copa de austria',
+  'suiza':           'super league|copa de suiza',
+  'grecia':          'super league|copa de grecia',
+  'dinamarca':       'superliga|copa de dinamarca',
+  'suecia':          'allsvenskan',
+  'noruega':         'eliteserien',
+  'polonia':         'ekstraklasa',
+  'chequia':         'fortuna liga|chance liga|primera liga',
+  'republica checa': 'fortuna liga|chance liga|primera liga',
+  'ucrania':         'premier liga|premier league',
+  'croacia':         'hnl|primera liga',
+  'serbia':          'super ?liga',
+  'rumania':         'superliga|liga i\\b',
+  // Sudamérica
+  'colombia':        'primera a|betplay|copa colombia|liga colombiana',
+  'argentina':       'liga profesional|primera divisi|copa de la liga|copa argentina',
+  'brasil':          'serie a|brasileir|copa do brasil',
+  'chile':           'primera divisi|campeonato nacional|primera chile|copa chile',
+  'peru':            'liga 1\\b|primera divisi',
+  'ecuador':         'liga ?pro|serie a',
+  'uruguay':         'primera divisi|campeonato uruguayo',
+  'paraguay':        'divisi[oó]n profesional|primera divisi',
+  'bolivia':         'divisi[oó]n profesional|primera divisi',
+  'venezuela':       'liga futve|primera divisi',
+  // Norte y Centroamérica
+  'mexico':          'liga mx|copa mx|liga de expansion',
+  'estados unidos':  '\\bmls\\b|major league soccer|us open cup',
+  'costa rica':      'primera divisi|primera division costa rica|promerica',
+  'panama':          'liga paname|\\blpf\\b',
+  'honduras':        'liga nacional',
+  'guatemala':       'liga nacional',
+  // Asia, Oceanía, África
+  'japon':           'j1|j\\.? ?league 1',
+  'corea del sur':   'k league 1',
+  'china':           'super league',
+  'arabia saudita':  'pro league|saudi',
+  'australia':       'a-? ?league(?! ?women)',
+  'india':           'indian super|\\bisl\\b',
+  'tailandia':       'thai league 1',
+  'egipto':          'premier league',
+  'marruecos':       'botola',
+  'sudafrica':       '\\bpsl\\b|premiership|premier division'
+};
+const TB_TOP_POR_PAIS = {};
+Object.entries(TB_TOP_POR_PAIS_TXT).forEach(([p, re]) => { TB_TOP_POR_PAIS[p] = new RegExp(re, 'i'); });
+
+// Torneos que no pertenecen a un país
+const TB_TOP_INTER = new RegExp([
+  'champions league', 'europa league', 'conference league', 'libertadores',
+  'sudamericana', 'recopa', 'concacaf', 'mundial', 'eliminatorias',
+  'copa am[eé]rica', 'eurocopa', 'euro \\d', 'nations league', 'supercopa de europa'
+].join('|'), 'i');
+
+function tbEsLigaPrincipal(liga, pais) {
+  const l = String(liga || '');
+  if (!l || l === '—') return false;
+  if (TB_LIGA_EXCLUIR.test(l)) return false;      // femenino, sub-20, reservas, 2ª...
+
+  const p = tbNormPais(pais);
+  if (p) {
+    const re = TB_TOP_POR_PAIS[p];
+    if (re) return re.test(l);
+    // País reconocido pero sin liga de primer nivel en la tabla → fuera.
+    // Es lo que saca Esiliiga, Moçambola, Division 2 NG o Regionsligaen.
+    if (TB_PAIS_ISO[p]) return false;
+    // No es un país: suele ser la agrupación de un torneo internacional
+    return TB_TOP_INTER.test(l) || TB_TOP_INTER.test(p);
+  }
+
+  // Sin país (Wplay no lo publica, o partido viejo) se cae al criterio por
+  // nombre de siempre, que acierta menos pero no deja el filtro ciego.
+  return TB_LIGA_TOP.test(l);
+}
+
+// ── LIGAS ───────────────────────────────────────────────────────────────────
+// Filtrar ligas no es cosmético: montos altos en ligas oscuras es el patrón
+// que las casas usan para detectar arbitrajistas.
+let _tbLigas = [];              // [{liga, n}] presentes en los datos
+let _tbLigasSel = new Set();    // las elegidas
+
+function _tbClaveLigas(){ return 'tb-ligas-' + (auth.currentUser?.uid || 'anon'); }
+
+function tbGuardarLigas(){
+  try{ localStorage.setItem(_tbClaveLigas(), JSON.stringify([..._tbLigasSel])); }catch(_){}
+}
+function tbCargarLigas(){
+  try{
+    const raw = localStorage.getItem(_tbClaveLigas());
+    if (!raw) return false;
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return false;
+    _tbLigasSel = new Set(arr);
+    return true;
+  }catch(_){ return false; }
+}
+function tbLigasTodas(todas){
+  _tbLigasSel = todas ? new Set(_tbLigas.map(l => l.liga)) : new Set();
+  tbGuardarLigas(); tbPintarLigas();
+}
+function tbLigasPrincipales(){
+  _tbLigasSel = new Set(_tbLigas.filter(l => tbEsLigaPrincipal(l.liga, l.pais)).map(l => l.liga));
+  tbGuardarLigas(); tbPintarLigas();
+  toast(_tbLigasSel.size + ' liga(s) principal(es) de ' + _tbLigas.length);
+}
+
+function tbLigasPanel(){
+  const box = document.getElementById('tb-ligas-box');
+  const tog = document.getElementById('tb-ligas-toggle');
+  if (!box) return;
+  const abierto = box.style.display !== 'none';
+  box.style.display = abierto ? 'none' : '';
+  if (tog) tog.textContent = abierto ? '▶ Elegir' : '▼ Cerrar';
+}
+function tbToggleLiga(l){
+  _tbLigasSel.has(l) ? _tbLigasSel.delete(l) : _tbLigasSel.add(l);
+  tbGuardarLigas(); tbPintarLigas();
+}
+
+function tbPintarLigas(){
+  const cont = document.getElementById('tb-ligas-lista');
+  const cnt  = document.getElementById('tb-ligas-cuenta');
+  if (cnt) cnt.textContent = _tbLigasSel.size + ' de ' + _tbLigas.length;
+  // Cuántas primeras divisiones hay, para saber antes de hacer clic
+  const top = document.getElementById('tb-ligas-top');
+  if (top) {
+    const n = _tbLigas.filter(l => tbEsLigaPrincipal(l.liga, l.pais)).length;
+    top.textContent = '⭐ Principales' + (n ? ' (' + n + ')' : '');
+  }
+  if (!cont) return;
+  const q = (document.getElementById('tb-ligas-buscar')?.value || '').toLowerCase();
+  // La búsqueda también encuentra por país: escribir "colombia" filtra todas
+  const vis = _tbLigas.filter(l => !q ||
+    l.liga.toLowerCase().includes(q) || tbNormPais(l.pais).includes(tbNormPais(q)));
+  cont.innerHTML = vis.map(l => {
+    const on = _tbLigasSel.has(l.liga);
+    return `<label onclick="event.preventDefault();tbToggleLiga(${JSON.stringify(l.liga).replace(/"/g,'&quot;')})"
+      style="display:flex;align-items:center;gap:7px;cursor:pointer;user-select:none;padding:5px 8px;border-radius:5px;
+      background:${on?'rgba(53,204,47,.12)':'transparent'};border:1px solid ${on?'rgba(53,204,47,.35)':'var(--border)'}">
+      <span style="width:13px;height:13px;border-radius:3px;flex-shrink:0;border:1px solid ${on?'var(--gold)':'var(--border)'};
+        background:${on?'var(--gold)':'transparent'};color:#fff;font-size:10px;line-height:12px;text-align:center">${on?'✓':''}</span>
+      ${l.pais ? `<span title="${l.pais}" style="font-size:12px;flex-shrink:0;line-height:1">${tbBandera(l.pais)}</span>` : '<span style="width:14px;flex-shrink:0"></span>'}
+      <span style="font-size:11px;color:${on?'var(--gold)':'var(--text2)'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${l.liga}${l.pais?`<span style="opacity:.6"> (${l.pais})</span>`:''}</span>
+      ${tbEsLigaPrincipal(l.liga, l.pais) ? '<span title="Liga principal — primera división" style="font-size:9px;color:var(--green)">⭐</span>' : ''}
+      <span style="font-size:10px;color:var(--text2)">${l.n}</span>
+    </label>`;
+  }).join('') || '<div style="font-size:11px;color:var(--text2);padding:8px">Sin coincidencias</div>';
+}
+
+// Lee las ligas presentes en la ventana de fechas elegida
+// ── Selector de mercados (varios a la vez) ──────────────────────────────────
+// Vacío = todos los habilitados. Una entrada puede ser un mercado completo
+// ('BTTS', 'GOL_OU' = todas las líneas) o una línea suelta ('GOL_OU|2_5').
+let _tbMercSel   = new Set();
+let _tbMercLista = [];
+
+function tbMercClave(){ return 'tb-merc-' + (auth.currentUser?.uid || ''); }
+function tbGuardarMerc(){
+  try { localStorage.setItem(tbMercClave(), JSON.stringify([..._tbMercSel])); } catch(_){}
+}
+function tbCargarMerc(){
+  try {
+    const g = JSON.parse(localStorage.getItem(tbMercClave()) || 'null');
+    if (Array.isArray(g)) { _tbMercSel = new Set(g); return true; }
+  } catch(_){}
+  return false;
+}
+
+// ¿Este mercado pasa el filtro del operador?
+function tbMercPasa(mid, clave){
+  if (!_tbMercSel.size) return true;                  // nada marcado = todos
+  return _tbMercSel.has(mid) || _tbMercSel.has(clave);
+}
+
+function tbMercToggle(v){
+  _tbMercSel.has(v) ? _tbMercSel.delete(v) : _tbMercSel.add(v);
+  tbGuardarMerc(); tbPintarMercPanel();
+}
+function tbMercTodos(si){
+  _tbMercSel = si ? new Set(_tbMercLista.map(m => m.clave)) : new Set();
+  tbGuardarMerc(); tbPintarMercPanel();
+}
+
+function tbMercResumen(){
+  if (!_tbMercSel.size) return 'Todos';
+  const n = _tbMercSel.size;
+  if (n === 1) {
+    const v = [..._tbMercSel][0];
+    const m = _tbMercLista.find(x => x.clave === v);
+    return m ? m.nombre : v;
+  }
+  return n + ' mercados';
+}
+
+function tbPintarMercPanel(){
+  const panel = document.getElementById('tb-merc-panel');
+  const res   = document.getElementById('tb-merc-res');
+  if (!panel) return;
+  const fila = m => {
+    const on = _tbMercSel.has(m.clave);
+    return `<label class="${on?'on':''}" onclick="event.preventDefault();tbMercToggle(${JSON.stringify(m.clave).replace(/"/g,'&quot;')})">
+      <input type="checkbox" ${on?'checked':''} onclick="event.preventDefault()">
+      <span>${m.nombre}</span><span class="cuenta">${m.n}</span></label>`;
+  };
+  const sueltos = _tbMercLista.filter(m => !m.esLinea);
+  const lineas  = _tbMercLista.filter(m => m.esLinea);
+  let html = `<div style="display:flex;gap:6px;margin-bottom:6px">
+    <span onclick="tbMercTodos(true)"  style="cursor:pointer;user-select:none;font-size:11px;padding:3px 10px;border-radius:5px;border:1px solid var(--border);color:var(--text2)">Todos</span>
+    <span onclick="tbMercTodos(false)" style="cursor:pointer;user-select:none;font-size:11px;padding:3px 10px;border-radius:5px;border:1px solid var(--border);color:var(--text2)">Ninguno</span>
+  </div>`;
+  html += sueltos.map(fila).join('');
+  if (lineas.length) html += '<div class="grupo">Goles por línea</div>' + lineas.map(fila).join('');
+  panel.innerHTML = html;
+  if (res) res.textContent = tbMercResumen();
+}
+
+// Cierra el panel al hacer clic afuera
+document.addEventListener('click', e => {
+  const dd = document.getElementById('tb-mercado');
+  if (dd && dd.open && !dd.contains(e.target)) dd.open = false;
+});
+
+// ── Desplegable de mercados ────────────────────────────────────────────────
+// Se arma con lo que el captador realmente encontró y con lo que el
+// administrador habilitó: si esta noche nadie publica la línea de 3.5, no
+// aparece y no confunde.
+function tbPintarMercados(cuenta){
+  const sueltos = [], lineas = [];
+  let totalGoles = 0;
+  Object.entries(cuenta).forEach(([clave, n]) => {
+    const [mid, linea] = clave.split('|');
+    if (!TB_MERCADOS[mid] || !tbMercadoHabilitado(mid)) return;
+    if (linea) { lineas.push({ clave, mid, linea, n, esLinea:true,
+                               nombre:'Más/Menos de ' + tbLinea(linea) }); totalGoles += n; }
+    else       { sueltos.push({ clave, mid, n, esLinea:false, nombre:TB_MERCADOS[mid].nombre }); }
+  });
+  const orden = ['1X2','GOL_OU','BTTS','DC_1X_2','DC_X2_1','DC_12_X'];
+  sueltos.sort((a,b) => orden.indexOf(a.mid) - orden.indexOf(b.mid));
+  lineas.sort((a,b) => parseFloat(tbLinea(a.linea)) - parseFloat(tbLinea(b.linea)));
+
+  // Entrada que cubre todas las líneas de golpe
+  if (lineas.length) sueltos.push({ clave:'GOL_OU', mid:'GOL_OU', n:totalGoles,
+                                    esLinea:false, nombre:'Goles · todas las líneas' });
+
+  _tbMercLista = [...sueltos, ...lineas];
+
+  // Descartar lo guardado que ya no exista, para no filtrar contra fantasmas
+  const validas = new Set(_tbMercLista.map(m => m.clave));
+  const antes = _tbMercSel.size;
+  _tbMercSel = new Set([..._tbMercSel].filter(v => validas.has(v)));
+  if (_tbMercSel.size !== antes) tbGuardarMerc();
+
+  // Con un solo mercado habilitado el selector no aporta nada
+  const wrap = document.getElementById('tb-mercado-wrap');
+  if (wrap) wrap.style.display = (_tbMercLista.length <= 1) ? 'none' : '';
+  tbPintarMercPanel();
+}
+
+async function tbCargarCatalogoLigas(){
+  const uid = auth.currentUser?.uid; if (!uid) return;
+  try{
+    const dias  = parseInt(document.getElementById('tb-dias')?.value || '1', 10);
+    const snap  = await db.collection('trixibot_eventos')
+      .where('fecha','>=',tbHoyBogota()).where('fecha','<=',tbFechaBogota(dias)).get();
+    const cuenta = {};
+    const merc   = {};
+    const paisDe = {};
+    snap.docs.forEach(d => {
+      const x = d.data();
+      const l = x.liga || '—';
+      cuenta[l] = (cuenta[l]||0)+1;
+      if (x.pais && !paisDe[l]) paisDe[l] = x.pais;
+      tbMercadosDeEvento(x).forEach(m => { merc[m.clave] = (merc[m.clave]||0)+1; });
+    });
+    tbPintarMercados(merc);
+    // Ordenadas por país y dentro de cada país por nombre: así el operador
+    // recorre la lista por región en vez de saltar de Estonia a Panamá.
+    _tbLigas = Object.entries(cuenta).map(([liga,n]) => ({ liga, n, pais: paisDe[liga] || '' }))
+                 .sort((a,b) => (a.pais||'zzz').localeCompare(b.pais||'zzz')
+                             || a.liga.localeCompare(b.liga));
+    // Primera vez: todas marcadas
+    // Primera vez: solo principales — apostar fuerte en ligas oscuras delata
+    if (!tbCargarLigas()) _tbLigasSel = new Set(_tbLigas.filter(l => tbEsLigaPrincipal(l.liga, l.pais)).map(l => l.liga));
+    tbPintarLigas();
+  }catch(e){ console.warn('ligas:', e); }
+}
+
+function _tbClaveSel(){ return 'tb-casas-' + (auth.currentUser?.uid || 'anon'); }
+
+function tbGuardarSel(){
+  try{ localStorage.setItem(_tbClaveSel(), JSON.stringify([..._tbSelec])); }catch(_){}
+}
+function tbCargarSel(){
+  try{
+    const raw = localStorage.getItem(_tbClaveSel());
+    if (!raw) return false;
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return false;
+    _tbSelec = new Set(arr.filter(c => _tbCasas.includes(c)));
+    return true;                       // respeta la selección guardada, aunque sea vacía
+  }catch(_){ return false; }
+}
+function tbSelTodas(todas){
+  _tbSelec = todas ? new Set(_tbCasas) : new Set();
+  tbGuardarSel();
+  tbPintarChips();
 }
 
 function tbPintarChips(){
@@ -9023,12 +10078,15 @@ function tbPintarChips(){
   cont.innerHTML = _tbCasas.map(c => {
     const on = _tbSelec.has(c);
     return `<span onclick="tbToggleCasa('${c.replace(/'/g,"\\'")}')" style="cursor:pointer;user-select:none;font-size:11px;padding:5px 11px;border-radius:6px;font-weight:600;
-      background:${on?'rgba(139,92,246,.18)':'var(--bg3)'};color:${on?'#a78bfa':'var(--text2)'};
-      border:1px solid ${on?'rgba(139,92,246,.4)':'var(--border)'}">${c}${on?' ✓':''}</span>`;
+      background:${on?'rgba(53,204,47,.16)':'var(--bg3)'};color:${on?'var(--gold)':'var(--text2)'};
+      border:1px solid ${on?'rgba(53,204,47,.40)':'var(--border)'}">${c}${on?' ✓':''}</span>`;
   }).join('');
+  const n=document.getElementById('tb-casas-cuenta');
+  if(n) n.textContent = _tbSelec.size + ' de ' + _tbCasas.length;
 }
 function tbToggleCasa(c){
   _tbSelec.has(c) ? _tbSelec.delete(c) : _tbSelec.add(c);
+  tbGuardarSel();
   tbPintarChips();
 }
 
@@ -9043,6 +10101,10 @@ async function tbBuscar(){
   }
   if (_tbSelec.size < 2){
     toast('Selecciona al menos 2 casas para poder comparar', 'error');
+    return;
+  }
+  if (_tbLigas.length && _tbLigasSel.size === 0){
+    toast('No tienes ninguna liga seleccionada', 'error');
     return;
   }
 
@@ -9063,8 +10125,9 @@ async function tbBuscar(){
       capital:         tbNum('tb-capital'),
       casasPermitidas: [..._tbSelec],
       utilidadMinPct:  tbNum('tb-umin'),
-      mercadoId:       document.getElementById('tb-mercado').value,
-      soloZonaSegura:  document.getElementById('tb-solo-segura')?.checked
+      mercadosSel:     tbMercPasa,
+      soloZonaSegura:  document.getElementById('tb-solo-segura')?.checked,
+      ligasPermitidas: _tbLigas.length ? [..._tbLigasSel] : null
     });
 
     // El plan Básico solo revela la mejor oportunidad
@@ -9107,8 +10170,8 @@ function tbPintarResultados(ops, totalOps, totalEventos, plan){
   let html = ops.map((o,i) => tbTarjeta(o,i)).join('');
   const ocultas = totalOps - ops.length;
   if (ocultas > 0){
-    html += `<div style="background:rgba(139,92,246,.08);border:1px dashed rgba(139,92,246,.4);border-radius:10px;padding:16px;text-align:center;margin-top:12px">
-      <div style="font-weight:700;color:#a78bfa;margin-bottom:4px">🔒 ${ocultas} oportunidad${ocultas>1?'es':''} más disponible${ocultas>1?'s':''}</div>
+    html += `<div style="background:rgba(53,204,47,.08);border:1px dashed rgba(53,204,47,.40);border-radius:10px;padding:16px;text-align:center;margin-top:12px">
+      <div style="font-weight:700;color:var(--gold);margin-bottom:4px">🔒 ${ocultas} oportunidad${ocultas>1?'es':''} más disponible${ocultas>1?'s':''}</div>
       <div style="font-size:12px;color:var(--text2)">El plan ${plan.nombre} muestra solo la mejor. Habla con el administrador para pasar a Full.</div>
     </div>`;
   }
@@ -9122,11 +10185,11 @@ function tbTarjeta(o, idx){
   const col = pos ? 'var(--green)' : 'var(--red)';
   const filas = o.patas.map(p => `
     <tr>
-      <td style="padding:6px 0;font-size:12px">${o.etiquetas[p.via] || p.via}</td>
+      <td style="padding:6px 0;font-size:12px">${(o.etiquetas[p.via] || p.via) + (o.linea ? ' ' + o.linea : '')}</td>
       <td style="font-size:12px;font-weight:600">${p.casa}</td>
       <td style="text-align:right;font-size:12px">${p.cuota.toFixed(2)}</td>
       <td style="text-align:right;font-size:12px;font-weight:700">${tbPeso(p.stake)}</td>
-      <td style="text-align:right;font-size:11px;color:var(--text2)">${p.metodo ? p.metodo + ' <b style="color:#a78bfa">'+p.comPct+'%</b>' : 'sin comisión'}</td>
+      <td style="text-align:right;font-size:11px;color:var(--text2)">${p.metodo ? p.metodo + ' <b style="color:var(--gold)">'+p.comPct+'%</b>' : 'sin comisión'}</td>
       <td style="text-align:right;font-size:12px;color:var(--green)">+${tbPeso(p.comValor)}</td>
     </tr>`).join('');
 
@@ -9136,11 +10199,13 @@ function tbTarjeta(o, idx){
       <div style="font-size:12px;font-weight:800;color:${col}">${tbPeso(o.utilidadNeta)} · ${o.utilidadPct.toFixed(2)}%</div>
     </div>
     <div style="font-size:11px;color:var(--text2);margin-bottom:12px">
-      ${ev.liga||'—'} · ${ev.fecha} ${ev.hora||''} · ${o.mercadoNombre}${o.linea?' '+o.linea:''} ·
-      suma implícita ${(o.sumaImplicita*100).toFixed(2)}%
+      ${tbLigaConPais(ev.liga||'—', ev.pais)} · ${ev.fecha} ${ev.hora||''} · ${o.mercadoNombre}${o.linea?' '+o.linea:''}
       ${o.zona==='segura'
-          ? '<span style="color:#a78bfa;font-weight:700"> · gana por comisión</span>'
+          ? '<span style="color:var(--blue);font-weight:700"> · gana por comisión</span>'
           : '<span style="color:var(--green);font-weight:700"> · surebet · gana por las dos vías</span>'}
+      ${o.mismaCasa
+          ? '<span style="color:var(--orange);font-weight:700"> · ⚠ todo en una sola casa</span>'
+          : ''}
     </div>
     <table style="width:100%;border-collapse:collapse">
       <tr style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">
@@ -9163,7 +10228,12 @@ function tbTarjeta(o, idx){
 function tbAjustar(idx){
   const o=_tbOps[idx]; if(!o) return;
   const ev=o.evento;
-  const V=['1','X','2'], COL={'1':'#e6a23c','X':'#8890a8','2':'#5aa9e6'};
+  // Las vías salen de la oportunidad, no de una lista fija: hay mercados de
+  // dos vías (goles, ambos anotan, doble oportunidad) y de tres (1X2).
+  const V   = o.patas.map(p => p.via);
+  const PAL = ['#e6a23c','#8890a8','#5aa9e6'];
+  const COL = {}; V.forEach((v,i) => COL[v] = PAL[i % PAL.length]);
+  const ROT = v => (o.etiquetas && o.etiquetas[v]) || v;
   const cel=(f)=>V.map((v,i)=>`<td style="text-align:center;padding:8px 10px">${f(i,v)}</td>`).join('');
   const IN='background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:7px 9px;font-size:13px;text-align:center';
 
@@ -9186,7 +10256,9 @@ function tbAjustar(idx){
   <table style="width:100%;border-collapse:collapse">
     <tr style="background:var(--bg3)">
       <td style="width:105px"></td>
-      ${V.map(v=>`<td style="text-align:center;padding:10px;font-size:17px;font-weight:800;color:${COL[v]}">${v}</td>`).join('')}
+      ${V.map(v=>`<td style="text-align:center;padding:10px 8px">
+        <div style="font-size:17px;font-weight:800;color:${COL[v]}">${v}${o.linea?' '+o.linea:''}</div>
+        <div style="font-size:10px;color:var(--text2);margin-top:2px">${ROT(v)}</div></td>`).join('')}
     </tr>
     <tr><td style="font-size:11px;color:var(--text2);font-weight:700;padding:8px 4px">CASA</td>
       ${cel(i=>{
@@ -9213,7 +10285,7 @@ function tbAjustar(idx){
 
   <div id="tb-aj-res" style="background:var(--bg3);border-radius:8px;margin-top:16px;padding:14px"></div>`;
 
-  _tbModal(`${ev.local} vs ${ev.visitante}`, cuerpo, ()=>false);
+  _tbModal(`${ev.local} vs ${ev.visitante} · ${o.mercadoNombre}${o.linea?' '+o.linea:''}`, cuerpo, ()=>false);
   const ok=document.getElementById('tb-modal-ok'); if(ok) ok.style.display='none';
   tbRecalc();
 }
@@ -9312,7 +10384,7 @@ function tbCargarCuotas(){
 
 function _tbLinkCasa(casa){
   const url = (_tbUrls && _tbUrls[casa]) || '';
-  return url ? `<a href="${url}" target="_blank" rel="noopener" style="font-size:11px;color:#a78bfa;text-decoration:none">abrir ↗</a>` : '';
+  return url ? `<a href="${url}" target="_blank" rel="noopener" style="font-size:11px;color:var(--gold);text-decoration:none">abrir ↗</a>` : '';
 }
 
 async function tbGuardarEvento(){

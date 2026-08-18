@@ -35,19 +35,34 @@ const UMBRAL_SIN_HORA = 0.88;
 // "River Plate (Jackson)". Si uno los trae y el otro no, no son el mismo partido.
 function tieneAlias(x) { return /\([^)]+\)/.test(String(x || '')); }
 
+// Sufijos de categoría. El mismo club juega el mismo día con varios equipos:
+// "Samsunspor U19" en la liga juvenil y "Samsunspor" en la de mayores. Al
+// normalizar los nombres quedan casi idénticos, así que si uno lo trae y el
+// otro no, son partidos distintos. Fusionarlos cruza cuotas de dos encuentros.
+const CATEGORIA = /\b(u\s?\d{2}|sub\s?-?\s?\d{2}|s\d{2}|ii|b|reservas?|reserves?|juvenil|youth|fem(eni[nl]o?)?|women|amateur)\b/i;
+function categoriaDe(x) {
+  const m = String(x || '').match(CATEGORIA);
+  return m ? m[0].toLowerCase().replace(/[\s-]/g, '') : '';
+}
+
 function mismoPartido(a, b) {
   const aliasA = tieneAlias(a.local) || tieneAlias(a.visita);
   const aliasB = tieneAlias(b.local) || tieneAlias(b.visita);
   if (aliasA !== aliasB) return 0;
 
+  // La categoría tiene que coincidir en los dos equipos
+  if (categoriaDe(a.local)  !== categoriaDe(b.local))  return 0;
+  if (categoriaDe(a.visita) !== categoriaDe(b.visita)) return 0;
+
+  // Sin hora en alguno de los dos no se empareja. Es la única forma de
+  // distinguir dos partidos del mismo club el mismo día, y una fusión errada
+  // no da cero: da una apuesta que parece cubierta y no lo está.
+  if (!a.inicio || !b.inicio) return 0;
+  const dif = Math.abs(Date.parse(a.inicio) - Date.parse(b.inicio));
+  if (isNaN(dif) || dif > TOLERANCIA_MS) return 0;
+
   const s = (parecido(a.local, b.local) + parecido(a.visita, b.visita)) / 2;
-  const hayHoras = a.inicio && b.inicio;
-  if (hayHoras) {
-    const dif = Math.abs(Date.parse(a.inicio) - Date.parse(b.inicio));
-    if (isNaN(dif) || dif > TOLERANCIA_MS) return 0;
-    return s >= UMBRAL_NOMBRE ? s : 0;
-  }
-  return s >= UMBRAL_SIN_HORA ? s : 0;
+  return s >= UMBRAL_NOMBRE ? s : 0;
 }
 
 // ── LLAVE DURA ─────────────────────────────────────────────────────────────
@@ -64,7 +79,8 @@ function claveDura(x) {
   const a = norm(x.local).slice(0, 6);
   const b = norm(x.visita).slice(0, 6);
   if (!a || !b) return null;
-  return bucket + '|' + a + '|' + b;
+  const cat = categoriaDe(x.local) + categoriaDe(x.visita);
+  return bucket + '|' + a + '|' + b + '|' + cat;
 }
 
 // Las casas nombran distinto el mismo torneo, así que la liga no sirve como
@@ -104,11 +120,16 @@ function agrupar(lecturas) {
 
     if (destino) {
       destino.cuotas[l.casa] = l.c;
+      if (l.mercados) destino.mercados[l.casa] = l.mercados;
+      if (l.kambiId) destino.refs.push({ casa: l.casa, id: l.kambiId, marca: l.kambiMarca });
       if (!destino.inicio && l.inicio) destino.inicio = l.inicio;
       if (!destino.liga && l.liga) destino.liga = l.liga;
+      if (!destino.pais && l.pais) destino.pais = l.pais;
     } else {
       const nuevo = { local: l.local, visita: l.visita, inicio: l.inicio,
-                      liga: l.liga, cuotas: { [l.casa]: l.c } };
+                      liga: l.liga, pais: l.pais || '', cuotas: { [l.casa]: l.c },
+                      mercados: l.mercados ? { [l.casa]: l.mercados } : {},
+                      refs: l.kambiId ? [{ casa: l.casa, id: l.kambiId, marca: l.kambiMarca }] : [] };
       eventos.push(nuevo);
       if (k) porClave.set(k, nuevo);
     }
@@ -118,4 +139,4 @@ function agrupar(lecturas) {
   return eventos;
 }
 
-module.exports = { norm, parecido, mismoPartido, agrupar, tieneAlias, claveDura, ligaContradice, TOLERANCIA_MS };
+module.exports = { norm, parecido, mismoPartido, agrupar, tieneAlias, categoriaDe, claveDura, ligaContradice, TOLERANCIA_MS };

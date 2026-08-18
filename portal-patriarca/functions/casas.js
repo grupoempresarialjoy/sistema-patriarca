@@ -89,10 +89,32 @@ function paisKambi(ev) {
   return (nodo && nodo.name) || '';
 }
 
+// La lista general de Kambi es una selección de destacados, no el catálogo.
+// Medido: se dejaba por fuera 151 partidos, entre ellos toda la Liga BetPlay
+// Dimayor. Cada país tiene su propio listado y hay que pedirlos aparte.
+// Probados uno por uno: estos diez responden. 'venezuela' y 'brasil' no existen
+// como ruta —Brasil va en inglés— y pedirlos sería gastar por nada.
+const PAISES_KAMBI = ['colombia','argentina','chile','peru','ecuador',
+                      'uruguay','paraguay','mexico','bolivia','brazil'];
+
 async function leerKambi(casa, marca) {
-  const url = `https://us.offering-api.kambicdn.com/offering/v2018/${marca}` +
-              `/listView/football.json?lang=es_CO&market=CO&ncid=${Date.now()}`;
-  const j = await traer(url, { json: true });
+  const base = `https://us.offering-api.kambicdn.com/offering/v2018/${marca}/listView/football`;
+  const nc = Date.now();
+
+  // Destacados primero, y después cada país. Un país que falle no tumba nada.
+  const listas = await Promise.all([
+    traer(`${base}.json?lang=es_CO&market=CO&ncid=${nc}`, { json: true }).catch(() => null),
+    ...PAISES_KAMBI.map(p =>
+      traer(`${base}/${p}.json?lang=es_CO&market=CO&ncid=${nc}`, { json: true }).catch(() => null))
+  ]);
+
+  // Unir sin repetir: un partido puede salir en destacados y en su país
+  const porId = new Map();
+  listas.forEach(j => (j && j.events || []).forEach(e => {
+    if (e.event && e.event.id != null && !porId.has(e.event.id)) porId.set(e.event.id, e);
+  }));
+
+  const j = { events: [...porId.values()] };
   const out = [];
   (j.events || []).forEach(e => {
     const ev = e.event || {};

@@ -1124,15 +1124,15 @@ select option { background: var(--bg3); }
               </select>
               <span style="font-size:11px;color:var(--text2)">a</span>
               <select id="cp-cmax-sel" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:7px 9px;font-size:13px">
-                <option value="2">2.00</option><option value="3">3.00</option>
-                <option value="5" selected>5.00</option><option value="99">Libre</option>
+                <option value="2">2.00</option><option value="3" selected>3.00</option>
+                <option value="5">5.00</option><option value="99">Libre</option>
               </select>
             </div>
             <div id="cp-cuota-manual" style="display:none;gap:5px;align-items:center">
               <input type="text" id="cp-cmin" value="1,60" placeholder="1,60"
                 style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:7px 8px;font-size:13px;width:64px;text-align:center">
               <span style="font-size:11px;color:var(--text2)">a</span>
-              <input type="text" id="cp-cmax" value="5,00" placeholder="5,00"
+              <input type="text" id="cp-cmax" value="3,00" placeholder="3,00"
                 style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:7px 8px;font-size:13px;width:64px;text-align:center">
             </div>
           </div>
@@ -1167,8 +1167,6 @@ select option { background: var(--bg3); }
         <div class="kpi"><div class="kpi-label">Opciones disponibles</div><div class="kpi-value" id="cp-k-patas">0</div></div>
         <div class="kpi"><div class="kpi-label">Cupones armados</div><div class="kpi-value" id="cp-k-cup">0</div></div>
       </div>
-      <div id="cp-aprendizaje" style="display:none;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin-bottom:16px"></div>
-
       <div id="cp-cuerpo">
         <div class="empty"><div class="empty-icon">🎟</div>
           <p>Ajusta los filtros y dale a <b>Armar cupones</b>.</p></div>
@@ -2957,7 +2955,7 @@ function showTab(name) {
   if (name==='comisiones') renderComisionesTab();
   if (name==='liquidacion') renderLiquidacion();
   if (name==='trixibot') showTrixiSubtab(_tbCfg.activo ? 'bot' : 'calc');
-  if (name==='combinadas'){ cpPintarMercados(); cpAvance(); }
+  if (name==='combinadas') cpPintarMercados();
   if (name==='inversiones') showInvSubtab('historial');
 }
 
@@ -9042,7 +9040,9 @@ function tbBandera(pais){
 }
 // "Premier League (Inglaterra) 🇬🇧" — sin país devuelve solo la liga
 function tbLigaConPais(liga, pais){
-  return pais ? `${liga} <span style="opacity:.75">(${pais})</span> ${tbBandera(pais)}` : liga;
+  // Los torneos internacionales traen el mismo nombre como país: no repetirlo
+  if (!pais || tbNormPais(pais) === tbNormPais(liga)) return liga + (pais ? ' ' + tbBandera(pais) : '');
+  return `${liga} <span style="opacity:.75">(${pais})</span> ${tbBandera(pais)}`;
 }
 
 // ── Catálogo de mercados. Agregar uno aquí no requiere tocar el motor ──
@@ -9382,49 +9382,9 @@ function cpTotalPorCasa(patas) {
   }).filter(Boolean).sort((a, b) => b.total - a.total);
 }
 
-// ── Avance del aprendizaje ──────────────────────────────────────────────────
-// El motor de cupones todavía calcula solo con las cuotas. Las fichas de los
-// equipos se van llenando con cada jornada y esta barra dice cuánto falta para
-// que tengan sustancia — construir el motor antes sería a ciegas.
-const CP_META_EQUIPOS = 150;   // equipos con 8 partidos o más
-
-async function cpAvance(){
-  const caja = document.getElementById('cp-aprendizaje');
-  if (!caja) return;
-  try{
-    const d = await db.collection('trixibot_estado').doc('aprendizaje').get();
-    if (!d.exists){
-      caja.style.display = '';
-      caja.innerHTML = `<div style="font-size:12px;color:var(--text2)">
-        🧠 <b style="color:var(--gold)">Aprendizaje</b> — todavía sin datos.
-        Empieza a llenarse tras el primer cierre, de madrugada.</div>`;
-      return;
-    }
-    const x = d.data();
-    const listos = x.equiposListos || 0;
-    const pct = Math.min(100, Math.round(listos / CP_META_EQUIPOS * 100));
-    const ok = listos >= CP_META_EQUIPOS;
-    caja.style.display = '';
-    caja.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:10px;margin-bottom:8px">
-        <span style="font-size:12px;color:var(--text2)">🧠 <b style="color:var(--gold)">Aprendizaje</b> ·
-          ${(x.partidosAprendidos||0).toLocaleString('es-CO')} partidos ·
-          ${(x.equiposConFicha||0).toLocaleString('es-CO')} equipos con ficha</span>
-        <span style="font-size:11px;color:${ok?'var(--green)':'var(--text2)'};font-weight:${ok?'700':'400'}">
-          ${listos} de ${CP_META_EQUIPOS} equipos con 8 partidos o más</span>
-      </div>
-      <div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">
-        <div style="height:100%;width:${pct}%;background:${ok?'var(--green)':'var(--gold)'};transition:width .4s"></div>
-      </div>
-      <div style="font-size:11px;color:${ok?'var(--green)':'var(--text2)'};margin-top:7px">
-        ${ok ? '✅ Ya hay datos suficientes para que el bot use las fichas. Pídeme el motor.'
-             : 'Los cupones todavía se arman solo con las cuotas. Cuando esta barra se llene, las fichas de los equipos entran al cálculo.'}
-      </div>`;
-  }catch(e){ console.warn('avance:', e); }
-}
-
 // ── COMBINADAS PRO · interfaz ───────────────────────────────────────────────
 let _cpEventos = [];
+let _cpCupones = [];
 let _cpMercSel = new Set();
 
 function cpPeso(n){ return '$' + Math.round(n||0).toLocaleString('es-CO'); }
@@ -9477,7 +9437,219 @@ document.addEventListener('click', e => {
   if (dd && dd.open && !dd.contains(e.target)) dd.open = false;
 });
 
+// ── Compartir el cupón ──────────────────────────────────────────────────────
+// Texto plano, sin formato raro: WhatsApp y Telegram lo respetan igual y se lee
+// bien en el celular. Sin probabilidades ni márgenes — eso es para adentro.
+function cpTexto(idx){
+  const c = _cpCupones[idx]; if (!c) return '';
+  const importe = tbNum('cp-importe') || 10000;
+  const L = [];
+  L.push('COMBINADA · ' + c.patas.length + ' opciones');
+  L.push('Casa: ' + c.casa);
+  L.push('');
+  c.patas.forEach((p, i) => {
+    const ev = p.evento;
+    L.push((i+1) + '. ' + ev.local + ' vs ' + ev.visitante);
+    L.push('   ' + (p.etiqueta + (p.linea ? ' ' + tbLinea(p.linea) : '')) + '  →  ' + (p.cuotaEn||p.cuota).toFixed(2));
+    L.push('   ' + (ev.liga||'—') + (ev.pais && ev.pais !== ev.liga ? ' · ' + ev.pais : '') + ' · ' + ev.fecha + ' ' + (ev.hora||''));
+  });
+  L.push('');
+  L.push('Cuota total: ' + c.total.toFixed(2));
+  L.push('Con ' + cpPeso(importe) + ' cobras ' + cpPeso(importe * c.total));
+  return L.join('\n');
+}
+
+async function cpCopiar(idx, btn){
+  const txt = cpTexto(idx);
+  try { await navigator.clipboard.writeText(txt); }
+  catch(_){
+    // Algunos navegadores solo dejan copiar desde un campo de texto
+    const t = document.createElement('textarea');
+    t.value = txt; t.style.position='fixed'; t.style.opacity='0';
+    document.body.appendChild(t); t.select();
+    try { document.execCommand('copy'); } catch(__){}
+    t.remove();
+  }
+  if (btn){ const antes = btn.textContent; btn.textContent = '✓ Copiado';
+    setTimeout(()=>{ btn.textContent = antes; }, 1600); }
+}
+
+function cpWhatsapp(idx, btn){ return cpEnviar(idx, 'whatsapp', btn); }
+function cpTelegram(idx, btn){ return cpEnviar(idx, 'telegram', btn); }
+
+// ── Cupón como imagen ───────────────────────────────────────────────────────
+// Un texto en WhatsApp se pierde entre la conversación; una imagen se ve de
+// una. Se dibuja en un lienzo con la paleta de la marca y sale en PNG.
+function cpDibujar(idx){
+  const c = _cpCupones[idx]; if (!c) return null;
+  const importe = tbNum('cp-importe') || 10000;
+  const D = 2;                                    // doble resolución, para que no se vea borroso
+  const A = 620, MG = 34;
+  const lienzo = document.createElement('canvas');
+  const g = lienzo.getContext('2d');
+  const F = (px, peso) => `${peso||400} ${px}px -apple-system, "Segoe UI", Roboto, sans-serif`;
+
+  // Partir los nombres largos en varias líneas
+  const partir = (txt, ancho, fuente) => {
+    g.font = fuente;
+    const out = []; let linea = '';
+    String(txt).split(' ').forEach(p => {
+      const prueba = linea ? linea + ' ' + p : p;
+      if (g.measureText(prueba).width > ancho && linea) { out.push(linea); linea = p; }
+      else linea = prueba;
+    });
+    if (linea) out.push(linea);
+    return out;
+  };
+
+  // Primera pasada: calcular el alto que hace falta
+  const bloques = c.patas.map(p => {
+    const ev = p.evento;
+    return { p, ev, titulo: partir(ev.local + '  vs  ' + ev.visitante, A - MG*2 - 70, F(16,600)) };
+  });
+  // El alto se calcula recorriendo los bloques igual que al dibujarlos, para que
+  // el pie quede pegado al contenido y no sobre espacio en blanco.
+  const yFin = bloques.reduce((y, b) => y + (b.titulo.length - 1) * 22 + 52, 96);
+  const ALTO = yFin - 7 + 72;
+
+  lienzo.width = A*D; lienzo.height = ALTO*D; g.scale(D, D);
+
+  // Fondo
+  g.fillStyle = '#12151c'; g.fillRect(0,0,A,ALTO);
+  g.fillStyle = '#35CC2F'; g.fillRect(0,0,A,4);
+
+  // Encabezado
+  g.fillStyle = '#8890a8'; g.font = F(11,600);
+  g.fillText('COMBINADA · ' + c.patas.length + ' OPCIONES', MG, 38);
+  g.fillStyle = '#35CC2F'; g.font = F(30,700);
+  g.textAlign = 'right'; g.fillText(c.total.toFixed(2), A-MG, 44); g.textAlign = 'left';
+  g.fillStyle = '#e8eaf0'; g.font = F(15,600);
+  g.fillText(c.casa, MG, 62);
+
+  let y = 96;
+  bloques.forEach((b, i) => {
+    g.strokeStyle = 'rgba(255,255,255,.08)'; g.beginPath();
+    g.moveTo(MG, y-16); g.lineTo(A-MG, y-16); g.stroke();
+
+    g.fillStyle = '#e8eaf0'; g.font = F(16,600);
+    b.titulo.forEach((l, k) => g.fillText(l, MG, y + k*22));
+    const yb = y + (b.titulo.length-1)*22;
+
+    g.fillStyle = '#35CC2F'; g.font = F(19,700); g.textAlign = 'right';
+    g.fillText((b.p.cuotaEn||b.p.cuota).toFixed(2), A-MG, yb); g.textAlign = 'left';
+
+    g.fillStyle = '#9aa3b8'; g.font = F(13,500);
+    const sel = b.p.etiqueta + (b.p.linea ? ' ' + tbLinea(b.p.linea) : '');
+    g.fillText(sel, MG, yb+21);
+    g.fillStyle = '#6b7488'; g.font = F(12,400);
+    const meta = (b.ev.liga||'—') + ' · ' + (b.ev.hora||'') + ' · ' + (b.ev.fecha||'');
+    g.textAlign = 'right'; g.fillText(meta, A-MG, yb+21); g.textAlign = 'left';
+
+    y = yb + 52;
+  });
+
+  // Pie
+  g.fillStyle = 'rgba(53,204,47,.08)'; g.fillRect(0, ALTO-72, A, 72);
+  g.fillStyle = '#8890a8'; g.font = F(12,500);
+  g.fillText('Inviertes ' + cpPeso(importe), MG, ALTO-42);
+  g.fillStyle = '#35CC2F'; g.font = F(22,700);
+  g.fillText('Cobras ' + cpPeso(importe * c.total), MG, ALTO-18);
+  g.fillStyle = '#6b7488'; g.font = F(11,600); g.textAlign = 'right';
+  g.fillText('AJ1.6', A-MG, ALTO-18); g.textAlign = 'left';
+  return lienzo;
+}
+
+// WhatsApp y Telegram no dejan adjuntar una imagen desde un enlace: sus
+// direcciones de compartir solo aceptan texto. Así que:
+//  · en el celular se abre el menú del sistema, que sí manda el archivo
+//  · en el computador se copia la imagen y se abre la app para pegarla
+async function cpEnviar(idx, destino, btn){
+  const lienzo = cpDibujar(idx); if (!lienzo) return;
+  const blob = await new Promise(r => lienzo.toBlob(r, 'image/png'));
+  const archivo = new File([blob], 'combinada.png', { type:'image/png' });
+  const avisar = t => { if (!btn) return;
+    if (!btn.dataset.txt) btn.dataset.txt = btn.textContent;
+    btn.textContent = t;
+    setTimeout(()=>{ btn.textContent = btn.dataset.txt; }, 2200); };
+
+  // Celular: el menú del sistema muestra WhatsApp, Telegram y lo demás
+  if (navigator.canShare && navigator.canShare({ files:[archivo] })) {
+    try { await navigator.share({ files:[archivo], text: cpTexto(idx) }); return; } catch(_){}
+  }
+
+  // Computador: copiar la imagen y abrir la app para pegarla
+  let copiada = false;
+  try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]); copiada = true; }
+  catch(_){}
+  if (!copiada) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = 'combinada.png'; a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
+  }
+  if (destino) {
+    window.open(destino === 'whatsapp' ? 'https://web.whatsapp.com/' : 'https://web.telegram.org/', '_blank');
+    toast(copiada ? '📋 Imagen copiada — pégala con ⌘V en el chat'
+                  : '⬇ Imagen descargada — arrástrala al chat', 'success');
+  } else {
+    avisar('✓ Copiada');
+    if (!copiada) toast('⬇ Imagen descargada', 'success');
+  }
+}
+
+function cpImagen(idx, btn){ return cpEnviar(idx, null, btn); }
+
+// ── Registro de cupones ─────────────────────────────────────────────────────
+// Cada cupón que el bot propone queda anotado con sus opciones y sus cuotas.
+// El cierre diario después lo resuelve contra los resultados y anota si pegó.
+// Sin esto el sistema aprende cómo juegan los equipos pero nunca sabe si SUS
+// propuestas aciertan, que es lo único que dice si el bot sirve.
+//
+// Se guarda lo que propone, no lo que el operador apuesta: la muestra tiene que
+// incluir los cupones que nadie jugó, o solo aprenderíamos de los que gustaron.
+async function cpRegistrar(cupones){
+  const uid = auth.currentUser?.uid; if (!uid || !cupones.length) return;
+  try{
+    const lote = db.batch();
+    const sello = tbHoyBogota();
+    cupones.forEach(c => {
+      // Id estable por contenido: si el bot propone el mismo cupón varias veces
+      // en el día, se guarda una sola vez y no infla la muestra.
+      const firma = c.casa + '|' + c.patas
+        .map(p => (p.evento.id || '') + ':' + p.clave + ':' + p.via).sort().join('|');
+      let h = 0; for (let i=0;i<firma.length;i++) h = (h*31 + firma.charCodeAt(i)) | 0;
+      const id = sello + '_' + uid.slice(0,6) + '_' + Math.abs(h).toString(36);
+
+      lote.set(db.collection('combinadas_cupones').doc(id), {
+        uid, fecha: sello, casa: c.casa,
+        cuotaTotal: +c.total.toFixed(3),
+        probEstimada: +c.prob.toFixed(4),
+        margen: +(-c.ventaja).toFixed(4),
+        opciones: c.patas.map(p => ({
+          eventoId: p.evento.id || null,
+          local: p.evento.local, visitante: p.evento.visitante,
+          liga: p.evento.liga || '', pais: p.evento.pais || '',
+          inicio: p.evento.inicioUTC || null,
+          mercado: p.mid, linea: p.linea || null, via: p.via,
+          cuota: +(p.cuotaEn || p.cuota).toFixed(3)
+        })),
+        resuelto: false,
+        propuesto: firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+    });
+    await lote.commit();
+  }catch(e){ console.warn('registro de cupones:', e.message); }
+}
+
+// Firestore contesta "Missing or insufficient permissions" cuando la sesión se
+// vence, que no le dice nada a nadie. Se traduce a lo que realmente pasó.
+function cpErrorClaro(e){
+  if (!auth.currentUser || e?.code === 'permission-denied')
+    return 'Tu sesión se venció. Vuelve a entrar al portal.';
+  return e?.message || String(e);
+}
+
 async function cpBuscar(){
+  if (!auth.currentUser){ toast('Tu sesión se venció. Vuelve a entrar al portal.', 'error'); return; }
   const btn = document.getElementById('cp-btn');
   btn.disabled = true; btn.textContent = '⏳ Armando...';
   try{
@@ -9512,7 +9684,8 @@ async function cpBuscar(){
     document.getElementById('cp-k-patas').textContent = cand.length;
     document.getElementById('cp-k-cup').textContent   = cupones.length;
     cpPintar(cupones);
-  }catch(e){ toast('Error armando cupones: ' + e.message, 'error'); }
+    cpRegistrar(cupones);          // en segundo plano, no hace esperar al operador
+  }catch(e){ toast(cpErrorClaro(e), 'error'); }
   btn.disabled = false; btn.textContent = '🎟 Armar cupones';
 }
 
@@ -9525,6 +9698,7 @@ function cpPintar(cupones){
     return;
   }
   const importe = tbNum('cp-importe') || 10000;
+  _cpCupones = cupones;
   cont.innerHTML = cupones.map((c,i) => cpTarjeta(c, i, importe)).join('');
 }
 
@@ -9572,6 +9746,12 @@ function cpTarjeta(c, idx, importe){
           <span style="opacity:.7">· precio ${porOp<4.5?'muy bueno':porOp<6.5?'normal':'flojo'}</span>`}
       </div>
       <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:flex-start">${casas}</div>
+    </div>
+    <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
+      <span onclick="cpImagen(${idx},this)" style="cursor:pointer;user-select:none;font-size:11px;padding:5px 12px;border-radius:6px;border:1px solid rgba(53,204,47,.45);color:var(--gold);font-weight:600">🖼 Imagen</span>
+      <span onclick="cpCopiar(${idx},this)" style="cursor:pointer;user-select:none;font-size:11px;padding:5px 12px;border-radius:6px;border:1px solid var(--border);color:var(--text2)">📋 Texto</span>
+      <span onclick="cpWhatsapp(${idx},this)" style="cursor:pointer;user-select:none;font-size:11px;padding:5px 12px;border-radius:6px;border:1px solid var(--border);color:var(--text2)">WhatsApp</span>
+      <span onclick="cpTelegram(${idx},this)" style="cursor:pointer;user-select:none;font-size:11px;padding:5px 12px;border-radius:6px;border:1px solid var(--border);color:var(--text2)">Telegram</span>
     </div>
   </div>`;
 }
@@ -9819,7 +9999,14 @@ const TB_TOP_INTER = new RegExp([
   'copa am[eé]rica', 'eurocopa', 'euro \\d', 'nations league', 'supercopa de europa'
 ].join('|'), 'i');
 
+// Quién manda es el captador: él escribe la marca en cada partido y esta
+// función solo la lee. Las reglas de abajo quedan como respaldo para los
+// partidos guardados antes de que existiera la marca; la lista de verdad vive
+// en functions/ligas.js y no hay que mantener dos.
+const _tbLigaMarca = new Map();        // liga → lo que dijo el captador
+
 function tbEsLigaPrincipal(liga, pais) {
+  if (_tbLigaMarca.has(liga)) return _tbLigaMarca.get(liga);
   const l = String(liga || '');
   if (!l || l === '—') return false;
   if (TB_LIGA_EXCLUIR.test(l)) return false;      // femenino, sub-20, reservas, 2ª...
@@ -10032,11 +10219,13 @@ async function tbCargarCatalogoLigas(){
     const cuenta = {};
     const merc   = {};
     const paisDe = {};
+  _tbLigaMarca.clear();
     snap.docs.forEach(d => {
       const x = d.data();
       const l = x.liga || '—';
       cuenta[l] = (cuenta[l]||0)+1;
       if (x.pais && !paisDe[l]) paisDe[l] = x.pais;
+      if (typeof x.principal === 'boolean') _tbLigaMarca.set(l, x.principal);
       tbMercadosDeEvento(x).forEach(m => { merc[m.clave] = (merc[m.clave]||0)+1; });
     });
     tbPintarMercados(merc);
@@ -10142,7 +10331,7 @@ async function tbBuscar(){
     }, { merge:true });
 
   } catch(e){
-    toast('Error buscando: ' + e.message, 'error');
+    toast(cpErrorClaro(e), 'error');
   }
   btn.disabled = false; btn.textContent = '🔍 Buscar cuotas';
 }

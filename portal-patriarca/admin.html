@@ -752,6 +752,15 @@ select option{background:var(--bg3)}
         </div>
       </div>
       <div id="tb-admin-urls" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:8px"></div>
+
+      <div class="sec-header" style="margin-top:28px">
+        <div>
+          <div class="sec-title" style="font-size:15px">🧠 Estado del aprendizaje</div>
+          <div class="sec-subtitle">Combinadas Pro · se llena solo con cada jornada</div>
+        </div>
+        <button class="btn" onclick="apRefrescar()" style="font-size:12px">↻ Actualizar</button>
+      </div>
+      <div id="ap-panel" style="font-size:12px;color:var(--text2)">Cargando…</div>
     </div>
 
     <div class="section" id="sec-auditor">
@@ -6240,6 +6249,92 @@ function _esfRenderTabla(esfMap, mes) {
   </table></div>`;
 }
 
+// ── ESTADO DEL APRENDIZAJE ──────────────────────────────────────────────────
+// Todo esto sale de tres documentos que escribe el cierre diario, no de
+// recorrer colecciones: abrir esta pantalla cuesta tres lecturas.
+const AP_META = 150;      // equipos con 8 partidos o más para arrancar el motor
+
+async function apRefrescar(){
+  const caja = document.getElementById('ap-panel');
+  if (!caja) return;
+  caja.innerHTML = 'Cargando…';
+  try{
+    // Los cupones se cuentan en vivo, no desde el último cierre: si no, lo que
+    // se propone hoy no aparece hasta mañana de madrugada.
+    const contar = async q => { try { return (await q.count().get()).data().count; } catch(_) { return 0; } };
+    const cup = db.collection('combinadas_cupones');
+    const [ap, cal, cap, nTotal, nGanados, nPerdidos, nPend] = await Promise.all([
+      db.collection('trixibot_estado').doc('aprendizaje').get(),
+      db.collection('trixibot_estado').doc('calibracion').get(),
+      db.collection('trixibot_estado').doc('captador').get(),
+      contar(cup),
+      contar(cup.where('estado', '==', 'ganado')),
+      contar(cup.where('estado', '==', 'perdido')),
+      contar(cup.where('resuelto', '==', false))
+    ]);
+    const A = ap.exists ? ap.data() : null;
+    const C = cal.exists ? cal.data() : null;
+    const K = cap.exists ? cap.data() : null;
+    const hora = t => t ? new Intl.DateTimeFormat('es-CO',{timeZone:'America/Bogota',
+      dateStyle:'short', timeStyle:'short'}).format(new Date(t)) : '—';
+
+    const listos = A ? (A.equiposListos || 0) : 0;
+    const pct = Math.min(100, Math.round(listos / AP_META * 100));
+    const ok = listos >= AP_META;
+    const resueltos = nGanados + nPerdidos;
+    const cu = { propuestos: nTotal, ganados: nGanados, perdidos: nPerdidos,
+                 pendientes: nPend, acierto: resueltos ? nGanados / resueltos : null };
+
+    const tarjeta = (t, v, sub) => `<div style="background:var(--bg3);border-radius:8px;padding:11px 13px">
+      <div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">${t}</div>
+      <div style="font-size:19px;font-weight:700;color:var(--text1);margin-top:2px">${v}</div>
+      ${sub?`<div style="font-size:10px;color:var(--text2);margin-top:1px">${sub}</div>`:''}</div>`;
+
+    // Calibración: solo se muestra lo que ya tiene muestra suficiente
+    const filas = (C && C.lectura || []).map(x => `<tr>
+      <td style="padding:5px 0">${x.franja}</td>
+      <td style="text-align:right">${x.cupones}</td>
+      <td style="text-align:right">${x.esperado}%</td>
+      <td style="text-align:right;font-weight:700;color:${x.fiable?(x.real>x.esperado*1.25?'var(--green)':x.real<x.esperado*0.75?'var(--red)':'var(--text1)'):'var(--text2)'}">${x.real}%</td>
+      <td style="text-align:right;font-size:11px;color:var(--text2)">${x.sesgo}</td></tr>`).join('');
+
+    caja.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:9px;margin-bottom:14px">
+        ${tarjeta('Partidos aprendidos', ((A&&A.partidosAprendidos)||0).toLocaleString('es-CO'))}
+        ${tarjeta('Equipos con ficha', ((A&&A.equiposConFicha)||0).toLocaleString('es-CO'), ((A&&A.equiposMaduros)||0)+' con 15 o más')}
+        ${tarjeta('Cupones propuestos', cu.propuestos.toLocaleString('es-CO'), cu.pendientes+' esperando resultado')}
+        ${tarjeta('Acierto del bot', cu.acierto!=null ? (cu.acierto*100).toFixed(1)+'%' : 'sin resolver', resueltos ? cu.ganados+' de '+resueltos : 'se resuelven de madrugada')}
+      </div>
+
+      <div style="margin-bottom:6px;display:flex;justify-content:space-between;align-items:baseline">
+        <span>Avance hacia el motor</span>
+        <span style="color:${ok?'var(--green)':'var(--text2)'};font-weight:${ok?'700':'400'}">${listos} de ${AP_META} equipos con 8 partidos o más</span>
+      </div>
+      <div style="height:7px;background:var(--bg3);border-radius:4px;overflow:hidden;margin-bottom:6px">
+        <div style="height:100%;width:${pct}%;background:${ok?'var(--green)':'var(--purple)'};transition:width .4s"></div>
+      </div>
+      <div style="color:${ok?'var(--green)':'var(--text2)'};margin-bottom:16px">
+        ${ok ? '✅ Ya hay datos suficientes para que el bot use las fichas.'
+             : 'Los cupones se arman solo con las cuotas. Cuando se llene, entran las fichas de los equipos.'}
+      </div>
+
+      <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">
+        Calibración — ¿lo que el bot predijo se pareció a lo que pasó?</div>
+      ${filas ? `<table class="tbl" style="font-size:12px"><thead><tr>
+          <th>Franja</th><th style="text-align:right">Cupones</th>
+          <th style="text-align:right">Esperado</th><th style="text-align:right">Real</th><th style="text-align:right">Lectura</th>
+        </tr></thead><tbody>${filas}</tbody></table>
+        <div style="font-size:11px;color:var(--text2);margin-top:6px">
+          Hacen falta 30 cupones por franja para que el número signifique algo.</div>`
+        : '<div style="padding:8px 0">Sin cupones resueltos todavía.</div>'}
+
+      <div style="font-size:11px;color:var(--text2);margin-top:14px;border-top:1px solid var(--border);padding-top:10px">
+        Último cierre ${hora(A && A.corridoEn)} · último captador ${hora(K && K.corridoEn)}
+        ${K ? ' · ' + (K.guardados||0) + ' partidos en seguimiento' : ''}
+      </div>`;
+  }catch(e){ caja.innerHTML = `<span style="color:var(--red)">Error: ${e.message}</span>`; }
+}
+
 // ── AVISOS DE PENDIENTES ────────────────────────────────────────────────────
 // Cuentan lo que espera aprobación y lo pintan en el menú. Se enteran solos:
 // escuchan Firestore desde que abre el administrador, sin necesidad de entrar
@@ -8516,6 +8611,7 @@ async function initTrixiBot(){
           placeholder="https://…" style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:6px 9px;font-size:11px">
       </div>`).join('');
 
+    apRefrescar();          // estado del aprendizaje, al pie de esta misma pantalla
   } catch(e){
     body.innerHTML = `<tr><td colspan="7" style="color:var(--red);padding:20px">Error: ${e.message}</td></tr>`;
   }

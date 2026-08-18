@@ -136,3 +136,89 @@ function mezclar(corta, larga) {
 
 module.exports = { normEquipo, lineaDe, resumir, actualizarFicha, VENTANA,
                    sumarAlHistorico, leerHistorico, mezclar, DIAS_DETALLE };
+
+// ── Resolver un cupón contra los resultados ─────────────────────────────────
+// Devuelve true, false o null. Null cuando falta algún resultado: el cupón se
+// deja pendiente y se vuelve a intentar mañana, en vez de darlo por perdido.
+function acerto(opcion, r) {
+  if (!r || r.golesLocal == null) return null;
+  const gl = r.golesLocal, gv = r.golesVisita, tot = gl + gv;
+  switch (opcion.mercado) {
+    case '1X2':
+      return opcion.via === '1' ? gl > gv : opcion.via === '2' ? gv > gl : gl === gv;
+    case 'GOL_OU': {
+      const linea = parseFloat(String(opcion.linea || '').replace('_', '.'));
+      if (!isFinite(linea)) return null;
+      return opcion.via === 'OVER' ? tot > linea : tot < linea;
+    }
+    case 'BTTS':
+      return opcion.via === 'SI' ? (gl > 0 && gv > 0) : !(gl > 0 && gv > 0);
+    case 'DC':
+      return opcion.via === '1X' ? gl >= gv
+           : opcion.via === 'X2' ? gv >= gl
+           : gl !== gv;
+    default: return null;
+  }
+}
+
+// Un cupón pega solo si pegan todas sus opciones
+function resolverCupon(cupon, resultadoDe) {
+  let faltan = 0;
+  for (const o of cupon.opciones || []) {
+    const r = acerto(o, resultadoDe(o));
+    if (r === null) { faltan++; continue; }
+    if (r === false) return { estado: 'perdido', faltan: 0 };   // una basta para perderlo
+  }
+  if (faltan) return { estado: 'pendiente', faltan };
+  return { estado: 'ganado', faltan: 0 };
+}
+
+module.exports.acerto = acerto;
+module.exports.resolverCupon = resolverCupon;
+
+// ── Calibración ─────────────────────────────────────────────────────────────
+// La pregunta que ningún grupo de Telegram responde: cuando el bot dice que un
+// cupón tiene 5% de probabilidad, ¿cuántos de esos pegan de verdad?
+//
+// Si pegan un 5%, el mercado tiene razón y no hay nada que rascar. Si pegan un
+// 12%, el mercado se equivoca sistemáticamente ahí y ese es el terreno donde
+// vale la pena buscar. Se acumula por franjas porque un cupón suelto no dice
+// nada; hacen falta decenas para que el número signifique algo.
+const FRANJAS = [
+  { id:'0-5',   min:0,    max:0.05 },
+  { id:'5-10',  min:0.05, max:0.10 },
+  { id:'10-20', min:0.10, max:0.20 },
+  { id:'20-35', min:0.20, max:0.35 },
+  { id:'35+',   min:0.35, max:1.01 }
+];
+const franjaDe = p => (FRANJAS.find(f => p >= f.min && p < f.max) || FRANJAS[0]).id;
+
+function sumarCalibracion(previo, cupones) {
+  const c = previo && typeof previo === 'object' ? JSON.parse(JSON.stringify(previo)) : {};
+  cupones.forEach(({ prob, gano }) => {
+    const k = franjaDe(prob || 0);
+    const f = c[k] || (c[k] = { n:0, ganados:0, sumaProb:0 });
+    f.n++; f.sumaProb += (prob || 0); if (gano) f.ganados++;
+  });
+  return c;
+}
+
+// Traduce los contadores a algo legible, y calla cuando no hay muestra
+function leerCalibracion(c) {
+  return FRANJAS.map(f => {
+    const x = c && c[f.id]; if (!x || !x.n) return null;
+    const esperado = x.sumaProb / x.n, real = x.ganados / x.n;
+    return {
+      franja: f.id + '%', cupones: x.n,
+      esperado: +(esperado*100).toFixed(1), real: +(real*100).toFixed(1),
+      // Con menos de 30 el número baila demasiado para sacar conclusiones
+      fiable: x.n >= 30,
+      sesgo: x.n >= 30 ? (real > esperado*1.25 ? 'el mercado subestima'
+                        : real < esperado*0.75 ? 'el mercado sobreestima' : 'ajustado') : 'sin muestra'
+    };
+  }).filter(Boolean);
+}
+
+module.exports.sumarCalibracion = sumarCalibracion;
+module.exports.leerCalibracion = leerCalibracion;
+module.exports.franjaDe = franjaDe;

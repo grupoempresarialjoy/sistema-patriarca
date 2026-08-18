@@ -12,6 +12,8 @@ const cheerio = require('cheerio');
 
 const { traer, leerKambi, leerKambiMercados, leerYaJuegos, leerWplay } = require('./casas');
 const { leerEnVivo, esFirme } = require('./resultados');
+const { esPrincipal } = require('./ligas');
+const { resolverCupon, sumarCalibracion, leerCalibracion } = require('./aprendizaje');
 const { normEquipo, lineaDe, actualizarFicha,
         sumarAlHistorico, DIAS_DETALLE } = require('./aprendizaje');
 const { agrupar } = require('./emparejar');
@@ -113,6 +115,20 @@ async function capturar() {
     const horas = e.inicio ? (Date.parse(e.inicio) - ahora) / 3600000 : 0;
     const edad = prev && prev.mercadosTs ? (ahora - prev.mercadosTs) / 60000 : Infinity;
 
+    // Los mercados extra son lo único caro: una petición por partido. Solo se
+    // piden donde el operador va a apostar de verdad. En las demás ligas queda
+    // el 1X2, que viene gratis en el listado.
+    if (!esPrincipal(e.liga, e.pais)) { e._mercadosTs = prev && prev.mercadosTs || null;
+      if (prev) Object.entries(prev.cuotas || {}).forEach(([clave, porCasa]) => {
+        if (clave === '1X2') return;
+        Object.entries(porCasa).forEach(([casa, vias]) => {
+          if (!/BET PLAY|RUSHBET/.test(casa)) return;
+          (e.mercados[casa] = e.mercados[casa] || {})[clave] = vias;
+        });
+      });
+      return;
+    }
+
     if (edad <= EDAD_MAX_MIN(horas)) {
       // Todavía sirve: se reutiliza lo guardado y no se pide nada.
       e._mercadosTs = prev.mercadosTs;
@@ -178,6 +194,10 @@ async function capturar() {
       deporte: 'Fútbol',
       liga: e.liga || '—',
       pais: e.pais || '',
+      // El captador decide si la liga es principal y lo deja escrito. Así la
+      // lista vive en un solo sitio (functions/ligas.js) y el portal solo lee
+      // la marca, en vez de mantener su propia copia que se puede desfasar.
+      principal: esPrincipal(e.liga, e.pais),
       local: e.local,
       visitante: e.visita,
       cuotas,
@@ -211,7 +231,7 @@ async function capturar() {
     eventosUnicos: eventos.length,
     guardados: utiles.length,
     mercadosKambi: { pedidos: cola.length, ok: okMercados, fallos: fallosMercados,
-                     reusados, ahorro: pendientes.length ? '' : 'todo reutilizado' },
+                     reusados, principales: utiles.filter(e => esPrincipal(e.liga, e.pais)).length },
     resultados: vigilancia,
     borrados,
     duracionMs: Date.now() - inicio
@@ -231,6 +251,15 @@ async function capturar() {
 // aprende de los firmes. Es preferible tener menos datos que tenerlos malos.
 // ════════════════════════════════════════════════════════════════════════════
 const HOJA_VIVO = () => db.collection('trixibot_estado').doc('envivo');
+
+// Suma un día a una fecha 'AAAA-MM-DD' sin pasar por Date, que en zonas
+// distintas de UTC devuelve el día equivocado.
+function siguienteDia(f) {
+  if (!f) return null;
+  const [a, m, d] = f.split('-').map(Number);
+  const t = new Date(Date.UTC(a, m - 1, d + 1));
+  return t.toISOString().slice(0, 10);
+}
 
 async function vigilar() {
   const actuales = await leerEnVivo(traer);
@@ -291,6 +320,76 @@ exports.vigilarAhora = onRequest(async (req, res) => {
 // procesar, sin importar de qué día sea: un partido de las 10pm que acaba
 // pasada la medianoche entra en el cierre siguiente.
 // ════════════════════════════════════════════════════════════════════════════
+// ── Resolver los cupones propuestos ─────────────────────────────────────────
+// Se corre dentro del cierre. Compara cada cupón con los resultados y anota si
+// pegó. Los que esperan un partido que aún no termina quedan pendientes y se
+// vuelven a mirar mañana.
+async function resolverCupones() {
+  const snap = await db.collection('combinadas_cupones')
+    .where('resuelto', '==', false).limit(300).get();
+  if (snap.empty) return { revisados: 0 };
+
+  const cupones = snap.docs.map(d => ({ ref: d.ref, ...d.data() }));
+
+  // El resultado se guarda con el id de Kambi y el cupón con el id del evento
+  // del captador: no son el mismo. Se cruzan por equipos y fecha, que ambos
+  // traen y vienen del mismo feed, así que los nombres coinciden.
+  const clave = (local, visita, fecha) =>
+    normEquipo(local) + '|' + normEquipo(visita) + '|' + (fecha || '');
+
+  // Solo resultados firmes: uno capturado antes del minuto 90 podría dar por
+  // perdido un cupón que un gol tardío habría ganado.
+  const fechas = [...new Set(cupones.map(c => c.fecha).filter(Boolean))];
+  const cache = new Map();
+  for (const f of fechas) {
+    for (const dia of [f, siguienteDia(f)]) {          // un partido de noche cae al día siguiente
+      const q = await db.collection('trixibot_resultados')
+        .where('fecha', '==', dia).where('firme', '==', true).get();
+      q.docs.forEach(d => { const r = d.data();
+        cache.set(clave(r.local, r.visita, r.fecha), r); });
+    }
+  }
+  const buscar = o => {
+    const f = o.inicio ? hoyBogota(new Date(o.inicio)) : null;
+    return cache.get(clave(o.local, o.visitante, f)) ||
+           cache.get(clave(o.local, o.visitante, siguienteDia(f)));
+  };
+
+  const cuenta = { ganados: 0, perdidos: 0, pendientes: 0 };
+  const ops = [];
+  const paraCalibrar = [];
+  cupones.forEach(c => {
+    const { estado } = resolverCupon(c, buscar);
+    if (estado === 'pendiente') { cuenta.pendientes++; return; }
+    const gano = estado === 'ganado';
+    gano ? cuenta.ganados++ : cuenta.perdidos++;
+    paraCalibrar.push({ prob: c.probEstimada || 0, gano });
+    ops.push(b => b.update(c.ref, {
+      resuelto: true, estado,
+      resueltoEn: admin.firestore.FieldValue.serverTimestamp()
+    }));
+  });
+  for (let i = 0; i < ops.length; i += 400) {
+    const b = db.batch(); ops.slice(i, i + 400).forEach(f => f(b)); await b.commit();
+  }
+
+  // Calibración: ¿lo que el bot predijo se parece a lo que pasó?
+  let calibracion = null;
+  if (paraCalibrar.length) {
+    const ref = db.collection('trixibot_estado').doc('calibracion');
+    const prev = await ref.get();
+    const franjas = sumarCalibracion(prev.exists ? prev.data().franjas : null, paraCalibrar);
+    calibracion = leerCalibracion(franjas);
+    await ref.set({ franjas, lectura: calibracion,
+                    actualizado: admin.firestore.FieldValue.serverTimestamp() });
+  }
+
+  const total = cuenta.ganados + cuenta.perdidos;
+  return { revisados: cupones.length, ...cuenta, calibracion,
+           // El acierto solo significa algo con muestra; con 5 cupones no dice nada
+           acierto: total ? +(cuenta.ganados / total).toFixed(3) : null };
+}
+
 async function cerrarDia() {
   // Solo los firmes: los dudosos son partidos que desaparecieron antes del
   // minuto 90 y su marcador puede estar incompleto. Es mejor tener menos
@@ -298,7 +397,17 @@ async function cerrarDia() {
   const snap = await db.collection('trixibot_resultados')
     .where('procesado', '==', false).where('firme', '==', true).limit(200).get();
 
-  if (snap.empty) return { procesados: 0, equipos: 0 };
+  // Aunque no haya nada que procesar se deja constancia: si no, no hay manera
+  // de saber si la tarea programada corrió o si nunca se disparó.
+  const cupones = await resolverCupones().catch(e => ({ error: String(e.message || e) }));
+
+  if (snap.empty) {
+    const vacio = { ok:true, corridoEn:new Date().toISOString(), procesados:0, equipos:0, sinTrabajo:true, cupones };
+    const antes = await db.collection('trixibot_estado').doc('aprendizaje').get();
+    await db.collection('trixibot_estado').doc('aprendizaje')
+      .set({ ...(antes.exists ? antes.data() : {}), ...vacio }, { merge:true });
+    return vacio;
+  }
 
   // Agrupar por equipo antes de escribir: un partido toca dos fichas, y varios
   // partidos del mismo equipo deben actualizarla una sola vez.
@@ -360,7 +469,8 @@ async function cerrarDia() {
     partidosAprendidos: acumulado + docs.length,
     equiposConFicha: conFicha,
     equiposListos: listos,                     // 8 partidos o más
-    equiposMaduros: maduros                    // 15 o más
+    equiposMaduros: maduros,                   // 15 o más
+    cupones
   };
   await db.collection('trixibot_estado').doc('aprendizaje').set(resumen);
   return resumen;
@@ -391,7 +501,11 @@ async function compactar() {
 
   const snap = await db.collection('trixibot_resultados')
     .where('procesado', '==', true).where('fecha', '<', corte).limit(300).get();
-  if (snap.empty) return { comprimidos: 0, corte };
+  if (snap.empty) {
+    const vacio = { ok:true, corridoEn:new Date().toISOString(), corte, comprimidos:0, sinTrabajo:true };
+    await db.collection('trixibot_estado').doc('compactacion').set(vacio);
+    return vacio;
+  }
 
   const docs = snap.docs.map(d => ({ ref: d.ref, ...d.data() }));
   const porEquipo = new Map();

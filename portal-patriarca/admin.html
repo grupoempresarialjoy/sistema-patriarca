@@ -271,6 +271,7 @@ select option{background:var(--bg3)}
         <div class="navgrp-item" data-sec="diario"        onclick="showTab('diario');initDiario()">📆 Ganancia Diaria</div>
         <div class="navgrp-item" data-sec="esf-ops"       onclick="showTab('esf-ops');initESFOps()">📋 ESF Ops</div>
         <div class="navgrp-item" data-sec="liquidaciones" id="tab-liquidaciones" onclick="showTab('liquidaciones');initLiquidaciones()">💳 Liquidaciones</div>
+        <div class="navgrp-item" data-sec="combinadas"    onclick="showTab('combinadas');initCombinadas()">🎰 Combinadas</div>
         <div class="navgrp-item" data-sec="auditor"       onclick="showTab('auditor')">🔍 Auditor</div>
       </div>
     </div>
@@ -763,6 +764,35 @@ select option{background:var(--bg3)}
       <div id="ap-panel" style="font-size:12px;color:var(--text2)">Cargando…</div>
     </div>
 
+
+    <!-- COMBINADAS -->
+    <div class="section" id="sec-combinadas">
+      <div class="sec-header">
+        <div>
+          <div class="sec-title">🎰 Combinadas propuestas</div>
+          <div class="sec-sub">Boletín del bot — de lo que propuso, cuánto pegó</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <select id="cb-dias" onchange="initCombinadas(true)" style="padding:7px 10px;font-size:12px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+            <option value="7">Últimos 7 días</option>
+            <option value="15">Últimos 15 días</option>
+            <option value="30" selected>Últimos 30 días</option>
+            <option value="90">Últimos 90 días</option>
+          </select>
+          <select id="cb-estado" onchange="cbPintar()" style="padding:7px 10px;font-size:12px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+            <option value="">Todos</option>
+            <option value="ganado">Solo ganados</option>
+            <option value="perdido">Solo perdidos</option>
+            <option value="pendiente">Solo pendientes</option>
+          </select>
+          <span style="font-size:12px;color:var(--text2)">Apuesta plana</span>
+          <input type="text" id="cb-importe" value="10.000" oninput="cbPintar()"
+            style="width:95px;text-align:right;padding:7px 10px;font-size:12px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+          <button class="btn" onclick="initCombinadas(true)" style="font-size:12px">↻</button>
+        </div>
+      </div>
+      <div id="cb-cuerpo" style="padding:0 20px 20px">Cargando…</div>
+    </div>
     <div class="section" id="sec-auditor">
       <div class="sec-header">
         <div>
@@ -6249,6 +6279,175 @@ function _esfRenderTabla(esfMap, mes) {
   </table></div>`;
 }
 
+// ── COMBINADAS PROPUESTAS ───────────────────────────────────────────────────
+// El boletín del bot. No es el registro de lo que el operador jugó — es de todo
+// lo que el bot propuso, se haya jugado o no. Esa es la única forma honesta de
+// medirlo: contar también los cupones que nadie quiso.
+let _cbCupones = [];
+
+async function initCombinadas(forzar){
+  const caja = document.getElementById('cb-cuerpo');
+  if (!caja) return;
+  if (_cbCupones.length && !forzar) { cbPintar(); return; }
+  caja.innerHTML = 'Cargando…';
+  try{
+    const dias = parseInt(document.getElementById('cb-dias')?.value || '30', 10);
+    const desde = new Date(Date.now() - dias*864e5).toISOString().slice(0,10);
+    const snap = await db.collection('combinadas_cupones').where('fecha','>=',desde).get();
+    _cbCupones = snap.docs.map(d => ({ id:d.id, ...d.data() }))
+      .sort((a,b) => String(b.fecha).localeCompare(String(a.fecha)));
+    cbPintar();
+  }catch(e){
+    caja.innerHTML = `<span style="color:var(--red)">No se pudo leer: ${e.message}</span>`;
+  }
+}
+
+function cbNum(id){ return parseFloat(String(document.getElementById(id)?.value||'').replace(/\./g,'').replace(',','.'))||0; }
+function cbPeso(n){ return '$' + Math.round(n||0).toLocaleString('es-CO'); }
+
+function cbPintar(){
+  const caja = document.getElementById('cb-cuerpo'); if (!caja) return;
+  const filtro = document.getElementById('cb-estado')?.value || '';
+  const importe = cbNum('cb-importe') || 10000;
+  const todos = _cbCupones;
+  if (!todos.length){ caja.innerHTML = '<div class="empty"><div class="empty-icon">🎰</div><p>Sin cupones en ese periodo.</p></div>'; return; }
+
+  const resueltos = todos.filter(c => c.resuelto);
+  const ganados   = resueltos.filter(c => c.estado === 'ganado');
+  const perdidos  = resueltos.filter(c => c.estado === 'perdido');
+  const pend      = todos.filter(c => !c.resuelto);
+
+  // Rendimiento con apuesta plana: es como se mide a un pronosticador de
+  // verdad. Acertar poco a cuota alta puede dejar más que acertar mucho a
+  // cuota baja, y el porcentaje de acierto solo no lo dice.
+  const invertido = resueltos.length * importe;
+  const cobrado   = ganados.reduce((s,c) => s + importe * (c.cuotaTotal||0), 0);
+  const rend      = invertido ? ((cobrado - invertido) / invertido * 100) : null;
+
+  // Reparto: perder por una opción no es lo mismo que perder por todas
+  const reparto = {};
+  resueltos.forEach(c => {
+    if (c.aciertos == null) return;          // sin desglose, no se puede contar
+    const k = c.aciertos + ' de ' + (c.opciones||[]).length;
+    reparto[k] = (reparto[k]||0)+1;
+  });
+
+  // Acierto por mercado, sobre opciones sueltas
+  const merc = {};
+  resueltos.forEach(c => (c.opciones||[]).forEach(o => {
+    if (o.acerto == null) return;
+    const m = merc[o.mercado] = merc[o.mercado] || {n:0, ok:0};
+    m.n++; if (o.acerto) m.ok++;
+  }));
+  const opsTot = Object.values(merc).reduce((s,m)=>s+m.n,0);
+  const opsOK  = Object.values(merc).reduce((s,m)=>s+m.ok,0);
+
+  const tarjeta = (t,v,sub,col) => `<div style="background:var(--bg3);border-radius:8px;padding:11px 13px">
+    <div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">${t}</div>
+    <div style="font-size:20px;font-weight:700;color:${col||'var(--text)'};margin-top:2px">${v}</div>
+    ${sub?`<div style="font-size:10px;color:var(--text2);margin-top:1px">${sub}</div>`:''}</div>`;
+
+  const NOMBRE = {'1X2':'1X2','GOL_OU':'Goles +/−','BTTS':'Ambos anotan','DC':'Doble oport.'};
+  const VIA = {'1':'Gana local','X':'Empate','2':'Gana visitante','OVER':'Más de','UNDER':'Menos de',
+               'SI':'Ambos anotan','NO':'No ambos','1X':'Local o empate','12':'Local o visitante','X2':'Empate o visitante'};
+
+  const lista = todos.filter(c => !filtro || (filtro==='pendiente' ? !c.resuelto : c.estado===filtro));
+  // Los ganados no necesitan completarse: ya se sabe que todas acertaron
+  const incompletos = resueltos.filter(c => c.aciertos == null && c.estado === 'perdido').length;
+
+  const filas = lista.map((c,i) => {
+    const n = (c.opciones||[]).length;
+    // Un cupón ganado tiene todas acertadas por definición: si le falta el
+    // desglose es porque se resolvió antes de que se guardara, no porque
+    // fallaran. Mostrar "0 de 3" en un ganado sería mentir.
+    const sinDesglose = c.resuelto && c.aciertos == null;
+    const ok = sinDesglose ? (c.estado === 'ganado' ? n : null) : (c.aciertos || 0);
+    const col = !c.resuelto ? 'var(--text2)' : c.estado==='ganado' ? 'var(--green)' : 'var(--red)';
+    const etq = !c.resuelto ? 'pendiente' : c.estado==='ganado' ? 'GANADO' : 'perdido';
+    const detalle = (c.opciones||[]).map(o => {
+      // En un cupón ganado todas acertaron, aunque no se haya guardado el
+      // desglose: no hace falta recalcular nada para saberlo.
+      const ac = o.acerto != null ? o.acerto : (c.estado === 'ganado' ? true : null);
+      const m = ac===true ? '✓' : ac===false ? '✗' : '?';
+      const c2 = ac===true ? 'var(--green)' : ac===false ? 'var(--red)' : 'var(--text2)';
+      const marc = (o.golesLocal!=null) ? `${o.golesLocal}-${o.golesVisita}`
+                 : ac===true ? 'ganó' : 'falta completar';
+      return `<tr>
+        <td style="width:22px;color:${c2};font-weight:700">${m}</td>
+        <td style="padding:3px 0">${o.local} vs ${o.visitante}</td>
+        <td style="color:var(--text2)">${NOMBRE[o.mercado]||o.mercado} · ${VIA[o.via]||o.via}${o.linea?' '+String(o.linea).replace('_','.'):''}</td>
+        <td style="text-align:right">${(o.cuota||0).toFixed(2)}</td>
+        <td style="text-align:right;color:var(--text2)">${marc}</td></tr>`;
+    }).join('');
+
+    return `<tr onclick="cbToggle(${i})" style="cursor:pointer">
+        <td style="font-size:11px;color:var(--text2)">${c.fecha}</td>
+        <td style="font-size:12px">${c.casa}</td>
+        <td style="text-align:center;font-size:12px">${n}</td>
+        <td style="text-align:right;font-weight:700">${(c.cuotaTotal||0).toFixed(2)}</td>
+        <td style="text-align:right;font-size:11px;color:var(--text2)">${((c.probEstimada||0)*100).toFixed(1)}%</td>
+        <td style="text-align:center;font-size:12px;color:${col}">${!c.resuelto ? '—' : ok==null ? '<span style="color:var(--orange)">falta completar</span>' : ok+' de '+n}</td>
+        <td style="text-align:right;font-weight:700;font-size:11px;color:${col}">${etq}</td>
+        <td style="text-align:right;font-size:11px;color:${c.estado==='ganado'?'var(--green)':'var(--text2)'}">
+          ${c.resuelto ? (c.estado==='ganado' ? '+'+cbPeso(importe*(c.cuotaTotal||0)-importe) : '−'+cbPeso(importe)) : ''}</td>
+      </tr>
+      <tr id="cb-det-${i}" style="display:none"><td colspan="8" style="background:var(--bg3);padding:8px 12px">
+        <table style="width:100%;font-size:12px">${detalle}</table></td></tr>`;
+  }).join('');
+
+  caja.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:9px;margin-bottom:14px">
+      ${tarjeta('Propuestos', todos.length, pend.length+' sin resolver')}
+      ${tarjeta('Ganados', ganados.length, resueltos.length? (ganados.length/resueltos.length*100).toFixed(1)+'% de acierto':'', 'var(--green)')}
+      ${tarjeta('Perdidos', perdidos.length, '', 'var(--red)')}
+      ${tarjeta('Opciones acertadas', opsTot? opsOK+' de '+opsTot : '—', opsTot? (opsOK/opsTot*100).toFixed(1)+'%':'')}
+      ${tarjeta('Rendimiento', rend==null?'—':(rend>=0?'+':'')+rend.toFixed(1)+'%',
+                invertido? cbPeso(cobrado)+' de '+cbPeso(invertido) : '', rend==null?null:(rend>=0?'var(--green)':'var(--red)'))}
+    </div>
+
+    <div style="display:flex;gap:22px;flex-wrap:wrap;margin-bottom:14px;font-size:12px">
+      <div>
+        <div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Cómo terminaron</div>
+        ${Object.entries(reparto).sort((a,b)=>b[0].localeCompare(a[0]))
+          .map(([k,v])=>`<div style="padding:1px 0">${k} opciones — <b>${v}</b></div>`).join('') || '<div style="color:var(--text2)">sin resueltos</div>'}
+      </div>
+      <div>
+        <div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Acierto por mercado</div>
+        ${Object.entries(merc).map(([m,x])=>`<div style="padding:1px 0">${NOMBRE[m]||m} — <b>${x.ok}/${x.n}</b> <span style="color:var(--text2)">(${(x.ok/x.n*100).toFixed(0)}%)</span></div>`).join('') || '<div style="color:var(--text2)">sin datos</div>'}
+      </div>
+    </div>
+
+    <div style="overflow:auto"><table class="tbl" style="font-size:12px">
+      <thead><tr>
+        <th>Fecha</th><th>Casa</th><th style="text-align:center">Opc.</th>
+        <th style="text-align:right">Cuota</th><th style="text-align:right">Prob.</th>
+        <th style="text-align:center">Aciertos</th><th style="text-align:right">Estado</th><th style="text-align:right">Resultado</th>
+      </tr></thead><tbody>${filas}</tbody></table></div>
+    <div style="font-size:11px;color:var(--text2);margin-top:8px">
+      Clic en una fila para ver sus opciones. El rendimiento supone ${cbPeso(importe)} en cada cupón resuelto.</div>
+    ${incompletos ? `<div style="background:rgba(240,160,80,.08);border:1px solid rgba(240,160,80,.3);border-radius:8px;padding:10px 13px;margin-top:10px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+      <span style="font-size:12px">Hay <b>${incompletos}</b> cupón${incompletos>1?'es':''} sin el detalle de cada opción — se resolvieron antes de que se guardara.</span>
+      <button class="btn btn-gold" id="cb-btn-comp" onclick="cbCompletar(this)" style="font-size:12px">Completar</button>
+    </div>` : ''}`;
+}
+
+async function cbCompletar(btn){
+  btn.disabled = true; btn.textContent = '⏳ Completando…';
+  try{
+    const r = await fetch('https://recalcularahora-2nssqccaxq-uc.a.run.app').then(x=>x.json());
+    toast('✅ ' + (r.recalculados||0) + ' cupones completados', 'success');
+    await initCombinadas(true);
+  }catch(e){
+    toast('No se pudo completar: ' + e.message, 'error');
+    btn.disabled = false; btn.textContent = 'Completar';
+  }
+}
+
+function cbToggle(i){
+  const f = document.getElementById('cb-det-'+i);
+  if (f) f.style.display = f.style.display === 'none' ? '' : 'none';
+}
+
 // ── ESTADO DEL APRENDIZAJE ──────────────────────────────────────────────────
 // Todo esto sale de tres documentos que escribe el cierre diario, no de
 // recorrer colecciones: abrir esta pantalla cuesta tres lecturas.
@@ -6260,18 +6459,23 @@ async function apRefrescar(){
   caja.innerHTML = 'Cargando…';
   try{
     // Los cupones se cuentan en vivo, no desde el último cierre: si no, lo que
-    // se propone hoy no aparece hasta mañana de madrugada.
-    const contar = async q => { try { return (await q.count().get()).data().count; } catch(_) { return 0; } };
-    const cup = db.collection('combinadas_cupones');
-    const [ap, cal, cap, nTotal, nGanados, nPerdidos, nPend] = await Promise.all([
+    // se propone hoy no aparecería hasta mañana de madrugada.
+    //
+    // Se leen los documentos en vez de usar count(): esta versión del SDK no
+    // trae esa función. Se acota a 60 días para que la consulta no crezca sin
+    // límite con los meses.
+    const desde = new Date(Date.now() - 60*864e5).toISOString().slice(0,10);
+    const [ap, cal, cap, cupSnap] = await Promise.all([
       db.collection('trixibot_estado').doc('aprendizaje').get(),
       db.collection('trixibot_estado').doc('calibracion').get(),
       db.collection('trixibot_estado').doc('captador').get(),
-      contar(cup),
-      contar(cup.where('estado', '==', 'ganado')),
-      contar(cup.where('estado', '==', 'perdido')),
-      contar(cup.where('resuelto', '==', false))
+      db.collection('combinadas_cupones').where('fecha', '>=', desde).get()
     ]);
+    const cupones = cupSnap.docs.map(d => d.data());
+    const nTotal    = cupones.length;
+    const nGanados  = cupones.filter(c => c.estado === 'ganado').length;
+    const nPerdidos = cupones.filter(c => c.estado === 'perdido').length;
+    const nPend     = cupones.filter(c => !c.resuelto).length;
     const A = ap.exists ? ap.data() : null;
     const C = cal.exists ? cal.data() : null;
     const K = cap.exists ? cap.data() : null;
@@ -6332,7 +6536,12 @@ async function apRefrescar(){
         Último cierre ${hora(A && A.corridoEn)} · último captador ${hora(K && K.corridoEn)}
         ${K ? ' · ' + (K.guardados||0) + ' partidos en seguimiento' : ''}
       </div>`;
-  }catch(e){ caja.innerHTML = `<span style="color:var(--red)">Error: ${e.message}</span>`; }
+  }catch(e){
+    // El error se muestra, no se disfraza de cero: un panel que dice 0 cuando
+    // en realidad falló es peor que uno que dice que falló.
+    caja.innerHTML = `<span style="color:var(--red)">No se pudo leer el estado: ${e.message}</span>`;
+    console.error('estado del aprendizaje:', e);
+  }
 }
 
 // ── AVISOS DE PENDIENTES ────────────────────────────────────────────────────

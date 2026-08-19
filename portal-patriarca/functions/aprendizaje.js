@@ -10,11 +10,39 @@
 
 const VENTANA = 20;          // partidos que se recuerdan por equipo
 
+// Los estados brasileños que Kambi cuelga del nombre: "São Paulo-SP",
+// "Internacional P. A.", "Remo-PA". La fuente histórica escribe el nombre sin
+// eso, y sin quitarlo los equipos quedan como si fueran distintos.
+const ESTADOS_BR = 'ac|al|ap|am|ba|ce|df|es|go|ma|mt|ms|mg|pa|pb|pr|pe|pi|rj|rn|rs|ro|rr|sc|sp|se|to';
+
+// La fuente histórica abrevia a su manera: "Ath Madrid", "Espanol", "Man
+// United". Sin esta tabla esos equipos quedarían con dos fichas separadas, y
+// justo son los de Champions, que es donde más se apuesta.
+const ALIAS = {
+  athmadrid:'madrid', athbilbao:'athletic', espanol:'espanyol', sociedad:'realsociedad',
+  betis:'realbetis', vallecano:'rayovallecano', celta:'celtavigo', alaves:'alaves',
+  manunited:'manchesterunited', mancity:'manchestercity', nottmforest:'nottinghamforest',
+  wolves:'wolverhampton', newcastle:'newcastleunited', tottenham:'tottenhamhotspur',
+  westham:'westhamunited', leeds:'leedsunited', sheffieldunited:'sheffieldunited',
+  einfrankfurt:'eintrachtfrankfurt', mgladbach:'monchengladbach', dortmund:'borussiadortmund',
+  leverkusen:'bayerleverkusen', hoffenheim:'hoffenheim', stuttgart:'vfbstuttgart',
+  werderbremen:'werderbremen', schalke:'schalke04', hertha:'herthaberlin',
+  parissg:'parissaintgermain', marseille:'olympiquemarsella', lyon:'olympiquelyon',
+  inter:'internazionale', milan:'acmilan', juventus:'juventus', roma:'asroma',
+  napoli:'napoli', lazio:'lazio', atalanta:'atalanta',
+  psveindhoven:'psv', azalkmaar:'az', spportugal:'sporting', benfica:'benfica',
+  porto:'porto', bragasp:'braga'
+};
+
 function normEquipo(s) {
-  return String(s || '')
+  const base = String(s || '')
     .toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
-    .replace(/\b(fc|cf|cd|sc|ac|se|ec|ad|cs|club|deportivo|deportes|atletico|de|del|la|el|los)\b/g, '')
+    .replace(new RegExp('[-\\s]+(' + ESTADOS_BR + ')\\.?\\s*$', 'i'), '')   // "-sp" al final
+    .replace(new RegExp('\\s+(' + ESTADOS_BR.split('|').join('|') + ')\\.?\\s*$', 'i'), '')
+    .replace(/\s+[a-z]\.\s*[a-z]\.\s*$/i, '')                         // "P. A." al final
+    .replace(/\b(fc|cf|cd|cda|sc|ac|se|ec|ad|cs|rcd|rc|ud|sd|club|deportivo|deportes|atletico|de|del|la|el|los)\b/g, '')
     .replace(/[^a-z0-9]/g, '');
+  return ALIAS[base] || base;
 }
 
 // Una línea del historial, desde el punto de vista de un equipo

@@ -13,7 +13,8 @@ const cheerio = require('cheerio');
 const { traer, leerKambi, leerKambiMercados, leerYaJuegos, leerWplay } = require('./casas');
 const { leerEnVivo, esFirme } = require('./resultados');
 const { esPrincipal } = require('./ligas');
-const { resolverCupon, sumarCalibracion, leerCalibracion } = require('./aprendizaje');
+const { descargar } = require('./historico');
+const { resolverCupon, acerto, sumarCalibracion, leerCalibracion } = require('./aprendizaje');
 const { normEquipo, lineaDe, actualizarFicha,
         sumarAlHistorico, DIAS_DETALLE } = require('./aprendizaje');
 const { agrupar } = require('./emparejar');
@@ -33,7 +34,10 @@ function horaBogota(iso) {
     hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso));
 }
 
-const DIAS_VENTANA = 3;
+// Cinco días, no tres. Medido: Wplay publica bastante de jueves y viernes que
+// con tres días se botaba — pasa de 5 a 13 partidos emparejados. El costo es
+// contenido porque los partidos lejanos solo refrescan sus mercados cada hora.
+const DIAS_VENTANA = 5;
 
 // Margen antes del pitazo inicial. Un partido a punto de empezar no sirve: las
 // casas empiezan a mover cuotas y a cerrar mercados, y el operador necesita
@@ -320,20 +324,10 @@ exports.vigilarAhora = onRequest(async (req, res) => {
 // procesar, sin importar de qué día sea: un partido de las 10pm que acaba
 // pasada la medianoche entra en el cierre siguiente.
 // ════════════════════════════════════════════════════════════════════════════
-// ── Resolver los cupones propuestos ─────────────────────────────────────────
-// Se corre dentro del cierre. Compara cada cupón con los resultados y anota si
-// pegó. Los que esperan un partido que aún no termina quedan pendientes y se
-// vuelven a mirar mañana.
-async function resolverCupones() {
-  const snap = await db.collection('combinadas_cupones')
-    .where('resuelto', '==', false).limit(300).get();
-  if (snap.empty) return { revisados: 0 };
-
-  const cupones = snap.docs.map(d => ({ ref: d.ref, ...d.data() }));
-
-  // El resultado se guarda con el id de Kambi y el cupón con el id del evento
-  // del captador: no son el mismo. Se cruzan por equipos y fecha, que ambos
-  // traen y vienen del mismo feed, así que los nombres coinciden.
+// El resultado se guarda con el id de Kambi y el cupón con el id del evento del
+// captador: no son el mismo. Se cruzan por equipos y fecha, que ambos traen y
+// vienen del mismo feed, así que los nombres coinciden.
+async function cargarResultados(cupones) {
   const clave = (local, visita, fecha) =>
     normEquipo(local) + '|' + normEquipo(visita) + '|' + (fecha || '');
 
@@ -342,7 +336,7 @@ async function resolverCupones() {
   const fechas = [...new Set(cupones.map(c => c.fecha).filter(Boolean))];
   const cache = new Map();
   for (const f of fechas) {
-    for (const dia of [f, siguienteDia(f)]) {          // un partido de noche cae al día siguiente
+    for (const dia of [f, siguienteDia(f)]) {        // un partido de noche cae al día siguiente
       const q = await db.collection('trixibot_resultados')
         .where('fecha', '==', dia).where('firme', '==', true).get();
       q.docs.forEach(d => { const r = d.data();
@@ -354,6 +348,59 @@ async function resolverCupones() {
     return cache.get(clave(o.local, o.visitante, f)) ||
            cache.get(clave(o.local, o.visitante, siguienteDia(f)));
   };
+  return { cache, buscar };
+}
+
+// Los cupones resueltos antes de que se guardara el detalle por opción quedaron
+// sin saber cuál falló: la hoja les mostraba "0 de 3" aunque hubieran ganado.
+// Esto los vuelve a resolver con los resultados que ya están guardados.
+async function recalcularCupones() {
+  const snap = await db.collection('combinadas_cupones')
+    .where('resuelto', '==', true).limit(300).get();
+  const viejos = snap.docs
+    .map(d => ({ ref: d.ref, ...d.data() }))
+    .filter(c => c.aciertos == null);
+  if (!viejos.length) return { recalculados: 0 };
+
+  const { cache, buscar } = await cargarResultados(viejos);
+  const ops = [];
+  viejos.forEach(c => {
+    const opciones = (c.opciones || []).map(o => {
+      const r = buscar(o);
+      return { ...o, acerto: acerto(o, r),
+               golesLocal: r ? r.golesLocal : null,
+               golesVisita: r ? r.golesVisita : null };
+    });
+    ops.push(b => b.update(c.ref, {
+      opciones, aciertos: opciones.filter(o => o.acerto === true).length
+    }));
+  });
+  for (let i = 0; i < ops.length; i += 400) {
+    const b = db.batch(); ops.slice(i, i + 400).forEach(f => f(b)); await b.commit();
+  }
+  return { recalculados: viejos.length, sinResultado: cache.size === 0 };
+}
+
+// Se llama desde el administrador, así que necesita permiso de origen cruzado
+exports.recalcularAhora = onRequest(async (req, res) => {
+  res.set('Access-Control-Allow-Origin', '*');
+  if (req.method === 'OPTIONS') { res.set('Access-Control-Allow-Methods', 'GET'); return res.status(204).send(''); }
+  try { res.json(await recalcularCupones()); }
+  catch (e) { res.status(500).json({ ok:false, error:String(e && e.message || e) }); }
+});
+
+// ── Resolver los cupones propuestos ─────────────────────────────────────────
+// Se corre dentro del cierre. Compara cada cupón con los resultados y anota si
+// pegó. Los que esperan un partido que aún no termina quedan pendientes y se
+// vuelven a mirar mañana.
+async function resolverCupones() {
+  const snap = await db.collection('combinadas_cupones')
+    .where('resuelto', '==', false).limit(300).get();
+  if (snap.empty) return { revisados: 0 };
+
+  const cupones = snap.docs.map(d => ({ ref: d.ref, ...d.data() }));
+
+  const { buscar } = await cargarResultados(cupones);
 
   const cuenta = { ganados: 0, perdidos: 0, pendientes: 0 };
   const ops = [];
@@ -364,8 +411,20 @@ async function resolverCupones() {
     const gano = estado === 'ganado';
     gano ? cuenta.ganados++ : cuenta.perdidos++;
     paraCalibrar.push({ prob: c.probEstimada || 0, gano });
+
+    // Se guarda el resultado de CADA opción, no solo el del cupón. Perder por
+    // una sola opción no es lo mismo que perder por las tres, y esa diferencia
+    // es lo que dice si el bot iba encaminado o escogió mal.
+    const opciones = (c.opciones || []).map(o => {
+      const r = buscar(o);
+      return { ...o, acerto: acerto(o, r),
+               golesLocal: r ? r.golesLocal : null,
+               golesVisita: r ? r.golesVisita : null };
+    });
+    const aciertos = opciones.filter(o => o.acerto === true).length;
+
     ops.push(b => b.update(c.ref, {
-      resuelto: true, estado,
+      resuelto: true, estado, opciones, aciertos,
       resueltoEn: admin.firestore.FieldValue.serverTimestamp()
     }));
   });
@@ -484,6 +543,73 @@ exports.cierreDiario = onSchedule(
 
 exports.cerrarAhora = onRequest(async (req, res) => {
   try { res.json(await cerrarDia()); }
+  catch (e) { res.status(500).json({ ok:false, error:String(e && e.message || e) }); }
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// CARGA DEL HISTÓRICO
+// Llena las fichas con años de resultados publicados gratis, en vez de esperar
+// meses a que se acumulen. Va a los contadores comprimidos: veinte mil partidos
+// pesan lo mismo que doscientos.
+// ════════════════════════════════════════════════════════════════════════════
+async function cargarHistorico(anios) {
+  const t0 = Date.now();
+  const { partidos, informe } = await descargar(
+    url => traer(url, { json: false }), anios || 3);
+  if (!partidos.length) return { ok: false, motivo: 'no se descargó nada' };
+
+  // Agrupar por equipo antes de escribir
+  const porEquipo = new Map();
+  partidos.forEach(({ equipo, linea }) => {
+    const k = normEquipo(equipo);
+    if (!k) return;
+    if (!porEquipo.has(k)) porEquipo.set(k, { nombre: equipo, lineas: [] });
+    porEquipo.get(k).lineas.push(linea);
+  });
+
+  const claves = [...porEquipo.keys()];
+  let escritos = 0;
+  // De a 200 equipos: leer los previos, sumar, escribir
+  for (let i = 0; i < claves.length; i += 200) {
+    const trozo = claves.slice(i, i + 200);
+    const previas = await Promise.all(trozo.map(k =>
+      db.collection('combinadas_equipos').doc(k).get()));
+    const lote = db.batch();
+    trozo.forEach((k, j) => {
+      const { nombre, lineas } = porEquipo.get(k);
+      const prev = previas[j].exists ? previas[j].data() : null;
+      // No repetir si ya se cargó antes: cada partido tiene id propio
+      const yaVistos = new Set((prev && prev.historicoIds) || []);
+      const nuevas = lineas.filter(l => !yaVistos.has(l.id));
+      if (!nuevas.length) return;
+      let h = prev && prev.historico;
+      nuevas.forEach(l => { h = sumarAlHistorico(h, l); });
+      lote.set(db.collection('combinadas_equipos').doc(k), {
+        equipo: prev && prev.equipo ? prev.equipo : nombre,
+        historico: h,
+        // Se guarda qué partidos ya se contaron, para poder recargar sin duplicar
+        historicoIds: [...yaVistos, ...nuevas.map(l => l.id)].slice(-1200),
+        historicoActualizado: admin.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+      escritos++;
+    });
+    await lote.commit();
+  }
+
+  const resumen = { ok: true, corridoEn: new Date().toISOString(),
+                    lecturas: partidos.length / 2, equipos: claves.length,
+                    actualizados: escritos, porArchivo: informe,
+                    duracionMs: Date.now() - t0 };
+  await db.collection('trixibot_estado').doc('historico').set(resumen);
+  return resumen;
+}
+
+// Descarga 50 archivos y escribe cientos de equipos: necesita más aire que el
+// resto de funciones.
+exports.cargarHistoricoAhora = onRequest({ timeoutSeconds: 540, memory: '1GiB' }, async (req, res) => {
+  res.set('Access-Control-Allow-Origin', '*');
+  if (req.method === 'OPTIONS') { res.set('Access-Control-Allow-Methods', 'GET'); return res.status(204).send(''); }
+  try { res.json(await cargarHistorico(parseInt(req.query.anios || '3', 10))); }
   catch (e) { res.status(500).json({ ok:false, error:String(e && e.message || e) }); }
 });
 

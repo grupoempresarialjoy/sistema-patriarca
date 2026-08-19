@@ -1103,6 +1103,23 @@ select option { background: var(--bg3); }
       </div>
 
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:16px">
+        <div style="border-bottom:1px solid var(--border);margin-bottom:12px;padding-bottom:12px">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <span style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Ligas y torneos</span>
+            <span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+              <span id="cp-ligas-cuenta" style="font-size:11px;color:var(--text2);margin-right:4px">—</span>
+              <span id="cp-ligas-top" onclick="cpLigasPrincipales()" style="cursor:pointer;user-select:none;font-size:11px;padding:3px 10px;border-radius:5px;border:1px solid rgba(76,175,80,.45);color:var(--green);font-weight:600">⭐ Principales</span>
+              <span onclick="cpLigasTodas(true)"  style="cursor:pointer;user-select:none;font-size:11px;padding:3px 10px;border-radius:5px;border:1px solid var(--border);color:var(--text2)">Todas</span>
+              <span onclick="cpLigasTodas(false)" style="cursor:pointer;user-select:none;font-size:11px;padding:3px 10px;border-radius:5px;border:1px solid var(--border);color:var(--text2)">Ninguna</span>
+              <span onclick="cpLigasPanel()" id="cp-ligas-toggle" style="cursor:pointer;user-select:none;font-size:11px;padding:3px 10px;border-radius:5px;border:1px solid rgba(53,204,47,.40);color:var(--gold);font-weight:600">▶ Elegir</span>
+            </span>
+          </div>
+          <div id="cp-ligas-box" style="display:none;margin-top:10px">
+            <input id="cp-ligas-buscar" type="text" placeholder="Buscar liga, copa o país..." oninput="cpPintarLigas()"
+              style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:7px 10px;font-size:12px;margin-bottom:8px">
+            <div id="cp-ligas-lista" style="max-height:230px;overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:4px"></div>
+          </div>
+        </div>
         <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
           <div>
             <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Opciones por cupón</div>
@@ -1112,6 +1129,15 @@ select option { background: var(--bg3); }
             </select>
           </div>
           <div>
+            <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Estrategia</div>
+            <select id="cp-estrategia" onchange="cpEstrategiaCambio()" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:7px 10px;font-size:13px;max-width:200px">
+              <option value="bonos" selected>Liberar bono · 1.60 a 1.75</option>
+              <option value="acierto">Favoritos claros · 1.20 a 1.40</option>
+              <option value="ambas">Liberar bono + Favoritos claros</option>
+              <option value="libre">A mi medida</option>
+            </select>
+          </div>
+          <div id="cp-cuota-caja">
             <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:4px">
               <span style="font-size:11px;color:var(--text2)">Cuota por opción</span>
               <span id="cp-modo" onclick="cpModoCuota()" style="cursor:pointer;user-select:none;font-size:10px;color:var(--gold)">✎ a mano</span>
@@ -1143,7 +1169,7 @@ select option { background: var(--bg3); }
           </div>
           <div>
             <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Ventana</div>
-            <select id="cp-dias" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:7px 10px;font-size:13px">
+            <select id="cp-dias" onchange="cpCatalogoLigas()" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:7px 10px;font-size:13px">
               <option value="0">Solo hoy</option><option value="1" selected>Hoy y mañana</option><option value="2">3 días</option><option value="4">5 días</option>
             </select>
           </div>
@@ -1154,10 +1180,15 @@ select option { background: var(--bg3); }
               <div class="tb-mdd-panel" id="cp-merc-panel"></div>
             </details>
           </div>
-          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);cursor:pointer;user-select:none">
-            <input type="checkbox" id="cp-solo-top" checked style="width:15px;height:15px;cursor:pointer">
-            Solo ligas principales
-          </label>
+          <div>
+            <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Análisis propio</div>
+            <select id="cp-coincidencia" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:7px 10px;font-size:13px;max-width:190px">
+              <option value="0">No usar</option>
+              <option value="0.10">Descartar si difiere +10%</option>
+              <option value="0.06" selected>Descartar si difiere +6%</option>
+              <option value="0.03">Solo si coincide (±3%)</option>
+            </select>
+          </div>
           <button class="btn btn-gold" id="cp-btn" onclick="cpBuscar()">🎟 Armar cupones</button>
         </div>
       </div>
@@ -1334,7 +1365,7 @@ select option { background: var(--bg3); }
 
         <div style="border-top:1px solid var(--border);margin:12px 0;padding-top:12px">
           <div style="display:flex;justify-content:space-between;align-items:center">
-            <span style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Ligas</span>
+            <span style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Ligas y torneos</span>
             <span style="display:flex;gap:6px;align-items:center">
               <span id="tb-ligas-cuenta" style="font-size:11px;color:var(--text2);margin-right:4px">—</span>
               <span id="tb-ligas-top" onclick="tbLigasPrincipales()" style="cursor:pointer;user-select:none;font-size:11px;padding:3px 10px;border-radius:5px;border:1px solid rgba(76,175,80,.45);color:var(--green);font-weight:600">⭐ Principales</span>
@@ -1344,7 +1375,7 @@ select option { background: var(--bg3); }
             </span>
           </div>
           <div id="tb-ligas-box" style="display:none;margin-top:10px">
-            <input id="tb-ligas-buscar" type="text" placeholder="Buscar liga..." oninput="tbPintarLigas()"
+            <input id="tb-ligas-buscar" type="text" placeholder="Buscar liga, copa o país..." oninput="tbPintarLigas()"
               style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:7px 10px;font-size:12px;margin-bottom:8px">
             <div id="tb-ligas-lista" style="max-height:230px;overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:4px"></div>
           </div>
@@ -2956,7 +2987,7 @@ function showTab(name) {
   if (name==='comisiones') renderComisionesTab();
   if (name==='liquidacion') renderLiquidacion();
   if (name==='trixibot') showTrixiSubtab(_tbCfg.activo ? 'bot' : 'calc');
-  if (name==='combinadas') cpPintarMercados();
+  if (name==='combinadas'){ cpPintarMercados(); cpEstrategiaCambio(); cpCatalogoLigas(); }
   if (name==='inversiones') showInvSubtab('historial');
 }
 
@@ -9309,8 +9340,23 @@ function cpCandidatas(eventos, o) {
         if (!mejor) return;
         if (mejor.cuota < cuotaMin || mejor.cuota > cuotaMax) return;
 
+        // Filtro de coincidencia: solo aplica a goles, que es lo único medido.
+        // Si no hay ficha de alguno de los dos equipos, no filtra nada — no
+        // sabemos, así que no descartamos.
+        let modelo = null;
+        if (o.exigirCoincidencia && mid === 'GOL_OU' && linea){
+          const L = parseFloat(tbLinea(linea));
+          const m = cpProbGoles(ev.local, ev.visitante, L);
+          if (m){
+            modelo = via === 'OVER' ? m.over : m.under;
+            if (Math.abs(modelo - justa.p[via]) > o.exigirCoincidencia) return;
+          }
+        }
+
         fuera.push({
-          evento: ev, clave, mid, linea: linea || null, via,
+          evento: ev, clave, mid, linea: linea || null, via, modelo,
+          // Lo que históricamente rinde este tipo de apuesta a esta cuota
+          rendHist: cpRendimiento(mid, mejor.cuota),
           etiqueta: def.etiquetas[via] || via,
           casa: mejor.casa, cuota: mejor.cuota,
           prob: justa.p[via],
@@ -9324,7 +9370,11 @@ function cpCandidatas(eventos, o) {
       });
     });
   });
-  return fuera.sort((a, b) => b.ventaja - a.ventaja);
+  // Antes se ordenaba solo por precio. Ahora manda el rendimiento histórico del
+  // tipo de apuesta: un 1X2 a 1.60 vale más que un "más de 2.5" a 1.60 aunque
+  // el segundo esté mejor pagado, porque el primero históricamente no pierde.
+  return fuera.sort((a, b) =>
+    (b.rendHist - a.rendHist) || (b.ventaja - a.ventaja));
 }
 
 // Arma varios cupones distintos. Una pata por partido: dos selecciones del
@@ -9361,10 +9411,14 @@ function cpArmarCupones(candidatas, o) {
     // El cupón pega solo si pegan todas: las probabilidades se multiplican
     const prob = sel.reduce((s, c) => s * c.prob, 1);
 
+    // Rendimiento esperado del cupón: el de cada opción, multiplicado. Es la
+    // cuenta que dice si un cupón de 3 a 1.60 sangra 0,4% o 12%.
+    const rendCupon = (sel.reduce((r, c) => r * (1 + (c.rendHist || 0)/100), 1) - 1) * 100;
+
     cupones.push({
       patas: sel.map(c => ({ ...c, cuotaEn: c.cuotasTodas[elegida.casa] })),
       casa: elegida.casa,
-      total, prob,
+      total, prob, rendCupon,
       // Ventaja con el precio real de esa casa, no con el mejor de cada una
       ventaja: total * prob - 1,
       porCasa
@@ -9381,6 +9435,216 @@ function cpTotalPorCasa(patas) {
     if (!patas.every(p => p.cuotasTodas[casa] > 1)) return null;
     return { casa, total: patas.reduce((s, p) => s * p.cuotasTodas[casa], 1) };
   }).filter(Boolean).sort((a, b) => b.total - a.total);
+}
+
+// ── Selector de ligas ───────────────────────────────────────────────────────
+// Con su propia selección, separada de la de Trixi Bot: no se busca lo mismo
+// para una surebet que para una combinada.
+let _cpLigas = [];
+let _cpLigasSel = new Set();
+
+function cpLigasClave(){ return 'cp-ligas-' + (auth.currentUser?.uid || ''); }
+function cpGuardarLigas(){
+  try { localStorage.setItem(cpLigasClave(), JSON.stringify([..._cpLigasSel])); } catch(_){}
+}
+function cpCargarLigasGuardadas(){
+  try { const g = JSON.parse(localStorage.getItem(cpLigasClave()) || 'null');
+    if (Array.isArray(g)) { _cpLigasSel = new Set(g); return true; } } catch(_){}
+  return false;
+}
+
+async function cpCatalogoLigas(){
+  const uid = auth.currentUser?.uid; if (!uid) return;
+  try{
+    const dias = parseInt(document.getElementById('cp-dias')?.value || '1', 10);
+    const snap = await db.collection('trixibot_eventos')
+      .where('fecha','>=',tbHoyBogota()).where('fecha','<=',tbFechaBogota(dias)).get();
+    const cuenta = {}, paisDe = {}, principal = {};
+    snap.docs.forEach(d => { const x = d.data(); const l = x.liga || '—';
+      cuenta[l] = (cuenta[l]||0)+1;
+      if (x.pais && !paisDe[l]) paisDe[l] = x.pais;
+      if (typeof x.principal === 'boolean') principal[l] = x.principal;
+    });
+    _cpLigas = Object.entries(cuenta).map(([liga,n]) => ({ liga, n,
+        pais: paisDe[liga] || '', principal: !!principal[liga] }))
+      .sort((a,b) => (a.pais||'zzz').localeCompare(b.pais||'zzz') || a.liga.localeCompare(b.liga));
+    // Primera vez: solo principales, que es lo que conviene para combinadas
+    if (!cpCargarLigasGuardadas())
+      _cpLigasSel = new Set(_cpLigas.filter(l => l.principal).map(l => l.liga));
+    cpPintarLigas();
+  }catch(e){ console.warn('ligas combinadas:', e); }
+}
+
+function cpLigasPanel(){
+  const box = document.getElementById('cp-ligas-box');
+  const btn = document.getElementById('cp-ligas-toggle');
+  if (!box) return;
+  const abierto = box.style.display !== 'none';
+  box.style.display = abierto ? 'none' : '';
+  if (btn) btn.textContent = abierto ? '▶ Elegir' : '▼ Cerrar';
+}
+function cpLigasTodas(si){
+  _cpLigasSel = si ? new Set(_cpLigas.map(l => l.liga)) : new Set();
+  cpGuardarLigas(); cpPintarLigas();
+}
+function cpLigasPrincipales(){
+  _cpLigasSel = new Set(_cpLigas.filter(l => l.principal).map(l => l.liga));
+  cpGuardarLigas(); cpPintarLigas();
+}
+function cpToggleLiga(l){
+  _cpLigasSel.has(l) ? _cpLigasSel.delete(l) : _cpLigasSel.add(l);
+  cpGuardarLigas(); cpPintarLigas();
+}
+
+function cpPintarLigas(){
+  const cont = document.getElementById('cp-ligas-lista');
+  const cnt  = document.getElementById('cp-ligas-cuenta');
+  if (cnt) cnt.textContent = _cpLigasSel.size + ' de ' + _cpLigas.length;
+  const top = document.getElementById('cp-ligas-top');
+  if (top) { const n = _cpLigas.filter(l => l.principal).length;
+    top.textContent = '⭐ Principales' + (n ? ' (' + n + ')' : ''); }
+  if (!cont) return;
+  const q = (document.getElementById('cp-ligas-buscar')?.value || '').toLowerCase();
+  const vis = _cpLigas.filter(l => !q ||
+    l.liga.toLowerCase().includes(q) || tbNormPais(l.pais).includes(tbNormPais(q)));
+  cont.innerHTML = vis.map(l => {
+    const on = _cpLigasSel.has(l.liga);
+    return `<label onclick="event.preventDefault();cpToggleLiga(${JSON.stringify(l.liga).replace(/"/g,'&quot;')})"
+      style="display:flex;align-items:center;gap:7px;cursor:pointer;user-select:none;padding:5px 8px;border-radius:5px;
+      background:${on?'rgba(53,204,47,.12)':'transparent'};border:1px solid ${on?'rgba(53,204,47,.35)':'var(--border)'}">
+      <span style="width:13px;height:13px;border-radius:3px;flex-shrink:0;border:1px solid ${on?'var(--gold)':'var(--border)'};
+        background:${on?'var(--gold)':'transparent'};color:#fff;font-size:10px;line-height:12px;text-align:center">${on?'✓':''}</span>
+      ${l.pais ? `<span title="${l.pais}" style="font-size:12px;flex-shrink:0;line-height:1">${tbBandera(l.pais)}</span>` : '<span style="width:14px;flex-shrink:0"></span>'}
+      <span style="font-size:11px;color:${on?'var(--gold)':'var(--text2)'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${l.liga}${l.pais?`<span style="opacity:.6"> (${l.pais})</span>`:''}</span>
+      ${l.principal ? '<span title="Liga principal" style="font-size:9px;color:var(--green)">⭐</span>' : ''}
+      <span style="font-size:10px;color:var(--text2)">${l.n}</span>
+    </label>`;
+  }).join('') || '<div style="font-size:11px;color:var(--text2);padding:8px">Sin coincidencias</div>';
+}
+
+// ── Estrategias ─────────────────────────────────────────────────────────────
+// Dos formas de armar cupones, con rangos distintos, para poder compararlas con
+// resultados en vez de opiniones:
+//   bonos   — 1.60 a 1.75, que es lo que piden las casas para liberar
+//   acierto — 1.20 a 1.40, que pega mucho más seguido aunque pague menos
+// Cada cupón queda marcado con la suya, y el administrador las separa.
+const CP_ESTRATEGIAS = {
+  bonos:   { min:1.60, max:1.75, nombre:'Liberar bono' },
+  acierto: { min:1.20, max:1.40, nombre:'Favoritos claros' }
+};
+
+function cpEstrategiaCambio(){
+  const v = document.getElementById('cp-estrategia').value;
+  const caja = document.getElementById('cp-cuota-caja');
+  // Con estrategia fija, el rango lo pone ella; solo en "a mi manera" se edita
+  if (caja) caja.style.display = (v === 'libre') ? '' : 'none';
+}
+
+// ── Rendimiento histórico por mercado y rango de cuota ──────────────────────
+// Medido sobre 113.155 apuestas de 22.660 partidos europeos (2020–2026).
+// Es el rendimiento real de apostar a ciegas en cada casilla: no dice qué va a
+// pasar en un partido, dice qué tipo de apuesta históricamente ha sangrado
+// menos. Todos son negativos porque ese es el margen de la casa; la gracia está
+// en escoger las casillas menos malas.
+//
+// El hallazgo grande: el 1X2 del favorito entre 1.55 y 1.70 es el único
+// segmento que no pierde (+0,14%), y es justo la cuota que piden las casas
+// para liberar bonos. Los mismos 1.60 en goles pierden 4,15%.
+const CP_RENDIMIENTO = {
+  '1X2':    [[1.20,-0.31],[1.40,-2.33],[1.55,+0.14],[1.70,-3.24],[1.90,-3.77],
+             [2.20,-2.76],[2.70,-6.04],[3.50,-8.99],[5.00,-17.13],[10.0,-26.52]],
+  'GOL_OU': [[1.20,-4.80],[1.40,-4.46],[1.55,-4.15],[1.70,-3.29],[1.90,-6.88],
+             [2.20,-6.89],[2.70,-10.37],[3.50,-17.12],[5.00,-20.00],[10.0,-28.00]],
+  // Ambos anotan y doble oportunidad no vienen en la fuente histórica: se usa
+  // la curva general, que es la media de todos los mercados juntos.
+  '_otros': [[1.20,-2.16],[1.40,-3.79],[1.55,-3.12],[1.70,-3.28],[1.90,-5.94],
+             [2.20,-4.91],[2.70,-6.51],[3.50,-9.17],[5.00,-17.25],[10.0,-26.52]]
+};
+
+function cpRendimiento(mid, cuota){
+  const tabla = CP_RENDIMIENTO[mid] || CP_RENDIMIENTO['_otros'];
+  let r = tabla[0][1];
+  for (const [desde, val] of tabla) { if (cuota >= desde) r = val; }
+  return r;   // en porcentaje, casi siempre negativo
+}
+
+// ── Modelo propio de goles ──────────────────────────────────────────────────
+// Estima cuántos goles saldrán en el partido con las fichas de los dos equipos
+// y de ahí la probabilidad de pasar cada línea.
+//
+// Medido sobre 9.669 partidos: el modelo NO le gana al mercado. Pero sí sabe
+// cuándo el mercado es confiable — filtrando las opciones donde los dos
+// coinciden, el margen por opción baja de 3,1% a 0,95%, y en un cupón de tres
+// eso es pasar de perder 9,1% a perder 2,8%.
+const CP_FICHAS = new Map();     // equipo normalizado → ficha
+
+// Igual que el normalizador de las functions, para que las claves coincidan
+const CP_ESTADOS = 'ac|al|ap|am|ba|ce|df|es|go|ma|mt|ms|mg|pa|pb|pr|pe|pi|rj|rn|rs|ro|rr|sc|sp|se|to';
+const CP_ALIAS = { athmadrid:'madrid', athbilbao:'athletic', espanol:'espanyol',
+  sociedad:'realsociedad', betis:'realbetis', vallecano:'rayovallecano', celta:'celtavigo',
+  manunited:'manchesterunited', mancity:'manchestercity', nottmforest:'nottinghamforest',
+  wolves:'wolverhampton', newcastle:'newcastleunited', tottenham:'tottenhamhotspur',
+  westham:'westhamunited', leeds:'leedsunited', einfrankfurt:'eintrachtfrankfurt',
+  mgladbach:'monchengladbach', dortmund:'borussiadortmund', leverkusen:'bayerleverkusen',
+  stuttgart:'vfbstuttgart', schalke:'schalke04', hertha:'herthaberlin',
+  parissg:'parissaintgermain', marseille:'olympiquemarsella', lyon:'olympiquelyon',
+  inter:'internazionale', milan:'acmilan', roma:'asroma', psveindhoven:'psv',
+  azalkmaar:'az', spportugal:'sporting', bragasp:'braga' };
+
+function cpNormEquipo(s){
+  const b = String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'')
+    .replace(new RegExp('[-\\s]+('+CP_ESTADOS+')\\.?\\s*$','i'),'')
+    .replace(new RegExp('\\s+('+CP_ESTADOS+')\\.?\\s*$','i'),'')
+    .replace(/\s+[a-z]\.\s*[a-z]\.\s*$/i,'')
+    .replace(/\b(fc|cf|cd|cda|sc|ac|se|ec|ad|cs|rcd|rc|ud|sd|club|deportivo|deportes|atletico|de|del|la|el|los)\b/g,'')
+    .replace(/[^a-z0-9]/g,'');
+  return CP_ALIAS[b] || b;
+}
+
+// Trae solo las fichas de los equipos que aparecen en estos partidos
+async function cpCargarFichas(eventos){
+  const faltan = new Set();
+  eventos.forEach(e => [e.local, e.visitante].forEach(t => {
+    const k = cpNormEquipo(t);
+    if (k && !CP_FICHAS.has(k)) faltan.add(k);
+  }));
+  const claves = [...faltan];
+  for (let i = 0; i < claves.length; i += 25){
+    const trozo = claves.slice(i, i+25);
+    const docs = await Promise.all(trozo.map(k =>
+      db.collection('combinadas_equipos').doc(k).get().catch(()=>null)));
+    trozo.forEach((k, j) => CP_FICHAS.set(k, docs[j] && docs[j].exists ? docs[j].data() : null));
+  }
+}
+
+// Combina la memoria corta con la larga según cuánta confianza haya
+function cpNumeros(f){
+  if (!f) return null;
+  const corta = (f.partidos >= 4) ? f : null;
+  const larga = (f.historico && f.historico.partidos >= 10) ? f.historico : null;
+  if (!corta && !larga) return null;
+  if (!larga) return { gf: corta.golesFavor, gc: corta.golesContra, n: corta.partidos };
+  const lgf = larga.gf / larga.partidos, lgc = larga.gc / larga.partidos;
+  if (!corta) return { gf: lgf, gc: lgc, n: larga.partidos };
+  const p = Math.min(1, corta.partidos / 20);
+  return { gf: corta.golesFavor*p + lgf*(1-p), gc: corta.golesContra*p + lgc*(1-p),
+           n: corta.partidos + larga.partidos };
+}
+
+const cpPoisson = (k, l) => Math.exp(-l)*Math.pow(l,k)/[1,1,2,6,24,120,720,5040][k];
+
+// Probabilidad de que el partido pase de cierta línea de goles
+function cpProbGoles(local, visita, linea){
+  const A = cpNumeros(CP_FICHAS.get(cpNormEquipo(local)));
+  const B = cpNumeros(CP_FICHAS.get(cpNormEquipo(visita)));
+  if (!A || !B) return null;
+  const lh = (A.gf + B.gc) / 2, la = (B.gf + A.gc) / 2;
+  if (!(lh > 0) || !(la > 0) || lh > 6 || la > 6) return null;
+  const tope = Math.floor(linea);
+  let menos = 0;
+  for (let i = 0; i <= tope; i++)
+    for (let j = 0; j <= tope - i; j++) menos += cpPoisson(i, lh) * cpPoisson(j, la);
+  return { over: 1 - menos, under: menos, muestra: Math.min(A.n, B.n) };
 }
 
 // ── COMBINADAS PRO · interfaz ───────────────────────────────────────────────
@@ -9615,13 +9879,14 @@ async function cpRegistrar(cupones){
     cupones.forEach(c => {
       // Id estable por contenido: si el bot propone el mismo cupón varias veces
       // en el día, se guarda una sola vez y no infla la muestra.
-      const firma = c.casa + '|' + c.patas
+      const firma = (c.estrategia||'') + '|' + c.casa + '|' + c.patas
         .map(p => (p.evento.id || '') + ':' + p.clave + ':' + p.via).sort().join('|');
       let h = 0; for (let i=0;i<firma.length;i++) h = (h*31 + firma.charCodeAt(i)) | 0;
       const id = sello + '_' + uid.slice(0,6) + '_' + Math.abs(h).toString(36);
 
       lote.set(db.collection('combinadas_cupones').doc(id), {
         uid, fecha: sello, casa: c.casa,
+        estrategia: c.estrategia || 'libre',
         cuotaTotal: +c.total.toFixed(3),
         probEstimada: +c.prob.toFixed(4),
         margen: +(-c.ventaja).toFixed(4),
@@ -9659,26 +9924,36 @@ async function cpBuscar(){
       .where('fecha','>=',tbHoyBogota()).where('fecha','<=',tbFechaBogota(dias)).get({source:'server'});
     _cpEventos = snap.docs.map(d => ({ id:d.id, ...d.data() }));
 
-    const soloTop = document.getElementById('cp-solo-top').checked;
-    const ligas = soloTop
-      ? [...new Set(_cpEventos.filter(e => tbEsLigaPrincipal(e.liga, e.pais)).map(e => e.liga||'—'))]
-      : null;
+    const ligas = _cpLigasSel.size ? [..._cpLigasSel] : null;
 
-    const cand = cpCandidatas(_cpEventos, {
-      casasPermitidas: null,
-      mercadosPermitidos: _cpMercSel,
-      ligasPermitidas: ligas,
-      cuotaMin: _cpManual ? cpCuota('cp-cmin', 1)  : parseFloat(document.getElementById('cp-cmin-sel').value),
-      cuotaMax: _cpManual ? cpCuota('cp-cmax', 99) : parseFloat(document.getElementById('cp-cmax-sel').value)
-    });
+    // Las fichas de los equipos que juegan, para el modelo propio
+    const coincidencia = parseFloat(document.getElementById('cp-coincidencia')?.value || '0');
+    if (coincidencia > 0) await cpCargarFichas(_cpEventos);
 
-    const cupones = cpArmarCupones(cand, {
-      patas: parseInt(document.getElementById('cp-patas').value,10),
-      cuantos: 6
+    const estr = document.getElementById('cp-estrategia')?.value || 'libre';
+    const patas = parseInt(document.getElementById('cp-patas').value,10);
+    const base = { exigirCoincidencia: coincidencia || null, casasPermitidas: null,
+                   mercadosPermitidos: _cpMercSel, ligasPermitidas: ligas };
+
+    // Una tanda por estrategia; con "ambas" salen las dos y se marcan aparte
+    const tandas = estr === 'ambas' ? ['bonos','acierto']
+                 : estr === 'libre' ? [null] : [estr];
+    let cand = [], cupones = [];
+    tandas.forEach(nom => {
+      const e = CP_ESTRATEGIAS[nom];
+      const c = cpCandidatas(_cpEventos, { ...base,
+        cuotaMin: e ? e.min : (_cpManual ? cpCuota('cp-cmin',1)  : parseFloat(document.getElementById('cp-cmin-sel').value)),
+        cuotaMax: e ? e.max : (_cpManual ? cpCuota('cp-cmax',99) : parseFloat(document.getElementById('cp-cmax-sel').value))
+      });
+      cand = cand.concat(c);
+      cpArmarCupones(c, { patas, cuantos: estr === 'ambas' ? 3 : 6 })
+        .forEach(x => cupones.push({ ...x, estrategia: nom || 'libre',
+                                     estrategiaNombre: e ? e.nombre : 'A mi medida' }));
     });
     // Sin el detalle a la vista, el operador escogería el que más pague — que
     // siempre es el menos probable. Ordenando por probabilidad, el más sensato
     // le queda de primero sin necesidad de esconderle nada.
+    cupones.sort((a,b) => (b.rendCupon||0) - (a.rendCupon||0));
     if (!cpVerDetalle()) cupones.sort((a,b) => b.prob - a.prob);
 
     document.getElementById('cp-k-ev').textContent    = _cpEventos.length;
@@ -9700,7 +9975,11 @@ function cpPintar(cupones){
   }
   const importe = tbNum('cp-importe') || 10000;
   _cpCupones = cupones;
-  cont.innerHTML = cupones.map((c,i) => cpTarjeta(c, i, importe)).join('');
+  const conModelo = cupones.reduce((n,c)=>n+c.patas.filter(p=>p.modelo!=null).length,0);
+  cont.innerHTML = (conModelo ? `<div style="font-size:11px;color:var(--text2);margin-bottom:10px">
+      ✓ <b style="color:var(--green)">${conModelo}</b> opciones respaldadas por el análisis propio ·
+      el resto son ligas sin historial suficiente</div>` : '')
+    + cupones.map((c,i) => cpTarjeta(c, i, importe)).join('');
 }
 
 function cpTarjeta(c, idx, importe){
@@ -9709,7 +9988,8 @@ function cpTarjeta(c, idx, importe){
       <td style="padding:7px 0;font-size:12px;font-weight:600">${p.etiqueta}${p.linea?' '+tbLinea(p.linea):''}
         <div style="font-size:10px;color:var(--text2);font-weight:400">${p.evento.local} vs ${p.evento.visitante}</div>
         <div style="font-size:10px;color:var(--text2);font-weight:400">${tbLigaConPais(p.evento.liga||'—', p.evento.pais)} · ${p.evento.fecha} ${p.evento.hora||''}</div></td>
-      <td style="text-align:right;font-size:13px;font-weight:700;vertical-align:top;padding-top:7px">${(p.cuotaEn||p.cuota).toFixed(2)}</td>
+      <td style="text-align:right;font-size:13px;font-weight:700;vertical-align:top;padding-top:7px">${(p.cuotaEn||p.cuota).toFixed(2)}
+        ${p.modelo!=null ? `<div style="font-size:9px;font-weight:400;color:var(--green)" title="El análisis propio coincide con la cuota">✓ análisis${cpVerDetalle()?' '+(p.modelo*100).toFixed(0)+'%':''}</div>` : ''}</td>
     </tr>`).join('');
 
   // La probabilidad sale del consenso de las casas, no de un pronóstico propio
@@ -9723,6 +10003,7 @@ function cpTarjeta(c, idx, importe){
   // de 2 aunque esté mejor pagado. Se compara por opción.
   const porOp = (1 - Math.pow(1 + c.ventaja, 1 / c.patas.length)) * 100;
   const etq   = cpEtiqueta(c.prob);
+  const rc    = c.rendCupon != null ? c.rendCupon : 0;
   const casas = c.porCasa.map(x => { const on = x.casa === c.casa;
     return `<span style="font-size:11px;padding:3px 9px;border-radius:5px;
       border:1px solid ${on?'var(--gold)':'var(--border)'};color:${on?'var(--gold)':'var(--text2)'};font-weight:${on?'700':'400'}">
@@ -9731,7 +10012,8 @@ function cpTarjeta(c, idx, importe){
   return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:12px">
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
       <div style="font-size:14px;font-weight:700">Cupón ${idx+1} · ${c.patas.length} opciones
-        <span style="font-size:11px;font-weight:600;color:var(--gold);margin-left:6px">en ${c.casa}</span></div>
+        <span style="font-size:11px;font-weight:600;color:var(--gold);margin-left:6px">en ${c.casa}</span>
+        ${c.estrategiaNombre && c.estrategia!=='libre' ? `<span style="font-size:10px;font-weight:600;margin-left:6px;padding:2px 8px;border-radius:5px;background:${c.estrategia==='bonos'?'rgba(53,204,47,.15)':'rgba(74,158,255,.15)'};color:${c.estrategia==='bonos'?'var(--gold)':'var(--blue)'}">${c.estrategiaNombre}</span>` : ''}</div>
       <div style="font-size:16px;font-weight:800;color:var(--gold)">${c.total.toFixed(2)}</div>
     </div>
     <table style="width:100%;border-collapse:collapse">${filas}</table>
@@ -9742,9 +10024,11 @@ function cpTarjeta(c, idx, importe){
           Probabilidad de pegar <b style="color:${pct>=25?'var(--green)':pct>=12?'var(--orange)':'var(--red)'}">${pct.toFixed(1)}%</b>
           <span style="opacity:.7">· uno de cada ${unaDe.toFixed(0)}</span><br>
           Precio <b style="color:${porOp<4.5?'var(--green)':porOp<6.5?'var(--orange)':'var(--red)'}">${porOp<4.5?'muy bueno':porOp<6.5?'normal':'flojo'}</b>
-          <span style="opacity:.7">· ${porOp.toFixed(1)}% por opción · ${margen.toFixed(1)}% el cupón</span>`
+          <span style="opacity:.7">· ${porOp.toFixed(1)}% por opción</span><br>
+          Histórico de este tipo de cupón
+          <b style="color:${rc>=-2?'var(--green)':rc>=-8?'var(--orange)':'var(--red)'}">${rc>=0?'+':''}${rc.toFixed(1)}%</b>`
         : `<b style="color:${etq.col}">${etq.txt}</b>
-          <span style="opacity:.7">· precio ${porOp<4.5?'muy bueno':porOp<6.5?'normal':'flojo'}</span>`}
+          <span style="opacity:.7">· tipo de cupón ${rc>=-2?'de los buenos':rc>=-8?'normal':'de los flojos'}</span>`}
       </div>
       <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:flex-start">${casas}</div>
     </div>

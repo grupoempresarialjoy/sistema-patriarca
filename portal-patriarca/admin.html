@@ -6284,6 +6284,32 @@ function _esfRenderTabla(esfMap, mes) {
 // lo que el bot propuso, se haya jugado o no. Esa es la única forma honesta de
 // medirlo: contar también los cupones que nadie quiso.
 let _cbCupones = [];
+let _cbOrden = { campo: 'cuando', desc: true };
+
+function cbOrdenar(campo){
+  // Mismo campo, se invierte; campo nuevo, arranca descendente
+  if (_cbOrden.campo === campo) _cbOrden.desc = !_cbOrden.desc;
+  else _cbOrden = { campo, desc: true };
+  cbPintar();
+}
+
+// El valor por el que se compara cada columna
+function cbValor(c, campo, importe){
+  switch (campo){
+    case 'cuando':  return c.propuesto?.toDate ? c.propuesto.toDate().getTime()
+                         : (Date.parse(c.fecha) || 0);
+    case 'operador':return cbOperador(c.uid).toLowerCase();
+    case 'casa':    return String(c.casa || '').toLowerCase();
+    case 'opc':     return (c.opciones || []).length;
+    case 'cuota':   return c.cuotaTotal || 0;
+    case 'prob':    return c.probEstimada || 0;
+    case 'aciertos':return c.aciertos != null ? c.aciertos : -1;
+    case 'estado':  return !c.resuelto ? 2 : c.estado === 'ganado' ? 0 : 1;
+    case 'result':  return !c.resuelto ? 0
+                         : c.estado === 'ganado' ? importe*(c.cuotaTotal||0) - importe : -importe;
+    default:        return 0;
+  }
+}
 
 async function initCombinadas(forzar){
   const caja = document.getElementById('cb-cuerpo');
@@ -6294,12 +6320,22 @@ async function initCombinadas(forzar){
     const dias = parseInt(document.getElementById('cb-dias')?.value || '30', 10);
     const desde = new Date(Date.now() - dias*864e5).toISOString().slice(0,10);
     const snap = await db.collection('combinadas_cupones').where('fecha','>=',desde).get();
-    _cbCupones = snap.docs.map(d => ({ id:d.id, ...d.data() }))
-      .sort((a,b) => String(b.fecha).localeCompare(String(a.fecha)));
+    _cbCupones = snap.docs.map(d => ({ id:d.id, ...d.data() }));
     cbPintar();
   }catch(e){
     caja.innerHTML = `<span style="color:var(--red)">No se pudo leer: ${e.message}</span>`;
   }
+}
+
+// El cupón guarda el uid; el nombre sale de la lista de usuarios que el
+// administrador ya tiene cargada.
+function cbOperador(uid){
+  if (!uid) return '—';
+  const u = (typeof allUsers !== 'undefined' ? allUsers : []).find(x => (x.uid || x.id) === uid);
+  if (!u) return uid.slice(0,6);
+  const n = u.nombre || u.email || uid;
+  // Solo el primer nombre, que la columna no se estire
+  return String(n).split(/[\s@]/)[0];
 }
 
 function cbNum(id){ return parseFloat(String(document.getElementById(id)?.value||'').replace(/\./g,'').replace(',','.'))||0; }
@@ -6351,7 +6387,12 @@ function cbPintar(){
   const VIA = {'1':'Gana local','X':'Empate','2':'Gana visitante','OVER':'Más de','UNDER':'Menos de',
                'SI':'Ambos anotan','NO':'No ambos','1X':'Local o empate','12':'Local o visitante','X2':'Empate o visitante'};
 
-  const lista = todos.filter(c => !filtro || (filtro==='pendiente' ? !c.resuelto : c.estado===filtro));
+  const lista = todos.filter(c => !filtro || (filtro==='pendiente' ? !c.resuelto : c.estado===filtro))
+    .slice().sort((a,b) => {
+      const x = cbValor(a, _cbOrden.campo, importe), y = cbValor(b, _cbOrden.campo, importe);
+      const cmp = typeof x === 'string' ? x.localeCompare(y) : (x - y);
+      return _cbOrden.desc ? -cmp : cmp;
+    });
   // Los ganados no necesitan completarse: ya se sabe que todas acertaron
   const incompletos = resueltos.filter(c => c.aciertos == null && c.estado === 'perdido').length;
 
@@ -6380,8 +6421,16 @@ function cbPintar(){
         <td style="text-align:right;color:var(--text2)">${marc}</td></tr>`;
     }).join('');
 
+    // Hora de cuándo lo propuso el bot, no solo el día: sirve para saber si un
+    // cupón salió antes o después de que se movieran las cuotas.
+    const cuando = c.propuesto && c.propuesto.toDate
+      ? new Intl.DateTimeFormat('es-CO',{timeZone:'America/Bogota',
+          day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit', hour12:false})
+          .format(c.propuesto.toDate())
+      : c.fecha;
     return `<tr onclick="cbToggle(${i})" style="cursor:pointer">
-        <td style="font-size:11px;color:var(--text2)">${c.fecha}</td>
+        <td style="font-size:11px;color:var(--text2);white-space:nowrap">${cuando}</td>
+        <td style="font-size:11px">${cbOperador(c.uid)}</td>
         <td style="font-size:12px">${c.casa}</td>
         <td style="text-align:center;font-size:12px">${n}</td>
         <td style="text-align:right;font-weight:700">${(c.cuotaTotal||0).toFixed(2)}</td>
@@ -6391,7 +6440,7 @@ function cbPintar(){
         <td style="text-align:right;font-size:11px;color:${c.estado==='ganado'?'var(--green)':'var(--text2)'}">
           ${c.resuelto ? (c.estado==='ganado' ? '+'+cbPeso(importe*(c.cuotaTotal||0)-importe) : '−'+cbPeso(importe)) : ''}</td>
       </tr>
-      <tr id="cb-det-${i}" style="display:none"><td colspan="8" style="background:var(--bg3);padding:8px 12px">
+      <tr id="cb-det-${i}" style="display:none"><td colspan="9" style="background:var(--bg3);padding:8px 12px">
         <table style="width:100%;font-size:12px">${detalle}</table></td></tr>`;
   }).join('');
 
@@ -6407,6 +6456,19 @@ function cbPintar(){
 
     <div style="display:flex;gap:22px;flex-wrap:wrap;margin-bottom:14px;font-size:12px">
       <div>
+        <div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Por estrategia</div>
+        ${(()=>{ const E={};
+          resueltos.forEach(c=>{ const k=c.estrategia||'libre';
+            const e=E[k]=E[k]||{n:0,g:0,inv:0,cob:0};
+            e.n++; e.inv+=importe; if(c.estado==='ganado'){e.g++; e.cob+=importe*(c.cuotaTotal||0);} });
+          const N={bonos:'Liberar bono',acierto:'Favoritos claros',libre:'A mi medida'};
+          const filas=Object.entries(E).map(([k,e])=>{
+            const r=e.inv?((e.cob-e.inv)/e.inv*100):null;
+            return `<div style="padding:1px 0">${N[k]||k} — <b>${e.g}/${e.n}</b>
+              <span style="color:${r==null?'var(--text2)':r>=0?'var(--green)':'var(--red)'}">${r==null?'':(r>=0?'+':'')+r.toFixed(1)+'%'}</span></div>`;});
+          return filas.join('') || '<div style="color:var(--text2)">sin resueltos</div>'; })()}
+      </div>
+      <div>
         <div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Cómo terminaron</div>
         ${Object.entries(reparto).sort((a,b)=>b[0].localeCompare(a[0]))
           .map(([k,v])=>`<div style="padding:1px 0">${k} opciones — <b>${v}</b></div>`).join('') || '<div style="color:var(--text2)">sin resueltos</div>'}
@@ -6419,12 +6481,15 @@ function cbPintar(){
 
     <div style="overflow:auto"><table class="tbl" style="font-size:12px">
       <thead><tr>
-        <th>Fecha</th><th>Casa</th><th style="text-align:center">Opc.</th>
-        <th style="text-align:right">Cuota</th><th style="text-align:right">Prob.</th>
-        <th style="text-align:center">Aciertos</th><th style="text-align:right">Estado</th><th style="text-align:right">Resultado</th>
+        ${[['cuando','Cuándo','left'],['operador','Operador','left'],['casa','Casa','left'],
+           ['opc','Opc.','center'],['cuota','Cuota','right'],['prob','Prob.','right'],
+           ['aciertos','Aciertos','center'],['estado','Estado','right'],['result','Resultado','right']]
+          .map(([k,t,al]) => `<th onclick="cbOrdenar('${k}')" style="cursor:pointer;user-select:none;text-align:${al}"
+            title="Ordenar por ${t.toLowerCase()}">${t}${_cbOrden.campo===k ? (_cbOrden.desc?' ▾':' ▴') : ''}</th>`).join('')}
       </tr></thead><tbody>${filas}</tbody></table></div>
     <div style="font-size:11px;color:var(--text2);margin-top:8px">
-      Clic en una fila para ver sus opciones. El rendimiento supone ${cbPeso(importe)} en cada cupón resuelto.</div>
+      Clic en una fila para ver sus opciones · clic en una cabecera para ordenar por esa columna ·
+      el rendimiento supone ${cbPeso(importe)} en cada cupón resuelto.</div>
     ${incompletos ? `<div style="background:rgba(240,160,80,.08);border:1px solid rgba(240,160,80,.3);border-radius:8px;padding:10px 13px;margin-top:10px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
       <span style="font-size:12px">Hay <b>${incompletos}</b> cupón${incompletos>1?'es':''} sin el detalle de cada opción — se resolvieron antes de que se guardara.</span>
       <button class="btn btn-gold" id="cb-btn-comp" onclick="cbCompletar(this)" style="font-size:12px">Completar</button>

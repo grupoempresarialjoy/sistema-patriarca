@@ -535,9 +535,16 @@ async function cerrarDia() {
   return resumen;
 }
 
-// 4:30 de la mañana en Colombia: ya terminó todo, incluso lo de Oceanía
+// Cuatro veces al día, repartidas según cuándo terminan los partidos:
+//   04:30 — cierra lo de Norteamérica y la madrugada
+//   10:30 — Asia y Oceanía
+//   16:30 — las ligas europeas de la tarde
+//   22:30 — Colombia y Sudamérica
+// Cada corrida cuesta una ejecución y unas 500 lecturas. Antes con una sola,
+// un cupón que se definía a las 4 de la tarde no se veía resuelto hasta el
+// otro día.
 exports.cierreDiario = onSchedule(
-  { schedule: '30 4 * * *', timeZone: 'America/Bogota' },
+  { schedule: '30 4,10,16,22 * * *', timeZone: 'America/Bogota' },
   async () => { console.log('cierre', JSON.stringify(await cerrarDia())); }
 );
 

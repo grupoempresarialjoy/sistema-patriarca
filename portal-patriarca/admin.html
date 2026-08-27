@@ -14,7 +14,7 @@
 body{background:var(--bg);color:var(--text);font-family:'Montserrat','Segoe UI',system-ui,sans-serif;font-size:14px;min-height:100vh}
 #auth-overlay{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:1000}
 .auth-box{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:40px 32px;width:360px;text-align:center}
-.auth-box .logo{font-size:20px;font-weight:800;color:var(--purple);letter-spacing:2px;margin-bottom:4px}
+.auth-box .logo{font-size:20px;font-weight:800;color:var(--gold);letter-spacing:2px;margin-bottom:4px}
 .auth-box .sub{color:var(--text2);font-size:12px;margin-bottom:28px}
 .auth-box input{width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:10px 14px;color:var(--text);font-size:14px;margin-bottom:12px;outline:none}
 .auth-box input:focus{border-color:var(--purple)}
@@ -23,7 +23,7 @@ body{background:var(--bg);color:var(--text);font-family:'Montserrat','Segoe UI',
 .auth-error{color:var(--red);font-size:12px;margin-top:8px;display:none}
 #app{display:none;flex-direction:column;min-height:100vh}
 header{background:var(--bg2);border-bottom:1px solid var(--border);padding:0 20px;display:flex;align-items:center;justify-content:space-between;height:52px;flex-shrink:0}
-.header-logo{font-size:15px;font-weight:800;color:var(--purple);letter-spacing:2px}
+.header-logo{font-size:15px;font-weight:800;color:var(--gold);letter-spacing:2px}
 .header-badge{background:rgba(53,204,47,.15);border:1px solid rgba(53,204,47,.30);border-radius:20px;padding:3px 12px;font-size:11px;color:var(--purple);font-weight:700}
 .header-right{display:flex;align-items:center;gap:10px}
 .header-user{font-size:11px;color:var(--text2)}
@@ -200,7 +200,8 @@ select option{background:var(--bg3)}
 <!-- AUTH -->
 <div id="auth-overlay">
   <div class="auth-box">
-    <div class="logo">⚡ AJ1.6 ADMIN</div>
+    <img src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTI5LjgiIGhlaWdodD0iMTM2LjYiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgdmlld0JveD0iMCAwIDEyOS44MCAxMzYuNjAiIHJvbGU9ImltZyIgYXJpYS1sYWJlbD0iQUoxLjYgQWNhZGVtaWEiPjxkZWZzPjxjbGlwUGF0aCBpZD0iYzciPjxwYXRoIGQ9Ik0gMzAyIDM1NCBMIDMzOSAzNTQgTCAzMzkgMzc5LjU0Njg3NSBMIDMwMiAzNzkuNTQ2ODc1IFogTSAzMDIgMzU0ICIvPjwvY2xpcFBhdGg+PC9kZWZzPjxnIHRyYW5zZm9ybT0idHJhbnNsYXRlKC0yNDMuNzAsLTMyMy45MCkiPjxwYXRoIGZpbGw9IiMzNUNDMkYiIGQ9Ik0gMzcyLjMyODEyNSAzNTguNzg1MTU2IEwgMzQ1LjkyOTY4OCAzNTguNzg1MTU2IEMgMzQ1LjkyOTY4OCAzNTguNzg1MTU2IDM0NS41MzUxNTYgMzg2LjM5ODQzOCAzNDUuMDMxMjUgMzk1LjY4NzUgQyAzNDQuMzE2NDA2IDQwOC44MjQyMTkgMzM0LjIzMDQ2OSA0MjcuNDg0Mzc1IDMwNy41MzEyNSA0MzEuOTg0Mzc1IEMgMjk1Ljg0NzY1NiA0MzMuOTUzMTI1IDI3MS44MzU5MzggNDMwLjEwOTM3NSAyNjAuMTMyODEyIDQzMS45ODQzNzUgQyAyNTEuMTIxMDk0IDQzMy40MjU3ODEgMjQ1Ljc1MzkwNiA0NDAuNjgzNTk0IDI0My45NTMxMjUgNDU4LjY4MzU5NCBDIDI0My45NTMxMjUgNDU4LjY4MzU5NCAyOTMuNzY5NTMxIDQ1OS4zMTI1IDMxMy4yMzA0NjkgNDU4LjA4MjAzMSBDIDMzNC41MTE3MTkgNDU2LjczODI4MSAzNjUuMzc1IDQ1MS44ODI4MTIgMzcyLjMyODEyNSAzOTYuNTg1OTM4IEMgMzczLjUwNzgxMiAzODcuMjEwOTM4IDM3Mi4zMjgxMjUgMzU4Ljc4NTE1NiAzNzIuMzI4MTI1IDM1OC43ODUxNTYiLz48ZyBjbGlwLXBhdGg9InVybCgjYzcpIj48cGF0aCBmaWxsPSIjMjRCRjYyIiBkPSJNIDMxNS45NTcwMzEgNDYwLjUyMzQzOCBDIDMxNS45Mjk2ODggNDU5Ljc2NTYyNSAzMTUuODgyODEyIDQ1OS4wMTE3MTkgMzE1Ljg4MjgxMiA0NTguMjUzOTA2IEMgMzE1Ljg3ODkwNiA0NTAuNDU3MDMxIDMxNS44ODI4MTIgNDQyLjY2NDA2MiAzMTUuODc4OTA2IDQzNC44NjcxODggQyAzMTUuODc1IDQyOC4yOTI5NjkgMzE1Ljg1NTQ2OSA0MjEuNzE4NzUgMzE1Ljg1MTU2MiA0MTUuMTQwNjI1IEMgMzE1Ljg0NzY1NiA0MDguNTY2NDA2IDMxNS44NTE1NjIgNDAxLjk4ODI4MSAzMTUuODUxNTYyIDM5NS40MTQwNjIgQyAzMTUuODUxNTYyIDM5MC4zMTY0MDYgMzE1Ljg0Mzc1IDM4NS4yMjI2NTYgMzE1LjgzOTg0NCAzODAuMTI1IEMgMzE1LjgzOTg0NCAzNzkuOTQ5MjE5IDMxNS44MjAzMTIgMzc5Ljc3MzQzOCAzMTUuODA0Njg4IDM3OS41NTg1OTQgQyAzMTEuMzM5ODQ0IDM3OS41NjI1IDMwNi45MTAxNTYgMzc5LjU2MjUgMzAyLjMyNDIxOSAzNzkuNTY2NDA2IEMgMzA4LjM1MTU2MiAzNzEuMTE3MTg4IDMxNC4zMDQ2ODggMzYyLjc2NTYyNSAzMjAuMzE2NDA2IDM1NC4zMzU5MzggQyAzMjYuMzI0MjE5IDM2Mi43MzQzNzUgMzMyLjI4NTE1NiAzNzEuMDcwMzEyIDMzOC4zMjAzMTIgMzc5LjUwMzkwNiBDIDMzMy43ODkwNjIgMzc5LjUwNzgxMiAzMjkuMzUxNTYyIDM3OS41MTE3MTkgMzI0LjgzNTkzOCAzNzkuNTE1NjI1IEMgMzI0LjgzNTkzOCAzODAuMjA3MDMxIDMyNC44MzU5MzggMzgwLjgyMDMxMiAzMjQuODM1OTM4IDM4MS40MzM1OTQgQyAzMjQuODQzNzUgMzg1LjYzMjgxMiAzMjQuODUxNTYyIDM4OS44MjgxMjUgMzI0Ljg1NTQ2OSAzOTQuMDI3MzQ0IEMgMzI0Ljg1NTQ2OSAzOTguMjIyNjU2IDMyNC44NTE1NjIgNDAyLjQyMTg3NSAzMjQuODU1NDY5IDQwNi42MTcxODggQyAzMjQuODU5Mzc1IDQxMC44MTY0MDYgMzI0Ljg3MTA5NCA0MTUuMDExNzE5IDMyNC44NzEwOTQgNDE5LjIxMDkzOCBDIDMyNC44NzUgNDIzLjQwNjI1IDMyNC44NzEwOTQgNDI3LjYwNTQ2OSAzMjQuODc1IDQzMS44MDA3ODEgQyAzMjQuODc1IDQzNiAzMjQuODg2NzE5IDQ0MC4xOTUzMTIgMzI0Ljg5MDYyNSA0NDQuMzk0NTMxIEMgMzI0Ljg5NDUzMSA0NDguNTg5ODQ0IDMyNC44ODY3MTkgNDUyLjc4OTA2MiAzMjQuODk0NTMxIDQ1Ni45ODQzNzUgQyAzMjQuODk0NTMxIDQ1OC4xNjAxNTYgMzI0LjkzMzU5NCA0NTkuMzM5ODQ0IDMyNC45NTMxMjUgNDYwLjUxNTYyNSBaIE0gMzE1Ljk1NzAzMSA0NjAuNTIzNDM4Ii8+PC9nPjxwYXRoIGZpbGw9IiMyNEJGNjIiIGQ9Ik0gMzU0LjM0Mzc1IDMyNC45NDkyMTkgQyAzNTQuMzQzNzUgMzI0Ljk0OTIxOSAzMTUuNTgyMDMxIDMyMy45Mjk2ODggMjk1LjAzMTI1IDMyNC45NDkyMTkgQyAyNzQuNzk2ODc1IDMyNS45NTMxMjUgMjQ3LjM1OTM3NSAzMzYuNjQ4NDM4IDI0My42OTUzMTIgMzg3LjY0NDUzMSBMIDI0My42OTUzMTIgNDE5LjgwODU5NCBMIDMxMC40ODQzNzUgNDE5LjgwODU5NCBDIDMxMC40ODQzNzUgNDE5LjgwODU5NCAzMzAuMTI4OTA2IDQxOS40NDUzMTIgMzMxLjE3NTc4MSAzOTQuMjQ2MDk0IEwgMzMwLjY3OTY4OCAzNzguMzQ3NjU2IEwgMzA5LjE3MTg3NSAzNzguMDQ2ODc1IEwgMzA5LjE3MTg3NSAzOTguNDQ1MzEyIEwgMjY2Ljc0MjE4OCAzOTguNDQ1MzEyIEMgMjY2Ljc0MjE4OCAzOTguNDQ1MzEyIDI2MC40NjA5MzggMzc5LjA0Mjk2OSAyNzQuNzgxMjUgMzYxLjY2Nzk2OSBDIDI3OC41MjM0MzggMzU3LjEzMjgxMiAyODYuMDAzOTA2IDM0OC40MDYyNSAzMDAuMjgxMjUgMzQ1LjM0NzY1NiBMIDM0NS4xNjQwNjIgMzQ1LjM0NzY1NiBDIDM0NS4xNjQwNjIgMzQ1LjM0NzY1NiAzNTMuNTU4NTk0IDM0Ni4yNDYwOTQgMzU0LjM0Mzc1IDMyNC45NDkyMTkiLz48L2c+PC9zdmc+" style="height:44px;width:auto" alt="AJ1.6">
+      <div class="logo" style="font-family:'Montserrat',sans-serif;font-weight:800;letter-spacing:1px">AJ1.6 <span style="color:var(--text)">ADMINISTRADOR</span></div>
     <div class="sub">Portal de Administrador — Acceso Restringido</div>
     <div style="position:relative;margin-bottom:12px">
       <input type="text" id="user-in" placeholder="Usuario (ej: vanlly.admin)" style="width:100%;padding-right:90px">
@@ -216,11 +217,16 @@ select option{background:var(--bg3)}
 <div id="app">
   <header>
     <div style="display:flex;align-items:center;gap:12px">
-      <span class="header-logo">⚡ AJ1.6</span>
+      <img src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTI5LjgiIGhlaWdodD0iMTM2LjYiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgdmlld0JveD0iMCAwIDEyOS44MCAxMzYuNjAiIHJvbGU9ImltZyIgYXJpYS1sYWJlbD0iQUoxLjYgQWNhZGVtaWEiPjxkZWZzPjxjbGlwUGF0aCBpZD0iYzciPjxwYXRoIGQ9Ik0gMzAyIDM1NCBMIDMzOSAzNTQgTCAzMzkgMzc5LjU0Njg3NSBMIDMwMiAzNzkuNTQ2ODc1IFogTSAzMDIgMzU0ICIvPjwvY2xpcFBhdGg+PC9kZWZzPjxnIHRyYW5zZm9ybT0idHJhbnNsYXRlKC0yNDMuNzAsLTMyMy45MCkiPjxwYXRoIGZpbGw9IiMzNUNDMkYiIGQ9Ik0gMzcyLjMyODEyNSAzNTguNzg1MTU2IEwgMzQ1LjkyOTY4OCAzNTguNzg1MTU2IEMgMzQ1LjkyOTY4OCAzNTguNzg1MTU2IDM0NS41MzUxNTYgMzg2LjM5ODQzOCAzNDUuMDMxMjUgMzk1LjY4NzUgQyAzNDQuMzE2NDA2IDQwOC44MjQyMTkgMzM0LjIzMDQ2OSA0MjcuNDg0Mzc1IDMwNy41MzEyNSA0MzEuOTg0Mzc1IEMgMjk1Ljg0NzY1NiA0MzMuOTUzMTI1IDI3MS44MzU5MzggNDMwLjEwOTM3NSAyNjAuMTMyODEyIDQzMS45ODQzNzUgQyAyNTEuMTIxMDk0IDQzMy40MjU3ODEgMjQ1Ljc1MzkwNiA0NDAuNjgzNTk0IDI0My45NTMxMjUgNDU4LjY4MzU5NCBDIDI0My45NTMxMjUgNDU4LjY4MzU5NCAyOTMuNzY5NTMxIDQ1OS4zMTI1IDMxMy4yMzA0NjkgNDU4LjA4MjAzMSBDIDMzNC41MTE3MTkgNDU2LjczODI4MSAzNjUuMzc1IDQ1MS44ODI4MTIgMzcyLjMyODEyNSAzOTYuNTg1OTM4IEMgMzczLjUwNzgxMiAzODcuMjEwOTM4IDM3Mi4zMjgxMjUgMzU4Ljc4NTE1NiAzNzIuMzI4MTI1IDM1OC43ODUxNTYiLz48ZyBjbGlwLXBhdGg9InVybCgjYzcpIj48cGF0aCBmaWxsPSIjMjRCRjYyIiBkPSJNIDMxNS45NTcwMzEgNDYwLjUyMzQzOCBDIDMxNS45Mjk2ODggNDU5Ljc2NTYyNSAzMTUuODgyODEyIDQ1OS4wMTE3MTkgMzE1Ljg4MjgxMiA0NTguMjUzOTA2IEMgMzE1Ljg3ODkwNiA0NTAuNDU3MDMxIDMxNS44ODI4MTIgNDQyLjY2NDA2MiAzMTUuODc4OTA2IDQzNC44NjcxODggQyAzMTUuODc1IDQyOC4yOTI5NjkgMzE1Ljg1NTQ2OSA0MjEuNzE4NzUgMzE1Ljg1MTU2MiA0MTUuMTQwNjI1IEMgMzE1Ljg0NzY1NiA0MDguNTY2NDA2IDMxNS44NTE1NjIgNDAxLjk4ODI4MSAzMTUuODUxNTYyIDM5NS40MTQwNjIgQyAzMTUuODUxNTYyIDM5MC4zMTY0MDYgMzE1Ljg0Mzc1IDM4NS4yMjI2NTYgMzE1LjgzOTg0NCAzODAuMTI1IEMgMzE1LjgzOTg0NCAzNzkuOTQ5MjE5IDMxNS44MjAzMTIgMzc5Ljc3MzQzOCAzMTUuODA0Njg4IDM3OS41NTg1OTQgQyAzMTEuMzM5ODQ0IDM3OS41NjI1IDMwNi45MTAxNTYgMzc5LjU2MjUgMzAyLjMyNDIxOSAzNzkuNTY2NDA2IEMgMzA4LjM1MTU2MiAzNzEuMTE3MTg4IDMxNC4zMDQ2ODggMzYyLjc2NTYyNSAzMjAuMzE2NDA2IDM1NC4zMzU5MzggQyAzMjYuMzI0MjE5IDM2Mi43MzQzNzUgMzMyLjI4NTE1NiAzNzEuMDcwMzEyIDMzOC4zMjAzMTIgMzc5LjUwMzkwNiBDIDMzMy43ODkwNjIgMzc5LjUwNzgxMiAzMjkuMzUxNTYyIDM3OS41MTE3MTkgMzI0LjgzNTkzOCAzNzkuNTE1NjI1IEMgMzI0LjgzNTkzOCAzODAuMjA3MDMxIDMyNC44MzU5MzggMzgwLjgyMDMxMiAzMjQuODM1OTM4IDM4MS40MzM1OTQgQyAzMjQuODQzNzUgMzg1LjYzMjgxMiAzMjQuODUxNTYyIDM4OS44MjgxMjUgMzI0Ljg1NTQ2OSAzOTQuMDI3MzQ0IEMgMzI0Ljg1NTQ2OSAzOTguMjIyNjU2IDMyNC44NTE1NjIgNDAyLjQyMTg3NSAzMjQuODU1NDY5IDQwNi42MTcxODggQyAzMjQuODU5Mzc1IDQxMC44MTY0MDYgMzI0Ljg3MTA5NCA0MTUuMDExNzE5IDMyNC44NzEwOTQgNDE5LjIxMDkzOCBDIDMyNC44NzUgNDIzLjQwNjI1IDMyNC44NzEwOTQgNDI3LjYwNTQ2OSAzMjQuODc1IDQzMS44MDA3ODEgQyAzMjQuODc1IDQzNiAzMjQuODg2NzE5IDQ0MC4xOTUzMTIgMzI0Ljg5MDYyNSA0NDQuMzk0NTMxIEMgMzI0Ljg5NDUzMSA0NDguNTg5ODQ0IDMyNC44ODY3MTkgNDUyLjc4OTA2MiAzMjQuODk0NTMxIDQ1Ni45ODQzNzUgQyAzMjQuODk0NTMxIDQ1OC4xNjAxNTYgMzI0LjkzMzU5NCA0NTkuMzM5ODQ0IDMyNC45NTMxMjUgNDYwLjUxNTYyNSBaIE0gMzE1Ljk1NzAzMSA0NjAuNTIzNDM4Ii8+PC9nPjxwYXRoIGZpbGw9IiMyNEJGNjIiIGQ9Ik0gMzU0LjM0Mzc1IDMyNC45NDkyMTkgQyAzNTQuMzQzNzUgMzI0Ljk0OTIxOSAzMTUuNTgyMDMxIDMyMy45Mjk2ODggMjk1LjAzMTI1IDMyNC45NDkyMTkgQyAyNzQuNzk2ODc1IDMyNS45NTMxMjUgMjQ3LjM1OTM3NSAzMzYuNjQ4NDM4IDI0My42OTUzMTIgMzg3LjY0NDUzMSBMIDI0My42OTUzMTIgNDE5LjgwODU5NCBMIDMxMC40ODQzNzUgNDE5LjgwODU5NCBDIDMxMC40ODQzNzUgNDE5LjgwODU5NCAzMzAuMTI4OTA2IDQxOS40NDUzMTIgMzMxLjE3NTc4MSAzOTQuMjQ2MDk0IEwgMzMwLjY3OTY4OCAzNzguMzQ3NjU2IEwgMzA5LjE3MTg3NSAzNzguMDQ2ODc1IEwgMzA5LjE3MTg3NSAzOTguNDQ1MzEyIEwgMjY2Ljc0MjE4OCAzOTguNDQ1MzEyIEMgMjY2Ljc0MjE4OCAzOTguNDQ1MzEyIDI2MC40NjA5MzggMzc5LjA0Mjk2OSAyNzQuNzgxMjUgMzYxLjY2Nzk2OSBDIDI3OC41MjM0MzggMzU3LjEzMjgxMiAyODYuMDAzOTA2IDM0OC40MDYyNSAzMDAuMjgxMjUgMzQ1LjM0NzY1NiBMIDM0NS4xNjQwNjIgMzQ1LjM0NzY1NiBDIDM0NS4xNjQwNjIgMzQ1LjM0NzY1NiAzNTMuNTU4NTk0IDM0Ni4yNDYwOTQgMzU0LjM0Mzc1IDMyNC45NDkyMTkiLz48L2c+PC9zdmc+" style="height:32px;width:auto" alt="AJ1.6">
+        <span class="header-logo" style="font-family:'Montserrat',sans-serif;font-weight:800;font-size:15px;letter-spacing:1px">AJ1.6 <span style="color:var(--text2);font-weight:600;font-size:11px">ADMINISTRADOR</span></span>
       <span class="header-badge">ADMINISTRADOR</span>
       <span id="admin-mes-badge" onclick="openAdminMesModal()" title="Cambiar mes"
         style="background:rgba(53,204,47,.12);border:1px solid rgba(53,204,47,.30);border-radius:20px;padding:3px 12px;font-size:11px;color:var(--purple);font-weight:700;cursor:pointer;user-select:none">
         📅 —
+      </span>
+      <span id="aud-badge" onclick="openAuditoriaModal()" title="Bloquear operadores y cajeros para una auditoría"
+        style="background:rgba(53,204,47,.12);border:1px solid rgba(53,204,47,.30);border-radius:20px;padding:3px 12px;font-size:11px;color:var(--text2);font-weight:700;cursor:pointer;user-select:none">
+        🔓 Auditoría
       </span>
     </div>
     <div class="header-right">
@@ -252,8 +258,40 @@ select option{background:var(--bg3)}
     </div>
   </div>
 
+  <!-- Modal modo auditoría -->
+  <div id="modal-auditoria" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:900;align-items:center;justify-content:center">
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:24px;width:420px;max-height:80vh;overflow:auto">
+      <h3 style="font-size:14px;font-weight:700;margin-bottom:6px">🔒 Modo auditoría</h3>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:16px">
+        Con esto ACTIVO, todos los operadores y cajeros solo pueden ver — no pueden registrar
+        apuestas, movimientos, cierres, cupones ni cuotas. Si alguien necesita corregir algo puntual
+        mientras dura, márcalo abajo como excepción.
+      </div>
+
+      <div style="display:flex;align-items:center;justify-content:space-between;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:16px">
+        <div>
+          <div style="font-size:13px;font-weight:700" id="aud-estado-txt">Auditoría apagada</div>
+          <div style="font-size:11px;color:var(--text2)" id="aud-estado-sub">Todos pueden operar normal</div>
+        </div>
+        <button id="aud-toggle-btn" onclick="auditoriaToggle()"
+          style="padding:8px 18px;border-radius:6px;border:none;font-size:12px;font-weight:700;cursor:pointer">Activar</button>
+      </div>
+
+      <div style="font-size:12px;font-weight:700;margin-bottom:8px">Excepciones — pueden seguir operando</div>
+      <div id="aud-personas" style="display:flex;flex-direction:column;gap:2px;margin-bottom:14px">Cargando…</div>
+
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button onclick="document.getElementById('modal-auditoria').style.display='none'"
+          style="padding:7px 16px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text2);font-size:12px;cursor:pointer">Cerrar</button>
+        <button onclick="auditoriaGuardarExcepciones()"
+          style="padding:7px 16px;border-radius:6px;border:none;background:var(--gold);color:#1a1a1a;font-size:12px;font-weight:700;cursor:pointer">💾 Guardar excepciones</button>
+      </div>
+    </div>
+  </div>
+
   <nav>
     <div class="tab active" data-sec="dashboard" onclick="showTab('dashboard')">📊 Dashboard</div>
+    <div class="tab" data-sec="mensajes" id="tab-mensajes" onclick="showTab('mensajes')">💬 Mensajes</div>
 
     <div class="navgrp" id="grp-usuarios">
       <div class="tab">👤 Usuarios</div>
@@ -279,7 +317,6 @@ select option{background:var(--bg3)}
     <div class="navgrp" id="grp-gestion">
       <div class="tab">📋 Gestión</div>
       <div class="navgrp-menu">
-        <div class="navgrp-item" data-sec="noticias"     onclick="showTab('noticias')">📢 Noticias</div>
         <div class="navgrp-item" data-sec="correcciones" onclick="showTab('correcciones')">🔧 Correcciones</div>
         <div class="navgrp-item" data-sec="solicitudes"  id="tab-solicitudes" onclick="showTab('solicitudes')">🗑 Solicitudes</div>
         <div class="navgrp-item" data-sec="cierres"      id="tab-cierres" onclick="showTab('cierres');initCierres()">📅 Cierres</div>
@@ -308,8 +345,13 @@ select option{background:var(--bg3)}
         <div class="kpi"><div class="kpi-label">Operadores activos</div><div class="kpi-value" id="kpi-ops">—</div></div>
         <div class="kpi"><div class="kpi-label">Métodos de caja</div><div class="kpi-value" id="kpi-mets">—</div></div>
         <div class="kpi"><div class="kpi-label">Movimientos hoy</div><div class="kpi-value" id="kpi-movs">—</div></div>
-        <div class="kpi"><div class="kpi-label">Pendientes cajero</div><div class="kpi-value" id="kpi-pend" style="color:var(--orange)">—</div></div>
+        <div class="kpi" id="kpi-pend-card" onclick="togglePendPanel()" title="Ver cuáles están pendientes"
+          style="cursor:pointer">
+          <div class="kpi-label">Pendientes cajero <span id="kpi-pend-caret" style="font-size:9px">▾</span></div>
+          <div class="kpi-value" id="kpi-pend" style="color:var(--orange)">—</div>
+        </div>
       </div>
+      <div id="pend-panel" style="display:none;background:var(--bg2);border:1px solid var(--border);border-radius:10px;margin:-6px 0 20px;overflow:auto"></div>
       <!-- ── Resumen ESF por Operador ── -->
       <div style="margin-bottom:20px">
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap">
@@ -318,6 +360,8 @@ select option{background:var(--bg3)}
             <option value="">Todas las oficinas</option>
           </select>
           <button onclick="loadDashboardESF()" style="font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);cursor:pointer">⟳ Actualizar</button>
+          <button id="dash-esf-recalc-btn" onclick="recalcularTodosESFDashboard()" title="Recalcula el ESF de todos los operadores de este mes, sin entrar uno por uno a su portal"
+            style="font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid var(--purple);background:rgba(139,92,246,.1);color:var(--purple);cursor:pointer">🔁 Recalcular todos</button>
           <span id="dash-esf-mes-lbl" style="font-size:11px;color:var(--text2)"></span>
         </div>
         <div id="dash-esf-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px">
@@ -388,8 +432,8 @@ select option{background:var(--bg3)}
         </div>
         <div class="tbl-wrap">
           <table>
-            <thead><tr><th>Nombre</th><th>Correo / Usuario</th><th>UID</th><th>Rol</th><th>Oficina</th><th>Estado</th><th>Acciones</th></tr></thead>
-            <tbody id="users-tbody"><tr><td colspan="7"><div class="empty"><div class="empty-icon">👤</div>Sin usuarios registrados</div></td></tr></tbody>
+            <thead><tr><th>Nombre</th><th>Correo / Usuario</th><th>UID</th><th>Rol</th><th>Estado</th><th>Acciones</th></tr></thead>
+            <tbody id="users-tbody"><tr><td colspan="6"><div class="empty"><div class="empty-icon">👤</div>Sin usuarios registrados</div></td></tr></tbody>
           </table>
         </div>
       </div>
@@ -503,16 +547,13 @@ select option{background:var(--bg3)}
 
     <!-- sec-escalera removido — ahora es modal-escaleras -->
 
-    <!-- NOTICIAS -->
-    <div class="section" id="sec-noticias">
+    <!-- MENSAJES -->
+    <div class="section" id="sec-mensajes">
       <div class="sec-header">
-        <div><div class="sec-title">Noticias y Avisos</div><div class="sec-sub">Mensajes que aparecen en los portales</div></div>
+        <div><div class="sec-title">💬 Mensajes</div>
+          <div class="sec-sub">Anuncios al ecosistema y conversación privada con cada operador y cajero</div></div>
       </div>
-      <div class="coming-soon">
-        <div class="coming-soon-icon">📢</div>
-        <h3>Próximamente</h3>
-        <p>Envía avisos, actualizaciones y noticias a los portales de cajero y operadores.</p>
-      </div>
+      <div id="ch-montar"></div>
     </div>
 
     <!-- CUPO INICIAL -->
@@ -706,6 +747,11 @@ select option{background:var(--bg3)}
         ganancias que no existen.<br>
         <b style="color:var(--gold)">Combinadas Pro:</b> módulo aparte. <b>Sí</b> muestra los cupones con una
         etiqueta de riesgo; <b>Sí + detalle</b> agrega probabilidades y porcentajes, para quien esté analizando.
+        La casilla <b>compartir</b> habilita los botones de imagen y WhatsApp — sin ella el operador ve los
+        cupones pero no puede sacarlos del ecosistema.<br>
+        <b style="color:var(--gold)">📢 Transmitir:</b> deja que esa persona envíe un cupón o cuota como
+        anuncio a TODOS los operadores a la vez (no a los cajeros). Es para dueños u otras personas de
+        confianza — el anuncio siempre se puede cerrar, no bloquea la pantalla como un anuncio importante.
       </div>
 
       <style>
@@ -740,9 +786,10 @@ select option{background:var(--bg3)}
             <th>Plan</th><th style="text-align:right">Búsquedas / día</th>
             <th>Mercados habilitados</th>
             <th style="text-align:center">Combinadas<br><span style="font-size:9px;font-weight:400;color:var(--text2)">PRO</span></th>
+            <th style="text-align:center">📢 Transmitir</th>
             <th style="text-align:right">Uso hoy</th>
           </tr></thead>
-          <tbody id="tb-admin-body"><tr><td colspan="7" style="text-align:center;color:var(--text2);padding:20px">Cargando…</td></tr></tbody>
+          <tbody id="tb-admin-body"><tr><td colspan="8" style="text-align:center;color:var(--text2);padding:20px">Cargando…</td></tr></tbody>
         </table>
       </div>
 
@@ -802,6 +849,7 @@ select option{background:var(--bg3)}
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <select id="aud-sel-mes" onchange="loadAuditorData()" style="padding:7px 10px;font-size:12px;min-width:160px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text)"></select>
           <button class="btn btn-purple" onclick="loadAuditorData()">🔄 Recargar</button>
+          <button class="btn btn-ghost btn-sm" onclick="corregirNumeracionDuplicada()" title="Busca movimientos con el mismo número de operación (ej. dos '119 - C-OP') y renumera el más reciente de cada par">🔢 Corregir numeración</button>
         </div>
       </div>
       <div style="display:flex;gap:8px;padding:14px 20px 0">
@@ -841,6 +889,7 @@ select option{background:var(--bg3)}
             <thead><tr>
               <th style="text-align:left">Operador</th>
               <th style="text-align:right">Ganancia del Mes</th>
+              <th style="text-align:right" title="Total de comisiones guardado en Contador → ESF Consolidado para este mes. Es solo para comparar de un vistazo, no se usa en ningún cálculo de esta tabla.">Comisiones (ESF)</th>
               <th style="text-align:right">Liquidación</th>
               <th style="text-align:right;color:var(--green)">Pagado</th>
               <th style="text-align:right">Avance</th>
@@ -851,7 +900,7 @@ select option{background:var(--bg3)}
               <th style="text-align:center">Estado</th>
             </tr></thead>
             <tbody id="cob-tbody">
-              <tr><td colspan="10" style="text-align:center;padding:20px;color:var(--text2)">—</td></tr>
+              <tr><td colspan="11" style="text-align:center;padding:20px;color:var(--text2)">—</td></tr>
             </tbody>
           </table>
         </div>
@@ -981,6 +1030,9 @@ select option{background:var(--bg3)}
           <div class="sec-sub">Estado de Situación Financiera — todos los operadores activos</div>
         </div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <select id="esf-ops-oficina" onchange="_esfLastSnap&&_esfRenderVista()" style="padding:7px 10px;font-size:12px;min-width:140px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+            <option value="">Todas las oficinas</option>
+          </select>
           <select id="esf-ops-mes" style="padding:7px 10px;font-size:12px;min-width:160px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text)"></select>
           <div style="display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden">
             <button id="esf-btn-cards" class="esf-vista-btn activa" onclick="_esfVista='cards';document.getElementById('esf-btn-cards').classList.add('activa');document.getElementById('esf-btn-tabla').classList.remove('activa');_esfLastSnap&&_esfRenderVista()">🗂 Tarjetas</button>
@@ -1589,6 +1641,7 @@ select option{background:var(--bg3)}
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script src="chat.js"></script>
 <script>
 // ── CONFIG ──
 const firebaseConfig = {
@@ -1738,6 +1791,10 @@ function mostrarApp(nombre) {
   document.getElementById('app').style.display = 'flex';
   document.getElementById('user-name').textContent = nombre;
   initAdmin();
+  if (window.AJChat) AJChat.iniciarAdmin({
+    db, auth, uid: auth.currentUser.uid,
+    nombre: nombre || 'Administración', montarEn: '#ch-montar'
+  });
 }
 
 // ── INIT ──
@@ -1759,6 +1816,103 @@ function initAdmin() {
   [1200, 2500, 5000].forEach(ms => setTimeout(avPintar, ms));
   // Mostrar mes actual en el badge del header
   document.getElementById('admin-mes-badge').textContent = '📅 ' + _adminMesLabel(_adminMes);
+  auditoriaEscuchar();
+}
+
+// ── MODO AUDITORÍA ───────────────────────────────────────────────────────────
+// patriarca_config_global/auditoria.activo es el candado general, que hacen
+// cumplir las reglas de Firestore (no esta pantalla — esto solo lo prende y
+// apaga). patriarca_config/{uid}.auditoria.permitido es la excepción, persona
+// por persona, para cuando alguien necesita corregir algo mientras dura.
+let _auditoriaActiva = false;
+let _auditoriaPersonas = [];   // se recarga cada vez que se abre el modal
+
+function auditoriaEscuchar() {
+  db.collection('patriarca_config_global').doc('auditoria').onSnapshot(doc => {
+    _auditoriaActiva = !!(doc.exists && doc.data().activo);
+    auditoriaPintarBadge();
+  }, e => console.warn('auditoria:', e.message));
+}
+
+function auditoriaPintarBadge() {
+  const b = document.getElementById('aud-badge');
+  if (!b) return;
+  b.textContent = _auditoriaActiva ? '🔒 Auditoría activa' : '🔓 Auditoría';
+  b.style.color = _auditoriaActiva ? 'var(--red)' : 'var(--text2)';
+  b.style.background = _auditoriaActiva ? 'rgba(255,80,80,.14)' : 'rgba(53,204,47,.12)';
+  b.style.borderColor = _auditoriaActiva ? 'rgba(255,80,80,.4)' : 'rgba(53,204,47,.30)';
+}
+
+async function openAuditoriaModal() {
+  document.getElementById('modal-auditoria').style.display = 'flex';
+  auditoriaPintarEstado();
+  await auditoriaCargarPersonas();
+}
+
+function auditoriaPintarEstado() {
+  document.getElementById('aud-estado-txt').textContent =
+    _auditoriaActiva ? 'Auditoría ACTIVA' : 'Auditoría apagada';
+  document.getElementById('aud-estado-sub').textContent =
+    _auditoriaActiva ? 'Solo pueden ver, salvo las excepciones de abajo' : 'Todos pueden operar normal';
+  const btn = document.getElementById('aud-toggle-btn');
+  btn.textContent = _auditoriaActiva ? 'Desactivar' : 'Activar';
+  btn.style.background = _auditoriaActiva ? 'var(--red)' : 'var(--green)';
+  btn.style.color = '#fff';
+}
+
+async function auditoriaToggle() {
+  const activar = !_auditoriaActiva;
+  const msg = activar
+    ? '¿Activar el modo auditoría? Operadores y cajeros van a quedar SOLO VIENDO hasta que lo apagues.'
+    : '¿Desactivar el modo auditoría? Todos vuelven a operar normal.';
+  if (!confirm(msg)) return;
+  try {
+    await db.collection('patriarca_config_global').doc('auditoria').set({
+      activo: activar,
+      cambiadoPor: auth.currentUser?.email || 'admin',
+      cambiadoEn: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+    toast(activar ? '🔒 Auditoría activada' : '🔓 Auditoría desactivada', 'success');
+    auditoriaPintarEstado();
+  } catch (e) { toast('No se pudo cambiar: ' + e.message, 'error'); }
+}
+
+async function auditoriaCargarPersonas() {
+  const cont = document.getElementById('aud-personas');
+  cont.innerHTML = 'Cargando…';
+  try {
+    const snap = await db.collection('admin_usuarios').get();
+    _auditoriaPersonas = snap.docs.map(d => ({ uid: d.data().uid || d.id, nombre: d.data().nombre || d.data().email, rol: d.data().rol }))
+      .filter(p => p.uid && (p.rol === 'operador' || p.rol === 'cajero'))
+      .sort((a,b) => (a.nombre||'').localeCompare(b.nombre||''));
+
+    const cfgs = await Promise.all(_auditoriaPersonas.map(p =>
+      db.collection('patriarca_config').doc(p.uid).get().catch(() => null)));
+    _auditoriaPersonas.forEach((p, i) => {
+      const c = cfgs[i];
+      p.permitido = !!(c && c.exists && c.data().auditoria && c.data().auditoria.permitido);
+    });
+
+    cont.innerHTML = _auditoriaPersonas.length ? _auditoriaPersonas.map(p => `
+      <label style="display:flex;align-items:center;gap:8px;font-size:12px;padding:5px 6px;border-radius:6px;cursor:pointer;user-select:none">
+        <input type="checkbox" id="aud-per-${p.uid}" ${p.permitido?'checked':''} style="width:15px;height:15px;cursor:pointer">
+        ${p.nombre} <span style="color:var(--text2);font-size:10px">(${p.rol})</span>
+      </label>`).join('') : '<div style="color:var(--text2);font-size:12px">No hay operadores ni cajeros.</div>';
+  } catch (e) {
+    cont.innerHTML = `<div style="color:var(--red);font-size:12px">Error: ${e.message}</div>`;
+  }
+}
+
+async function auditoriaGuardarExcepciones() {
+  try {
+    await Promise.all(_auditoriaPersonas.map(p => {
+      const permitido = document.getElementById('aud-per-' + p.uid)?.checked || false;
+      return db.collection('patriarca_config').doc(p.uid).set({
+        auditoria: { permitido }
+      }, { merge: true });
+    }));
+    toast('✅ Excepciones guardadas', 'success');
+  } catch (e) { toast('No se pudo guardar: ' + e.message, 'error'); }
 }
 
 // ── UI ──
@@ -1789,6 +1943,7 @@ function showTab(name) {
   if (name === 'cierres')    initCierres();
   if (name === 'auditor') initAuditor();
   if (name === 'trixibot') initTrixiBot();
+  if (window.AJChat) AJChat.visible(name === 'mensajes');
 }
 
 // ── Menús desplegables: abrir con clic (necesario en móvil/táctil) ──
@@ -2485,12 +2640,18 @@ function renderDashboardESF() {
   container.innerHTML = cards.join('');
 }
 
+let _dashOpsMap = {};  // uid → nombre, para no mostrar el uid crudo en la lista de pendientes
+let _pendMovs = [];
+
 function loadDashboard() {
   // Operadores
   db.collection('patriarca_operadores').onSnapshot(snap => {
     const activos = snap.docs.filter(d => d.data().estado !== 'Inactivo');
     document.getElementById('kpi-ops').textContent = activos.length;
     renderDashOps(activos.map(d => ({id: d.id, ...d.data()})));
+    _dashOpsMap = {};
+    snap.docs.forEach(d => { _dashOpsMap[d.id] = d.data().nombre || d.data().email || d.id; });
+    renderPendPanelSiAbierto();
   });
 
   // Métodos count
@@ -2503,11 +2664,60 @@ function loadDashboard() {
     document.getElementById('kpi-movs').textContent = snap.size;
   });
 
-  // Pendientes cajero
+  // Pendientes cajero — en vivo, para que la lista se actualice sola cuando
+  // la cajera va confirmando movimientos.
   db.collection('patriarca_movimientos')
-    .where('estado_cajero','==','Pendiente').get().then(snap => {
-    document.getElementById('kpi-pend').textContent = snap.size;
-  });
+    .where('estado_cajero','==','Pendiente').onSnapshot(snap => {
+    // Un movimiento con solicitud de eliminación aprobada queda con
+    // eliminado:true pero NUNCA le tocan estado_cajero — sigue diciendo
+    // "Pendiente" para siempre aunque ya no exista para nadie más. Si no se
+    // descarta aquí, cuenta como pendiente eternamente.
+    _pendMovs = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(mv => !mv.eliminado);
+    document.getElementById('kpi-pend').textContent = _pendMovs.length;
+    renderPendPanelSiAbierto();
+  }, e => console.warn('pendientes cajero:', e.message));
+}
+
+// ── Panel desplegable de "Pendientes cajero" ────────────────────────────────
+function togglePendPanel() {
+  const p = document.getElementById('pend-panel');
+  const caret = document.getElementById('kpi-pend-caret');
+  if (!p) return;
+  const abrir = p.style.display === 'none';
+  p.style.display = abrir ? '' : 'none';
+  if (caret) caret.textContent = abrir ? '▴' : '▾';
+  if (abrir) renderPendPanel();
+}
+
+function renderPendPanelSiAbierto() {
+  const p = document.getElementById('pend-panel');
+  if (p && p.style.display !== 'none') renderPendPanel();
+}
+
+function renderPendPanel() {
+  const p = document.getElementById('pend-panel');
+  if (!p) return;
+  if (!_pendMovs.length) {
+    p.innerHTML = '<div style="padding:14px;color:var(--text2);font-size:12px">No hay movimientos pendientes de la cajera.</div>';
+    return;
+  }
+  const orden = [..._pendMovs].sort((a,b) => (b.fecha||'').localeCompare(a.fecha||''));
+  p.innerHTML = `<table class="tbl" style="width:100%">
+    <thead><tr>
+      <th>ID</th><th>Fecha</th><th>Operador</th><th>Tipo</th><th>Cliente</th><th>Casa</th><th>Método</th>
+      <th style="text-align:right">Monto</th>
+    </tr></thead>
+    <tbody>${orden.map(mv => `<tr>
+      <td style="color:var(--text2);font-size:11px">${mv.op_id || mv.id}</td>
+      <td>${mv.fecha || '—'}</td>
+      <td>${_dashOpsMap[mv.opId] || mv.opId || '—'}</td>
+      <td>${mv.tipo || '—'}</td>
+      <td>${mv.cliente || '—'}</td>
+      <td>${mv.casa || '—'}</td>
+      <td>${mv.metodo || '—'}</td>
+      <td style="text-align:right;font-weight:700;color:var(--orange)">${ciPesos(mv.monto)}</td>
+    </tr>`).join('')}</tbody>
+  </table>`;
 }
 
 function renderDashOps(ops) {
@@ -2537,6 +2747,7 @@ function loadOficinas() {
     renderOficinasGrid();
     renderOficinasTabla();
     poblarSelectOficinasModal();
+    if (typeof _esfPoblarOficinas === 'function') _esfPoblarOficinas();
   }, err => {
     console.warn('oficinas:', err);
     toast('⚠ Error cargando oficinas: ' + err.code, 'error');
@@ -2718,17 +2929,26 @@ function renderUsuarios() {
   document.getElementById('users-count').textContent = lista.length + ' usuario(s)';
 
   if (!lista.length) {
-    tbody.innerHTML = '<tr><td colspan="7"><div class="empty"><div class="empty-icon">👤</div>Sin usuarios</div></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6"><div class="empty"><div class="empty-icon">👤</div>Sin usuarios</div></td></tr>';
     return;
   }
 
-  tbody.innerHTML = lista.map(u => {
-    const rolBadge = u.rol === 'cajero' ? 'badge-blue' : 'badge-green';
+  // Agrupar por oficina — cada oficina en su propio bloque, con encabezado.
+  const grupos = {};
+  lista.forEach(u => {
     const ofic = oficinas.find(o => o.id === u.oficina);
-    const oficColor = ofic?.color || 'var(--text2)';
-    const oficLabel = ofic
-      ? `<span style="color:${oficColor};font-weight:600">${ofic.nombre}</span>`
-      : '<span style="color:var(--text2)">—</span>';
+    const key = ofic ? ofic.id : '__sin_oficina__';
+    if (!grupos[key]) grupos[key] = { nombre: ofic ? ofic.nombre : 'Sin oficina', color: ofic?.color || 'var(--text2)', users: [] };
+    grupos[key].users.push(u);
+  });
+  const gruposOrdenados = Object.entries(grupos).sort(([ka,a],[kb,b]) => {
+    if (ka === '__sin_oficina__') return 1;
+    if (kb === '__sin_oficina__') return -1;
+    return a.nombre.localeCompare(b.nombre, 'es');
+  });
+
+  const filaUsuario = u => {
+    const rolBadge = u.rol === 'cajero' ? 'badge-blue' : 'badge-green';
     const estado = u.estado || 'activo';
     const estadoBadge = estado === 'activo'
       ? '<span class="badge badge-green">🟢 Activo</span>'
@@ -2747,11 +2967,10 @@ function renderUsuarios() {
       ? `<span style="font-size:10px;font-family:monospace;color:var(--text2);cursor:pointer" title="Click para copiar" onclick="navigator.clipboard.writeText('${u.uid}');toast('UID copiado','success')">${u.uid.slice(0,8)}…</span>`
       : '<span style="color:var(--text2)">—</span>';
     return `<tr style="${estado==='inactivo'?'opacity:.55':''}${esInfo?';font-style:italic':''}">
-      <td style="font-weight:600">${u.nombre}${esInfo?' <span style="font-size:9px;color:var(--gold);font-weight:400">(informativo)</span>':''}</td>
+      <td style="font-weight:600;padding-left:22px">${u.nombre}${esInfo?' <span style="font-size:9px;color:var(--gold);font-weight:400">(informativo)</span>':''}</td>
       <td style="color:var(--text2);font-size:12px">${u.email || '—'}</td>
       <td>${uidDisplay}</td>
       <td><span class="badge ${rolBadge}">${u.rol}</span></td>
-      <td>${oficLabel}</td>
       <td>${estadoBadge}</td>
       <td style="display:flex;gap:4px;flex-wrap:wrap">
         ${infoBadge}
@@ -2762,6 +2981,15 @@ function renderUsuarios() {
         </button>
       </td>
     </tr>`;
+  };
+
+  tbody.innerHTML = gruposOrdenados.map(([key, g]) => {
+    const filas = [...g.users].sort((a,b) => (a.nombre||'').localeCompare(b.nombre||'', 'es'));
+    return `<tr style="background:rgba(255,255,255,.03)">
+      <td colspan="6" style="padding:8px 8px;font-weight:800;font-size:12px;color:${g.color}">
+        ${key==='__sin_oficina__'?'—':'🏢'} ${g.nombre} <span style="font-weight:400;color:var(--text2);font-size:11px">(${filas.length})</span>
+      </td>
+    </tr>` + filas.map(filaUsuario).join('');
   }).join('');
 }
 
@@ -4452,6 +4680,62 @@ async function initAuditor() {
   await loadAuditorData();
 }
 
+// ── Corregir numeración duplicada de movimientos ────────────────────────────
+// Antes del arreglo del contador (ver patriarca.html), dos guardados casi
+// simultáneos podían sacar el mismo número visible (ej. dos "119 - C-OP").
+// No es un problema de plata — cada fila es un movimiento real y distinto,
+// el número es solo la etiqueta — pero confunde al conciliar. Esto detecta
+// los pares repetidos del mes elegido en el Auditor y renumera solo el más
+// reciente de cada par al siguiente número libre de ese operador+canal+mes.
+async function corregirNumeracionDuplicada() {
+  const mesKey = document.getElementById('aud-sel-mes')?.value;
+  if (!mesKey) { toast('Selecciona un mes en el Auditor primero', 'error'); return; }
+
+  const snap = await db.collection('patriarca_movimientos').get();
+  const movs = snap.docs
+    .map(d => ({ id: d.id, ref: d.ref, ...d.data() }))
+    .filter(m => !m.eliminado && (m.fecha || '').startsWith(mesKey) && m.op_id);
+
+  // Agrupar por operador + canal
+  const grupos = {};
+  movs.forEach(m => {
+    const k = `${m.opId}|${m.canal}`;
+    (grupos[k] = grupos[k] || []).push(m);
+  });
+
+  const cambios = []; // {ref, id, opNombreLabel, oldOpId, newOpId}
+  Object.values(grupos).forEach(lista => {
+    // Orden cronológico real (ts de creación; si falta, cae a orden de llegada)
+    lista.sort((a,b) => (a.ts?.seconds||0) - (b.ts?.seconds||0));
+    const usados = new Set();
+    let maxNum = 0;
+    lista.forEach(m => {
+      const n = parseInt((m.op_id||'').match(/\d+/)?.[0] || 0);
+      if (n > maxNum) maxNum = n;
+    });
+    lista.forEach(m => {
+      const n = parseInt((m.op_id||'').match(/\d+/)?.[0] || 0);
+      if (!usados.has(n)) { usados.add(n); return; } // primera aparición — se queda igual
+      // repetido: asignar el siguiente número libre
+      maxNum++;
+      const nuevoOpId = m.op_id.replace(/\d+/, maxNum);
+      usados.add(maxNum);
+      cambios.push({ ref: m.ref, id: m.id, cliente: m.cliente, monto: m.monto, oldOpId: m.op_id, newOpId: nuevoOpId });
+    });
+  });
+
+  if (!cambios.length) { toast('✅ No se encontraron números duplicados en ese mes', 'success'); return; }
+
+  const detalle = cambios.map(c => `· ${c.oldOpId} → ${c.newOpId}  (${c.cliente || '—'}, $${Math.round(c.monto||0).toLocaleString('es-CO')})`).join('\n');
+  if (!confirm(`Se van a renumerar ${cambios.length} movimiento(s) duplicado(s):\n\n${detalle}\n\nNo se toca cliente, monto, fecha ni estado — solo la etiqueta de número. ¿Confirmas?`)) return;
+
+  const batch = db.batch();
+  cambios.forEach(c => batch.update(c.ref, { op_id: c.newOpId }));
+  await batch.commit();
+  toast(`✅ ${cambios.length} movimiento(s) renumerado(s)`, 'success');
+  loadAuditorData();
+}
+
 async function loadAuditorData() {
   const mesKey = document.getElementById('aud-sel-mes')?.value;
   if (!mesKey) return;
@@ -4469,8 +4753,14 @@ async function loadAuditorData() {
   _audMets = metodos.filter(m => m.tipo==='cajero').map(m => m.nombre);
 
   // ── Movimientos del mes ──
+  // Un movimiento eliminado (solicitud de borrado aprobada) queda con
+  // eliminado:true pero SIN tocar estado_cajero — si no se descarta aquí,
+  // la columna OP lo sigue sumando aunque ya no exista para nadie más
+  // (la columna CAJ lo excluye solo porque nunca llegó a "Realizada", no
+  // porque el código sepa que está eliminado).
   const snap = await db.collection('patriarca_movimientos').get();
-  _audMovs = snap.docs.map(d=>({id:d.id,...d.data()})).filter(mv=>_audMovMesKey(mv)===mesKey);
+  _audMovs = snap.docs.map(d=>({id:d.id,...d.data()}))
+    .filter(mv => !mv.eliminado && _audMovMesKey(mv)===mesKey);
 
   // ── Inversiones del mes ──
   const invSnap = await db.collection('patriarca_inversiones').get();
@@ -5479,6 +5769,7 @@ function exportDiarioCSV() {
 let _esfOpsInited = false;
 let _esfOpsListener    = null;   // onSnapshot activo
 let _esfOpsAllOps      = {};     // uid → nombre de todos los operadores
+let _esfOpsOficina     = {};     // uid → id de oficina (admin_oficinas), para filtrar
 let _esfOpsMesKey      = null;   // mes actualmente visible
 let _esfProdMap        = {};     // uid → productividad calculada directamente
 let _esfInicialMap     = {};     // uid → patriarca_esf_inicial snapshot data
@@ -5500,6 +5791,18 @@ function initESFOps() {
     }
     sel.innerHTML = opts.join('');
   }
+  _esfPoblarOficinas();
+}
+
+// Rellena el selector de oficina de "ESF por Operador" con admin_oficinas
+// (mismo array global "oficinas" que ya usa el resto de admin.html).
+function _esfPoblarOficinas() {
+  const sel = document.getElementById('esf-ops-oficina');
+  if (!sel) return;
+  const actual = sel.value;
+  sel.innerHTML = '<option value="">Todas las oficinas</option>' +
+    (oficinas || []).map(o => `<option value="${o.id}">${o.nombre}</option>`).join('');
+  if (actual && [...sel.options].some(op => op.value === actual)) sel.value = actual;
 }
 
 async function adminESFAll() {
@@ -5520,12 +5823,16 @@ async function adminESFAll() {
   container.innerHTML = '<div style="padding:32px;text-align:center;color:var(--text2)">⏳ Cargando ESF de operadores…</div>';
 
   // ── 1. Cargar lista de operadores (una sola vez por sesión) ──
-  if (!Object.keys(_esfOpsAllOps).length) {
+  // Se revisan las dos listas por separado: si el Dashboard ya cargó
+  // _esfOpsAllOps (nombres) desde otro flujo que no guarda oficina, esto lo
+  // rellena igual — si no, el filtro de oficina de aquí no encuentra a nadie.
+  if (!Object.keys(_esfOpsAllOps).length || !Object.keys(_esfOpsOficina).length) {
     try {
       const opsSnap = await db.collection('admin_usuarios').where('rol','==','operador').get();
       opsSnap.docs.forEach(d => {
         const uid = d.data().uid || d.id;
         _esfOpsAllOps[uid] = d.data().nombre || d.data().email || uid;
+        _esfOpsOficina[uid] = d.data().oficina || '';
       });
     } catch(e) { console.warn('esf ops load:', e); }
   }
@@ -5618,12 +5925,14 @@ function _esfRenderVista() {
   if (!container || !_esfLastSnap) return;
   const mesKey = _esfOpsMesKey;
   const mes    = _esfLastMes;
+  const filtroOf = document.getElementById('esf-ops-oficina')?.value || '';
   const esfMap = {};
   _esfLastSnap.docs.forEach(d => {
     const data = d.data();
     if (data.mesKey !== mesKey) return;
     const opUid = data.uid || d.id.replace(/_\d{4}-\d{2}$/, '');
     if (!_esfOpsAllOps[opUid]) return;
+    if (filtroOf && _esfOpsOficina[opUid] !== filtroOf) return;
     const tsNuevo = data.actualizadoEn?.seconds || 0;
     const tsExist = esfMap[opUid]?.actualizadoEn?.seconds || 0;
     if (!esfMap[opUid] || tsNuevo > tsExist) esfMap[opUid] = { ...data, uid: opUid };
@@ -5644,6 +5953,7 @@ function _esfRenderVista() {
   const cards = [];
   Object.values(esfMap).sort((a,b) => (a.nombre||'').localeCompare(b.nombre||'')).forEach(r => cards.push(_esfRenderCard(r)));
   Object.entries(_esfOpsAllOps).forEach(([uid, nombre]) => {
+    if (filtroOf && _esfOpsOficina[uid] !== filtroOf) return;
     if (!esfMap[uid]) cards.push(`
       <div class="esf-op-card" style="opacity:.55">
         <h4>👤 ${nombre} <span style="font-size:10px;color:var(--text2);font-weight:400">· ${mes} · sin datos</span></h4>
@@ -5655,7 +5965,7 @@ function _esfRenderVista() {
   });
 
   if (!cards.length && !Object.keys(esfMap).length) {
-    container.innerHTML = `<div class="empty"><div class="empty-icon">📋</div><p>No hay ESF para <strong>${mes}</strong>.</p></div>`;
+    container.innerHTML = `<div class="empty"><div class="empty-icon">📋</div><p>No hay ESF para <strong>${mes}</strong>${filtroOf ? ' en esta oficina' : ''}.</p></div>`;
     return;
   }
 
@@ -5663,6 +5973,7 @@ function _esfRenderVista() {
   let totRec=0,totMtoRec=0,totPag=0,totMtoPag=0,totInv=0,totCom=0;
   Object.entries(_esfProdMap).forEach(([uid,p]) => {
     if (!_esfOpsAllOps[uid]) return;
+    if (filtroOf && _esfOpsOficina[uid] !== filtroOf) return;
     totRec+=p.numRecargas||0; totMtoRec+=p.montoRecargas||0;
     totPag+=p.numPagos||0;    totMtoPag+=p.montoPagos||0;
     totInv+=p.numInversiones||0;
@@ -5718,10 +6029,12 @@ function _esfRenderVista() {
   }
 }
 
-async function recalcularTodosESF() {
-  const mesKey = document.getElementById('esf-ops-mes')?.value;
+// mesKeyArg/mesLabelArg: opcionales, para poder llamarla desde otras pantallas
+// (como el Dashboard) que manejan su propio selector de mes.
+async function recalcularTodosESF(mesKeyArg, mesLabelArg) {
+  const mesKey = mesKeyArg || document.getElementById('esf-ops-mes')?.value;
   if (!mesKey) { toast('Selecciona un mes primero', 'error'); return; }
-  const mes = document.getElementById('esf-ops-mes')?.selectedOptions[0]?.text || mesKey;
+  const mes = mesLabelArg || document.getElementById('esf-ops-mes')?.selectedOptions[0]?.text || mesKey;
 
   // Cargar operadores si aún no están en memoria
   if (!Object.keys(_esfOpsAllOps).length) {
@@ -5729,6 +6042,7 @@ async function recalcularTodosESF() {
     opsSnap.docs.forEach(d => {
       const uid = d.data().uid || d.id;
       _esfOpsAllOps[uid] = d.data().nombre || d.data().email || uid;
+      _esfOpsOficina[uid] = d.data().oficina || '';
     });
   }
 
@@ -5768,6 +6082,20 @@ async function recalcularTodosESF() {
   toast(`✅ ESF actualizado: ${ok} operadores${err ? ` · ${err} errores` : ''}`, ok ? 'success' : 'error');
 }
 
+// Recalcula el ESF de todos los operadores para el mes que está viendo el
+// Dashboard (📊 Resumen Operadores), sin tener que entrar uno por uno a su
+// portal. Al terminar refresca las tarjetas para quitar el letrero naranja.
+async function recalcularTodosESFDashboard() {
+  const btn = document.getElementById('dash-esf-recalc-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Recalculando…'; }
+  try {
+    await recalcularTodosESF(_adminMes, _adminMesLabel(_adminMes));
+    await loadDashboardESF();
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🔁 Recalcular todos'; }
+  }
+}
+
 async function _esfCalcOp(uid, nombre, mesKey) {
   try {
     const [cfgSnap, siSnap, movSnap, invSnap, ixSnap, gasSnap, cliSnap] = await Promise.all([
@@ -5785,7 +6113,14 @@ async function _esfCalcOp(uid, nombre, mesKey) {
     const saldoInicial      = siData.saldos || {};
     let   comisionesMesAnt  = Math.round(siData.comisionesMesAnterior || 0);
     let   gananciaMesAnt    = Math.round(siData.gananciaMesAnterior   || 0);
-    const movs              = movSnap.docs.map(d => d.data());
+    // Un movimiento eliminado (duplicado, error, etc.) queda con eliminado:true
+    // pero el documento nunca se borra — si no se descarta aquí, el ESF le sigue
+    // sumando plata a la caja del método aunque ese pago ya no exista para nadie.
+    // CRÍTICO: acotar al mes — sin esto se suma el histórico completo del operador
+    // (todos los meses juntos) en vez de solo mesKey, e infla la ganancia varias
+    // veces. patriarca.html (renderESF) sí filtra por mes; esto lo iguala.
+    const movs              = movSnap.docs.map(d => d.data())
+      .filter(m => !m.eliminado && (m.fecha||'').startsWith(mesKey));
 
     // ── Reducir gananciaMesAnt y comisionesMesAnt por pagos de liquidación aprobados ──
     // (igual que renderESF en patriarca.html — para que admin y portal coincidan)
@@ -5808,9 +6143,14 @@ async function _esfCalcOp(uid, nombre, mesKey) {
         });
       }
     } catch(e) { console.warn('_esfCalcOp: liq_prev:', e); }
-    const invs         = invSnap.docs.map(d => d.data());
-    const ixs          = ixSnap.docs.map(d => d.data());
-    const gastos       = gasSnap.docs.map(d => d.data());
+    // Mismo criterio que _filtrarInvMes() en patriarca.html: prioriza el campo
+    // mesKey si existe, y si no, cae a la fecha.
+    const invs         = invSnap.docs.map(d => d.data())
+      .filter(inv => inv.mesKey ? inv.mesKey === mesKey : (inv.fecha||'').startsWith(mesKey));
+    const ixs          = ixSnap.docs.map(d => d.data())
+      .filter(ix => (ix.fecha||'').startsWith(mesKey));
+    const gastos       = gasSnap.docs.map(d => d.data())
+      .filter(g => (g.fecha||'').startsWith(mesKey));
     const clientes     = cliSnap.docs.map(d => ({id:d.id,...d.data()}));
 
     // ── Lista de métodos cajero (físicos) — usar el array global 'metodos' de admin ──
@@ -5863,8 +6203,14 @@ async function _esfCalcOp(uid, nombre, mesKey) {
     });
 
     // ── 3. Invertido (apuestas abiertas) ──
+    // La bonificación no es capital real del operador — igual que en Utilidad
+    // (más abajo), no debe contar como Activo mientras la apuesta sigue abierta.
     let invertido = 0;
-    invs.forEach(inv => { if ((inv.estado_evento||'ABIERTO')!=='CERRADO') invertido+=parseFloat(inv.monto)||0; });
+    invs.forEach(inv => {
+      if ((inv.estado_evento||'ABIERTO')!=='CERRADO' && (inv.fondos||'').toUpperCase()!=='BONIFICACION') {
+        invertido+=parseFloat(inv.monto)||0;
+      }
+    });
 
     // ── 4. Comisiones por método ──
     const comByMetodo = {};
@@ -5895,7 +6241,17 @@ async function _esfCalcOp(uid, nombre, mesKey) {
     // Usar TODOS los métodos cajero (no solo los que tienen cupo > 0)
     // para capturar actividad aunque el cupo inicial sea 0 o no esté configurado.
     // La clave del cupo en cupos_cajero se compara en mayúsculas para tolerancia.
-    const cuposCaj = cfg.cupos_cajero || {};
+    // Prioridad igual que patriarca.html (renderESF) y cajero.html (Mapa Capital):
+    // 1) cupos_por_mes[mesKey] si existe → es el cupo real de ESTE mes.
+    // 2) cupos_por_mes existe pero sin entrada para este mes (sistema migrado) → 0.
+    // 3) cupos_por_mes no existe → legacy, usar cupos_cajero.
+    // Antes esta función leía cupos_cajero directo, ignorando cupos_por_mes: si un
+    // operador tenía su cupo del mes ajustado (lo normal hoy en día), el ESF del
+    // admin/CEO seguía usando el número viejo — esto explica descuadres exactos
+    // y aislados a un solo método (ej. Corresponsal El Paramo).
+    const cuposCaj = (mesKey && cfg.cupos_por_mes && cfg.cupos_por_mes[mesKey])
+      ? cfg.cupos_por_mes[mesKey]
+      : (mesKey && cfg.cupos_por_mes) ? {} : (cfg.cupos_cajero || {});
     const cuposCajNorm = {}; // { UPPER_KEY: valor }
     Object.entries(cuposCaj).forEach(([k,v]) => { cuposCajNorm[k.trim().toUpperCase()] = parseFloat(v)||0; });
 
@@ -8116,14 +8472,14 @@ let _cobFilas = [];
 async function cargarCobros(mesKey) {
   const tb = document.getElementById('cob-tbody');
   if (!tb || !mesKey) return;
-  tb.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:20px;color:var(--text2)">⏳ Cargando…</td></tr>';
+  tb.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:20px;color:var(--text2)">⏳ Cargando…</td></tr>';
   document.getElementById('cob-umbral').textContent = COB_UMBRAL;
 
   try {
     // Lo que el CEO dejó guardado del mes
     const parSnap = await db.collection('patriarca_participacion').where('mesKey','==',mesKey).get();
     if (parSnap.empty) {
-      tb.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:20px;color:var(--text2)">'
+      tb.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:20px;color:var(--text2)">'
         + 'El CEO todavía no ha guardado la participación de este mes.</td></tr>';
       document.getElementById('cob-resumen').textContent = '';
       return;
@@ -8142,6 +8498,16 @@ async function cargarCobros(mesKey) {
     const [y, m] = mesKey.split('-').map(Number);
     const sigKey = (m===12 ? (y+1)+'-01' : y+'-'+String(m+1).padStart(2,'0'));
 
+    // Comisiones que el CEO ya calculó y guardó en Contador → ESF Consolidado
+    // para este mes. Es solo para comparar de un vistazo — no interviene en
+    // ningún cálculo de la tabla de abajo.
+    const esfSnap = await db.collection('patriarca_esf_resumen').where('mesKey','==',mesKey).get();
+    const comisionesPorUid = {};
+    esfSnap.docs.forEach(d => {
+      const e = d.data();
+      if (e.uid) comisionesPorUid[e.uid] = Math.round(e.totalComisiones || 0);
+    });
+
     const filas = [];
     for (const doc of parSnap.docs) {
       const par = doc.data();
@@ -8156,16 +8522,18 @@ async function cargarCobros(mesKey) {
       const ganancia = Math.round(par.gananciaOperador || 0);
       const habil    = pct >= COB_UMBRAL;
       const liberado = habil ? Math.round(ganancia * Math.min(1, pct / 100)) : 0;
+      const esfComisiones = Object.prototype.hasOwnProperty.call(comisionesPorUid, par.uid)
+        ? comisionesPorUid[par.uid] : null; // null = sin ESF guardado este mes para este operador
 
       filas.push({ uid: par.uid, nombre: par.nombre, ganancia, pasivo, pagado, pct, habil,
-                   liberado, retenido: ganancia - liberado });
+                   liberado, retenido: ganancia - liberado, esfComisiones });
     }
 
     filas.sort((a,b) => b.pct - a.pct);
     _cobFilas = filas;
     renderCobros(filas);
   } catch(e) {
-    tb.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:20px;color:var(--red)">⚠ ${e.message}</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="11" style="text-align:center;padding:20px;color:var(--red)">⚠ ${e.message}</td></tr>`;
   }
 }
 
@@ -8181,7 +8549,7 @@ function renderCobros(filas) {
   });
 
   if (!filas.length) {
-    tb.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:20px;color:var(--text2)">Sin datos</td></tr>';
+    tb.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:20px;color:var(--text2)">Sin datos</td></tr>';
     return;
   }
 
@@ -8194,15 +8562,20 @@ function renderCobros(filas) {
     gan: a.gan + f.ganancia, pas: a.pas + f.pasivo, pag: a.pag + f.pagado,
     lib: a.lib + f.liberado, ret: a.ret + f.retenido,
     env: a.env + f.enviado, fal: a.fal + f.faltaEnviar,
-  }), { gan:0, pas:0, pag:0, lib:0, ret:0, env:0, fal:0 });
+    esf: a.esf + (f.esfComisiones || 0),
+  }), { gan:0, pas:0, pag:0, lib:0, ret:0, env:0, fal:0, esf:0 });
 
   tb.innerHTML = filas.map(f => {
     const barra = `<div style="height:6px;border-radius:10px;background:var(--bg3);overflow:hidden;margin-top:3px">
         <div style="height:100%;width:${Math.round(f.pct)}%;background:${f.habil?'var(--green)':'var(--orange)'};border-radius:10px"></div>
       </div>`;
+    const esfCel = f.esfComisiones == null
+      ? '<span style="color:var(--orange);font-size:11px" title="No hay ESF Consolidado guardado para este operador este mes">⚠ sin ESF</span>'
+      : `${p(f.esfComisiones)}`;
     return `<tr>
       <td style="font-weight:600">${f.nombre}</td>
       <td style="${td};color:var(--gold);font-weight:700">${p(f.ganancia)}</td>
+      <td style="${td};color:var(--text2)">${esfCel}</td>
       <td style="${td};color:var(--text2)">${p(f.pasivo)}</td>
       <td style="${td};color:var(--green)">${p(f.pagado)}</td>
       <td style="${td};min-width:90px">${Math.round(f.pct)}%${barra}</td>
@@ -8218,6 +8591,7 @@ function renderCobros(filas) {
   }).join('') + `<tr style="background:var(--bg3);font-weight:800">
       <td>TOTAL</td>
       <td style="${td};color:var(--gold)">${p(t.gan)}</td>
+      <td style="${td}">${p(t.esf)}</td>
       <td style="${td}">${p(t.pas)}</td>
       <td style="${td};color:var(--green)">${p(t.pag)}</td>
       <td style="${td}">${t.pas ? Math.round(t.pag / t.pas * 100) : 0}%</td>
@@ -8823,8 +9197,13 @@ async function initTrixiBot(){
       try {
         const c = await db.collection('patriarca_config').doc(op.uid).get();
         op.cfg  = (c.exists && c.data().trixibot)   || { activo:false, plan:'basico', limiteDiario:1 };
-        op.comb = (c.exists && c.data().combinadas) || { activo:false, detalle:false };
-      } catch(_) { op.cfg = { activo:false, plan:'basico', limiteDiario:1 }; op.comb = { activo:false, detalle:false }; }
+        op.comb = (c.exists && c.data().combinadas) || { activo:false, detalle:false, compartir:false };
+        op.chat = (c.exists && c.data().chat)       || { transmitir:false };
+      } catch(_) {
+        op.cfg = { activo:false, plan:'basico', limiteDiario:1 };
+        op.comb = { activo:false, detalle:false, compartir:false };
+        op.chat = { transmitir:false };
+      }
       try {
         const u = await db.collection('trixibot_uso').doc(op.uid + '_' + hoy).get();
         op.usoHoy = u.exists ? (u.data().busquedas || 0) : 0;
@@ -8868,6 +9247,14 @@ async function initTrixiBot(){
             <option value="si"      ${op.comb?.activo && !op.comb?.detalle?'selected':''}>Sí</option>
             <option value="detalle" ${op.comb?.detalle?'selected':''}>Sí + detalle</option>
           </select>
+          <label style="display:flex;align-items:center;justify-content:center;gap:4px;margin-top:4px;font-size:10px;color:${op.comb?.compartir?'var(--gold)':'var(--text2)'};cursor:pointer;user-select:none">
+            <input type="checkbox" id="tba-comp-${op.uid}" ${op.comb?.compartir?'checked':''} style="width:13px;height:13px;cursor:pointer">
+            compartir
+          </label>
+        </td>
+        <td style="text-align:center">
+          <input type="checkbox" id="tba-transmitir-${op.uid}" ${op.chat?.transmitir?'checked':''}
+            style="width:16px;height:16px;cursor:pointer">
         </td>
         <td style="text-align:right;font-size:12px;color:${op.usoHoy?'var(--gold)':'var(--text2)'}">${op.usoHoy}</td>
       </tr>`).join('');
@@ -8887,7 +9274,7 @@ async function initTrixiBot(){
 
     apRefrescar();          // estado del aprendizaje, al pie de esta misma pantalla
   } catch(e){
-    body.innerHTML = `<tr><td colspan="7" style="color:var(--red);padding:20px">Error: ${e.message}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="8" style="color:var(--red);padding:20px">Error: ${e.message}</td></tr>`;
   }
 }
 
@@ -8923,6 +9310,16 @@ async function tbAdminGuardar(){
         combinadas: {
           activo:  combVal !== '',
           detalle: combVal === 'detalle',
+          // Sin este permiso el operador ve los cupones pero no puede mandarlos
+          // por fuera: la información es del ecosistema, no suya.
+          compartir: document.getElementById('tba-comp-'+op.uid)?.checked || false,
+          activadoPor: auth.currentUser?.email || 'admin',
+          activadoEn:  firebase.firestore.FieldValue.serverTimestamp()
+        },
+        chat: {
+          // Enviar un anuncio a todos los operadores a la vez. Apagado por
+          // defecto — solo para quien de verdad deba poder hacerlo.
+          transmitir: document.getElementById('tba-transmitir-'+op.uid)?.checked || false,
           activadoPor: auth.currentUser?.email || 'admin',
           activadoEn:  firebase.firestore.FieldValue.serverTimestamp()
         }
@@ -8943,6 +9340,55 @@ async function tbAdminGuardar(){
     toast('❌ ' + e.message, 'error');
   }
 }
+
+// ── Ojito para ver la contraseña mientras se escribe ──────────────────────
+// Envuelve cada input type="password" en su propio contenedor (no reusa
+// .form-group, que también tiene la etiqueta arriba) para que el botón quede
+// centrado justo sobre el campo. Genérico: cubre login, crear usuario,
+// cambiar contraseña, etc. sin tocar cada formulario a mano.
+(function () {
+  function wirePasswordToggles() {
+    document.querySelectorAll('input[type="password"]').forEach(inp => {
+      if (inp.dataset.pwWired) return;
+      inp.dataset.pwWired = '1';
+      const wrap = document.createElement('div');
+      wrap.style.cssText = 'position:relative;width:100%';
+      inp.parentNode.insertBefore(wrap, inp);
+      wrap.appendChild(inp);
+      // El input es inline-block, así que su margin-top/bottom no colapsa con
+      // el contenedor — quedaba metido DENTRO del wrapper y corría el "top:50%"
+      // del ojito varios px hacia abajo. Se traslada ese margen al wrapper
+      // (afuera) para que el wrapper mida exactamente lo que mide el input.
+      const cs = getComputedStyle(inp);
+      wrap.style.marginTop = cs.marginTop;
+      wrap.style.marginBottom = cs.marginBottom;
+      inp.style.marginTop = '0';
+      inp.style.marginBottom = '0';
+      inp.style.paddingRight = '34px';
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = '👁';
+      btn.title = 'Mostrar/ocultar contraseña';
+      // width/height/margin explícitos: algunos formularios tienen reglas CSS
+      // tipo ".auth-box button{width:100%}" pensadas para el botón de enviar —
+      // sin esto de más, ese estilo se filtraba también al ojito y lo estiraba
+      // a lo ancho de todo el campo, dejándolo centrado en vez de a la derecha.
+      // Caja de tamaño fijo (24×24) + flex para centrar el emoji adentro:
+      // el emoji del ojo trae su propio espacio en blanco desigual en la
+      // fuente, así que centrar solo por line-height lo dejaba corrido hacia
+      // abajo — centrándolo con flex dentro de una caja fija se ve derecho.
+      btn.style.cssText = 'position:absolute;right:4px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:14px;opacity:.55;padding:0;margin:0;line-height:1;width:24px;height:24px;min-width:0;box-sizing:border-box;display:flex;align-items:center;justify-content:center';
+      btn.onclick = () => {
+        const mostrar = inp.type === 'password';
+        inp.type = mostrar ? 'text' : 'password';
+        btn.textContent = mostrar ? '🙈' : '👁';
+      };
+      wrap.appendChild(btn);
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wirePasswordToggles);
+  else wirePasswordToggles();
+})();
 
 </script>
 </body>

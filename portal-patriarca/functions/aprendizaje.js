@@ -45,6 +45,63 @@ function normEquipo(s) {
   return ALIAS[base] || base;
 }
 
+// ── Clave corta ─────────────────────────────────────────────────────────────
+// La fuente histórica y las casas escriben distinto el mismo club: en
+// football-data.co.uk es "Norwich" y en la casa "Norwich City". La clave
+// estricta no los junta y el equipo queda sin ficha.
+//
+// La clave corta quita esos apellidos. NO se usa directamente: se usa como
+// segundo intento, y solo cuando no es ambigua. Porque hay pares que sí son
+// clubes distintos y colapsarlos sería peor que no encontrarlos:
+//
+//     Bristol City / Bristol Rovers · Dundee / Dundee United
+//
+// Medido sobre 1.775 nombres reales: 24 claves cortas con choque, de las
+// cuales la mayoría son el mismo club escrito de dos formas.
+const APELLIDOS = /\b(city|town|united|utd|rovers|wanderers|county|albion|hotspur|borussia|bayer|bayern|eintracht|werder|hertha|schalke)\b/g;
+
+function claveCorta(s) {
+  const base = String(s || '')
+    .toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(new RegExp('[-\\s]+(' + ESTADOS_BR + ')\\.?\\s*$', 'i'), '')
+    .replace(/\s+[a-z]\.\s*[a-z]\.\s*$/i, '')
+    .replace(/\b(fc|cf|cd|cda|sc|ac|se|ec|ad|cs|rcd|rc|ud|sd|club|deportivo|deportes|atletico|de|del|la|el|los)\b/g, '')
+    .replace(APELLIDOS, '')
+    .replace(/[^a-z0-9]/g, '');
+  return base;
+}
+
+// Diccionario para buscar al revés: de lo que dice la casa hacia la ficha.
+//
+// Se arma SOLO con los nombres del histórico, que son el nombre bueno de cada
+// equipo. Cuando la casa dice "Norwich City" y no hay ficha con esa clave, se
+// prueba con su clave corta —"norwich"— y aquí sale a qué ficha corresponde.
+//
+// Si dos equipos del histórico comparten clave corta, la entrada se bota:
+// Dundee y Dundee Utd son clubes distintos y juntarlos sería peor que dejarlos
+// sin ficha.
+//
+// Ojo: esto NO alcanza solo. La otra mitad de la ambigüedad está en el
+// catálogo, no en el histórico — el histórico tiene "Bristol City" y
+// "Bristol Rvs" (claves cortas distintas, sin choque aparente), pero la casa
+// dice "Bristol Rovers", que en corto da "bristol" y aterrizaría en Bristol
+// City. Por eso el portal hace una segunda comprobación contra los partidos
+// que tiene en pantalla antes de usar este diccionario.
+function tablaDeAlias(nombresDelHistorico) {
+  const porCorta = new Map();
+  nombresDelHistorico.forEach(n => {
+    const c = claveCorta(n), e = normEquipo(n);
+    if (!c || !e) return;
+    if (!porCorta.has(c)) porCorta.set(c, new Set());
+    porCorta.get(c).add(e);
+  });
+  const tabla = {};
+  porCorta.forEach((destinos, c) => {
+    if (destinos.size === 1) tabla[c] = [...destinos][0];
+  });
+  return tabla;
+}
+
 // Una línea del historial, desde el punto de vista de un equipo
 function lineaDe(r, esLocal) {
   return {
@@ -162,7 +219,7 @@ function mezclar(corta, larga) {
   };
 }
 
-module.exports = { normEquipo, lineaDe, resumir, actualizarFicha, VENTANA,
+module.exports = { normEquipo, claveCorta, tablaDeAlias, lineaDe, resumir, actualizarFicha, VENTANA,
                    sumarAlHistorico, leerHistorico, mezclar, DIAS_DETALLE };
 
 // ── Resolver un cupón contra los resultados ─────────────────────────────────

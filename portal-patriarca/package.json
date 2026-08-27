@@ -1,0 +1,11 @@
+{
+  "name": "portal-aj16",
+  "description": "Construcción del portal antes de publicarlo",
+  "private": true,
+  "scripts": {
+    "construir": "node construir.js"
+  },
+  "dependencies": {
+    "terser": "^5.50.0"
+  }
+}

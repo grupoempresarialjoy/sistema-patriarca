@@ -12,18 +12,18 @@ const EXCLUIR = new RegExp([
   'reserva', 'reserves', 'sub-?\\d', '\\bu\\d{2}\\b', 'juvenil', 'youth', 'academy',
   'femenin', 'femenil', 'women', '\\(f\\)', 'feminin', 'revelacao',
   'amateur', 'next pro', 'primavera', 'segunda', '2\\.?[ªa]? divisi', '\\bii\\b',
-  'primera [bc]\\b', 'ascenso', 'ligue [23]', 'la liga 2', 'superettan',
-  'eerste divisie', 'serie [bcd]\\b', '\\b[23]\\. ?liga', 'league [23]\\b',
+  'primera [bc]\\b', 'ascenso', 'ligue 3', 'la liga 2', 'superettan',
+  'eerste divisie', 'serie [cd]\\b', '\\b[23]\\. ?liga', 'league [23]\\b',
   'regionalliga', 'national [23]', 'challenger', 'torneo federal',
   'virtual|cyber|esoccer|esports'
 ].join('|'), 'i');
 
 const TOP = {
-  'inglaterra':'premier league|championship|fa cup|efl cup|carabao',
+  'inglaterra':'^premier league$|^premier league\\b|championship|fa cup|efl cup|carabao',
   'espana':'la ?liga|copa del rey|supercopa',
-  'italia':'serie a|coppa italia|supercoppa',
+  'italia':'serie a\\b|serie b\\b|coppa italia|supercoppa',
   'alemania':'bundesliga|dfb|copa de alemania',
-  'francia':'ligue 1|copa de francia|coupe de france',
+  'francia':'ligue [12]\\b|copa de francia|coupe de france',
   'paises bajos':'eredivisie|knvb', 'holanda':'eredivisie|knvb',
   'portugal':'primeira liga|liga portugal|ta[cç]a de portugal',
   'belgica':'pro league|jupiler', 'turquia':'s[uü]per lig|copa de turqu',

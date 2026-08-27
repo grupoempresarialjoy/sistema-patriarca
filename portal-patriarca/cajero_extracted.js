@@ -1,0 +1,7171 @@
+(function(){var t=localStorage.getItem('aj16-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)})();
+;
+
+// ── CONFIG ──
+const firebaseConfig = {
+  apiKey: "AIzaSyBQ42PzffxkEUEJVaPIVxHPKDqA_wk6IS0",
+  authDomain: "portal-patriarca-aj16.firebaseapp.com",
+  projectId: "portal-patriarca-aj16",
+  storageBucket: "portal-patriarca-aj16.firebasestorage.app",
+  messagingSenderId: "1073575698338",
+  appId: "1:1073575698338:web:f014083b3092c6dc245cfb"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+
+// ── CONSTANTES ── (fallback hardcoded; se sobreescribe desde Firestore)
+let METODOS = []; // se carga desde admin_config — no hardcodear
+// Límites diarios de recarga por método (normMetodo() como clave)
+// Se carga desde admin_config/limites_diarios; si no existe, queda vacío
+let LIMITES_DIARIOS = {};
+
+// Normalización de nombres de método (igual que patriarca.html)
+const METODO_ALIAS = {
+  'SUPERGIROS UNITY'       : 'SUPER GIROS UNITY',
+  'SUPER GIROS UNITY '     : 'SUPER GIROS UNITY',
+  'BEMOVIL'                : 'BE MOVIL CAJA',
+  'BE MOVIL'               : 'BE MOVIL CAJA',
+  'WPLAY POS'              : 'WPLAY UNITY',
+  'EFECTIVO'               : 'EFECTIVO OPERADOR',
+  'SALDO CLIENTES ANTERIOR': 'SALDO CLIENTES',
+};
+function normMetodo(m) {
+  return METODO_ALIAS[(m||'').trim().toUpperCase()] || (m||'').trim().toUpperCase();
+}
+
+// Cargar métodos (y límites diarios incluidos) desde Firestore en tiempo real
+db.collection('admin_config').doc('metodos').onSnapshot(snap => {
+  if (!snap.exists) return;
+  const lista = snap.data().lista || [];
+  if (!lista.length) return;
+  // Poblar límites diarios desde el mismo documento (campo limite_diario por método)
+  LIMITES_DIARIOS = {};
+  lista.forEach(m => {
+    if (m.nombre && m.limite_diario) LIMITES_DIARIOS[normMetodo(m.nombre)] = m.limite_diario;
+  });
+  METODOS = lista.map(m => m.nombre);
+  populateMetodoSelects();
+  // Re-renderizar todas las vistas que dependen de los métodos
+  if (operadores.length) {
+    renderCupoInicial();
+    renderCupoActual();
+    renderSaldoCajas();
+    renderDashboard();
+    if (document.getElementById('sec-mapa-capital')?.classList.contains('active')) renderMapaCapital();
+  }
+  if (document.getElementById('sec-cajas')?.classList.contains('active')) renderCajas();
+  if (hojaOpUid) renderHojaOp();
+}, err => console.warn('metodos config:', err));
+
+// ── STATE ──
+let opId = null;
+let opNombre = '';
+let cajeroOficina = '';   // oficina del cajero logueado (ej. 'Unity')
+let cajeroPermisos = {};  // permisos asignados por el admin
+let _permisosListos = false;   // ya llegó la config desde Firestore
+let _oficinaLista   = false;   // ya sabemos a qué oficina pertenece el cajero
+let _moduloDecidido = false;   // el módulo de arranque ya se resolvió
+let comisionesMap = {};   // "CASA_METODO" → [tasaRecarga%, tasaPago%]
+let cupoInicial = {};   // { metodo: amount }
+let intercambios = [];  // array de docs
+let unsubIX = null;
+let unsubOpsGlobal = null; // listener global de operadores para cupo
+
+// ── Correos autorizados como cajero ──
+const CAJERO_EMAILS = ['paola@aj16.com'];
+
+// ── MODO AUDITORÍA ──
+// El candado real lo hacen cumplir las reglas de Firestore — esto solo avisa
+// en pantalla por qué algo no se va a poder guardar.
+let _audActiva = false;
+let _audPermitido = false;
+function chBloqueadoPorAuditoria(){ return _audActiva && !_audPermitido; }
+
+// ── Avisos en la barra de navegación ────────────────────────────────────────
+// Para que el cajero sepa que hay algo pendiente sin tener que entrar a cada
+// pestaña a mirar. Usa la misma pinta que el globo de Mensajes (.ch-nav-glob,
+// la inyecta chat.js).
+const CAJ_TAB_BASE = { 'tab-intercambios': '🔄 Intercambios', 'tab-cajas': '📋 Cajas' };
+function cajPintarNavBadge(tabId, n) {
+  const t = document.getElementById(tabId);
+  if (!t) return;
+  const base = CAJ_TAB_BASE[tabId] || t.textContent;
+  t.innerHTML = n > 0 ? `${base}<span class="ch-nav-glob">${n > 99 ? '99+' : n}</span>` : base;
+}
+
+function cajPintarAvisosNav() {
+  const pendIx = (ixGlobal || []).filter(ix => ix.estado === 'pendiente_cajera' || ix.estado === 'pendiente_op2').length;
+  cajPintarNavBadge('tab-intercambios', pendIx);
+
+  const pendMov = movsDelMes().filter(mv =>
+    mv.canal !== 'I-OP' && (!mv.estado_cajero || mv.estado_cajero === 'Pendiente')).length;
+  cajPintarNavBadge('tab-cajas', pendMov);
+}
+
+function auditoriaPintarBanner(){
+  let f = document.getElementById('aud-franja');
+  if (!chBloqueadoPorAuditoria()) { if (f) f.remove(); return; }
+  if (f) return;
+  f = document.createElement('div');
+  f.id = 'aud-franja';
+  f.style.cssText = 'position:sticky;top:0;z-index:850;background:#c0392b;color:#fff;'
+    + 'padding:10px 16px;font-size:13px;font-weight:700;text-align:center';
+  f.textContent = '🔒 Sistema en auditoría — solo puedes ver. Si necesitas hacer un cambio, contacta al administrador.';
+  const app = document.getElementById('app') || document.body;
+  app.insertBefore(f, app.firstChild);
+}
+
+// ── AUTH ──
+auth.onAuthStateChanged(user => {
+  if (user) {
+    if (!CAJERO_EMAILS.includes(user.email.toLowerCase())) {
+      auth.signOut();
+      const err = document.getElementById('auth-err');
+      err.style.display = 'block';
+      err.textContent = 'Este correo no tiene acceso al módulo de Cajero.';
+      return;
+    }
+    opId = user.uid;
+    opNombre = user.displayName || user.email;
+    document.getElementById('auth-overlay').style.display = 'none';
+    document.getElementById('app').style.display = 'flex';
+    document.getElementById('hdr-user').textContent = opNombre;
+    initMesSelect();
+    // Obtener oficina del cajero primero, luego arrancar
+    // Permisos configurados por el admin — en tiempo real
+    db.collection('patriarca_config').doc(user.uid).onSnapshot(snap => {
+      cajeroPermisos = snap.exists ? (snap.data().permisos || {}) : {};
+      _permisosListos = true;
+      aplicarPermisosCajero();
+      _decidirModuloInicial();   // los permisos definen a qué módulo puede entrar
+      _audPermitido = !!(snap.exists && snap.data().auditoria && snap.data().auditoria.permitido);
+      auditoriaPintarBanner();
+    }, e => { _permisosListos = true; console.warn('permisos cajero:', e); });
+
+    // Candado general de auditoría — igual para todos los cajeros
+    db.collection('patriarca_config_global').doc('auditoria').onSnapshot(doc => {
+      _audActiva = !!(doc.exists && doc.data().activo);
+      auditoriaPintarBanner();
+    }, () => {});
+
+    db.collection('admin_usuarios').where('email','==', user.email).limit(1).get().then(s => {
+      cajeroOficina = s.empty ? '' : (s.docs[0].data().oficinaNombre || '');
+      _oficinaLista = true;
+      if (window.AJChat) AJChat.iniciarUsuario({
+        db, auth, uid: user.uid,
+        nombre: (s.empty ? '' : s.docs[0].data().nombre) || opNombre,
+        rol: 'cajero', oficina: cajeroOficina, montarEn: '#ch-montar'
+      });
+      if (cajeroOficina) document.getElementById('hdr-user').textContent = opNombre + ' · ' + cajeroOficina;
+      loadComisiones();
+      initData();
+      // Listener en tiempo real: si admin agrega/elimina operador de esta oficina, recarga cupo
+      if (unsubOpsGlobal) unsubOpsGlobal();
+      let opsQuery = db.collection('admin_usuarios').where('rol','==','operador');
+      if (cajeroOficina) opsQuery = opsQuery.where('oficinaNombre','==', cajeroOficina);
+      unsubOpsGlobal = opsQuery.onSnapshot(() => { loadCupoInicial(); });
+
+      _decidirModuloInicial();
+    }).catch(e => {
+      console.warn('oficina del cajero:', e);
+      _oficinaLista = true;
+      _decidirModuloInicial();
+    });
+  } else {
+    document.getElementById('auth-overlay').style.display = 'flex';
+    document.getElementById('app').style.display = 'none';
+  }
+});
+
+function doLogin() {
+  const e = document.getElementById('email-in').value.trim();
+  const p = document.getElementById('pass-in').value;
+  const err = document.getElementById('auth-err');
+  err.style.display = 'none';
+  auth.signInWithEmailAndPassword(e, p).catch(ex => {
+    err.style.display = 'block';
+    err.textContent = 'Credenciales incorrectas';
+  });
+}
+function doLogout(){ auth.signOut(); }
+
+// ── INIT ──
+function initData() {
+  populateMetodoSelects();
+  loadOperadoresTab();
+  loadCupoInicial();
+  loadIntercambios();
+  loadCorrecciones();
+  loadCajas();
+  loadGastosGlobal();
+}
+
+// ── CUPO INICIAL (MATRIZ) ──
+// cupoPozo = { metodo: totalPozo }
+// cupoAsignado = { uid: { metodo: amount } }
+let cupoPozo = {};
+let operadores = []; // [{uid, nombre}]
+let cupoAsignado = {};
+let _unsubCupoPozo = null;
+let _unsubCupoOps = [];
+
+function loadCupoInicial() {
+  // Limpiar listeners anteriores
+  if (_unsubCupoPozo) { _unsubCupoPozo(); _unsubCupoPozo = null; }
+  _unsubCupoOps.forEach(u => u()); _unsubCupoOps = [];
+
+  // Primero cargar operadores (una vez), luego poner listeners en tiempo real
+  let opsQ = db.collection('admin_usuarios').where('rol','==','operador');
+  if (cajeroOficina) opsQ = opsQ.where('oficinaNombre','==', cajeroOficina);
+
+  opsQ.get().then(async opsSnap => {
+    operadores = opsSnap.docs
+      .filter(d => d.data().estado !== 'inactivo')
+      .map(d => ({
+        docId: d.id,
+        uid:   d.data().uid || d.id,
+        nombre: d.data().nombre || d.data().email || d.id,
+        email:  d.data().email || ''
+      }));
+    if (!operadores.length) operadores = [{ uid: opId, docId: opId, nombre: opNombre }];
+    cupoAsignado = {};
+
+    // Garantizar que METODOS esté cargado antes de renderizar
+    // (el listener global puede haberse registrado antes del login y fallado)
+    if (!METODOS.length) {
+      try {
+        const ms = await db.collection('admin_config').doc('metodos').get();
+        if (ms.exists) {
+          METODOS = (ms.data().lista || []).map(m => m.nombre);
+          populateMetodoSelects();
+        }
+      } catch(e) { console.warn('loadMetodos fallback:', e); }
+    }
+
+    // Listener en tiempo real para CAJA GENERAL
+    _unsubCupoPozo = db.collection('cajero_config').doc('main').onSnapshot(snap => {
+      const d = snap.exists ? snap.data() : {};
+      window._cajeroConfigRaw = d; // guardar para cambiarMes
+      cupoPozo = d.cupo_por_mes ? (d.cupo_por_mes[mesActivo] || {}) : (d.cupo_pozo || {});
+      renderCupoInicial();
+      renderDashboard();
+      renderSaldoCajas();
+    });
+
+    // Listener en tiempo real para cada operador
+    operadores.forEach(op => {
+      const unsub = db.collection('patriarca_config').doc(op.uid).onSnapshot(s => {
+        const sData = s.exists ? s.data() : {};
+        if (!window._patriarcaConfigRaw) window._patriarcaConfigRaw = {};
+        window._patriarcaConfigRaw[op.uid] = sData; // guardar para cambiarMes
+        cupoAsignado[op.uid] = sData.cupos_por_mes ? (sData.cupos_por_mes[mesActivo] || {}) : (sData.cupos_cajero || {});
+        cupoInicial = cupoAsignado[opId] || {};
+        renderCupoInicial();
+        renderDashboard();
+        renderCupoActual();
+        renderSaldoCajas();
+        if (document.getElementById('sec-mapa-capital')?.classList.contains('active')) renderMapaCapital();
+      });
+      _unsubCupoOps.push(unsub);
+    });
+    // Cargar SC actual de todos los operadores una vez que la lista está lista
+    _allScData = {};
+    loadAllSaldoClientesData();
+  });
+}
+
+function renderCupoInicial() {
+  const wrap = document.getElementById('ci-matrix-wrap');
+  if (!operadores.length || !METODOS.length) {
+    wrap.innerHTML = '<div style="padding:24px;color:var(--text2);text-align:center">Cargando datos...</div>';
+    return;
+  }
+
+  // Cabecera — MÉTODO | CAJA GENERAL | operadores... | DIFERENCIA
+  let thead = '<thead><tr><th>MÉTODO</th>';
+  thead += `<th style="text-align:right;min-width:160px;color:var(--gold)">🏦 CAJA GENERAL</th>`;
+  operadores.forEach(op => { thead += `<th style="text-align:right;min-width:160px">${op.nombre}</th>`; });
+  thead += `<th style="text-align:right;min-width:140px;color:var(--purple)">⚖️ DIFERENCIA</th>`;
+  thead += '</tr></thead>';
+
+  let tbody = '<tbody>';
+  const totOp = {};
+  operadores.forEach(op => totOp[op.uid] = 0);
+  let totPozo = 0, totDiff = 0;
+
+  METODOS.forEach(m => {
+    const pv = cupoPozo[m] || 0;
+    totPozo += pv;
+    tbody += `<tr>`;
+    tbody += `<td class="td-metodo">${m}</td>`;
+    // CAJA GENERAL
+    const pvCls = pv < 0 ? 'td-neg' : pv > 0 ? 'td-pos' : 'td-zero';
+    tbody += `<td class="${pvCls}" style="font-weight:600">${pv ? pesos(pv) : '—'}</td>`;
+    // Operadores
+    let sumOps = 0;
+    operadores.forEach(op => {
+      const v = cupoAsignado[op.uid]?.[m] || 0;
+      totOp[op.uid] += v;
+      sumOps += v;
+      const cls = v < 0 ? 'td-neg' : v > 0 ? 'td-pos' : 'td-zero';
+      tbody += `<td class="${cls}">${v ? pesos(v) : '—'}</td>`;
+    });
+    // DIFERENCIA por fila
+    const diff = pv - sumOps;
+    totDiff += diff;
+    const dcls = diff < 0 ? 'td-neg' : 'td-pos';
+    tbody += `<td class="${dcls}" style="font-weight:600">${pesos(diff)}</td>`;
+    tbody += '</tr>';
+  });
+  tbody += '</tbody>';
+
+  let tfoot = '<tfoot><tr class="tfoot-row"><td>TOTAL</td>';
+  tfoot += `<td class="${totPozo < 0 ? 'td-neg' : 'td-pos'}">${pesos(totPozo)}</td>`;
+  operadores.forEach(op => {
+    const t = totOp[op.uid];
+    tfoot += `<td class="${t < 0 ? 'td-neg' : 'td-pos'}">${pesos(t)}</td>`;
+  });
+  tfoot += `<td class="${totDiff < 0 ? 'td-neg' : 'td-pos'}">${pesos(totDiff)}</td>`;
+  tfoot += '</tr></tfoot>';
+
+  wrap.innerHTML = `<table>${thead}${tbody}${tfoot}</table>`;
+}
+
+function updateResto(metodo) {
+  const mk = metodo.replace(/ /g,'_');
+  const pozo = parseCOP(document.getElementById('pozo-'+mk)?.value);
+  let sumAsig = 0;
+  operadores.forEach(op => { sumAsig += parseCOP(document.getElementById('op-'+op.uid+'-'+mk)?.value); });
+  const resto = pozo - sumAsig;
+  const el = document.getElementById('resto-'+mk);
+  if (el) {
+    el.textContent = pesos(resto);
+    el.className = resto < 0 ? 'td-neg' : resto === 0 && pozo > 0 ? 'td-pos' : 'td-zero';
+    el.style.textAlign = 'right'; el.style.fontWeight = '700';
+  }
+  // update totals
+  let totPozo = 0, totResto = 0;
+  const totOp = {};
+  operadores.forEach(op => totOp[op.uid] = 0);
+  METODOS.forEach(m => {
+    const k = m.replace(/ /g,'_');
+    const p = parseCOP(document.getElementById('pozo-'+k)?.value);
+    totPozo += p;
+    let s = 0;
+    operadores.forEach(op => { const v = parseCOP(document.getElementById('op-'+op.uid+'-'+k)?.value); s+=v; totOp[op.uid]+=v; });
+    totResto += p - s;
+  });
+  const tp = document.getElementById('ci-tot-pozo');
+  if (tp) tp.textContent = pesos(totPozo);
+  operadores.forEach(op => { const te = document.getElementById('ci-tot-op-'+op.uid); if(te) te.textContent = pesos(totOp[op.uid]); });
+  const tr2 = document.getElementById('ci-tot-resto');
+  if (tr2) { tr2.textContent = pesos(totResto); tr2.className = totResto<0?'td-neg':totResto===0?'td-pos':'td-zero'; }
+}
+
+async function saveCupoInicial() {
+  // Collect pozo
+  const newPozo = {};
+  METODOS.forEach(m => {
+    const v = parseCOP(document.getElementById('pozo-'+m.replace(/ /g,'_'))?.value);
+    newPozo[m] = v; // guarda 0 también para borrar valores anteriores
+  });
+  // Collect per-operator
+  const newAsig = {};
+  operadores.forEach(op => {
+    newAsig[op.uid] = {};
+    METODOS.forEach(m => {
+      const v = parseCOP(document.getElementById('op-'+op.uid+'-'+m.replace(/ /g,'_'))?.value);
+      newAsig[op.uid][m] = v; // guarda 0 también para borrar valores anteriores
+    });
+  });
+  try {
+    const batch = db.batch();
+    // Guardar plano (backward compat) + por mes
+    const pozoUpd = { cupo_pozo: newPozo };
+    pozoUpd[`cupo_por_mes.${mesActivo}`] = newPozo;
+    batch.set(db.collection('cajero_config').doc('main'), pozoUpd, { merge: true });
+    operadores.forEach(op => {
+      const opUpd = { cupos_cajero: newAsig[op.uid] };
+      opUpd[`cupos_por_mes.${mesActivo}`] = newAsig[op.uid];
+      batch.set(db.collection('patriarca_config').doc(op.uid), opUpd, { merge: true });
+    });
+    await batch.commit();
+    _cupoVersion++; // cancela cualquier loadCupoInicial en vuelo para evitar que sobreescriba los 0s
+    cupoPozo = newPozo;
+    cupoAsignado = newAsig;
+    cupoInicial = newAsig[opId] || {};
+    toast('✅ Cupo inicial guardado', 'success');
+    renderCupoInicial();
+    renderDashboard();
+    renderCupoActual();
+    renderSaldoCajas();
+  } catch(e) { toast('⚠ Error: '+e.message,'error'); }
+}
+
+// ── INTERCAMBIOS (nuevo sistema global) ──
+let ixGlobal = [];  // todos los intercambios del global
+let _ixSort  = { col: 'id', dir: 'asc' };  // col: 'id' | 'fecha'
+
+function _ixSortFn(a, b) {
+  const d = _ixSort.dir === 'asc' ? 1 : -1;
+  if (_ixSort.col === 'fecha') {
+    const fa = a.fecha||'', fb = b.fecha||'';
+    if (fa !== fb) return fa.localeCompare(fb) * d;
+    // desempate por ID
+    const na = parseInt((a.op1_ix_id||'0')) || 0;
+    const nb = parseInt((b.op1_ix_id||'0')) || 0;
+    return (na - nb) * d;
+  } else {
+    const na = parseInt((a.op1_ix_id||'0').split('-')[0]) || 0;
+    const nb = parseInt((b.op1_ix_id||'0').split('-')[0]) || 0;
+    if (na !== nb) return (na - nb) * d;
+    // desempate por fecha
+    return (a.fecha||'').localeCompare(b.fecha||'') * d;
+  }
+}
+
+function toggleIxSort(col) {
+  if (_ixSort.col === col) {
+    _ixSort.dir = _ixSort.dir === 'asc' ? 'desc' : 'asc';
+  } else {
+    _ixSort.col = col;
+    _ixSort.dir = 'asc';
+  }
+  // Actualizar flechas en headers
+  document.getElementById('th-fecha-arrow').textContent = _ixSort.col==='fecha' ? (_ixSort.dir==='asc'?'▲':'▼') : '';
+  document.getElementById('th-id-arrow').textContent    = _ixSort.col==='id'    ? (_ixSort.dir==='asc'?'▲':'▼') : '';
+  // Re-ordenar y re-renderizar
+  ixGlobal.sort(_ixSortFn);
+  renderIntercambios();
+}
+
+function loadIntercambios() {
+  if (unsubIX) unsubIX();
+  // Sin orderBy: Firestore excluye documentos con ts nulo; ordenamos en JS
+  const _onData = snap => {
+    ixGlobal = snap.docs
+      .map(d => ({id: d.id, ...d.data()}))
+      .sort(_ixSortFn);
+    intercambios = ixGlobal.filter(ix => ix.estado === 'completado'); // para calcNetIX
+    renderIntercambios();
+    renderDashboard();
+    cajPintarAvisosNav();
+    renderCupoActual();
+    renderSaldoCajas();
+    if (document.getElementById('sec-mapa-capital')?.classList.contains('active')) renderMapaCapital();
+  };
+  unsubIX = db.collection('patriarca_ix_global').onSnapshot(_onData, () => {
+    db.collection('patriarca_ix_global').get().then(_onData);
+  });
+}
+
+function renderIntercambios() {
+  // ── Pendientes de confirmar (estado: pendiente_cajera) ──
+  const pendientes = ixGlobal.filter(ix => ix.estado === 'pendiente_cajera' || ix.estado === 'pendiente_op2');
+  const pendList   = document.getElementById('caj-ix-pendientes-list');
+  if (pendList) {
+    if (!pendientes.length) {
+      pendList.innerHTML = '<div class="empty"><div class="empty-icon">✅</div>Sin intercambios pendientes</div>';
+    } else {
+      pendList.innerHTML = pendientes.map(ix => {
+        const ck = ix.checkmarks || 1;
+        const needsOp2 = ix.estado === 'pendiente_op2';
+        return `
+        <div style="background:var(--bg3);border:1px solid ${needsOp2?'var(--orange)':'var(--gold)'};border-radius:8px;padding:12px 14px;margin-bottom:8px">
+          <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
+            <div style="flex:1;min-width:220px">
+              <div style="font-size:12px;font-weight:700;color:${needsOp2?'var(--orange)':'var(--gold)'};margin-bottom:6px">
+                ${'✅'.repeat(ck)}${'⬜'.repeat((ix.tipo==='C'?3:2)-ck)}
+                &nbsp; ${ix.tipo==='C'?'Cruzado':'Interno'} — ${needsOp2?'Esperando Op2':'Listo para confirmar'}
+              </div>
+              <div style="font-size:12px;margin-bottom:4px">
+                <b>${ix.op1_nombre||'—'}</b>
+                <span style="color:var(--red)"> sale ${ix.op1_egresa||'—'}</span>
+                <span style="color:var(--text2)"> → </span>
+                <span style="color:var(--green)">entra ${ix.op1_ingresa||'—'}</span>
+                <span style="color:var(--gold);font-weight:600"> ${pesos(ix.monto)}</span>
+              </div>
+              ${ix.tipo==='C'?`<div style="font-size:12px;color:var(--text2)">
+                <b>${ix.op2_nombre||'—'}</b>
+                sale ${ix.op2_egresa||'—'} → entra ${ix.op2_ingresa||'—'}
+              </div>`:''}
+              <div style="font-size:11px;color:var(--text2);margin-top:4px">
+                ID Op1: <b>${ix.op1_ix_id||'—'}</b>
+                ${ix.op2_ix_id?`· ID Op2: <b>${ix.op2_ix_id}</b>`:''}
+                · ${fmtDate(ix.fecha)}
+              </div>
+            </div>
+            ${!needsOp2?`<button class="btn btn-gold btn-sm" onclick="confirmarIX('${ix.id}')">Confirmar ✅</button>`:'<span style="font-size:11px;color:var(--orange)">Esperando aceptación del Op2</span>'}
+          </div>
+        </div>`;
+      }).join('');
+    }
+  }
+
+  // ── Historial (filtrado por mes activo) ──
+  const tbody = document.getElementById('ix-tbody');
+  if (!tbody) return;
+
+  const historial = ixGlobal.filter(ix =>
+    (ix.estado === 'completado' || ix.estado === 'cancelado') &&
+    (!mesActivo || getMesKey(ix) === mesActivo)
+  );
+
+  // Poblar dropdowns con valores únicos (preservando selección actual)
+  const egresaEl   = document.getElementById('ix-f-egresa');
+  const ingressaEl = document.getElementById('ix-f-ingresa');
+  const op1El      = document.getElementById('ix-f-op1');
+  const op2El      = document.getElementById('ix-f-op2');
+  if (egresaEl && ingressaEl) {
+    const egVal  = egresaEl.value;
+    const inVal  = ingressaEl.value;
+    const cajas  = [...new Set(historial.map(ix => ix.op1_egresa).filter(Boolean))].sort();
+    const injas  = [...new Set(historial.map(ix => ix.op1_ingresa).filter(Boolean))].sort();
+    egresaEl.innerHTML  = '<option value="">Egresa: Todas</option>'  + cajas.map(c=>`<option value="${c}">${c}</option>`).join('');
+    ingressaEl.innerHTML = '<option value="">Ingresa: Todas</option>' + injas.map(c=>`<option value="${c}">${c}</option>`).join('');
+    egresaEl.value  = egVal;
+    ingressaEl.value = inVal;
+  }
+  if (op1El && op2El) {
+    const op1Val = op1El.value;
+    const op2Val = op2El.value;
+    const ops1 = [...new Set(historial.map(ix => ix.op1_nombre).filter(Boolean))].sort();
+    const ops2 = [...new Set(historial.map(ix => ix.op2_nombre || 'Propio'))].sort(); // incluir nulos como 'Propio'
+    op1El.innerHTML = '<option value="">OP1: Todos</option>' + ops1.map(o=>`<option value="${o}">${o}</option>`).join('');
+    op2El.innerHTML = '<option value="">OP2: Todos</option>' + ops2.map(o=>`<option value="${o}">${o}</option>`).join('');
+    op1El.value = op1Val;
+    op2El.value = op2Val;
+  }
+
+  // Leer valores de filtros
+  const buscar  = (document.getElementById('ix-f-buscar')?.value  || '').toLowerCase().trim();
+  const fTipo   = document.getElementById('ix-f-tipo')?.value    || '';
+  const fDesde  = document.getElementById('ix-f-desde')?.value   || '';
+  const fHasta  = document.getElementById('ix-f-hasta')?.value   || '';
+  const fEgresa = document.getElementById('ix-f-egresa')?.value  || '';
+  const fIngresa= document.getElementById('ix-f-ingresa')?.value || '';
+  const fOp1    = document.getElementById('ix-f-op1')?.value     || '';
+  const fOp2    = document.getElementById('ix-f-op2')?.value     || '';
+  const fMontoRaw = document.getElementById('ix-f-monto')?.value.trim() || '';
+  const fMonto  = fMontoRaw !== '' ? Number(fMontoRaw) : null;
+
+  let filtrado = historial;
+  if (buscar)   filtrado = filtrado.filter(ix =>
+    (ix.op1_ix_id||'').toLowerCase().includes(buscar) ||
+    (ix.op2_ix_id||'').toLowerCase().includes(buscar) ||
+    (ix.op1_nombre||'').toLowerCase().includes(buscar) ||
+    (ix.op2_nombre||'').toLowerCase().includes(buscar)
+  );
+  if (fTipo)    filtrado = filtrado.filter(ix => ix.tipo === fTipo);
+  if (fDesde)   filtrado = filtrado.filter(ix => (ix.fecha||'') >= fDesde);
+  if (fHasta)   filtrado = filtrado.filter(ix => (ix.fecha||'') <= fHasta);
+  if (fEgresa)  filtrado = filtrado.filter(ix => ix.op1_egresa  === fEgresa);
+  if (fIngresa) filtrado = filtrado.filter(ix => ix.op1_ingresa === fIngresa);
+  if (fOp1)     filtrado = filtrado.filter(ix => (ix.op1_nombre||'') === fOp1);
+  if (fOp2)     filtrado = filtrado.filter(ix => (ix.op2_nombre||'Propio') === fOp2);
+  if (fMonto !== null) filtrado = filtrado.filter(ix => Number(ix.monto) === fMonto);
+
+  // Contador
+  const countEl = document.getElementById('ix-count');
+  if (countEl) countEl.textContent = filtrado.length < historial.length
+    ? `${filtrado.length} de ${historial.length} intercambios`
+    : `${historial.length} intercambios`;
+
+  if (!filtrado.length) {
+    tbody.innerHTML = '<tr><td colspan="11"><div class="empty"><div class="empty-icon">🔄</div>Sin resultados para los filtros aplicados</div></td></tr>';
+    return;
+  }
+  tbody.innerHTML = filtrado.map((ix, i) => {
+    const esCancelado = ix.estado === 'cancelado';
+    const estBadge = esCancelado
+      ? '<span class="badge badge-red">Cancelado</span>'
+      : `✅✅${ix.tipo==='C'?'✅':''}`;
+    return `
+    <tr style="${esCancelado?'opacity:.5;text-decoration:line-through':''}">
+      <td style="text-align:center;color:var(--text2);font-size:11px">${i+1}</td>
+      <td>${estBadge}</td>
+      <td>${fmtDate(ix.fecha)}</td>
+      <td><span class="badge" style="background:var(--bg3)">${ix.tipo==='C'?'Cruzado':'Interno'}</span></td>
+      <td style="font-size:11px;color:var(--text2)">${ix.op1_ix_id||'—'}</td>
+      <td style="font-size:11px">${ix.op1_nombre||'—'}</td>
+      <td><span class="badge badge-red">${ix.op1_egresa||'—'}</span></td>
+      <td><span class="badge badge-green">${ix.op1_ingresa||'—'}</span></td>
+      <td class="td-num">${pesos(ix.monto)}</td>
+      <td style="font-size:11px;color:var(--text2)">${ix.op2_ix_id||'—'}</td>
+      <td style="font-size:11px">${ix.op2_nombre||'Propio'}</td>
+      <td><button class="btn btn-red btn-sm" onclick="eliminarIX('${ix.id}')" title="Eliminar intercambio">🗑</button></td>
+    </tr>`;
+  }).join('');
+
+  // ── Fila de totales del filtro activo ──
+  const totMonto = filtrado.filter(ix => ix.estado !== 'cancelado').reduce((s, ix) => s + Number(ix.monto||0), 0);
+  const nCancelados = filtrado.filter(ix => ix.estado === 'cancelado').length;
+  tbody.innerHTML += `
+    <tr style="background:var(--bg3);border-top:2px solid var(--border)">
+      <td colspan="4" style="padding:10px 10px;font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">
+        TOTAL (${filtrado.length} intercambios${nCancelados ? ` · ${nCancelados} cancelados` : ''})
+      </td>
+      <td colspan="4"></td>
+      <td class="td-num" style="font-size:14px;font-weight:800;color:var(--gold)">${pesos(totMonto)}</td>
+      <td colspan="3"></td>
+    </tr>`;
+}
+
+function limpiarFiltrosIX() {
+  ['ix-f-buscar','ix-f-tipo','ix-f-desde','ix-f-hasta','ix-f-egresa','ix-f-ingresa','ix-f-op1','ix-f-op2','ix-f-monto']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  renderIntercambios();
+}
+
+async function eliminarIX(globalId) {
+  const ix = ixGlobal.find(x => x.id === globalId);
+  if (!ix) return;
+  const detalle = `${ix.op1_nombre||'Op1'} | ${ix.op1_egresa||'—'} → ${ix.op1_ingresa||'—'} | ${pesos(ix.monto)} | ${fmtDate(ix.fecha)}`;
+  const motivo = prompt(`SOLICITAR ELIMINACIÓN\n\n${detalle}\n\n¿Motivo? (obligatorio — el administrador debe aprobar antes de eliminar)`);
+  if (motivo === null) return;
+  if (!motivo.trim()) { toast('⚠ Debes indicar el motivo', 'error'); return; }
+  try {
+    await db.collection('patriarca_ix_delete_requests').add({
+      globalId,
+      op1_doc_id:  ix.op1_doc_id || null,
+      op2_doc_id:  ix.op2_doc_id || null,
+      op1_nombre:  ix.op1_nombre || '',
+      op2_nombre:  ix.op2_nombre || '',
+      op1_egresa:  ix.op1_egresa || '',
+      op1_ingresa: ix.op1_ingresa || '',
+      monto:       ix.monto || 0,
+      fecha:       ix.fecha || '',
+      motivo:      motivo.trim(),
+      solicitante: 'cajero',
+      solicitante_nombre: firebase.auth().currentUser?.email || 'Cajero',
+      estado:      'pendiente',
+      ts:          firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    toast('📤 Solicitud enviada — el administrador debe aprobarla', 'info');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+// ── Cajera confirma (3er checkmark) ──
+async function confirmarIX(globalId) {
+  try {
+    const ref   = db.collection('patriarca_ix_global').doc(globalId);
+    const snap  = await ref.get();
+    const g     = snap.data();
+    const ts    = firebase.firestore.FieldValue.serverTimestamp();
+    const total = g.tipo === 'C' ? 3 : 2;
+
+    const batch = db.batch();
+    batch.set(ref, { estado:'completado', checkmarks: total, confirmado_cajera_at: ts }, { merge: true });
+
+    for (const docId of [g.op1_doc_id, g.op2_doc_id].filter(Boolean)) {
+      const docRef  = db.collection('patriarca_intercambios').doc(docId);
+      const docSnap = await docRef.get();
+      if (docSnap.exists) {
+        batch.update(docRef, { estado:'completado', checkmarks: total });
+      }
+    }
+    await batch.commit();
+    toast('✅ Intercambio confirmado y completado', 'success');
+  } catch(e) { toast('⚠ Error: '+e.message,'error'); }
+}
+
+// ── Solicitudes de corrección/autorización ──
+let unsubCorrecciones = null;
+let allCorrecciones   = [];
+
+function loadCorrecciones() {
+  if (unsubCorrecciones) unsubCorrecciones();
+  unsubCorrecciones = db.collection('patriarca_ix_correcciones')
+    .where('estado','==','pendiente')
+    .orderBy('ts','desc')
+    .onSnapshot(snap => {
+      allCorrecciones = snap.docs.map(d => ({id: d.id, ...d.data()}));
+      renderCorrecciones();
+    }, () => {
+      // Fallback sin orderBy
+      db.collection('patriarca_ix_correcciones')
+        .where('estado','==','pendiente').get()
+        .then(s => {
+          allCorrecciones = s.docs.map(d => ({id: d.id, ...d.data()}));
+          renderCorrecciones();
+        });
+    });
+}
+
+function renderCorrecciones() {
+  const wrap = document.getElementById('caj-correcciones-wrap');
+  const list = document.getElementById('caj-correcciones-list');
+  if (!wrap || !list) return;
+  if (!allCorrecciones.length) { wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  list.innerHTML = allCorrecciones.map(c => {
+    const va = c.valoresActuales   || {};
+    const vp = c.valoresPropuestos || {};
+    const hayCambios = Object.keys(vp).length > 0;
+
+    const diffRow = (label, campo) => {
+      if (!vp[campo]) return '';
+      return `<div style="font-size:11px;margin-top:3px">
+        ${label}: <span style="text-decoration:line-through;color:var(--red)">${va[campo]||'—'}</span>
+        → <span style="color:var(--green);font-weight:600">${campo==='monto'?pesos(vp[campo]):vp[campo]}</span>
+      </div>`;
+    };
+
+    return `
+    <div style="background:var(--bg3);border:1px solid var(--orange);border-radius:8px;padding:12px 14px;margin-bottom:8px">
+      <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
+        <div style="flex:1;min-width:240px">
+          <div style="font-size:12px;font-weight:700;color:var(--orange);margin-bottom:6px">
+            📝 Solicitud de Corrección — <span style="font-weight:400;color:var(--text2)">${c.solicitante_nombre||'Operador'}</span>
+          </div>
+          <div style="font-size:12px;margin-bottom:8px;background:var(--bg2);padding:8px 10px;border-radius:6px;border-left:3px solid var(--orange)">
+            <b>Motivo:</b> ${c.motivo}
+          </div>
+          ${hayCambios ? `
+          <div style="background:rgba(53,204,47,.06);border:1px solid rgba(53,204,47,.2);border-radius:6px;padding:8px 10px;font-size:12px;margin-bottom:6px">
+            <div style="font-weight:700;color:var(--gold);margin-bottom:4px;font-size:11px">CAMBIOS PROPUESTOS</div>
+            ${diffRow('Fecha',   'fecha')}
+            ${diffRow('Monto',   'monto')}
+            ${diffRow('Egresa',  'caja_egresa')}
+            ${diffRow('Ingresa', 'caja_ingresa')}
+          </div>` : ''}
+          ${c.cambio_op2 ? `
+          <div style="background:rgba(74,158,255,.06);border:1px solid rgba(74,158,255,.25);border-radius:6px;padding:8px 10px;font-size:12px">
+            <div style="font-weight:700;color:var(--blue);margin-bottom:4px;font-size:11px">🔄 REASIGNACIÓN DE OP2</div>
+            <div>Op2 actual: <span style="text-decoration:line-through;color:var(--red)">${va.operador2||'—'}</span>
+            → Nuevo Op2: <span style="color:var(--green);font-weight:600">${c.cambio_op2.nombre||'Propio'}</span></div>
+            ${c.cambio_op2.nuevo_tipo==='I'?'<div style="color:var(--orange);font-size:11px;margin-top:3px">⚠ Se convertirá a intercambio Interno</div>':'<div style="color:var(--text2);font-size:11px;margin-top:3px">El nuevo Op2 deberá aceptar y el Cajero confirmar de nuevo</div>'}
+          </div>` : (!hayCambios ? '<div style="font-size:11px;color:var(--text2)">Sin cambios de campos especificados</div>' : '')}
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;min-width:100px">
+          <button class="btn btn-gold btn-sm" onclick="aprobarCorreccion('${c.id}','${c.globalId||''}')">✅ Aprobar</button>
+          <button class="btn btn-ghost btn-sm" onclick="rechazarCorreccion('${c.id}')">❌ Rechazar</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function aprobarCorreccion(corrId, globalId) {
+  const nota = prompt('Nota de aprobación (opcional):') ?? '';
+  try {
+    const ts      = firebase.firestore.FieldValue.serverTimestamp();
+    const corrRef = db.collection('patriarca_ix_correcciones').doc(corrId);
+    const corrSnap= await corrRef.get();
+    if (!corrSnap.exists) { toast('⚠ Solicitud no encontrada','error'); return; }
+
+    const c      = corrSnap.data();
+    const vp     = c.valoresPropuestos || {};
+    const co2    = c.cambio_op2;          // reasignación de Op2 (puede ser null)
+    const batch  = db.batch();
+
+    // 1. Marcar solicitud como aprobada
+    batch.update(corrRef, { estado:'aprobado', nota_cajero: nota||'', revisado_at: ts });
+
+    // ── CASO A: Reasignación de Op2 ──
+    if (co2 && co2.uid) {
+      if (!globalId) { toast('⚠ globalId faltante','error'); return; }
+      const gRef  = db.collection('patriarca_ix_global').doc(globalId);
+      const gSnap = await gRef.get();
+      if (!gSnap.exists) { toast('⚠ Global doc no encontrado','error'); return; }
+      const g = gSnap.data();
+
+      // a. ELIMINAR doc del Op2 viejo y renumerar sus IDs restantes
+      if (g.op2_doc_id) {
+        const oldOp2Snap = await db.collection('patriarca_intercambios').doc(g.op2_doc_id).get();
+        if (oldOp2Snap.exists) {
+          const oldOp2Data = oldOp2Snap.data();
+          batch.delete(oldOp2Snap.ref);
+
+          // Renumerar docs restantes del mismo operador
+          const oldOpId    = oldOp2Data.opId;
+          const deletedNum = parseInt((oldOp2Data.ix_id||'').match(/^(\d+)/)?.[1] || 0);
+          if (oldOpId && deletedNum > 0) {
+            const remainingSnap = await db.collection('patriarca_intercambios')
+              .where('opId','==',oldOpId).get();
+            const toRename = remainingSnap.docs.filter(d => {
+              const n = parseInt((d.data().ix_id||'').match(/^(\d+)/)?.[1] || 0);
+              return n > deletedNum;
+            });
+            toRename.forEach(doc => {
+              const data   = doc.data();
+              const num    = parseInt((data.ix_id||'').match(/^(\d+)/)?.[1] || 0);
+              const newId  = data.ix_id.replace(/^\d+/, (num - 1).toString());
+              batch.update(doc.ref, { ix_id: newId });
+              if (data.global_id) {
+                batch.update(db.collection('patriarca_ix_global').doc(data.global_id), { op2_ix_id: newId });
+              }
+            });
+            // Ajustar contador del operador
+            const cntRestantes = remainingSnap.docs.filter(d => d.id !== g.op2_doc_id).length;
+            batch.set(db.collection('patriarca_intercambios').doc('_cnt_' + oldOpId),
+              { cnt_ix: cntRestantes }, { merge: true });
+          }
+        }
+      }
+
+      // Aplicar también cambios de campos si los hay
+      const camposBase = {};
+      if (vp.fecha)  camposBase.fecha  = vp.fecha;
+      if (vp.monto)  camposBase.monto  = vp.monto;
+
+      if (co2.nuevo_tipo === 'I') {
+        // b1. Convertir a Interno → pendiente_cajera
+        batch.update(gRef, {
+          ...camposBase, tipo:'I', estado:'pendiente_cajera', checkmarks:1,
+          op2_uid:null, op2_nombre:'Propio', op2_doc_id:null, op2_ix_id:null,
+          op2_egresa:null, op2_ingresa:null, confirmado_op2_at:null,
+        });
+        if (g.op1_doc_id) {
+          const d1Snap = await db.collection('patriarca_intercambios').doc(g.op1_doc_id).get();
+          if (d1Snap.exists) batch.update(d1Snap.ref, {
+            ...camposBase, tipo:'I', estado:'pendiente_cajera', checkmarks:1,
+            operador2:'Propio', operador2_uid:null,
+          });
+        }
+        await batch.commit();
+        toast('✅ Convertido a Interno — pendiente tu confirmación', 'success');
+
+      } else {
+        // b2. Reasignar a nuevo Op2 (Cruzado) → reiniciar flujo desde pendiente_op2
+        batch.update(gRef, {
+          ...camposBase, tipo:'C', estado:'pendiente_op2', checkmarks:1,
+          op2_uid: co2.uid, op2_nombre: co2.nombre,
+          op2_doc_id:null, op2_ix_id:null,
+          op2_egresa: g.op1_ingresa, op2_ingresa: g.op1_egresa,
+          confirmado_op2_at:null, confirmado_cajera_at:null,
+        });
+        if (g.op1_doc_id) {
+          const d1Snap = await db.collection('patriarca_intercambios').doc(g.op1_doc_id).get();
+          if (d1Snap.exists) batch.update(d1Snap.ref, {
+            ...camposBase, tipo:'C', estado:'pendiente_op2', checkmarks:1,
+            operador2: co2.nombre, operador2_uid: co2.uid,
+          });
+        }
+        await batch.commit();
+        // Crear incoming para el nuevo Op2
+        await db.collection('patriarca_ix_incoming').add({
+          destinatario_uid:   co2.uid,
+          destinatario_email: co2.email || '',
+          global_id:   globalId,
+          op1_doc_id:  g.op1_doc_id || null,
+          op1_ix_id:   g.op1_ix_id,
+          fecha: vp.fecha || g.fecha, monto: vp.monto || g.monto,
+          operador1: g.op1_nombre, operador1_uid: g.op1_uid,
+          caja_egresa: g.op1_ingresa, caja_ingresa: g.op1_egresa,
+          estado: 'pendiente_aceptar', ts,
+        });
+        toast(`✅ Reasignado a ${co2.nombre} — esperando su aceptación`, 'success');
+      }
+      return;
+    }
+
+    // ── CASO B: Corrección de campos (fecha, monto, cajas) sin cambio de Op2 ──
+    if (globalId && Object.keys(vp).length > 0) {
+      const gRef  = db.collection('patriarca_ix_global').doc(globalId);
+      const gSnap = await gRef.get();
+      if (gSnap.exists) {
+        const g = gSnap.data();
+        const gUp = {};
+        if (vp.fecha)        gUp.fecha       = vp.fecha;
+        if (vp.monto)        gUp.monto       = vp.monto;
+        if (vp.caja_egresa)  { gUp.op1_egresa = vp.caja_egresa;  gUp.op2_ingresa = vp.caja_egresa; }
+        if (vp.caja_ingresa) { gUp.op1_ingresa= vp.caja_ingresa; gUp.op2_egresa  = vp.caja_ingresa; }
+        batch.update(gRef, gUp);
+
+        for (const [docId, esOp2] of [[g.op1_doc_id,false],[g.op2_doc_id,true]].filter(([d])=>d)) {
+          const dSnap = await db.collection('patriarca_intercambios').doc(docId).get();
+          if (!dSnap.exists) continue;
+          const u = {};
+          if (vp.fecha)        u.fecha        = vp.fecha;
+          if (vp.monto)        u.monto        = vp.monto;
+          if (vp.caja_egresa)  u[esOp2?'caja_ingresa':'caja_egresa']  = vp.caja_egresa;
+          if (vp.caja_ingresa) u[esOp2?'caja_egresa' :'caja_ingresa'] = vp.caja_ingresa;
+          batch.update(dSnap.ref, u);
+        }
+      }
+    }
+
+    await batch.commit();
+    toast('✅ Corrección aprobada y cambios aplicados', 'success');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+async function rechazarCorreccion(corrId) {
+  const nota = prompt('Motivo del rechazo (obligatorio):');
+  if (!nota || !nota.trim()) { toast('⚠ Escribe el motivo del rechazo','error'); return; }
+  try {
+    const ts = firebase.firestore.FieldValue.serverTimestamp();
+    await db.collection('patriarca_ix_correcciones').doc(corrId).update({
+      estado: 'rechazado', nota_cajero: nota.trim(), revisado_at: ts,
+    });
+    toast('❌ Solicitud rechazada', 'info');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+let _efSistemaPorOp = {};  // uid → EFECTIVO OPERADOR según Cupo Actual
+
+// calcular neto de intercambios por método (completados del mes activo)
+function calcNetIX() {
+  const net = {};
+  METODOS.forEach(m => net[normMetodo(m)] = 0);
+
+  ixDelMes().forEach(ix => {
+    const m = ix.monto || 0;
+    const add = (rawMet, delta) => {
+      if (!rawMet) return;
+      const met = normMetodo(rawMet);
+      if (!(met in net)) net[met] = 0;
+      net[met] += delta;
+    };
+    if (ix.tipo === 'I' || (ix.tipo === 'C' && (!ix.op2_uid || ix.op2_nombre === 'Propio'))) {
+      // Interno O Cruzado Propio (mismo operador): mueve saldo entre métodos en el global
+      add(ix.op1_egresa,  -m);
+      add(ix.op1_ingresa, +m);
+    }
+    // Cruzados entre 2 operadores distintos: op1 y op2 se cancelan → net global 0, se omiten
+  });
+  return net;
+}
+
+// ── CUPO ACTUAL ──
+async function renderCupoActual() {
+  // Cupo Actual = Cupo Inicial + Pagos - Recargas ± Intercambios (por operador por método)
+  const netPorOp = {};
+
+  const addNet = (uid, rawMet, delta) => {
+    const met = normMetodo(rawMet);
+    if (!uid || !met || met === '—') return;
+    if (!netPorOp[uid]) netPorOp[uid] = {};
+    if (!netPorOp[uid][met]) netPorOp[uid][met] = 0;
+    netPorOp[uid][met] += delta;
+  };
+
+  // Movimientos del mes (excluir BONIFICACION y SALDO CLIENTES — se manejan aparte)
+  movsDelMes().forEach(mv => {
+    const uid = mv.opId || 'desconocido';
+    const met = normMetodo(mv.metodo || '');
+    if (!met || met === 'BONIFICACION' || met === 'SALDO CLIENTES') return;
+    if (mv.tipo === 'PAGOS')    addNet(uid, met, +(mv.monto || 0));
+    if (mv.tipo === 'RECARGAS') addNet(uid, met, -(mv.monto || 0));
+  });
+
+  // Gastos del mes (reducen el cupo del método en que se pagaron)
+  allGastosGlobal.forEach(g => {
+    if (getMesKey(g) !== mesActivo) return;
+    const met = normMetodo(g.metodo || '');
+    if (!met || met === 'BONIFICACION' || met === 'SALDO CLIENTES') return;
+    addNet(g.opId, met, -(parseFloat(g.valor) || 0));
+  });
+
+  // Intercambios del mes — desde patriarca_intercambios por operador
+  // (igual que Mapa de Capital: usa caja_egresa/caja_ingresa, sin doble-conteo de ix_global)
+  try {
+    const ixSnap = await db.collection('patriarca_intercambios').get();
+    ixSnap.docs.forEach(d => {
+      const ix  = d.data();
+      if (!(ix.fecha || '').startsWith(mesActivo)) return;
+      if (ix.estado === 'pendiente_aceptar' || ix.estado === 'cancelado') return;
+      const uid = ix.opId;
+      const m   = parseFloat(ix.monto) || 0;
+      const egr = normMetodo(ix.caja_egresa  || '');
+      const ing = normMetodo(ix.caja_ingresa || '');
+      if (egr && egr !== 'SALDO CLIENTES') addNet(uid, egr, -m);
+      if (ing && ing !== 'SALDO CLIENTES') addNet(uid, ing, +m);
+    });
+  } catch(e) { console.warn('renderCupoActual: ix load:', e); }
+
+  // Liquidaciones pagadas (mes anterior, aprobadas) — descuentan del método con que se pagaron
+  try {
+    const [yk, mk] = mesActivo.split('-').map(Number);
+    const prevKey  = (mk===1 ? (yk-1)+'-12' : yk+'-'+String(mk-1).padStart(2,'0'));
+    const liqSnap  = await db.collection('patriarca_liquidacion_txs')
+      .where('mesKey', '==', prevKey)
+      .where('tipo',   '==', 'saldo')
+      .where('estado', '==', 'aprobado')
+      .get();
+    liqSnap.docs.forEach(d => {
+      const tx = d.data();
+      const met = normMetodo(tx.metodo || '');
+      if (!met || met === 'SALDO CLIENTES') return;
+      addNet(tx.operadorId, met, -(parseFloat(tx.monto) || 0));
+    });
+  } catch(e) { console.warn('renderCupoActual: liq load:', e); }
+
+  // Usar todos los métodos configurados — excluir SALDO CLIENTES (va en sección aparte)
+  const metodos = (METODOS.length ? METODOS : [...new Set(movsDelMes().map(m => m.metodo).filter(Boolean))])
+    .filter(m => normMetodo(m) !== 'SALDO CLIENTES');
+  // Todos los operadores activos
+  const cols = operadores.filter(o => {
+    const tieneIni = Object.values(cupoAsignado[o.uid] || {}).some(v => v);
+    const tieneMovs = !!netPorOp[o.uid];
+    return tieneIni || tieneMovs;
+  });
+
+  if (!metodos.length) {
+    document.getElementById('ca-thead').innerHTML = '<tr><th style="position:sticky;left:0;background:var(--bg3);z-index:3">MÉTODO</th><th>Sin datos</th></tr>';
+    document.getElementById('ca-tbody').innerHTML =
+      '<tr><td colspan="2"><div class="empty">Sin movimientos registrados</div></td></tr>';
+    document.getElementById('ca-tfoot-row').innerHTML = '<td>TOTAL</td><td>—</td>';
+    return;
+  }
+
+  // Encabezado dinámico
+  const thOps = cols.map(o =>
+    `<th style="text-align:right;font-size:11px">${o.nombre.split(' ')[0]}<br><span style="color:var(--text2);font-weight:400">${o.nombre.split(' ').slice(1,2).join(' ')}</span></th>`
+  ).join('');
+  const thTotal = cols.length > 1 ? '<th style="text-align:right;border-left:1px solid var(--border)">TOTAL AJ1.6</th>' : '';
+  document.getElementById('ca-thead').innerHTML =
+    `<tr><th style="position:sticky;left:0;background:var(--bg3);z-index:3">MÉTODO</th>${thOps}${thTotal}</tr>`;
+
+  // Filas por método
+  const totPorOp = {};
+  cols.forEach(o => totPorOp[o.uid] = 0);
+  let totGeneral = 0;
+
+  const rows = metodos.map(met => {
+    const metNorm = normMetodo(met);
+    let totMet = 0;
+    const celdas = cols.map(o => {
+      // cupoAsignado puede tener claves en distintas capitalizaciones — buscar por normMetodo
+      const ini = Object.entries(cupoAsignado[o.uid] || {})
+        .reduce((acc, [k, v]) => normMetodo(k) === metNorm && v !== undefined && v !== null && v !== 0 ? v : acc, 0);
+      const net = (netPorOp[o.uid] || {})[metNorm] || 0;
+      const val = ini + net; // Cupo Actual = Inicial + Movimientos netos
+      totPorOp[o.uid] += val;
+      totMet += val;
+      const cls = val > 0 ? 'td-pos' : val < 0 ? 'td-neg' : 'td-zero';
+      return `<td class="${cls}" style="text-align:right">${val ? pesos(val) : '—'}</td>`;
+    }).join('');
+    totGeneral += totMet;
+    const totCls = totMet > 0 ? 'td-pos' : totMet < 0 ? 'td-neg' : 'td-zero';
+    const totCell = cols.length > 1
+      ? `<td class="${totCls}" style="text-align:right;font-weight:700;border-left:1px solid var(--border)">${totMet ? pesos(Math.abs(totMet))+(totMet<0?' (-)':'') : '—'}</td>`
+      : '';
+    return `<tr><td class="td-metodo">${met}</td>${celdas}${totCell}</tr>`;
+  }).join('');
+
+  // ── Fila 1: TOTAL sin SC ──
+  const totCeldas = cols.map(o => {
+    const v = totPorOp[o.uid] || 0;
+    const cls = v >= 0 ? 'td-pos' : 'td-neg';
+    return `<td class="${cls}" style="text-align:right;font-weight:700">${pesos(v)}</td>`;
+  }).join('');
+  const totGenCell = cols.length > 1
+    ? `<td class="${totGeneral>=0?'td-pos':'td-neg'}" style="text-align:right;font-weight:700;border-left:1px solid var(--border)">${pesos(Math.abs(totGeneral))}${totGeneral<0?' (-)':''}</td>`
+    : '';
+  const rowTotSinSC = `<tr style="border-top:2px solid var(--border);background:var(--bg3)">
+    <td style="position:sticky;left:0;background:var(--bg3);font-weight:700;font-size:12px;color:var(--text2);letter-spacing:.5px">SUBTOTAL MÉTODOS</td>
+    ${totCeldas}${totGenCell}
+  </tr>`;
+
+  // ── Fila 2: SALDO CLIENTES ACTUAL ──
+  if (!Object.keys(_allScData).length) loadAllSaldoClientesData();
+  let scTot = 0;
+  const scCeldas = cols.map(o => {
+    const sc = _allScData[o.uid];
+    if (!sc) return `<td style="text-align:right;color:var(--text2);font-size:11px">…</td>`;
+    const actual = sc.si + sc.rec - sc.pag - sc.inv + sc.ret;
+    scTot += actual;
+    const cls = actual >= 0 ? 'td-pos' : 'td-neg';
+    return `<td class="${cls}" style="text-align:right;font-weight:600">${actual ? pesos(actual) : '—'}</td>`;
+  }).join('');
+  const scTotCell = cols.length > 1
+    ? `<td class="${scTot>=0?'td-pos':'td-neg'}" style="text-align:right;font-weight:700;border-left:1px solid var(--border)">${scTot ? pesos(Math.abs(scTot))+(scTot<0?' (-)':'') : '—'}</td>`
+    : '';
+  const rowSC = `<tr style="background:rgba(53,204,47,.08);border-top:2px dashed rgba(53,204,47,.4)">
+    <td style="position:sticky;left:0;background:rgba(20,40,20,.95);font-weight:700;font-size:12px;color:var(--green)">💰 SALDO CLIENTES ACTUAL</td>
+    ${scCeldas}${scTotCell}
+  </tr>`;
+
+  // ── Fila 3: COMISIONES POR COBRAR (campo 'comision' guardado, igual que el portal) ──
+  const comPorOp = {};
+  movsDelMes().forEach(mv => {
+    const com = parseFloat(mv.comision) || 0;
+    if (com > 0) comPorOp[mv.opId] = (comPorOp[mv.opId] || 0) + com;
+  });
+  let comTot = 0;
+  const comCeldas = cols.map(o => {
+    const v = comPorOp[o.uid] || 0;
+    comTot += v;
+    return v
+      ? `<td class="td-pos" style="text-align:right;font-weight:600;color:var(--green)">+${pesos(v)}</td>`
+      : `<td style="text-align:right;color:var(--text2)">—</td>`;
+  }).join('');
+  const comTotCell = cols.length > 1
+    ? `<td class="td-pos" style="text-align:right;font-weight:700;border-left:1px solid var(--border);color:var(--green)">${comTot ? '+'+pesos(comTot) : '—'}</td>`
+    : '';
+  const rowCom = comTot > 0 ? `<tr style="background:rgba(36,191,98,.06);border-top:2px dashed rgba(36,191,98,.3)">
+    <td style="position:sticky;left:0;background:rgba(10,30,15,.95);font-weight:700;font-size:12px;color:var(--green)">💰 COMISIONES POR COBRAR</td>
+    ${comCeldas}${comTotCell}
+  </tr>` : '';
+
+  // ── Fila 4: TOTAL GENERAL ──
+  const totConScGen = totGeneral + scTot + comTot;
+  const totConScCeldas = cols.map(o => {
+    const sc = _allScData[o.uid];
+    const scAct = sc ? sc.si + sc.rec - sc.pag - sc.inv + sc.ret : 0;
+    const v = (totPorOp[o.uid] || 0) + scAct + (comPorOp[o.uid] || 0);
+    const cls = v >= 0 ? 'td-pos' : 'td-neg';
+    return `<td class="${cls}" style="text-align:right;font-weight:700">${pesos(v)}</td>`;
+  }).join('');
+  const totConScGenCell = cols.length > 1
+    ? `<td class="${totConScGen>=0?'td-pos':'td-neg'}" style="text-align:right;font-weight:700;border-left:1px solid var(--border)">${pesos(Math.abs(totConScGen))}${totConScGen<0?' (-)':''}</td>`
+    : '';
+  const rowTotGeneral = `<tr style="background:rgba(53,204,47,.15);border-top:2px solid var(--gold)">
+    <td style="position:sticky;left:0;background:rgba(10,10,10,.97);font-weight:800;font-size:13px;color:var(--gold);letter-spacing:.5px">⚡ TOTAL GENERAL</td>
+    ${totConScCeldas}${totConScGenCell}
+  </tr>`;
+
+  document.getElementById('ca-tbody').innerHTML = rows + rowTotSinSC + rowSC + rowCom + rowTotGeneral;
+
+  // El cruce de efectivo usa los mismos datos — recalcularlo
+  if (_efInited) calcEfectivoSistema().then(renderEfectivo);
+}
+
+// ── SALDO CAJAS ──
+function renderSaldoCajas() {
+  const net = calcNetIX();
+
+  // Recargas y pagos globales por método (todos los operadores, mes activo, sin rechazadas)
+  const recPorMet = {}, pagPorMet = {};
+  movsDelMes().forEach(mv => {
+    if (mv.estado_cajero === 'Rechazada') return;
+    const met = mv.metodo;
+    if (!met || normMetodo(met) === 'SALDO CLIENTES' || normMetodo(met) === 'BONIFICACION') return;
+    // Buscar el método en METODOS (por normalización)
+    const key = METODOS.find(m => normMetodo(m) === normMetodo(met)) || met;
+    if (mv.tipo === 'RECARGAS') recPorMet[key] = (recPorMet[key] || 0) + (+(mv.monto || 0));
+    if (mv.tipo === 'PAGOS')    pagPorMet[key] = (pagPorMet[key] || 0) + (+(mv.monto || 0));
+  });
+
+  let html = '', totIni = 0, totIX = 0, totRec = 0, totPag = 0, totFin = 0;
+  METODOS.forEach((m, i) => {
+    const ini = cupoPozo[m] || 0;
+    const ix  = net[normMetodo(m)] || 0;
+    const rec = recPorMet[m] || 0;
+    const pag = pagPorMet[m] || 0;
+    const fin = ini + ix - rec + pag;
+    totIni += ini; totIX += ix; totRec += rec; totPag += pag; totFin += fin;
+    html += `<tr>
+      <td style="color:var(--text2)">${String(i+1).padStart(2,'0')}</td>
+      <td class="td-metodo">${m}</td>
+      <td class="td-num">${ini ? pesos(ini) : '$0'}</td>
+      <td class="${ix>0?'td-pos':ix<0?'td-neg':'td-zero'}">${ix>=0?'+':''}${pesos(ix)}</td>
+      <td class="${rec?'td-neg':'td-zero'}">${rec ? '-'+pesos(rec) : '$0'}</td>
+      <td class="${pag?'td-pos':'td-zero'}">${pag ? '+'+pesos(pag) : '$0'}</td>
+      <td class="${fin>=0?'td-pos':'td-neg'}">${pesos(fin)}</td>
+    </tr>`;
+  });
+  document.getElementById('sc-tbody').innerHTML = html;
+  document.getElementById('sc-tot-ini').textContent = pesos(totIni);
+  document.getElementById('sc-tot-ix').textContent = (totIX>=0?'+':'') + pesos(totIX);
+  document.getElementById('sc-tot-rec').textContent = '-' + pesos(totRec);
+  document.getElementById('sc-tot-pag').textContent = '+' + pesos(totPag);
+  document.getElementById('sc-tot-fin').textContent = pesos(totFin);
+}
+
+// ── DASHBOARD ──
+async function renderDashboard() {
+  if (!METODOS.length) return;
+  const net = calcNetIX();
+
+  // ── Recargas y pagos del mes por método (todos los operadores, sin rechazadas) ──
+  const recPorMet = {}, pagPorMet = {};
+  movsDelMes().forEach(mv => {
+    if (mv.estado_cajero === 'Rechazada') return;
+    const met = mv.metodo;
+    if (!met || normMetodo(met) === 'SALDO CLIENTES' || normMetodo(met) === 'BONIFICACION') return;
+    const key = METODOS.find(m => normMetodo(m) === normMetodo(met)) || met;
+    if (mv.tipo === 'RECARGAS') recPorMet[key] = (recPorMet[key] || 0) + +(mv.monto || 0);
+    if (mv.tipo === 'PAGOS')    pagPorMet[key] = (pagPorMet[key] || 0) + +(mv.monto || 0);
+  });
+
+  // ── Recargas de HOY por método (para alerta de límite diario) ──
+  const hoyStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD local podría diferir — usar fecha del mov
+  const dNow = new Date();
+  const hoyLocal = dNow.getFullYear() + '-' + String(dNow.getMonth()+1).padStart(2,'0') + '-' + String(dNow.getDate()).padStart(2,'0');
+  const recHoy = {};
+  allMovsGlobal.forEach(mv => {
+    if (mv.fecha !== hoyLocal || mv.tipo !== 'RECARGAS') return;
+    const met = mv.metodo;
+    if (!met || normMetodo(met) === 'SALDO CLIENTES' || normMetodo(met) === 'BONIFICACION') return;
+    const key = METODOS.find(m => normMetodo(m) === normMetodo(met)) || met;
+    recHoy[key] = (recHoy[key] || 0) + +(mv.monto || 0);
+  });
+
+  // ── Totales de cajas (cupoPozo = saldo inicial global real) ──
+  let totIni = 0, totIX = 0, totRec = 0, totPag = 0, totFin = 0;
+  METODOS.forEach(m => {
+    const ini = cupoPozo[m] || 0;
+    const ix  = net[normMetodo(m)] || 0;
+    const rec = recPorMet[m] || 0;
+    const pag = pagPorMet[m] || 0;
+    const fin = ini + ix - rec + pag;
+    totIni += ini; totIX += ix; totRec += rec; totPag += pag; totFin += fin;
+  });
+
+  // ── Comisiones del mes (campo guardado en cada movimiento) ──
+  let totComisiones = 0;
+  movsDelMes().forEach(mv => { totComisiones += parseFloat(mv.comision) || 0; });
+
+  // ── Intercambios pendientes ──
+  const pendientes = ixGlobal.filter(ix => ix.estado === 'pendiente_cajera' || ix.estado === 'pendiente_op2');
+
+  // ── Label del mes ──
+  const mesNombres = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  const [anyo, mes] = (mesActivo || '').split('-');
+  const mesLabel = (anyo && mes) ? `${mesNombres[parseInt(mes)-1]} ${anyo}` : '';
+  // ── KPIs ──
+  document.getElementById('dash-sub').textContent = opNombre;
+  document.getElementById('dash-kpis').innerHTML = `
+    <div class="kpi ${totFin<0?'red':''}">
+      <div class="kpi-label">Saldo Total Cajas</div>
+      <div class="kpi-value ${totFin>=0?'':'red'}">${pesos(totFin)}</div>
+      <div class="kpi-sub">Capital en circulación</div>
+    </div>
+    <div class="kpi blue">
+      <div class="kpi-label">Recargas ${mesLabel}</div>
+      <div class="kpi-value">${pesos(totRec)}</div>
+      <div class="kpi-sub">Salidas de caja</div>
+    </div>
+    <div class="kpi green">
+      <div class="kpi-label">Pagos ${mesLabel}</div>
+      <div class="kpi-value">${pesos(totPag)}</div>
+      <div class="kpi-sub">Entradas de caja</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Comisiones ${mesLabel}</div>
+      <div class="kpi-value" style="color:var(--gold)">${pesos(totComisiones)}</div>
+      <div class="kpi-sub">Por cobrar</div>
+    </div>
+    <div class="kpi ${pendientes.length?'red':'green'}">
+      <div class="kpi-label">IXs Pendientes</div>
+      <div class="kpi-value">${pendientes.length}</div>
+      <div class="kpi-sub">${pendientes.length ? '⚠ Requieren atención' : 'Al día'}</div>
+    </div>`;
+
+  // ── Alertas ──
+  const alertas = [];
+  METODOS.forEach(m => {
+    const ini = cupoPozo[m] || 0;
+    const ix  = net[normMetodo(m)] || 0;
+    const rec = recPorMet[m] || 0;
+    const pag = pagPorMet[m] || 0;
+    const fin = ini + ix - rec + pag;
+    if (fin < 0) alertas.push({ tipo: 'neg', txt: `<strong>${m}</strong> — saldo negativo: ${pesos(fin)}` });
+    // Límite diario
+    const lim = LIMITES_DIARIOS[normMetodo(m)];
+    if (lim) {
+      const hRec = recHoy[m] || 0;
+      const pct = hRec / lim;
+      if (pct >= 1)   alertas.push({ tipo: 'crit', txt: `<strong>${m}</strong> — límite diario superado: ${pesos(hRec)} / ${pesos(lim)}` });
+      else if (pct >= 0.8) alertas.push({ tipo: 'warn', txt: `<strong>${m}</strong> — cerca del límite diario: ${pesos(hRec)} / ${pesos(lim)} (${Math.round(pct*100)}%)` });
+    }
+  });
+  if (pendientes.length) alertas.push({ tipo: 'ix', txt: `<strong>${pendientes.length} intercambio${pendientes.length>1?'s':''} pendiente${pendientes.length>1?'s':''}</strong> de confirmar — <a href="#" onclick="showTab('intercambios');return false" style="color:inherit">Ver</a>` });
+
+  const alertaColors = { neg:'var(--red)', warn:'var(--orange)', crit:'var(--red)', ix:'var(--blue)' };
+  const alertaIcons  = { neg:'📉', warn:'⚠️', crit:'🚨', ix:'🔄' };
+  const alertaEl = document.getElementById('dash-alertas');
+  if (alertaEl) {
+    alertaEl.innerHTML = alertas.length
+      ? `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px">${
+          alertas.map(a => `<div style="background:rgba(0,0,0,.25);border:1px solid ${alertaColors[a.tipo]};border-radius:8px;padding:8px 14px;font-size:12px;color:${alertaColors[a.tipo]};display:flex;align-items:center;gap:8px"><span>${alertaIcons[a.tipo]}</span><span>${a.txt}</span></div>`).join('')
+        }</div>`
+      : '';
+  }
+
+  // ── Gastos del mes por método (todos los operadores) ──
+  const gasPorMet = {};
+  allGastosGlobal.forEach(g => {
+    if (getMesKey(g) !== mesActivo) return;
+    const key = METODOS.find(m => normMetodo(m) === normMetodo(g.metodo || '')) || g.metodo;
+    if (!key) return;
+    gasPorMet[key] = (gasPorMet[key] || 0) + (parseFloat(g.valor) || 0);
+  });
+
+  // ── Liquidaciones pagadas del mes anterior (aprobadas) — reducen el efectivo físico ──
+  const liqPorMet = {};
+  try {
+    const [yk, mk] = mesActivo.split('-').map(Number);
+    const prevKey = (mk===1 ? (yk-1)+'-12' : yk+'-'+String(mk-1).padStart(2,'0'));
+    const liqSnap = await db.collection('patriarca_liquidacion_txs')
+      .where('mesKey', '==', prevKey)
+      .where('tipo',   '==', 'saldo')
+      .where('estado', '==', 'aprobado')
+      .get();
+    liqSnap.forEach(d => {
+      const tx = d.data();
+      if (!tx.metodo) return;
+      const nm  = normMetodo(tx.metodo);
+      const key = METODOS.find(m => normMetodo(m) === nm) || tx.metodo;
+      if (!key) return;
+      liqPorMet[key] = (liqPorMet[key] || 0) + (parseFloat(tx.monto) || 0);
+    });
+  } catch(e) { console.warn('renderDashboard liqPorMet:', e); }
+
+  // ── Cards de saldo final por método ──
+  const cards = [];
+  METODOS.forEach(m => {
+    const metNorm = normMetodo(m);
+    if (metNorm === 'BONIFICACION' || metNorm === 'SALDO CLIENTES') return;
+    const ini = cupoPozo[m] || 0;
+    const ix  = net[metNorm] || 0;
+    const rec = recPorMet[m] || 0;
+    const pag = pagPorMet[m] || 0;
+    const gas = gasPorMet[m] || 0;
+    // La liquidación se descuenta del método con que el operador la pagó
+    const liq = liqPorMet[m] || 0;
+    const fin = ini + ix - rec + pag - gas - liq;
+    if (ini === 0 && ix === 0 && rec === 0 && pag === 0 && gas === 0 && liq === 0) return;
+    cards.push({ m, ini, ix, op: pag - rec, pag, rec, gas, liq, fin });
+  });
+
+  const grid = document.getElementById('dash-metodos-grid');
+  if (grid) {
+    grid.innerHTML = cards.map(({ m, fin }) => {
+      const color = fin < 0 ? 'var(--red)' : 'var(--green)';
+      const bg    = fin < 0 ? 'rgba(224,80,80,.07)' : '';
+      const border= fin < 0 ? '1px solid rgba(224,80,80,.3)' : '1px solid var(--border)';
+      return `<div style="background:var(--bg2);${bg ? 'background:'+bg+';' : ''}border:${border};border-radius:var(--radius);padding:14px 14px 12px">
+        <div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px;line-height:1.3">${m}</div>
+        <div style="font-size:18px;font-weight:700;color:${color}">${pesos(fin)}</div>
+      </div>`;
+    }).join('');
+  }
+
+  // Actualizar cruce inline con los saldos del sistema
+  _renderCruceInline(cards);
+}
+
+// ── MODAL INTERCAMBIO ──
+function populateMetodoSelects() {
+  const ids = ['ix-egresa1','ix-ingresa1','ix-ingresa2','ix-egresa2'];
+  ids.forEach(id => {
+    const sel = document.getElementById(id);
+    sel.innerHTML = '<option value="">-- Seleccionar --</option>';
+    METODOS.forEach(m => sel.innerHTML += `<option value="${m}">${m}</option>`);
+  });
+}
+
+async function openModalIX() {
+  // auto OP number
+  const snap = await db.collection('cajero_intercambios').get();
+  document.getElementById('ix-op').value = snap.size + 1;
+  // today
+  const _d = new Date();
+  const hoy = _d.getFullYear()+'-'+String(_d.getMonth()+1).padStart(2,'0')+'-'+String(_d.getDate()).padStart(2,'0');
+  document.getElementById('ix-fecha').value = hoy;
+  document.getElementById('ix-monto1').value = '';
+  document.getElementById('ix-monto2').value = '';
+  ['ix-egresa1','ix-ingresa1','ix-ingresa2','ix-egresa2'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('modal-ix').classList.add('open');
+}
+function closeModalIX() { document.getElementById('modal-ix').classList.remove('open'); }
+
+async function saveIntercambio() {
+  const op     = parseInt(document.getElementById('ix-op').value) || 1;
+  const fecha  = document.getElementById('ix-fecha').value;
+  const egresa1= document.getElementById('ix-egresa1').value;
+  const ingresa1=document.getElementById('ix-ingresa1').value;
+  const monto1 = parseFloat(document.getElementById('ix-monto1').value) || 0;
+  const op2    = document.getElementById('ix-op2').value;
+  const ingresa2=document.getElementById('ix-ingresa2').value;
+  const egresa2= document.getElementById('ix-egresa2').value;
+  const monto2 = parseFloat(document.getElementById('ix-monto2').value) || monto1;
+
+  if (!fecha||!egresa1||!ingresa1||!monto1) { toast('⚠ Completa los campos obligatorios','error'); return; }
+
+  try {
+    await db.collection('cajero_intercambios').add({
+      opId1: opId, op1_nombre: opNombre,
+      op2_nombre: op2,
+      op, fecha, egresa1, ingresa1, monto1,
+      ingresa2: ingresa2||egresa1, egresa2: egresa2||ingresa1, monto2,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    closeModalIX();
+    toast('✅ Intercambio registrado','success');
+  } catch(e) { toast('⚠ Error: '+e.message,'error'); }
+}
+
+async function deleteIX(id) {
+  if (!confirm('¿Eliminar este intercambio?')) return;
+  try {
+    await db.collection('cajero_intercambios').doc(id).delete();
+    toast('🗑 Eliminado','success');
+  } catch(e) { toast('⚠ '+e.message,'error'); }
+}
+
+// ── OPERADORES (desde admin_usuarios) ──
+let allAdminOps = [];
+let unsubOps = null;
+
+function loadOperadoresTab() {
+  if (unsubOps) return;
+  // Primero obtenemos la oficina del cajero logueado
+  const email = firebase.auth().currentUser?.email || '';
+  db.collection('admin_usuarios').where('email', '==', email).limit(1).get().then(snap => {
+    const cajeroOficina = snap.empty ? '' : (snap.docs[0].data().oficinaNombre || '');
+    let query = db.collection('admin_usuarios').where('rol', '==', 'operador');
+    if (cajeroOficina) query = query.where('oficinaNombre', '==', cajeroOficina);
+    unsubOps = query.onSnapshot(s => {
+      allAdminOps = s.docs.map(d => ({ docId: d.id, ...d.data() }));
+      renderOperadoresTab();
+    });
+  });
+}
+
+function renderOperadoresTab() {
+  const tbody = document.getElementById('op-tbody');
+  if (!tbody) return;
+  const lista = allAdminOps.sort((a,b) => {
+    // activos primero, luego por nombre
+    if ((a.estado||'activo') !== (b.estado||'activo')) return a.estado === 'inactivo' ? 1 : -1;
+    return (a.nombre||'').localeCompare(b.nombre||'');
+  });
+  if (!lista.length) {
+    tbody.innerHTML = '<tr><td colspan="5"><div class="empty"><div class="empty-icon">👥</div>Sin operadores registrados.</div></td></tr>';
+    return;
+  }
+  const activos = lista.filter(o => o.estado !== 'inactivo').length;
+  document.getElementById('op-sub').textContent =
+    `${activos} activo${activos!==1?'s':''} de ${lista.length} — administrado desde el portal de administrador`;
+  tbody.innerHTML = lista.map((op, i) => {
+    const activo = op.estado !== 'inactivo';
+    return `<tr style="opacity:${activo?1:0.5}">
+      <td style="color:var(--text2)">${i+1}</td>
+      <td><b>${op.nombre||op.email||op.docId}</b></td>
+      <td><span class="badge badge-blue">${op.oficinaNombre||op.oficina||'—'}</span></td>
+      <td><span class="badge ${activo?'badge-green':'badge-gray'}">${activo?'Activo':'Inactivo'}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+function openModalOp() {
+  document.getElementById('op-edit-id').value = '';
+  document.getElementById('op-unidad').value = '';
+  document.getElementById('op-nombre').value = '';
+  document.getElementById('op-email').value = '';
+  document.getElementById('op-tipo').value = 'Oficina';
+  document.getElementById('op-estado').value = 'Activo';
+  document.getElementById('modal-op-title').textContent = '👥 Agregar Operador';
+  document.getElementById('modal-op').classList.add('open');
+}
+
+function editOperador(docId) {
+  const op = allOps.find(o => o.docId === docId);
+  if (!op) return;
+  document.getElementById('op-edit-id').value = docId;
+  document.getElementById('op-unidad').value = op.unidad||'';
+  document.getElementById('op-nombre').value = op.nombre||'';
+  document.getElementById('op-email').value = op.email||'';
+  document.getElementById('op-tipo').value = op.tipo||'Oficina';
+  document.getElementById('op-estado').value = op.estado||'Activo';
+  document.getElementById('modal-op-title').textContent = '✏️ Editar Operador';
+  document.getElementById('modal-op').classList.add('open');
+}
+
+function closeModalOp() { document.getElementById('modal-op').classList.remove('open'); }
+
+async function saveOperador() {
+  const editId = document.getElementById('op-edit-id').value;
+  const nombre = document.getElementById('op-nombre').value.trim();
+  const email  = document.getElementById('op-email').value.trim();
+  const unidad = document.getElementById('op-unidad').value.trim();
+  const tipo   = document.getElementById('op-tipo').value;
+  const estado = document.getElementById('op-estado').value;
+  if (!nombre) { toast('⚠ El nombre es obligatorio','error'); return; }
+  const data = { nombre, email, unidad, tipo, estado, updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
+  try {
+    if (editId) {
+      await db.collection('patriarca_operadores').doc(editId).update(data);
+    } else {
+      data.createdByCajero = true;
+      data.cajeroId = opId;
+      data.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+      await db.collection('patriarca_operadores').add(data);
+    }
+    closeModalOp();
+    toast('✅ Operador guardado','success');
+  } catch(e) { toast('⚠ '+e.message,'error'); }
+}
+
+async function deleteOperador(docId) {
+  if (!confirm('¿Eliminar este operador?')) return;
+  try {
+    await db.collection('patriarca_operadores').doc(docId).delete();
+    toast('🗑 Eliminado','success');
+  } catch(e) { toast('⚠ '+e.message,'error'); }
+}
+
+// ── UI HELPERS ──
+const _capitalOpsGroup = ['cupo-inicial', 'hoja-op', 'cupo-actual', 'mapa-capital'];
+
+function _hideSubNav() {
+  const sn = document.getElementById('sub-nav-capital');
+  if (sn) sn.style.display = 'none';
+}
+function _showSubNav() {
+  const sn = document.getElementById('sub-nav-capital');
+  if (sn) sn.style.display = 'block';
+}
+
+function showTab(name) {
+  // Si es uno del grupo, redirigir al grupo
+  if (_capitalOpsGroup.includes(name)) { showTabGroup(name); return; }
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  const sec = document.getElementById('sec-'+name);
+  if (sec) sec.classList.add('active');
+  if (event && event.currentTarget) event.currentTarget.classList.add('active');
+  _hideSubNav();
+  if (name === 'cajas') renderCajas();
+  if (name === 'saldo-cajas') renderSaldoCajas();
+  if (window.AJChat) AJChat.visible(name === 'mensajes');
+}
+
+// Para que el botón «Reportar» de cualquier pantalla lleve a Mensajes
+window.AJChatIrAMensajes = function () {
+  document.querySelectorAll('.section').forEach(x => x.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('sec-mensajes').classList.add('active');
+  const t = document.getElementById('tab-mensajes'); if (t) t.classList.add('active');
+  if (window.AJChat) AJChat.visible(true);
+};
+
+// Mostrar el grupo Capital Ops con un sub-tab específico activo
+function showTabGroup(subName) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-capital-ops')?.classList.add('active');
+  _showSubNav();
+  showSubSection(subName || 'cupo-actual');
+}
+
+// Cambiar sub-sección dentro de Capital Ops
+function showSubSection(name) {
+  _capitalOpsGroup.forEach(s => document.getElementById('sec-'+s)?.classList.remove('active'));
+  document.getElementById('sec-'+name)?.classList.add('active');
+  document.querySelectorAll('.sub-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('subtab-'+name)?.classList.add('active');
+  if (name === 'hoja-op') initHojaOp();
+  if (name === 'mapa-capital') initMapaCapital();
+  if (name === 'cupo-actual') renderCupoActual();
+}
+
+// ── CAJAS ──
+let allMovsGlobal = [];
+let allGastosGlobal = [];
+let cajasMetodo = null;
+let cajasFilter = { operador:'', tipo:'', estado:'', fechaDesde:'', fechaHasta:'', cliente:'' };
+let _cajasSearchTimeout = null;
+let cajasVista = 'detalle'; // 'detalle' | 'dias'
+let mesActivo = '';
+
+function initMesSelect() {
+  const now = new Date();
+  const currentKey = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0');
+  mesActivo = currentKey;
+  const sel = document.getElementById('sel-mes');
+  const nombres = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  sel.innerHTML = '';
+  [2025,2026,2027].forEach(yr => {
+    for (let m = 0; m < 12; m++) {
+      const key = yr + '-' + String(m+1).padStart(2,'0');
+      const opt = document.createElement('option');
+      opt.value = key;
+      opt.textContent = nombres[m] + ' ' + yr;
+      if (key === currentKey) opt.selected = true;
+      sel.appendChild(opt);
+    }
+  });
+}
+
+function getMesKey(doc) {
+  // 1. fecha string 'YYYY-MM-DD'
+  if (doc.fecha && /^\d{4}-\d{2}/.test(doc.fecha)) return doc.fecha.slice(0, 7);
+  // 2. ts Firestore timestamp
+  if (doc.ts?.toDate) {
+    const d = doc.ts.toDate();
+    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+  }
+  // 3. ts como objeto {seconds}
+  if (doc.ts?.seconds) {
+    const d = new Date(doc.ts.seconds * 1000);
+    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+  }
+  return '';
+}
+
+function movsDelMes() {
+  return allMovsGlobal.filter(mv => getMesKey(mv) === mesActivo);
+}
+
+function ixDelMes() {
+  return ixGlobal.filter(ix => ix.estado === 'completado' && getMesKey(ix) === mesActivo);
+}
+
+function cambiarMes() {
+  mesActivo = document.getElementById('sel-mes').value;
+  _scData = null; _scOpUid = null; // invalidar cache de saldo clientes al cambiar mes
+  _allScData = {};                  // invalidar cache de todos los operadores
+
+  // Recalcular cupos por mes desde datos cacheados
+  const rawPozo = window._cajeroConfigRaw || {};
+  cupoPozo = rawPozo.cupo_por_mes ? (rawPozo.cupo_por_mes[mesActivo] || {}) : (rawPozo.cupo_pozo || {});
+  const rawPat = window._patriarcaConfigRaw || {};
+  operadores.forEach(op => {
+    const d = rawPat[op.uid] || {};
+    cupoAsignado[op.uid] = d.cupos_por_mes ? (d.cupos_por_mes[mesActivo] || {}) : (d.cupos_cajero || {});
+  });
+  cupoInicial = cupoAsignado[opId] || {};
+
+  loadAllSaldoClientesData();       // recargar para el nuevo mes
+  renderCupoInicial();
+  renderCupoActual();
+  renderIntercambios();
+  renderSaldoCajas();
+  if (document.getElementById('sec-dashboard')?.classList.contains('active')) renderDashboard();
+  if (cajasMetodo) renderCajas();
+  if (hojaOpUid) renderHojaOp();
+  if (document.getElementById('sec-mapa-capital')?.classList.contains('active')) renderMapaCapital();
+  if (_efInited) { cargarEfectivo(); calcEfectivoSistema().then(renderEfectivo); }
+  if (_bancoInit) { _cargarBancoMovs(); _cargarCruceBanco(); _cargarSIBanco(); }
+  if (_corrInit) {
+    document.getElementById('cc-mes-lbl').textContent = mesActivo;
+    document.getElementById('cm-mes-lbl').textContent = mesActivo;
+    _cargarMovsCorr();
+    _cargarSICorr();
+    try { renderParamo(); } catch(e) {}
+  }
+}
+
+function loadCajas() {
+  // Sin orderBy: Firestore excluye documentos con ts nulo; ordenamos en JS
+  db.collection('patriarca_movimientos').onSnapshot(snap => {
+    allMovsGlobal = snap.docs.map(d => ({id: d.id, ...d.data()}))
+      .filter(mv => !mv.eliminado)   // excluir movimientos eliminados (soft delete)
+      .sort((a,b) => (a.ts?.seconds||0) - (b.ts?.seconds||0));
+    if (document.getElementById('sec-cajas')?.classList.contains('active')) renderCajas();
+    if (_corrInit) { renderCorrCuentas(); try { renderParamo(); } catch(e) {} }
+    if (_cajaInit) { try { renderGeneralEfecty(); } catch(e) {} }
+    renderCupoActual();
+    cajPintarAvisosNav();
+    if (hojaOpUid) renderHojaOp();
+    if (document.getElementById('sec-mapa-capital')?.classList.contains('active')) renderMapaCapital();
+  }, err => console.warn('cajas global:', err));
+}
+
+function loadGastosGlobal() {
+  db.collection('patriarca_gastos').onSnapshot(snap => {
+    allGastosGlobal = snap.docs.map(d => ({id: d.id, ...d.data()}));
+    if (document.getElementById('sec-mapa-capital')?.classList.contains('active')) renderMapaCapital();
+  }, err => console.warn('gastos global:', err));
+}
+
+// ── DATOS DE SALDO CLIENTES (async, cargado al seleccionar operador) ──
+let _scData    = null;   // { si, recargasClientes, pagosClientes, invertido, retornado } — para Mapa Capital (1 op)
+let _scOpUid   = null;   // operador para el que está cargado _scData
+let _allScData = {};     // { [opUid]: { si, rec, pag, inv, ret } } — para Cupo Actual (todos los ops)
+
+async function loadSaldoClientesData(opUid) {
+  if (_scOpUid === opUid && _scData) return; // ya cargado para este op
+  _scData  = null;
+  _scOpUid = opUid;
+
+  // 1. Saldo inicial del mes activo
+  let si = 0;
+  try {
+    const snap = await db.collection('patriarca_saldo_inicial').doc(`${opUid}_${mesActivo}`).get();
+    if (snap.exists) {
+      const saldos = snap.data().saldos || {};
+      Object.values(saldos).forEach(casaMap => {
+        if (casaMap && typeof casaMap === 'object')
+          Object.values(casaMap).forEach(v => { si += parseFloat(v) || 0; });
+        else
+          si += parseFloat(casaMap) || 0;
+      });
+    }
+  } catch(e) { console.warn('sc saldo_inicial:', e); }
+
+  // 2. Recargas y pagos de clientes — ya en allMovsGlobal (sin filtro de mes, igual que operador)
+  let recargasClientes = 0, pagosClientes = 0;
+  allMovsGlobal.forEach(mv => {
+    if (mv.opId !== opUid || !mv.cliente) return;
+    if (mv.tipo === 'RECARGAS') recargasClientes += +(mv.monto || 0);
+    if (mv.tipo === 'PAGOS')    pagosClientes    += +(mv.monto || 0);
+  });
+
+  // 3. Inversiones (patriarca_inversiones, sin filtro de mes igual que operador)
+  let invertido = 0, retornado = 0;
+  try {
+    const snap = await db.collection('patriarca_inversiones').where('opId', '==', opUid).get();
+    snap.docs.forEach(d => {
+      const inv = d.data();
+      invertido += parseFloat(inv.monto) || 0;
+      const ret = parseFloat(inv.retorno_cliente) || 0;
+      if (ret > 0) retornado += ret;
+    });
+  } catch(e) { console.warn('sc inversiones:', e); }
+
+  if (_scOpUid === opUid) { // guard contra race condition
+    _scData = { si, recargasClientes, pagosClientes, invertido, retornado };
+    if (document.getElementById('sec-mapa-capital')?.classList.contains('active')) renderMapaCapital();
+  }
+}
+
+// ── MAPA DE CAPITAL ──
+// Carga el saldo clientes actual para TODOS los operadores (usado en Cupo Actual)
+// Trabaja sobre un objeto LOCAL para evitar race conditions si se llama en paralelo
+let _allScLoading = false;
+async function loadAllSaldoClientesData() {
+  if (_allScLoading || !operadores.length || !mesActivo) return;
+  _allScLoading = true;
+  const local = {};
+  operadores.forEach(o => { local[o.uid] = { si: 0, rec: 0, pag: 0, inv: 0, ret: 0 }; });
+
+  try {
+    // 1. Saldo inicial del mes activo
+    const siSnaps = await Promise.all(
+      operadores.map(o => db.collection('patriarca_saldo_inicial').doc(`${o.uid}_${mesActivo}`).get().catch(()=>null))
+    );
+    operadores.forEach((o, idx) => {
+      const snap = siSnaps[idx];
+      if (snap && snap.exists) {
+        const saldos = snap.data().saldos || {};
+        Object.values(saldos).forEach(casaMap => {
+          if (casaMap && typeof casaMap === 'object')
+            Object.values(casaMap).forEach(v => { local[o.uid].si += parseFloat(v)||0; });
+          else local[o.uid].si += parseFloat(casaMap)||0;
+        });
+      }
+    });
+
+    // 2. Recargas/pagos de clientes (allMovsGlobal, sin filtro mes, sin rechazadas)
+    allMovsGlobal.forEach(mv => {
+      if (!mv.cliente || !mv.opId || !local[mv.opId]) return;
+      if (mv.estado_cajero === 'Rechazada') return;
+      if (mv.tipo === 'RECARGAS') local[mv.opId].rec += +(mv.monto||0);
+      if (mv.tipo === 'PAGOS')    local[mv.opId].pag += +(mv.monto||0);
+    });
+
+    // 3. Inversiones
+    const invSnap = await db.collection('patriarca_inversiones').get();
+    invSnap.docs.forEach(d => {
+      const inv = d.data();
+      if (!inv.opId || !local[inv.opId]) return;
+      local[inv.opId].inv += parseFloat(inv.monto)||0;
+      const ret = parseFloat(inv.retorno_cliente)||0;
+      if (ret > 0) local[inv.opId].ret += ret;
+    });
+  } catch(e) { console.warn('loadAllSC:', e); }
+
+  // Asignación atómica al final — evita mezcla entre llamadas concurrentes
+  _allScData = local;
+  _allScLoading = false;
+  if (document.getElementById('sec-cupo-actual')?.classList.contains('active')) renderCupoActual();
+}
+
+// ── COMISIONES DE LA OFICINA ──
+async function loadComisiones() {
+  if (!cajeroOficina) return;
+  try {
+    const ofSnap = await db.collection('admin_oficinas')
+      .where('nombre','==', cajeroOficina).limit(1).get();
+    if (ofSnap.empty) return;
+    const ofId = ofSnap.docs[0].id;
+    const comSnap = await db.collection('admin_comisiones').doc(ofId).get();
+    if (!comSnap.exists) return;
+    comisionesMap = {};
+    (comSnap.data().lista || []).forEach(c => {
+      if (c.casa && c.metodo) {
+        comisionesMap[`${c.casa.toUpperCase()}_${normMetodo(c.metodo)}`] = [
+          (c.tasaRecarga || 0) / 100,
+          (c.tasaPago    || 0) / 100
+        ];
+      }
+    });
+  } catch(e) { console.error('loadComisiones:', e); }
+}
+
+function getComision(casa, metodo, tipo) {
+  const key = `${(casa||'').trim().toUpperCase()}_${normMetodo(metodo)}`;
+  const r = comisionesMap[key];
+  if (!r) return 0;
+  return tipo === 'PAGOS' ? r[1] : r[0];
+}
+
+function initMapaCapital() {
+  const sel = document.getElementById('mc-sel-op');
+  // Repoblar selector con operadores actuales
+  const current = sel.value;
+  sel.innerHTML = '<option value="">— Seleccionar —</option>';
+  operadores.forEach(op => {
+    const opt = document.createElement('option');
+    opt.value = op.uid;
+    opt.textContent = op.nombre;
+    if (op.uid === current) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  renderMapaCapital();
+  // Cargar datos de clientes si ya hay operador seleccionado
+  const opUid = sel.value;
+  if (opUid) { _scData = null; loadSaldoClientesData(opUid); }
+}
+
+async function renderMapaCapital() {
+  const opUid = document.getElementById('mc-sel-op')?.value;
+  const tbody  = document.getElementById('mc-tbody');
+  const COLS   = 10; // total columnas incluidas INVERTIDO, RETORNADO y LIQUIDACIÓN
+
+  if (!opUid) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="${COLS}"><div class="empty">Selecciona un operador</div></td></tr>`;
+    return;
+  }
+
+  // Disparar carga de datos de clientes si es necesario
+  if (_scOpUid !== opUid) { _scData = null; loadSaldoClientesData(opUid); }
+
+  // Cargar intercambios del operador desde patriarca_intercambios
+  // (misma fuente que el portal del operador — evita doble-conteo por op1/op2 en ix_global)
+  let ixOp = [];
+  try {
+    const ixSnap = await db.collection('patriarca_intercambios')
+      .where('opId', '==', opUid)
+      .get();
+    ixOp = ixSnap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .filter(ix =>
+        (ix.fecha || '').startsWith(mesActivo) &&
+        ix.estado !== 'pendiente_aceptar' &&
+        ix.estado !== 'cancelado'
+      );
+  } catch(e) { console.warn('renderMapaCapital: ixOp load:', e); }
+
+  // Cargar pagos de liquidación del mes anterior (tipo='saldo', estado='aprobado')
+  const liqPagoMap = {}; // metodo → monto
+  try {
+    const [yk, mk] = mesActivo.split('-').map(Number);
+    const prevKey = (mk===1 ? (yk-1)+'-12' : yk+'-'+String(mk-1).padStart(2,'0'));
+    const liqSnap = await db.collection('patriarca_liquidacion_txs')
+      .where('operadorId', '==', opUid)
+      .where('mesKey',     '==', prevKey)
+      .where('estado',     '==', 'aprobado')
+      .get();
+    liqSnap.docs.forEach(d => {
+      const tx = d.data();
+      if (tx.tipo !== 'saldo') return;
+      const met = normMetodo(tx.metodo || '');
+      if (!met) return;
+      liqPagoMap[met] = (liqPagoMap[met] || 0) + (parseFloat(tx.monto) || 0);
+    });
+  } catch(e) { console.warn('renderMapaCapital: liqPago load:', e); }
+
+  const ensure = met => { if (!data[met]) data[met] = { ini:0, ix:0, rec:0, pag:0, gas:0 }; };
+
+  // Métodos base (excluir SALDO CLIENTES — se maneja aparte)
+  const metSet = new Set(METODOS.map(normMetodo));
+  Object.keys(cupoAsignado[opUid] || {}).forEach(m => {
+    const n = normMetodo(m);
+    if (n !== 'BONIFICACION' && n !== 'SALDO CLIENTES') metSet.add(n);
+  });
+  movsDelMes().filter(mv => mv.opId === opUid && mv.metodo)
+    .forEach(mv => { const n=normMetodo(mv.metodo); if(n!=='BONIFICACION'&&n!=='SALDO CLIENTES') metSet.add(n); });
+  ixOp.forEach(ix => {
+    if (ix.caja_egresa)  { const n=normMetodo(ix.caja_egresa);  if(n!=='SALDO CLIENTES') metSet.add(n); }
+    if (ix.caja_ingresa) { const n=normMetodo(ix.caja_ingresa); if(n!=='SALDO CLIENTES') metSet.add(n); }
+  });
+  metSet.delete('BONIFICACION');
+  metSet.delete('SALDO CLIENTES');
+
+  const data = {};
+  [...metSet].forEach(met => { data[met] = { ini:0, ix:0, rec:0, pag:0, gas:0, liq:0 }; });
+
+  // Cupo Inicial (normMetodo deduplica capitalización; asignar si hay valor)
+  Object.entries(cupoAsignado[opUid] || {}).forEach(([rawMet, v]) => {
+    const met = normMetodo(rawMet);
+    if (met === 'BONIFICACION' || met === 'SALDO CLIENTES') return;
+    ensure(met);
+    if (v !== undefined && v !== null && v !== 0) data[met].ini = v;
+  });
+
+  // Movimientos del mes por método (excluye rechazadas — no impactan saldo real)
+  movsDelMes().forEach(mv => {
+    if (mv.opId !== opUid) return;
+    if (mv.estado_cajero === 'Rechazada') return;
+    const met = normMetodo(mv.metodo);
+    if (!met || met === 'BONIFICACION' || met === 'SALDO CLIENTES') return;
+    ensure(met);
+    const monto = +(mv.monto || 0);
+    if (mv.tipo === 'PAGOS')    data[met].pag += monto;
+    if (mv.tipo === 'RECARGAS') data[met].rec += monto;
+  });
+
+  // Intercambios del mes — desde patriarca_intercambios (igual que portal operador)
+  // Usa caja_egresa/caja_ingresa: perspectiva correcta sin doble-conteo por op1/op2
+  ixOp.forEach(ix => {
+    const m   = parseFloat(ix.monto) || 0;
+    const egr = normMetodo(ix.caja_egresa  || '');
+    const ing = normMetodo(ix.caja_ingresa || '');
+    if (egr && egr !== 'SALDO CLIENTES') { ensure(egr); data[egr].ix -= m; }
+    if (ing && ing !== 'SALDO CLIENTES') { ensure(ing); data[ing].ix += m; }
+  });
+
+  // Gastos del mes
+  allGastosGlobal.forEach(g => {
+    if (g.opId !== opUid || getMesKey(g) !== mesActivo) return;
+    const met = normMetodo(g.metodo);
+    if (!met || met === 'SALDO CLIENTES') return;
+    ensure(met);
+    data[met].gas += parseFloat(g.valor) || 0;
+  });
+
+  // Pagos de liquidación del mes anterior — descontar del método correspondiente
+  Object.entries(liqPagoMap).forEach(([met, monto]) => {
+    ensure(met);
+    data[met].liq += monto;
+  });
+
+  // Comisiones por cobrar (campo 'comision' guardado en el movimiento, igual que el portal)
+  let totalComisiones = 0;
+  movsDelMes().forEach(mv => {
+    if (mv.opId !== opUid) return;
+    totalComisiones += parseFloat(mv.comision) || 0;
+  });
+
+  // Métodos con actividad
+  const mets = METODOS.length
+    ? METODOS.map(normMetodo).filter(m => m !== 'BONIFICACION' && m !== 'SALDO CLIENTES' && data[m]
+        && (data[m].ini||data[m].ix||data[m].rec||data[m].pag||data[m].gas))
+    : Object.keys(data).filter(m => { const d=data[m]; return d.ini||d.ix||d.rec||d.pag||d.gas; });
+
+  let totIni=0, totIx=0, totRec=0, totPag=0, totGas=0, totLiq=0, totAct=0;
+
+  // Filas de métodos normales (INVERTIDO y RETORNADO = — )
+  let rowsHtml = mets.map(met => {
+    const d   = data[met] || { ini:0, ix:0, rec:0, pag:0, gas:0, liq:0 };
+    const act = d.ini + d.pag - d.rec + d.ix - d.gas - d.liq;
+    totIni += d.ini; totIx += d.ix; totRec += d.rec; totPag += d.pag; totGas += d.gas; totLiq += d.liq; totAct += act;
+    const actCls = act > 0 ? 'td-pos' : act < 0 ? 'td-neg' : 'td-zero';
+    const ixSty  = d.ix > 0 ? 'color:var(--green)' : d.ix < 0 ? 'color:var(--red)' : '';
+    return `<tr>
+      <td class="td-metodo" style="position:sticky;left:0;background:var(--bg2);z-index:2">${met}</td>
+      <td style="text-align:right">${d.ini ? pesos(d.ini) : '—'}</td>
+      <td style="text-align:right;${ixSty}">${d.ix ? (d.ix>0?'+':'')+pesos(Math.abs(d.ix)) : '—'}</td>
+      <td style="text-align:right;color:var(--blue)">${d.rec ? pesos(d.rec) : '—'}</td>
+      <td style="text-align:right;color:var(--green)">${d.pag ? pesos(d.pag) : '—'}</td>
+      <td style="text-align:right;color:var(--text2)">—</td>
+      <td style="text-align:right;color:var(--text2)">—</td>
+      <td style="text-align:right;color:var(--red)">${d.gas ? pesos(d.gas) : '—'}</td>
+      <td style="text-align:right;color:var(--orange);font-weight:${d.liq?'700':'400'}">${d.liq ? '−'+pesos(d.liq) : '—'}</td>
+      <td class="${actCls}" style="text-align:right;font-weight:700">${pesos(act)}</td>
+    </tr>`;
+  }).join('');
+
+  // ── Subtotal métodos (antes de SC y Comisiones) ──
+  const _subIxClr = totIx > 0 ? 'color:var(--green)' : totIx < 0 ? 'color:var(--red)' : '';
+  const _subActClr = totAct >= 0 ? 'color:var(--green)' : 'color:var(--red)';
+  rowsHtml += `<tr style="border-top:2px solid var(--border);background:var(--bg3)">
+    <td class="td-metodo" style="position:sticky;left:0;background:var(--bg3);z-index:2;color:var(--text2);font-size:11px;letter-spacing:.8px;font-weight:700">SUBTOTAL MÉTODOS</td>
+    <td style="text-align:right;font-weight:600">${totIni ? pesos(totIni) : '—'}</td>
+    <td style="text-align:right;font-weight:600;${_subIxClr}">${totIx ? (totIx>0?'+':'')+pesos(Math.abs(totIx)) : '—'}</td>
+    <td style="text-align:right;font-weight:600;color:var(--blue)">${totRec ? pesos(totRec) : '—'}</td>
+    <td style="text-align:right;font-weight:600;color:var(--green)">${totPag ? pesos(totPag) : '—'}</td>
+    <td style="text-align:right;color:var(--text2)">—</td>
+    <td style="text-align:right;color:var(--text2)">—</td>
+    <td style="text-align:right;font-weight:600;color:var(--red)">${totGas ? pesos(totGas) : '—'}</td>
+    <td style="text-align:right;font-weight:600;color:var(--orange)">${totLiq ? '−'+pesos(totLiq) : '—'}</td>
+    <td style="text-align:right;font-weight:700;${_subActClr}">${pesos(totAct)}</td>
+  </tr>`;
+
+  // Fila especial SALDO CLIENTES
+  // Convención: en cajero, PAGOS(+) = recargas_clientes (entra), RECARGAS(-) = pagos_a_clientes (sale)
+  // Cupo Actual = si + recargasClientes - pagosClientes - invertido + retornado
+  if (_scData) {
+    const sc  = _scData;
+    const act = sc.si + sc.recargasClientes - sc.pagosClientes - sc.invertido + sc.retornado;
+    const cls = act >= 0 ? 'td-pos' : 'td-neg';
+    rowsHtml += `<tr style="border-top:2px dashed var(--border)">
+      <td class="td-metodo" style="position:sticky;left:0;background:var(--bg2);z-index:2;color:var(--gold)">SALDO CLIENTES</td>
+      <td style="text-align:right;color:var(--gold)">${sc.si ? pesos(sc.si) : '—'}</td>
+      <td style="text-align:right;color:var(--text2)">—</td>
+      <td style="text-align:right;color:var(--blue)">${sc.pagosClientes ? pesos(sc.pagosClientes) : '—'}</td>
+      <td style="text-align:right;color:var(--green)">${sc.recargasClientes ? pesos(sc.recargasClientes) : '—'}</td>
+      <td style="text-align:right;color:var(--orange)">${sc.invertido ? pesos(sc.invertido) : '—'}</td>
+      <td style="text-align:right;color:var(--gold)">${sc.retornado ? pesos(sc.retornado) : '—'}</td>
+      <td style="text-align:right;color:var(--text2)">—</td>
+      <td style="text-align:right;color:var(--text2)">—</td>
+      <td class="${cls}" style="text-align:right;font-weight:700">${pesos(act)}</td>
+    </tr>`;
+  } else {
+    rowsHtml += `<tr style="border-top:2px dashed var(--border)">
+      <td class="td-metodo" style="position:sticky;left:0;background:var(--bg2);z-index:2;color:var(--gold)">SALDO CLIENTES</td>
+      <td colspan="${COLS-1}" style="text-align:center;color:var(--text2);font-size:11px">Cargando datos de clientes…</td>
+    </tr>`;
+  }
+
+  // Fila especial COMISIONES POR COBRAR
+  if (totalComisiones > 0) {
+    rowsHtml += `<tr style="border-top:2px dashed var(--border)">
+      <td class="td-metodo" style="position:sticky;left:0;background:var(--bg2);z-index:2;color:var(--green)">COMISIONES POR COBRAR</td>
+      <td style="text-align:right;color:var(--text2)">—</td>
+      <td style="text-align:right;color:var(--text2)">—</td>
+      <td style="text-align:right;color:var(--text2)">—</td>
+      <td style="text-align:right;color:var(--green);font-weight:600">+${pesos(totalComisiones)}</td>
+      <td style="text-align:right;color:var(--text2)">—</td>
+      <td style="text-align:right;color:var(--text2)">—</td>
+      <td style="text-align:right;color:var(--text2)">—</td>
+      <td style="text-align:right;color:var(--text2)">—</td>
+      <td class="td-pos" style="text-align:right;font-weight:700">${pesos(totalComisiones)}</td>
+    </tr>`;
+  }
+
+  if (!mets.length && !_scData) {
+    tbody.innerHTML = `<tr><td colspan="${COLS}"><div class="empty">Sin movimientos para este operador en el mes seleccionado</div></td></tr>`;
+  } else {
+    tbody.innerHTML = rowsHtml;
+  }
+
+  // Totales = métodos normales + SALDO CLIENTES + COMISIONES
+  let gIni = totIni, gRec = totRec, gPag = totPag, gInv = 0, gRet = 0, gAct = totAct + totalComisiones;
+  if (_scData) {
+    const sc = _scData;
+    gIni += sc.si || 0;
+    gRec += sc.pagosClientes || 0;      // pagos a clientes = salida de SC
+    gPag += sc.recargasClientes || 0;   // recargas de clientes = entrada a SC
+    gInv  = sc.invertido || 0;
+    gRet  = sc.retornado || 0;
+    gAct += (sc.si||0) + (sc.recargasClientes||0) - (sc.pagosClientes||0) - (sc.invertido||0) + (sc.retornado||0);
+  }
+
+  const ixColor   = totIx > 0 ? 'var(--green)' : totIx < 0 ? 'var(--red)' : 'inherit';
+  const $ini = document.getElementById('mc-tot-ini');
+  const $ix  = document.getElementById('mc-tot-ix');
+  const $rec = document.getElementById('mc-tot-rec');
+  const $pag = document.getElementById('mc-tot-pag');
+  const $inv = document.getElementById('mc-tot-inv');
+  const $ret = document.getElementById('mc-tot-ret');
+  const $gas = document.getElementById('mc-tot-gas');
+  const $liq = document.getElementById('mc-tot-liq');
+  const $act = document.getElementById('mc-tot-act');
+  if ($ini) $ini.textContent = gIni ? pesos(gIni) : '—';
+  if ($ix)  { $ix.textContent = totIx ? (totIx>0?'+':'')+pesos(Math.abs(totIx)) : '—'; $ix.style.color = ixColor; }
+  if ($rec) $rec.textContent = gRec ? pesos(gRec) : '—';
+  if ($pag) $pag.textContent = gPag ? pesos(gPag) : '—';
+  if ($inv) { $inv.textContent = gInv ? pesos(gInv) : '—'; $inv.style.color = gInv ? 'var(--orange)' : ''; }
+  if ($ret) { $ret.textContent = gRet ? pesos(gRet) : '—'; $ret.style.color = gRet ? 'var(--gold)' : ''; }
+  if ($gas) $gas.textContent = totGas ? pesos(totGas) : '—';
+  if ($liq) { $liq.textContent = totLiq ? '−'+pesos(totLiq) : '—'; $liq.style.color = totLiq ? 'var(--orange)' : ''; }
+  if ($act) { $act.textContent = pesos(gAct); $act.className = gAct >= 0 ? 'td-pos' : 'td-neg'; }
+}
+
+// ── Reportar un movimiento a la administración ──────────────────────────────
+// Sin esto el cajero escribe «hay un descuadre de 50 mil» y no hay forma de
+// saber en cuál. Con la transacción pegada, el administrador abre el mensaje
+// y ya está parado sobre el movimiento.
+function cajReportarMov(id) {
+  const mv = (allMovsGlobal || []).find(m => m.id === id);
+  if (!mv || !window.AJChat) return;
+  const monto = mv.monto_cajero ?? mv.monto ?? 0;
+  const op = (operadores.find(o => o.uid === mv.opId) || {}).nombre || mv.opId || '—';
+  const resumen = [
+    (mv.tipo || 'Movimiento') + ' · ' + pesos(monto) + ' · ' + normMetodo(mv.metodo),
+    'Fecha: ' + (mv.fecha || '—') + '   Estado: ' + (mv.estado_cajero || 'Pendiente'),
+    'Cliente: ' + (mv.cliente || '—') + '   Operador: ' + op,
+    'Referencia: ' + id
+  ].join('\n');
+  AJChat.reportar({ tipo:'movimiento', ref:id, resumen });
+}
+
+function renderCajas() {
+  const navEl = document.getElementById('cajas-method-nav');
+  if (!navEl) return;
+
+  // Si METODOS aún no cargó desde admin_config, derivar métodos de los movimientos conocidos
+  const methodsToShow = METODOS.length
+    ? METODOS
+    : [...new Set(allMovsGlobal
+        .map(mv => normMetodo(mv.metodo))
+        .filter(n => n && n !== 'BONIFICACION' && n !== 'SALDO CLIENTES')
+      )].sort();
+
+  if (!cajasMetodo && methodsToShow.length) cajasMetodo = methodsToShow[0];
+
+  const pendingCount = {};
+  methodsToShow.forEach(m => {
+    pendingCount[m] = movsDelMes().filter(mv =>
+      normMetodo(mv.metodo) === normMetodo(m) && mv.canal !== 'I-OP' &&
+      (!mv.estado_cajero || mv.estado_cajero === 'Pendiente')
+    ).length;
+  });
+
+  navEl.innerHTML = methodsToShow.map(m => {
+    const p = pendingCount[m] || 0;
+    const badge = p > 0 ? ` <span style="background:var(--orange);color:#000;border-radius:10px;padding:1px 5px;font-size:10px">${p}</span>` : '';
+    return `<div class="method-tab${m===cajasMetodo?' active':''}" onclick="setCajasMetodo('${m.replace(/'/g,"\\'")}')">${m}${badge}</div>`;
+  }).join('');
+
+  renderCajasMetodo(cajasMetodo);
+}
+
+function setCajasMetodo(m) {
+  cajasMetodo = m;
+  renderCajas();
+}
+
+function updateCajasFilter(key, val) {
+  cajasFilter[key] = val;
+  if (key === 'cliente') {
+    clearTimeout(_cajasSearchTimeout);
+    _cajasSearchTimeout = setTimeout(() => {
+      renderCajasMetodo(cajasMetodo);
+      requestAnimationFrame(() => {
+        const el = document.getElementById('cajas-search');
+        if (el) { const p = el.value.length; el.focus(); el.setSelectionRange(p, p); }
+      });
+    }, 350);
+  } else {
+    renderCajasMetodo(cajasMetodo);
+  }
+}
+
+function limpiarCajasFilter() {
+  cajasFilter = { operador:'', tipo:'', estado:'', fechaDesde:'', fechaHasta:'', cliente:'' };
+  renderCajasMetodo(cajasMetodo);
+}
+
+function renderCajasMetodo(metodo) {
+  const contentEl = document.getElementById('cajas-content');
+  if (!contentEl) return;
+
+  const fStyle = 'background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text1);font-size:12px;padding:5px 8px;outline:none;font-family:inherit;cursor:pointer';
+
+  // Todos los movimientos del mes para este método (sin filtro)
+  const allMovs = movsDelMes()
+    .filter(mv => normMetodo(mv.metodo) === normMetodo(metodo))
+    .sort((a,b) => {
+      const fa = a.fecha || '', fb = b.fecha || '';
+      if (fa !== fb) return fa.localeCompare(fb);
+      const na = parseInt((a.op_id||'').match(/\d+/)?.[0] || (a.id||'').match(/\d+/)?.[0] || 0);
+      const nb = parseInt((b.op_id||'').match(/\d+/)?.[0] || (b.id||'').match(/\d+/)?.[0] || 0);
+      if (na !== nb) return na - nb;
+      return (a.ts?.seconds||0) - (b.ts?.seconds||0);
+    });
+
+  // Pre-calcular saldo corriente y posición global para TODOS los movimientos
+  const saldoInicial = cupoPozo[metodo] || 0;
+  const saldoMap = new Map();
+  const posMap = new Map();
+  let runSaldo = saldoInicial;
+  let totalRecargas = 0, totalPagos = 0;
+  allMovs.forEach((mv, i) => {
+    posMap.set(mv.id, i + 1);
+    if (mv.estado_cajero === 'Rechazada') { saldoMap.set(mv.id, runSaldo); return; } // rechazadas no mueven saldo
+    const monto = mv.monto_cajero ?? mv.monto ?? 0;
+    if (mv.tipo === 'RECARGAS') { totalRecargas += monto; runSaldo -= monto; }
+    else { totalPagos += monto; runSaldo += monto; }
+    saldoMap.set(mv.id, runSaldo);
+  });
+  // Intercambios netos del método en el mes activo
+  const _ixNet   = calcNetIX();
+  const ixNeto   = _ixNet[normMetodo(metodo)] || 0;
+  const saldoFinal = saldoInicial - totalRecargas + totalPagos + ixNeto;
+
+  // Aplicar filtros
+  let movsF = allMovs;
+  if (cajasFilter.operador) movsF = movsF.filter(mv => mv.opId === cajasFilter.operador);
+  if (cajasFilter.tipo) movsF = movsF.filter(mv => mv.tipo === cajasFilter.tipo);
+  if (cajasFilter.estado) movsF = movsF.filter(mv => {
+    const est = mv.estado_cajero || (mv.canal === 'I-OP' ? 'Realizada' : 'Pendiente');
+    return est === cajasFilter.estado;
+  });
+  if (cajasFilter.fechaDesde) movsF = movsF.filter(mv => (mv.fecha||'') >= cajasFilter.fechaDesde);
+  if (cajasFilter.fechaHasta) movsF = movsF.filter(mv => (mv.fecha||'') <= cajasFilter.fechaHasta);
+  if (cajasFilter.cliente) {
+    const q = cajasFilter.cliente.toLowerCase();
+    movsF = movsF.filter(mv => (mv.cliente||'').toLowerCase().includes(q));
+  }
+
+  const hayFiltros = Object.values(cajasFilter).some(v => v !== '');
+  const pendientes = movsF.filter(mv => mv.canal !== 'I-OP' && (!mv.estado_cajero || mv.estado_cajero === 'Pendiente')).length;
+
+  // Totales del conjunto filtrado (excluye rechazadas)
+  let filtRecargas = 0, filtPagos = 0;
+  movsF.forEach(mv => {
+    if (mv.estado_cajero === 'Rechazada') return;
+    const m = mv.monto_cajero ?? mv.monto ?? 0;
+    if (mv.tipo === 'RECARGAS') filtRecargas += m;
+    else filtPagos += m;
+  });
+
+  // Opciones de operadores para el select
+  const opOptions = operadores.map(o =>
+    `<option value="${o.uid}"${cajasFilter.operador===o.uid?' selected':''}>${o.nombre.split(' ')[0]}</option>`
+  ).join('');
+
+  // Toggle de vista
+  const btnBase = 'border:none;padding:5px 12px;font-size:12px;cursor:pointer;font-family:inherit;transition:all .15s';
+  const vistaToggle = `
+    <div style="display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;margin-right:4px;flex-shrink:0">
+      <button onclick="cajasVista='detalle';renderCajasMetodo(cajasMetodo)" style="${btnBase};${cajasVista==='detalle'?'background:var(--gold);color:#000;font-weight:700':'background:var(--bg2);color:var(--text2)'}">📋 Detalle</button>
+      <button onclick="cajasVista='dias';renderCajasMetodo(cajasMetodo)" style="${btnBase};border-left:1px solid var(--border);${cajasVista==='dias'?'background:var(--gold);color:#000;font-weight:700':'background:var(--bg2);color:var(--text2)'}">📅 Por Días</button>
+    </div>`;
+
+  // Barra de filtros en 2 filas
+  const filterBar = `
+    <div style="display:flex;flex-direction:column;gap:6px;padding:10px 14px;background:var(--bg);border-bottom:1px solid var(--border)">
+      <!-- Fila 1: vista + selects principales -->
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        ${vistaToggle}
+        ${cajasVista==='detalle' ? `
+        <select style="${fStyle};flex:1;min-width:130px" onchange="updateCajasFilter('operador',this.value)">
+          <option value="">👤 Todos los operadores</option>
+          ${opOptions}
+        </select>
+        <select style="${fStyle};min-width:120px" onchange="updateCajasFilter('tipo',this.value)">
+          <option value="">📋 Tipos</option>
+          <option value="RECARGAS"${cajasFilter.tipo==='RECARGAS'?' selected':''}>RECARGAS</option>
+          <option value="PAGOS"${cajasFilter.tipo==='PAGOS'?' selected':''}>PAGOS</option>
+        </select>
+        <select style="${fStyle};min-width:130px" onchange="updateCajasFilter('estado',this.value)">
+          <option value="">🔘 Estados</option>
+          <option value="Realizada"${cajasFilter.estado==='Realizada'?' selected':''}>✅ Realizada</option>
+          <option value="Pendiente"${cajasFilter.estado==='Pendiente'?' selected':''}>⏳ Pendiente</option>
+          <option value="Rechazada"${cajasFilter.estado==='Rechazada'?' selected':''}>❌ Rechazada</option>
+        </select>
+        ` : ''}
+      </div>
+      <!-- Fila 2: fechas + búsqueda + limpiar -->
+      ${cajasVista==='detalle' ? `
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <input type="date" style="${fStyle};min-width:130px" value="${cajasFilter.fechaDesde}" onchange="updateCajasFilter('fechaDesde',this.value)" title="Desde">
+        <span style="color:var(--text2);font-size:11px">—</span>
+        <input type="date" style="${fStyle};min-width:130px" value="${cajasFilter.fechaHasta}" onchange="updateCajasFilter('fechaHasta',this.value)" title="Hasta">
+        <input id="cajas-search" type="text" style="${fStyle};flex:1;min-width:180px" value="${cajasFilter.cliente.replace(/"/g,'&quot;')}" oninput="updateCajasFilter('cliente',this.value)" placeholder="🔍 Buscar cliente...">
+        ${hayFiltros ? `<button onclick="limpiarCajasFilter()" style="background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.3);border-radius:6px;color:var(--red);font-size:12px;padding:5px 10px;cursor:pointer;font-family:inherit;white-space:nowrap">✕ Limpiar</button>` : ''}
+        ${hayFiltros ? `<span style="color:var(--text2);font-size:11px;white-space:nowrap">${movsF.length} de ${allMovs.length}</span>` : ''}
+      </div>` : ''}
+    </div>`;
+
+  // Filas de la tabla
+  const rows = movsF.map(mv => {
+    const monto = mv.monto_cajero ?? mv.monto ?? 0;
+    const opNom = operadores.find(o => o.uid === mv.opId)?.nombre || mv.opId || '—';
+    const esInterna = mv.canal === 'I-OP';
+    const estado = mv.estado_cajero || (esInterna ? 'Realizada' : 'Pendiente');
+    const estadoBadge = estado === 'Realizada'
+      ? `<span class="badge badge-green">Realizada</span>`
+      : estado === 'Rechazada'
+        ? `<span class="badge badge-red">Rechazada</span>`
+        : `<span class="badge badge-yellow">⏳ Pendiente</span>`;
+
+    const accion = !esInterna && estado === 'Pendiente'
+      ? `<button class="btn btn-gold btn-sm" onclick="realizarMov('${mv.id}',${monto})">✓</button>
+         <button class="btn btn-red btn-sm" onclick="rechazarMov('${mv.id}')">✗</button>`
+      : estado === 'Realizada'
+        ? `<button class="btn btn-ghost btn-sm" onclick="editarMontoCaja('${mv.id}',${monto})">✏</button>`
+        : '';
+
+    // Reportar este movimiento a la administración, con la transacción pegada
+    const reportar = `<button class="btn btn-ghost btn-sm" title="Reportar a la administración"
+      onclick="cajReportarMov('${mv.id}')" style="color:var(--blue)">🚩</button>`;
+
+    const sc = saldoMap.get(mv.id) ?? 0;
+    const pos = posMap.get(mv.id) ?? 0;
+    return `<tr style="${esInterna?'background:rgba(74,158,255,.04)':''}">
+      <td style="color:var(--text2)">${pos}</td>
+      <td style="color:var(--text2);font-size:11px">${pos} ${metodo}</td>
+      <td style="text-align:right;font-weight:600">${pesos(monto)}</td>
+      <td><span class="badge ${mv.tipo==='RECARGAS'?'badge-green':'badge-red'}">${mv.tipo}</span></td>
+      <td>${estadoBadge}</td>
+      <td style="color:var(--text2)">${mv.fecha||'—'}</td>
+      <td style="max-width:130px;overflow:hidden;text-overflow:ellipsis;color:var(--text2)">${mv.cliente||'—'}</td>
+      <td style="color:var(--text2)">${opNom.split(' ')[0]}</td>
+      <td style="text-align:right;font-weight:700;color:${sc>=0?'var(--green)':'var(--red)'}">${pesos(sc)}</td>
+      <td style="white-space:nowrap">${accion}${reportar}</td>
+    </tr>`;
+  });
+
+  // Resumen: cuando hay filtros, mostrar totales filtrados; sin filtros, totales reales
+  const showRecargas = hayFiltros ? filtRecargas : totalRecargas;
+  const showPagos    = hayFiltros ? filtPagos    : totalPagos;
+
+  const summaryBar = `
+    <div class="cajas-summary">
+      <div><div class="cajas-kpi-label">Saldo Inicial</div><div class="cajas-kpi-value" style="color:var(--gold)">${pesos(saldoInicial)}</div></div>
+      <div><div class="cajas-kpi-label">Recargas${hayFiltros&&cajasVista==='detalle'?' ·filtro':''}</div><div class="cajas-kpi-value" style="color:var(--red)">-${pesos(cajasVista==='dias'?totalRecargas:showRecargas)}</div></div>
+      <div><div class="cajas-kpi-label">Pagos${hayFiltros&&cajasVista==='detalle'?' ·filtro':''}</div><div class="cajas-kpi-value" style="color:var(--green)">+${pesos(cajasVista==='dias'?totalPagos:showPagos)}</div></div>
+      ${ixNeto!==0?`<div><div class="cajas-kpi-label">Intercambios</div><div class="cajas-kpi-value" style="color:${ixNeto>=0?'var(--blue)':'var(--red)'}">${ixNeto>=0?'+':''}${pesos(Math.abs(ixNeto))}</div></div>`:''}
+      <div><div class="cajas-kpi-label">Saldo Final</div><div class="cajas-kpi-value" style="color:${saldoFinal>=0?'var(--green)':'var(--red)'}">${pesos(saldoFinal)}</div></div>
+      ${pendientes>0?`<div style="margin-left:auto"><span class="badge badge-yellow">⏳ ${pendientes} pendiente${pendientes>1?'s':''}</span></div>`:''}
+    </div>`;
+
+  const tableHtml = cajasVista === 'dias'
+    ? buildCajasDiasTable(metodo, allMovs, saldoInicial)
+    : `<div class="tbl-wrap"><table>
+        <thead><tr>
+          <th>OP-C</th><th>CONCATENAR</th><th style="text-align:right">MONTO</th>
+          <th>OPCIÓN</th><th>ESTADO</th><th>FECHA</th><th>CLIENTE</th><th>OPERADOR</th>
+          <th style="text-align:right">SALDO</th><th></th>
+        </tr></thead>
+        <tbody>${rows.length?rows.join(''):'<tr><td colspan="10"><div class="empty"><div class="empty-icon">📋</div>Sin movimientos</div></td></tr>'}</tbody>
+      </table></div>`;
+
+  contentEl.innerHTML = filterBar + summaryBar + tableHtml;
+}
+
+function buildCajasDiasTable(metodo, allMovs, saldoInicial) {
+  // Agrupar movimientos por día
+  const porDia = {};
+  allMovs.forEach(mv => {
+    const f = mv.fecha || '?';
+    if (!porDia[f]) porDia[f] = { recargas: 0, pagos: 0 };
+    const monto = mv.monto_cajero ?? mv.monto ?? 0;
+    if (mv.tipo === 'RECARGAS') porDia[f].recargas += monto;
+    else porDia[f].pagos += monto;
+  });
+
+  // Intercambios internos (tipo=I) que afectan este método
+  const ixPorDia = {};
+  const mn = normMetodo(metodo);
+  ixDelMes().filter(ix => ix.tipo === 'I' && ix.estado === 'completado').forEach(ix => {
+    let delta = 0;
+    if (normMetodo(ix.op1_egresa)  === mn) delta -= ix.monto || 0;
+    if (normMetodo(ix.op1_ingresa) === mn) delta += ix.monto || 0;
+    if (delta !== 0) {
+      const f = ix.fecha || '?';
+      ixPorDia[f] = (ixPorDia[f] || 0) + delta;
+    }
+  });
+
+  // Unir todas las fechas con actividad y ordenar
+  const fechas = [...new Set([...Object.keys(porDia), ...Object.keys(ixPorDia)])].sort();
+
+  let saldo = saldoInicial;
+  let totRec = 0, totPag = 0, totIx = 0;
+
+  const rows = fechas.map(f => {
+    const d  = porDia[f]  || { recargas: 0, pagos: 0 };
+    const ix = ixPorDia[f] || 0;
+    const si = saldo;
+    saldo = saldo - d.recargas + d.pagos + ix;
+    const sf = saldo;
+    totRec += d.recargas;
+    totPag += d.pagos;
+    totIx  += ix;
+
+    const recCell = d.recargas
+      ? `<span style="color:var(--red)">-${pesos(d.recargas)}</span>` : '<span style="color:var(--text2)">—</span>';
+    const pagCell = d.pagos
+      ? `<span style="color:var(--green)">+${pesos(d.pagos)}</span>` : '<span style="color:var(--text2)">—</span>';
+    const ixCell  = ix !== 0
+      ? `<span style="color:${ix>0?'var(--green)':'var(--red)'}">${ix>0?'+':''}${pesos(ix)}</span>`
+      : '<span style="color:var(--text2)">—</span>';
+
+    return `<tr>
+      <td style="font-weight:600;color:var(--text1)">${fmtDate(f)}</td>
+      <td style="text-align:right;font-weight:600;color:${si>=0?'var(--green)':'var(--red)'}">${pesos(si)}</td>
+      <td style="text-align:right">${recCell}</td>
+      <td style="text-align:right">${pagCell}</td>
+      <td style="text-align:right">${ixCell}</td>
+      <td style="text-align:right;font-weight:700;color:${sf>=0?'var(--green)':'var(--red)'}">${pesos(sf)}</td>
+    </tr>`;
+  });
+
+  // Fila de totales
+  const sfinal = saldoInicial - totRec + totPag + totIx;
+  const totalsRow = `<tr style="border-top:2px solid var(--border);background:var(--bg2)">
+    <td style="font-weight:700;color:var(--text1)">TOTAL</td>
+    <td style="text-align:right;font-weight:700;color:var(--gold)">${pesos(saldoInicial)}</td>
+    <td style="text-align:right;font-weight:700;color:${totRec?'var(--red)':'var(--text2)'}">${totRec?'-'+pesos(totRec):'—'}</td>
+    <td style="text-align:right;font-weight:700;color:${totPag?'var(--green)':'var(--text2)'}">${totPag?'+'+pesos(totPag):'—'}</td>
+    <td style="text-align:right;font-weight:700;color:${totIx>0?'var(--green)':totIx<0?'var(--red)':'var(--text2)'}">${totIx!==0?(totIx>0?'+':'')+pesos(totIx):'—'}</td>
+    <td style="text-align:right;font-weight:700;color:${sfinal>=0?'var(--green)':'var(--red)'}">${pesos(sfinal)}</td>
+  </tr>`;
+
+  return `<div class="tbl-wrap"><table>
+    <thead><tr>
+      <th>FECHA</th>
+      <th style="text-align:right">SALDO INICIAL</th>
+      <th style="text-align:right">RECARGAS</th>
+      <th style="text-align:right">PAGOS</th>
+      <th style="text-align:right">INTERCAMBIOS</th>
+      <th style="text-align:right">SALDO FINAL</th>
+    </tr></thead>
+    <tbody>
+      ${fechas.length ? rows.join('') + totalsRow : '<tr><td colspan="6"><div class="empty"><div class="empty-icon">📅</div>Sin movimientos</div></td></tr>'}
+    </tbody>
+  </table></div>`;
+}
+
+// ── MODAL MONTO ──
+let _montoResolve = null;
+function promptMonto(titulo, label, valorDefault) {
+  return new Promise(resolve => {
+    _montoResolve = resolve;
+    document.getElementById('modal-monto-title').textContent = titulo;
+    document.getElementById('modal-monto-label').textContent = label;
+    const inp = document.getElementById('modal-monto-input');
+    inp.value = valorDefault ? numToCOP(valorDefault) : '';
+    document.getElementById('modal-monto').classList.add('open');
+    setTimeout(() => { inp.focus(); inp.select(); }, 50);
+  });
+}
+function _montoAceptar() {
+  const raw = document.getElementById('modal-monto-input').value.trim();
+  document.getElementById('modal-monto').classList.remove('open');
+  if (_montoResolve) { _montoResolve(raw || null); _montoResolve = null; }
+}
+function _montoCancelar() {
+  document.getElementById('modal-monto').classList.remove('open');
+  if (_montoResolve) { _montoResolve(null); _montoResolve = null; }
+}
+
+async function realizarMov(id, montoOriginal) {
+  const input = await promptMonto('✓ Confirmar operación', `Monto realizado (vacío = ${pesos(montoOriginal)}):`, montoOriginal);
+  if (input === null) return;
+  const monto = parseCOP(input) || montoOriginal;
+  try {
+    await db.collection('patriarca_movimientos').doc(id).update({ estado_cajero: 'Realizada', monto_cajero: monto });
+    toast('✅ Operación realizada', 'success');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+async function rechazarMov(id) {
+  if (!confirm('¿Rechazar esta operación?')) return;
+  try {
+    await db.collection('patriarca_movimientos').doc(id).update({ estado_cajero: 'Rechazada' });
+    toast('Operación rechazada', 'info');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+async function editarMontoCaja(id, montoActual) {
+  const input = await promptMonto('✏ Editar monto', `Monto actual: ${pesos(montoActual)}`, montoActual);
+  if (!input?.trim()) return;
+  const monto = parseCOP(input);
+  if (!monto) { toast('Monto inválido', 'error'); return; }
+  try {
+    await db.collection('patriarca_movimientos').doc(id).update({ monto_cajero: monto });
+    toast('✅ Monto actualizado', 'success');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+function pesos(v) {
+  if (v === undefined || v === null || isNaN(v)) return '$0';
+  return '$' + Math.round(v).toLocaleString('es-CO');
+}
+
+// Convierte número a string COP con puntos de miles y coma decimal (soporta negativos)
+function numToCOP(n) {
+  if (!n) return '';
+  const neg = n < 0;
+  const fixed = Math.abs(n).toFixed(2);
+  const [int, dec] = fixed.split('.');
+  const intFmt = int.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return (neg ? '-' : '') + (dec === '00' ? intFmt : intFmt + ',' + dec);
+}
+
+// Formatea string mientras el usuario escribe — puntos miles, coma decimal (soporta negativos)
+function formatCOP(raw) {
+  const neg = raw.startsWith('-');
+  raw = raw.replace(/[^\d,]/g, '');
+  const lastComma = raw.lastIndexOf(',');
+  let result;
+  if (lastComma !== -1) {
+    let intPart = raw.substring(0, lastComma);
+    let decPart = raw.substring(lastComma + 1).replace(/,/g, '').substring(0, 2);
+    intPart = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    result = intPart + ',' + decPart;
+  } else {
+    result = raw.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  }
+  return (neg ? '-' : '') + result;
+}
+
+// Parsea string formateado (1.234.567,89 o -1.234.567,89) a número
+function parseCOP(str) {
+  if (!str) return 0;
+  const neg = str.startsWith('-');
+  const val = parseFloat(str.replace(/-/g, '').replace(/\./g, '').replace(',', '.')) || 0;
+  return neg ? -val : val;
+}
+
+// Handler oninput para campos de cupo
+function onCupoInput(el, metodo) {
+  const oldLen = el.value.length;
+  const pos = el.selectionStart;
+  el.value = formatCOP(el.value);
+  const diff = el.value.length - oldLen;
+  el.selectionStart = el.selectionEnd = Math.max(0, pos + diff);
+  if (metodo) updateResto(metodo);
+}
+
+function fmtDate(s) {
+  if (!s) return '—';
+  try {
+    const d = new Date(s.includes('T') ? s : s + 'T00:00:00');
+    return d.toLocaleDateString('es-CO', { day:'2-digit', month:'2-digit', year:'numeric' });
+  } catch { return s; }
+}
+
+let toastTimer;
+function toast(msg, type='') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'show' + (type?' '+type:'');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.className = '', 3000);
+}
+
+// ── HOJA OPERADOR ──────────────────────────────────────────────────────────
+let hojaOpUid = null;
+let hojaFilter = 'todos';
+
+function initHojaOp() {
+  const sel = document.getElementById('ho-selector');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">— Seleccionar operador —</option>';
+  operadores.forEach(op => {
+    sel.innerHTML += `<option value="${op.uid}"${op.uid===cur?' selected':''}>${op.nombre}</option>`;
+  });
+  if (hojaOpUid) renderHojaOp();
+}
+
+function setHojaOp(uid) {
+  hojaOpUid = uid;
+  renderHojaOp();
+}
+
+function setHojaFilter(f, btn) {
+  // mantener compatibilidad si algo la llama externamente
+  renderHojaOpTabla();
+}
+
+function limpiarFiltrosHoja() {
+  ['ho-f-buscar','ho-f-tipo','ho-f-canal','ho-f-metodo','ho-f-cliente',
+   'ho-f-desde','ho-f-hasta','ho-f-monto-min','ho-f-monto-max','ho-f-estado']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  renderHojaOpTabla();
+}
+
+function renderHojaOp() {
+  const op = operadores.find(o => o.uid === hojaOpUid);
+  if (!op) {
+    document.getElementById('ho-sub').textContent = 'Selecciona un operador para ver su resumen';
+    document.getElementById('ho-metodos-wrap').innerHTML = '<div class="ho-card" style="border-style:dashed;color:var(--text2)">Selecciona un operador</div>';
+    document.getElementById('ho-tbody').innerHTML = '<tr><td colspan="8" class="empty">Selecciona un operador</td></tr>';
+    return;
+  }
+  document.getElementById('ho-sub').textContent = op.nombre;
+  renderHojaOpMetodos(op);
+  renderHojaOpTabla();
+}
+
+function renderHojaOpMetodos(op) {
+  const wrap = document.getElementById('ho-metodos-wrap');
+  const movs = movsDelMes().filter(mv => mv.opId === op.uid);
+  const cupo = cupoAsignado[op.uid] || {};
+
+  // Usar METODOS si está cargado; si no, construir desde cupoAsignado + movimientos
+  const metodosOrden = METODOS.length ? METODOS : [
+    ...new Set([
+      ...Object.keys(cupo).filter(k => cupo[k] !== 0),
+      ...movs.map(mv => mv.metodo).filter(Boolean)
+    ])
+  ];
+
+  const cards = metodosOrden.map(m => {
+    const ini = cupo[m] || 0;
+    const net = movs.filter(mv => mv.metodo === m).reduce((s, mv) => {
+      return s + (mv.tipo === 'PAGOS' ? (mv.monto||0) : mv.tipo === 'RECARGAS' ? -(mv.monto||0) : 0);
+    }, 0);
+    const saldo = ini + net;
+    const count = movs.filter(mv => mv.metodo === m).length;
+    if (ini === 0 && count === 0) return '';
+    const color = saldo < 0 ? 'var(--red)' : 'var(--green)';
+    return `<div class="ho-card">
+      <div class="ho-card-label" title="${m}">${m}</div>
+      <div class="ho-card-value" style="color:${color}">${pesos(saldo)}</div>
+      <div class="ho-card-count">${count} op${count!==1?'s':''}</div>
+    </div>`;
+  }).filter(Boolean).join('');
+
+  wrap.innerHTML = cards || '<div class="ho-card" style="border-style:dashed;color:var(--text2)">Sin cupo ni operaciones</div>';
+}
+
+function renderHojaOpTabla() {
+  if (!hojaOpUid) return;
+
+  let movs = movsDelMes().filter(mv => mv.opId === hojaOpUid);
+
+  // Poblar dropdowns dinámicos (preservando selección)
+  const metodoEl  = document.getElementById('ho-f-metodo');
+  const clienteEl = document.getElementById('ho-f-cliente');
+  const estadoEl  = document.getElementById('ho-f-estado');
+  if (metodoEl) {
+    const cur = metodoEl.value;
+    const uniq = [...new Set(movs.map(mv => mv.metodo).filter(Boolean))].sort();
+    metodoEl.innerHTML = '<option value="">Método: Todos</option>' + uniq.map(m=>`<option value="${m}">${m}</option>`).join('');
+    metodoEl.value = cur;
+  }
+  if (clienteEl) {
+    const cur = clienteEl.value;
+    const uniq = [...new Set(movs.map(mv => mv.cliente).filter(Boolean))].sort();
+    clienteEl.innerHTML = '<option value="">Cliente: Todos</option>' + uniq.map(c=>`<option value="${c}">${c}</option>`).join('');
+    clienteEl.value = cur;
+  }
+  if (estadoEl) {
+    const cur = estadoEl.value;
+    const uniq = [...new Set(movs.map(mv => mv.estado_cajero || mv.estado).filter(Boolean))].sort();
+    estadoEl.innerHTML = '<option value="">Estado: Todos</option>' + uniq.map(e=>`<option value="${e}">${e}</option>`).join('');
+    estadoEl.value = cur;
+  }
+
+  // Leer filtros
+  const fBuscar  = (document.getElementById('ho-f-buscar')?.value || '').toLowerCase().trim();
+  const fTipo    = document.getElementById('ho-f-tipo')?.value    || '';
+  const fCanal   = document.getElementById('ho-f-canal')?.value   || '';
+  const fMetodo  = document.getElementById('ho-f-metodo')?.value  || '';
+  const fCliente = document.getElementById('ho-f-cliente')?.value || '';
+  const fDesde   = document.getElementById('ho-f-desde')?.value   || '';
+  const fHasta   = document.getElementById('ho-f-hasta')?.value   || '';
+  const fMontoMinRaw = document.getElementById('ho-f-monto-min')?.value.replace(/\D/g,'') || '';
+  const fMontoMaxRaw = document.getElementById('ho-f-monto-max')?.value.replace(/\D/g,'') || '';
+  const fMontoMin = fMontoMinRaw !== '' ? Number(fMontoMinRaw) : null;
+  const fMontoMax = fMontoMaxRaw !== '' ? Number(fMontoMaxRaw) : null;
+  const fEstado  = document.getElementById('ho-f-estado')?.value  || '';
+
+  const total = movs.length;
+
+  if (fBuscar)  movs = movs.filter(mv =>
+    (mv.op_id||'').toLowerCase().includes(fBuscar) ||
+    (mv.cliente||'').toLowerCase().includes(fBuscar) ||
+    (mv.metodo||'').toLowerCase().includes(fBuscar) ||
+    (mv.casa||'').toLowerCase().includes(fBuscar)
+  );
+  if (fTipo)    movs = movs.filter(mv => mv.tipo === fTipo);
+  if (fCanal)   movs = movs.filter(mv => (mv.canal || 'C-OP') === fCanal);
+  if (fMetodo)  movs = movs.filter(mv => mv.metodo === fMetodo);
+  if (fCliente) movs = movs.filter(mv => mv.cliente === fCliente);
+  if (fDesde)   movs = movs.filter(mv => (mv.fecha||'') >= fDesde);
+  if (fHasta)   movs = movs.filter(mv => (mv.fecha||'') <= fHasta);
+  if (fMontoMin !== null) movs = movs.filter(mv => (mv.monto||0) >= fMontoMin);
+  if (fMontoMax !== null) movs = movs.filter(mv => (mv.monto||0) <= fMontoMax);
+  if (fEstado)  movs = movs.filter(mv => (mv.estado_cajero || mv.estado) === fEstado);
+
+  // Contador
+  const countEl = document.getElementById('ho-count');
+  if (countEl) countEl.textContent = movs.length < total
+    ? `${movs.length} de ${total} operaciones`
+    : `${total} operaciones`;
+
+  movs = [...movs].sort((a,b) => {
+    const fa = a.fecha || '', fb = b.fecha || '';
+    if (fa !== fb) return fa.localeCompare(fb);
+    const na = parseInt((a.op_id||'').match(/\d+/)?.[0] || 0);
+    const nb = parseInt((b.op_id||'').match(/\d+/)?.[0] || 0);
+    if (na !== nb) return na - nb;
+    return (a.ts?.seconds||0) - (b.ts?.seconds||0);
+  });
+
+  if (!movs.length) {
+    document.getElementById('ho-tbody').innerHTML = '<tr><td colspan="8" class="empty">Sin operaciones con este filtro</td></tr>';
+    return;
+  }
+
+  let n = 0;
+  const rows = movs.map(mv => {
+    n++;
+    const esRecarga = mv.tipo === 'RECARGAS';
+    const fecha = mv.fecha || (mv.ts?.toDate ? mv.ts.toDate().toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit',year:'2-digit'}) : '—');
+    const canal = mv.canal || 'C-OP';
+    const estado = mv.estado_cajero || mv.estado || 'Realizada';
+    const opCNum = mv.op_id || '—';
+    const badge = esRecarga
+      ? `<span style="background:rgba(36,191,98,.15);color:var(--green);border-radius:4px;padding:2px 8px;font-size:11px;font-weight:600">Recarga</span>`
+      : `<span style="background:rgba(224,80,80,.15);color:var(--red);border-radius:4px;padding:2px 8px;font-size:11px;font-weight:600">Pago</span>`;
+    return `<tr>
+      <td style="color:var(--text2);font-size:11px">${n}</td>
+      <td style="text-align:right;color:var(--text2);font-size:11px">${opCNum}</td>
+      <td class="${esRecarga?'td-pos':'td-neg'}" style="text-align:right;font-weight:600">${pesos(mv.monto||0)}</td>
+      <td>${badge}</td>
+      <td style="font-size:12px">${mv.metodo||'—'}</td>
+      <td style="font-size:11px;color:var(--text2)">${canal}</td>
+      <td style="font-size:11px;color:var(--green)">${estado}</td>
+      <td style="font-size:11px;color:var(--text2)">${fecha}</td>
+    </tr>`;
+  }).join('');
+
+  // Totales del filtro
+  let totPagos = 0, totRecargas = 0;
+  movs.forEach(mv => {
+    if (mv.tipo === 'PAGOS')    totPagos    += mv.monto || 0;
+    if (mv.tipo === 'RECARGAS') totRecargas += mv.monto || 0;
+  });
+  const neto = totPagos - totRecargas;
+  const filaTotal = `
+    <tr style="background:var(--bg3);border-top:2px solid var(--border)">
+      <td colspan="2" style="padding:10px 10px;font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">
+        TOTAL (${movs.length} ops)
+      </td>
+      <td style="text-align:right;padding:10px 10px;font-size:13px;font-weight:800;color:var(--text)">
+        <div style="font-size:10px;color:var(--text2);font-weight:600">NETO</div>
+        <div style="color:${neto>=0?'var(--green)':'var(--red)'}">${pesos(neto)}</div>
+      </td>
+      <td style="padding:10px 10px">
+        <div style="display:flex;flex-direction:column;gap:3px">
+          <div style="font-size:10px;color:var(--red);font-weight:600">Pagos: <b>${pesos(totPagos)}</b></div>
+          <div style="font-size:10px;color:var(--green);font-weight:600">Recargas: <b>${pesos(totRecargas)}</b></div>
+        </div>
+      </td>
+      <td colspan="4"></td>
+    </tr>`;
+
+  document.getElementById('ho-tbody').innerHTML = rows + filaTotal;
+}
+// ───────────────────────────────────────────────────────────────────────────
+
+// ── TEMA CLARO / OSCURO ──────────────────────────────────────────────────────
+function _themeStored() { return localStorage.getItem('aj16-theme') || 'auto'; }
+function _isLight() {
+  const t = _themeStored();
+  if (t === 'light') return true;
+  if (t === 'dark')  return false;
+  return window.matchMedia('(prefers-color-scheme: light)').matches;
+}
+function toggleTheme() {
+  const t = _themeStored();
+  const next = t === 'auto' ? 'light' : t === 'light' ? 'dark' : 'auto';
+  if (next === 'auto') {
+    document.documentElement.removeAttribute('data-theme');
+    localStorage.removeItem('aj16-theme');
+  } else {
+    document.documentElement.setAttribute('data-theme', next);
+    localStorage.setItem('aj16-theme', next);
+  }
+  _updateThemeBtn();
+}
+function _updateThemeBtn() {
+  const btn = document.getElementById('btn-theme');
+  if (!btn) return;
+  const t = _themeStored();
+  if (t === 'auto')       { btn.textContent = '🌗'; btn.title = 'Automático (según sistema) — clic para modo claro'; }
+  else if (t === 'light') { btn.textContent = '🌙'; btn.title = 'Modo claro — clic para modo oscuro'; }
+  else                    { btn.textContent = '☀️'; btn.title = 'Modo oscuro — clic para automático'; }
+}
+window.addEventListener('DOMContentLoaded', _updateThemeBtn);
+window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', _updateThemeBtn);
+
+// ── CRUCE DE CAJAS INLINE ──
+let _cruceData = []; // [{metodo, sistema}]
+let _cruceFisicoValues = {}; // {metodo: valorIngresado}
+let _cruceUnsub = null;      // listener Firestore activo
+let _cruceSaveTimer = null;  // debounce para writes
+
+function _cruceDocId() {
+  return `${opId || 'x'}_${mesActivo || 'x'}`;
+}
+// localStorage como cache local inmediato
+function _cruceSaveLS() {
+  try { localStorage.setItem('cruce_fisico_' + _cruceDocId(), JSON.stringify(_cruceFisicoValues)); } catch(e) {}
+}
+function _cruceLoadLS() {
+  try {
+    const raw = localStorage.getItem('cruce_fisico_' + _cruceDocId());
+    if (raw) _cruceFisicoValues = JSON.parse(raw);
+  } catch(e) { _cruceFisicoValues = {}; }
+}
+// Firestore: guarda con debounce de 800ms para no saturar en cada tecla
+function _cruceSaveFirestore() {
+  if (_cruceSaveTimer) clearTimeout(_cruceSaveTimer);
+  _cruceSaveTimer = setTimeout(async () => {
+    if (!opId || !mesActivo) return;
+    try {
+      await db.collection('patriarca_cruce_cajas').doc(_cruceDocId()).set({
+        valores: _cruceFisicoValues,
+        opId, mes: mesActivo,
+        ts: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+    } catch(e) { console.warn('cruce save FS:', e); }
+  }, 800);
+}
+// Suscripción en tiempo real — actualiza el UI si otro browser cambia los valores
+function _cruceSuscribir() {
+  if (_cruceUnsub) { _cruceUnsub(); _cruceUnsub = null; }
+  if (!opId || !mesActivo) return;
+  _cruceUnsub = db.collection('patriarca_cruce_cajas').doc(_cruceDocId())
+    .onSnapshot(snap => {
+      if (!snap.exists) return;
+      const remote = snap.data().valores || {};
+      // Fusionar: si el usuario local está editando en este momento, no pisar
+      let changed = false;
+      Object.keys(remote).forEach(k => {
+        if (_cruceFisicoValues[k] !== remote[k]) { _cruceFisicoValues[k] = remote[k]; changed = true; }
+      });
+      if (changed) {
+        _cruceSaveLS();
+        // Refrescar inputs sin re-renderizar toda la tabla
+        _cruceData.forEach((row, i) => {
+          const inp = document.getElementById('cruce-inp-' + i);
+          if (inp && document.activeElement !== inp) {
+            // Solo actualizar si el usuario NO está escribiendo en ese campo ahora mismo
+            const val = _cruceFisicoValues[row.metodo];
+            inp.value = val !== undefined ? val : '';
+          }
+        });
+        _actualizarCruce();
+      }
+    }, err => console.warn('cruce snap err:', err));
+}
+
+// Llamado desde renderDashboard() con los cards ya calculados
+function _renderCruceInline(cards) {
+  _cruceLoadLS(); // Cache local inmediato mientras llega Firestore
+  _cruceSuscribir(); // Suscribir actualizaciones en tiempo real
+  _cruceData = cards.map(c => ({
+    metodo:  c.m,
+    ini:     c.ini  || 0,
+    ix:      c.ix   || 0,
+    op:      c.op   || 0,
+    pag:     c.pag  || 0,
+    rec:     c.rec  || 0,
+    gas:     c.gas  || 0,
+    liq:     c.liq  || 0,
+    sistema: c.fin
+  }));
+
+  const tbody = document.getElementById('cruce-tbody');
+  if (!tbody) return;
+
+  const TD = 'padding:11px 16px;border-bottom:1px solid var(--border)';
+  tbody.innerHTML = _cruceData.map((row, i) => {
+    const valPrevio = _cruceFisicoValues[row.metodo] !== undefined ? _cruceFisicoValues[row.metodo] : '';
+    const ixClr  = row.ix  > 0 ? 'var(--green)' : row.ix  < 0 ? 'var(--red)' : 'var(--text2)';
+    const opClr  = row.op  > 0 ? 'var(--green)' : row.op  < 0 ? 'var(--red)' : 'var(--text2)';
+    const sisClr = row.sistema < 0 ? 'var(--red)' : 'var(--green)';
+    const fmtSigned = v => v === 0 ? '—' : (v > 0 ? '+' : '') + pesos(Math.abs(v));
+    return `<tr id="cruce-row-${i}">
+      <td class="col-fija-1" style="${TD};font-weight:600;white-space:nowrap">${row.metodo}</td>
+      <td class="col-fija-2" style="${TD};text-align:right;color:var(--text2)">${row.ini ? pesos(row.ini) : '—'}</td>
+      <td style="${TD};text-align:right;font-weight:600;color:${ixClr}">${fmtSigned(row.ix)}</td>
+      <td style="${TD};text-align:right;font-weight:600;color:${row.pag?'var(--green)':'var(--text2)'}">${row.pag ? '+'+pesos(row.pag) : '—'}</td>
+      <td style="${TD};text-align:right;font-weight:600;color:${row.rec?'var(--red)':'var(--text2)'}">${row.rec ? '−'+pesos(row.rec) : '—'}</td>
+      <td style="${TD};text-align:right;font-weight:600;color:var(--red)">${row.gas ? '−'+pesos(row.gas) : '—'}</td>
+      <td style="${TD};text-align:right;font-weight:600;color:var(--red)">${row.liq ? '−'+pesos(row.liq) : '—'}</td>
+      <td style="${TD};text-align:right;font-weight:700;color:${sisClr}">
+        <span style="cursor:pointer" title="Clic para copiar al Físico Real" onclick="_copiarSistema(${i})">${pesos(row.sistema)}</span>
+        <button onclick="_copiarSistema(${i})" title="Copiar valor del sistema al físico real"
+          style="margin-left:6px;background:rgba(53,204,47,.12);border:1px solid rgba(53,204,47,.3);border-radius:4px;color:var(--gold);cursor:pointer;font-size:11px;padding:2px 6px;line-height:1">←</button>
+      </td>
+      <td style="padding:7px 16px;border-bottom:1px solid var(--border);text-align:right">
+        <input type="text" class="cruce-fisico" id="cruce-inp-${i}" data-idx="${i}" data-metodo="${row.metodo}"
+          placeholder="0"
+          value="${valPrevio}"
+          oninput="_guardarFisico(${i},this.value);_actualizarCruce()"
+          style="width:140px;text-align:right;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:13px;font-family:inherit;outline:none"
+          onfocus="this.style.borderColor='var(--gold)'"
+          onblur="this.style.borderColor='var(--border)'"
+        >
+      </td>
+      <td id="cruce-dif-${i}" style="${TD};text-align:right;font-weight:700;color:var(--text2)">—</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('cruce-tfoot').innerHTML = `
+    <tr style="background:var(--bg3);border-top:2px solid var(--border)">
+      <td class="col-fija-1" style="padding:12px 16px;font-weight:800;font-size:13px;background:var(--bg3)">
+        TOTAL
+        <button onclick="_copiarTodo()" title="Copiar todos los valores del sistema al físico real"
+          style="margin-left:10px;background:rgba(53,204,47,.12);border:1px solid rgba(53,204,47,.3);border-radius:5px;color:var(--gold);cursor:pointer;font-size:11px;padding:3px 8px;font-weight:600">
+          ← Copiar todo
+        </button>
+      </td>
+      <td class="col-fija-2" id="cruce-tot-ini" style="padding:12px 16px;text-align:right;font-weight:700;color:var(--text2);background:var(--bg3)">—</td>
+      <td id="cruce-tot-ix"  style="padding:12px 16px;text-align:right;font-weight:700">—</td>
+      <td id="cruce-tot-pag" style="padding:12px 16px;text-align:right;font-weight:700">—</td>
+      <td id="cruce-tot-rec" style="padding:12px 16px;text-align:right;font-weight:700">—</td>
+      <td id="cruce-tot-gas" style="padding:12px 16px;text-align:right;font-weight:700;color:var(--red)">—</td>
+      <td id="cruce-tot-liq" style="padding:12px 16px;text-align:right;font-weight:700;color:var(--red)">—</td>
+      <td id="cruce-tot-sis" style="padding:12px 16px;text-align:right;font-weight:800;font-size:14px"></td>
+      <td id="cruce-tot-fis" style="padding:12px 16px;text-align:right;font-weight:800;font-size:14px;color:var(--text2)">—</td>
+      <td id="cruce-tot-dif" style="padding:12px 16px;text-align:right;font-weight:800;font-size:14px;color:var(--text2)">—</td>
+    </tr>`;
+
+  _actualizarCruce();
+  ajustarColsFijas();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MÓDULO CORRESPONSAL — Cuentas y sus movimientos
+// ═══════════════════════════════════════════════════════════════
+let _modulo      = 'amc';    // 'amc' | 'corresponsal'
+let _corrCuentas = [];       // catálogo de cuentas del corresponsal activo
+let _corrMovs    = [];       // movimientos del mes
+let _corrSI      = {};       // saldo inicial del mes {cuenta: valor}
+let _corrUnsubC  = null, _corrUnsubM = null;
+let _corrInit    = false;
+// El corresponsal es la oficina del cajero (ej. Unity). Se asigna desde el
+// administrador en la ficha del usuario y no se elige desde aquí.
+function _corrPunto() { return cajeroOficina || ''; }
+
+// Formato de moneda del módulo Corresponsal
+const _cPeso = v => '$' + Math.round(v || 0).toLocaleString('es-CO');
+
+// ── Selector de módulo (AMC / Corresponsal) ────────────────────────────────
+// Qué módulos tiene habilitados este cajero según el administrador
+function _modulosPermitidos() {
+  const p = cajeroPermisos || {};
+  return { amc: p.moduloAMC !== false, corresponsal: p.moduloCorresponsal !== false };
+}
+
+// Decide el módulo de arranque. Se llama al terminar el login y al llegar los
+// permisos; solo actúa cuando ya tiene ambas cosas, y una sola vez.
+function _decidirModuloInicial() {
+  if (_moduloDecidido || !_permisosListos || !_oficinaLista || !opId) return;
+  _moduloDecidido = true;
+  const per = _modulosPermitidos();
+  let guardado = null;
+  try { guardado = localStorage.getItem('cajero_modulo'); } catch(e) {}
+  if (guardado === 'amc' && per.amc) return entrarModulo('amc');
+  if (guardado === 'corresponsal' && per.corresponsal) return entrarModulo('corresponsal');
+  abrirSelectorModulo();
+}
+
+function abrirSelectorModulo() {
+  const per = _modulosPermitidos();
+  const cAmc  = document.getElementById('mod-card-amc');
+  const cCorr = document.getElementById('mod-card-corr');
+  if (cAmc)  cAmc.style.display  = per.amc ? '' : 'none';
+  if (cCorr) cCorr.style.display = per.corresponsal ? '' : 'none';
+
+  // Con un solo módulo habilitado no tiene sentido preguntar
+  if (per.amc && !per.corresponsal) { entrarModulo('amc'); return; }
+  if (per.corresponsal && !per.amc) { entrarModulo('corresponsal'); return; }
+  if (!per.amc && !per.corresponsal) {
+    toast('⚠ No tienes módulos habilitados. Contacta al administrador.', 'error');
+    return;
+  }
+
+  document.getElementById('mod-saludo').textContent =
+    `${opNombre || ''}${cajeroOficina ? ' · ' + cajeroOficina : ''}`;
+  document.getElementById('modulo-overlay').style.display = 'flex';
+}
+
+function entrarModulo(mod) {
+  const per = _modulosPermitidos();
+  if ((mod === 'amc' && !per.amc) || (mod === 'corresponsal' && !per.corresponsal)) {
+    toast('⚠ No tienes acceso a ese módulo', 'error');
+    return;
+  }
+  _modulo = mod;
+  try { localStorage.setItem('cajero_modulo', mod); } catch(e) {}
+  document.getElementById('modulo-overlay').style.display = 'none';
+
+  const esCorr = mod === 'corresponsal';
+  document.getElementById('nav-amc').style.display  = esCorr ? 'none' : '';
+  document.getElementById('nav-corr').style.display = esCorr ? '' : 'none';
+  document.getElementById('hdr-modulo').textContent = esCorr ? '🏪 CORRESPONSAL' : '💼 AMC';
+
+  if (esCorr) { showTab('corr-banco'); initCorrBanco(); }
+  else        { showTab('dashboard'); }
+}
+
+function initCorrCuentas() {
+  document.getElementById('cc-mes-lbl').textContent = mesActivo;
+  document.getElementById('cm-mes-lbl').textContent = mesActivo;
+  const lbl = document.getElementById('lbl-corresponsal');
+  if (lbl) lbl.textContent = _corrPunto() || '—';
+  if (_bancoInit) { _cargarBancoMovs(); _cargarCruceBanco(); _cargarSIBanco(); }
+  if (_corrInit) { _recargarCorresponsal(); return; }
+  _corrInit = true;
+  _recargarCorresponsal();
+}
+
+// Vuelve a enganchar cuentas, movimientos y saldo inicial al corresponsal activo
+function _recargarCorresponsal() {
+  const of = _corrPunto();
+  if (_corrUnsubC) _corrUnsubC();
+  _corrUnsubC = db.collection('corresponsal_cuentas')
+    .where('oficina','==',of)
+    .onSnapshot(s => {
+      _corrCuentas = s.docs.map(d => ({id:d.id, ...d.data()}))
+        .sort((a,b) => (a.orden||99) - (b.orden||99));
+      _poblarSelectsCuentas();
+      renderCorrCuentas();
+      renderBalanceCorr();
+    }, e => console.warn('corr cuentas:', e));
+
+  _cargarMovsCorr();
+  _cargarSICorr();
+  _cargarPagosAdmin();
+  _cargarRetiros();
+}
+
+function _cargarMovsCorr() {
+  const of = cajeroOficina || '';
+  if (_corrUnsubM) _corrUnsubM();
+  _corrUnsubM = db.collection('corresponsal_movimientos')
+    .where('oficina','==',of).where('mesKey','==',mesActivo)
+    .onSnapshot(s => {
+      _corrMovs = s.docs.map(d => ({id:d.id, ...d.data()}))
+        .sort((a,b) => (a.fecha||'').localeCompare(b.fecha||'') || (a.op||0)-(b.op||0));
+      renderCorrCuentas();
+      renderCorrMovs();
+      renderBalanceCorr();
+      // La hoja del Paramo también muestra estos asientos (liquidaciones);
+      // sin esto quedaba en cero porque se pintaba antes de que llegaran.
+      if (typeof renderParamo === 'function' && document.getElementById('pm-tbody')) renderParamo();
+    }, e => console.warn('corr movs:', e));
+}
+
+// Un documento de saldo inicial por oficina + corresponsal + mes
+function _siCorrId() {
+  return `${_corrPunto() || 'global'}_${mesActivo}`;
+}
+
+async function _cargarSICorr() {
+  try {
+    const d = await db.collection('corresponsal_saldo_inicial').doc(_siCorrId()).get();
+    _corrSI = d.exists ? (d.data().saldos || {}) : {};
+  } catch(e) { _corrSI = {}; }
+  renderCorrCuentas();
+  renderBalanceCorr();
+  if (typeof renderParamo === 'function' && document.getElementById('pm-tbody')) renderParamo();
+}
+
+
+// ── Pagos que manda el administrador ──────────────────────────────────────
+// Mientras no los apruebe no existen en el libro. Al aprobar se crean los
+// dos asientos: sale de una cuenta y entra a la del operador.
+let _pgcPend = [];
+let _pgcUnsub = null;
+
+function _cargarPagosAdmin() {
+  if (_pgcUnsub) _pgcUnsub();
+  _pgcUnsub = db.collection('corresponsal_pagos_op')
+    .where('oficina','==',_corrPunto()).where('estado','==','pendiente')
+    .onSnapshot(s => {
+      _pgcPend = s.docs.map(d => ({id:d.id, ...d.data()}))
+        .sort((a,b) => (a.fecha||'').localeCompare(b.fecha||''));
+      renderPagosAdmin();
+    }, e => console.warn('pagos admin:', e));
+}
+
+function renderPagosAdmin() {
+  const panel = document.getElementById('pgc-panel');
+  const tb    = document.getElementById('pgc-tbody');
+  if (!panel || !tb) return;
+
+  const bdg = document.getElementById('pgc-badge');
+  const otros = (typeof _retPend !== 'undefined' ? _retPend.length : 0);
+  if (!_pgcPend.length) {
+    panel.style.display = 'none';
+    if (bdg && !otros) bdg.style.display = 'none';
+    return;
+  }
+  panel.style.display = '';
+  if (bdg) { bdg.textContent = _pgcPend.length + otros; bdg.style.display = ''; }
+
+  const tot = _pgcPend.reduce((a,x) => a + (parseFloat(x.monto)||0), 0);
+  document.getElementById('pgc-resumen').textContent =
+    `${_pgcPend.length} pendiente(s) · ${_cPeso(tot)}`;
+
+  tb.innerHTML = _pgcPend.map(x => `<tr>
+    <td style="white-space:nowrap">${x.fecha || ''}</td>
+    <td style="color:var(--red)">${x.cuentaOrigen || ''}</td>
+    <td style="color:var(--green);font-weight:600">${x.cuentaDestino || ''}</td>
+    <td style="text-align:right;font-weight:800">${_cPeso(x.monto)}</td>
+    <td style="color:var(--text2);font-size:11px">${x.concepto || ''}</td>
+    <td style="white-space:nowrap;text-align:right">
+      <button class="btn btn-gold btn-sm" onclick="aprobarPagoAdmin('${x.id}')">✓ Aprobar</button>
+      <button class="btn btn-ghost btn-sm" onclick="rechazarPagoAdmin('${x.id}')">✕</button>
+    </td>
+  </tr>`).join('');
+}
+
+async function aprobarPagoAdmin(id) {
+  const x = _pgcPend.find(p => p.id === id);
+  if (!x) return;
+  if (!confirm(`¿Confirmas el pago de ${_cPeso(x.monto)} a ${x.cuentaDestino}?\n\n`
+    + `Sale de: ${x.cuentaOrigen}\nEntra a: ${x.cuentaDestino}`)) return;
+
+  const quien = `Administrador · aprobó ${(opNombre || '').split(' ')[0] || 'cajera'}`;
+  const base = {
+    oficina: x.oficina, fecha: x.fecha, monto: Math.round(x.monto || 0),
+    mesKey: (x.fecha || '').slice(0,7),
+    descripcion: x.concepto || '',
+    especialista: quien, cajero: quien,
+    pagoAdminId: id,
+    ts: firebase.firestore.FieldValue.serverTimestamp(),
+  };
+
+  try {
+    const op = _corrMovs.reduce((mx,m) => Math.max(mx, m.op||0), 0);
+    const b = db.batch();
+    const r1 = db.collection('corresponsal_movimientos').doc();
+    const r2 = db.collection('corresponsal_movimientos').doc();
+    b.set(r1, { ...base, cuenta: x.cuentaOrigen,  movimiento: 'Egresos',  op: op + 1 });
+    b.set(r2, { ...base, cuenta: x.cuentaDestino, movimiento: 'Ingresos', op: op + 2 });
+    b.update(db.collection('corresponsal_pagos_op').doc(id), {
+      estado: 'aprobado',
+      aprobadoPor: opNombre || auth.currentUser?.email || '',
+      aprobadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+      movIds: [r1.id, r2.id],
+    });
+    await b.commit();
+    toast('✅ Pago confirmado — quedaron los dos asientos', 'success');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+async function rechazarPagoAdmin(id) {
+  const motivo = prompt('¿Por qué lo rechazas?');
+  if (!motivo || !motivo.trim()) { toast('⚠ Escribe el motivo', 'error'); return; }
+  try {
+    await db.collection('corresponsal_pagos_op').doc(id).update({
+      estado: 'rechazado', motivoRechazo: motivo.trim(),
+      rechazadoPor: opNombre || auth.currentUser?.email || '',
+      rechazadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    toast('✕ Pago rechazado', 'info');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+
+// ── Retiros que piden los operadores ──────────────────────────────────────
+const RET_ETIQ = {
+  efectivo:  { icono:'💵', label:'Efectivo' },
+  deposito:  { icono:'🏦', label:'Depósito' },
+  pago:      { icono:'📄', label:'Pago a tercero' },
+  inversion: { icono:'📈', label:'Inversión en cupo' },
+};
+const RET_CUENTA_INVERSION = 'Academia Aj1.6';
+
+let _retPend = [];
+let _retUnsubC = null;
+
+function _cargarRetiros() {
+  if (_retUnsubC) _retUnsubC();
+  _retUnsubC = db.collection('corresponsal_retiros')
+    .where('oficina','==',_corrPunto()).where('estado','==','pendiente')
+    .onSnapshot(s => {
+      _retPend = s.docs.map(d => ({id:d.id, ...d.data()}))
+        .sort((a,b) => (a.fecha||'').localeCompare(b.fecha||''));
+      renderRetiros();
+    }, e => console.warn('retiros:', e));
+}
+
+function _retDetalle(r) {
+  const d = r.detalle || {};
+  if (r.tipo === 'deposito') return `${d.banco || ''} ${d.numero || ''}${d.titular ? ' · ' + d.titular : ''}`.trim();
+  if (r.tipo === 'pago')     return d.beneficiario || '';
+  if (r.tipo === 'inversion')return `Entra a ${RET_CUENTA_INVERSION}`;
+  return r.nota || '';
+}
+
+function renderRetiros() {
+  const panel = document.getElementById('ret-panel');
+  const tb    = document.getElementById('ret-tbody');
+  if (!panel || !tb) return;
+
+  const bdg = document.getElementById('pgc-badge');
+  if (!_retPend.length) {
+    panel.style.display = 'none';
+    if (bdg && !(_pgcPend || []).length) bdg.style.display = 'none';
+    return;
+  }
+  panel.style.display = '';
+  if (bdg) { bdg.textContent = _retPend.length + (_pgcPend || []).length; bdg.style.display = ''; }
+
+  const tot = _retPend.reduce((a,x) => a + (parseFloat(x.monto)||0), 0);
+  document.getElementById('ret-resumen').textContent = `${_retPend.length} pendiente(s) · ${_cPeso(tot)}`;
+
+  tb.innerHTML = _retPend.map(r => `<tr>
+    <td style="white-space:nowrap">${r.fecha || ''}</td>
+    <td style="font-weight:600">${(r.operadorNombre||'').split(' ').slice(0,2).join(' ')}</td>
+    <td>${RET_ETIQ[r.tipo]?.icono || ''} ${RET_ETIQ[r.tipo]?.label || r.tipo}</td>
+    <td style="font-size:11px;color:var(--text2);max-width:230px">${_retDetalle(r)}${
+      r.nota ? `<br><span style="font-size:10px">${r.nota}</span>` : ''}</td>
+    <td style="text-align:right;font-weight:800">${_cPeso(r.monto)}</td>
+    <td style="white-space:nowrap;text-align:right">
+      <button class="btn btn-gold btn-sm" onclick="abrirAprobRetiro('${r.id}')">✓ Entregar</button>
+      <button class="btn btn-ghost btn-sm" onclick="rechazarRetiro('${r.id}')">✕</button>
+    </td>
+  </tr>`).join('');
+}
+
+function abrirAprobRetiro(id) {
+  const r = _retPend.find(x => x.id === id);
+  if (!r) return;
+  document.getElementById('ar-id').value = id;
+  document.getElementById('ar-fecha').value = _hoyLocal();
+  document.getElementById('ar-metodo').value = '';
+  document.getElementById('ar-wrap-metodo').style.display =
+    (r.tipo === 'deposito' || r.tipo === 'pago') ? '' : 'none';
+  document.getElementById('ar-info').innerHTML = `
+    <div style="font-weight:700;margin-bottom:4px">${r.operadorNombre || ''}</div>
+    <div>${RET_ETIQ[r.tipo]?.icono || ''} ${RET_ETIQ[r.tipo]?.label || r.tipo} · <strong>${_cPeso(r.monto)}</strong></div>
+    ${_retDetalle(r) ? `<div style="color:var(--text2);margin-top:4px">${_retDetalle(r)}</div>` : ''}
+    <div style="color:var(--text2);margin-top:6px;font-size:11px">Sale de <strong>${r.cuenta}</strong>${
+      r.tipo === 'inversion' ? ` y entra a <strong>${RET_CUENTA_INVERSION}</strong>` : ''}</div>`;
+  openModal('modal-aprob-retiro');
+}
+
+async function confirmarRetiro() {
+  const id = document.getElementById('ar-id').value;
+  const r  = _retPend.find(x => x.id === id);
+  if (!r) return;
+  const fecha  = document.getElementById('ar-fecha').value;
+  const metodo = document.getElementById('ar-metodo').value.trim();
+  if (!fecha) { toast('⚠ Selecciona la fecha', 'error'); return; }
+
+  const quien = `${(r.operadorNombre||'').split(' ')[0]} solicitó · entregó ${(opNombre||'').split(' ')[0] || 'cajera'}`;
+  const desc  = [RET_ETIQ[r.tipo]?.label || r.tipo, _retDetalle(r), metodo && 'por ' + metodo, r.nota]
+                  .filter(Boolean).join(' · ');
+  const base = {
+    oficina: r.oficina, fecha, monto: Math.round(r.monto || 0),
+    mesKey: fecha.slice(0,7), descripcion: desc,
+    especialista: quien, cajero: quien,
+    retiroId: id,
+    ts: firebase.firestore.FieldValue.serverTimestamp(),
+  };
+
+  const btn = document.getElementById('ar-btn');
+  btn.disabled = true; btn.textContent = '⏳…';
+  try {
+    const op = _corrMovs.reduce((mx,m) => Math.max(mx, m.op||0), 0);
+    const b = db.batch();
+    const refs = [];
+
+    const r1 = db.collection('corresponsal_movimientos').doc();
+    b.set(r1, { ...base, cuenta: r.cuenta, movimiento: 'Egresos', op: op + 1 });
+    refs.push(r1.id);
+
+    if (r.tipo === 'inversion') {
+      const r2 = db.collection('corresponsal_movimientos').doc();
+      b.set(r2, { ...base, cuenta: RET_CUENTA_INVERSION, movimiento: 'Ingresos', op: op + 2 });
+      refs.push(r2.id);
+    }
+
+    b.update(db.collection('corresponsal_retiros').doc(id), {
+      estado: 'aprobado', fechaMovimiento: fecha, metodoUsado: metodo,
+      aprobadoPor: opNombre || auth.currentUser?.email || '',
+      aprobadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+      movIds: refs,
+    });
+    await b.commit();
+    closeModal('modal-aprob-retiro');
+    toast('✅ Retiro entregado y registrado', 'success');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+  finally { btn.disabled = false; btn.textContent = '✓ Entregar'; }
+}
+
+async function rechazarRetiro(id) {
+  const motivo = prompt('¿Por qué lo rechazas?');
+  if (!motivo || !motivo.trim()) { toast('⚠ Escribe el motivo', 'error'); return; }
+  try {
+    await db.collection('corresponsal_retiros').doc(id).update({
+      estado: 'rechazado', motivoRechazo: motivo.trim(),
+      rechazadoPor: opNombre || auth.currentUser?.email || '',
+      rechazadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    toast('✕ Retiro rechazado', 'info');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+
+// ── Hoja de Corresponsal El Paramo ────────────────────────────────────────
+// Vista viva de lo que los operadores mueven por ese método en el AMC:
+// pagos, recargas e intercambios. De acá sale el saldo de su cuenta.
+let _pmMovs = [];
+
+function initCorrParamo() {
+  const p = _corrPuente();
+  document.getElementById('pm-mes-lbl').textContent = mesActivo;
+  const set = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+  set('pm-titulo',     p?.cuenta || '—');
+  set('pm-metodo-lbl', p?.metodo || '—');
+  set('pm-cuenta-lbl', p?.cuenta || '—');
+  // La pestaña se acorta para que no empuje a las demás
+  const t = document.getElementById('tab-paramo-lbl');
+  if (t) t.textContent = (p?.cuenta || '').split(' ').slice(0,3).join(' ') || 'Caja';
+  if (!_corrInit) initCorrCuentas();
+  renderParamo();
+}
+
+// Todo lo del método, con los intercambios como filas propias
+function _paramoMovs() {
+  const p = _corrPuente();
+  if (!p || typeof movsDelMes !== 'function') return [];
+  const nm = normMetodo(p.metodo);
+
+  const out = movsDelMes()
+    .filter(mv => normMetodo(mv.metodo) === nm && mv.estado_cajero !== 'Rechazada')
+    .map(mv => ({
+      op: parseInt((mv.op_id||'').match(/\d+/)?.[0] || 0) || null,
+      fecha: mv.fecha || '',
+      monto: mv.monto_cajero ?? mv.monto ?? 0,
+      clase: mv.tipo === 'RECARGAS' ? 'rec' : 'pag',
+      tipo:  mv.tipo === 'RECARGAS' ? 'Recargas' : 'Pagos',
+      estado: mv.estado_cajero || (mv.canal === 'I-OP' ? 'Realizada' : 'Pendiente'),
+      cliente: mv.cliente || '—',
+      operador: mv.opNombre || mv.operador || '',
+    }));
+
+  if (typeof ixDelMes === 'function') {
+    ixDelMes().forEach(x => {
+      const propio = x.tipo === 'I' || (x.tipo === 'C' && (!x.op2_uid || x.op2_nombre === 'Propio'));
+      if (!propio) return;
+      const sale  = normMetodo(x.op1_egresa)  === nm;
+      const entra = normMetodo(x.op1_ingresa) === nm;
+      if (!sale && !entra) return;
+      out.push({
+        op: null, fecha: x.fecha || '',
+        monto: parseFloat(x.monto) || 0,
+        clase: 'ix', tipo: 'Intercambio', signo: entra ? 1 : -1,
+        estado: sale ? 'Sale' : 'Entra',
+        cliente: `${x.op1_egresa || ''} → ${x.op1_ingresa || ''}`,
+        operador: x.op1_nombre || '',
+      });
+    });
+  }
+  // Asientos del corresponsal contra esta misma cuenta — ahí viven los pagos
+  // de liquidación que los operadores hacen por este método.
+  (typeof _corrMovs !== 'undefined' ? _corrMovs : []).forEach(m => {
+    if ((m.cuenta || '') !== p.cuenta) return;
+    const eg = m.movimiento === 'Egresos';
+    out.push({
+      op: m.op || null,
+      fecha: m.fecha || '',
+      monto: parseFloat(m.monto) || 0,
+      clase: 'asi',
+      tipo: 'Asiento',
+      signo: eg ? -1 : 1,
+      estado: m.movimiento || '',
+      cliente: m.descripcion || '—',
+      operador: m.especialista || '',
+    });
+  });
+
+  return out.sort((a,b) => (a.fecha||'').localeCompare(b.fecha||'') || (a.op||0)-(b.op||0));
+}
+
+// El saldo que alimenta la cuenta del cliente
+function _paramoTotales() {
+  const movs = _paramoMovs();
+  let rec = 0, pag = 0, ix = 0, asi = 0;
+  movs.forEach(m => {
+    if      (m.clase === 'rec') rec += m.monto;
+    else if (m.clase === 'pag') pag += m.monto;
+    else if (m.clase === 'asi') asi += (m.signo || 0) * m.monto;
+    else ix += (m.signo || 0) * m.monto;
+  });
+  // OJO: `neto` es lo que consume el puente hacia la pestaña Cuentas y NO debe
+  // incluir los asientos — allá ya se suman aparte. `netoVista` sí los incluye
+  // y es el que se muestra en esta pantalla.
+  return { movs, rec, pag, ix, asi,
+           neto: pag - rec + ix,
+           netoVista: pag - rec + ix + asi };
+}
+
+function renderParamo() {
+  const tb = document.getElementById('pm-tbody');
+  if (!tb) return;
+  const p = _corrPuente();
+  if (!p) {
+    tb.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text2);padding:24px">Esta oficina no tiene puente con el AMC</td></tr>';
+    return;
+  }
+
+  const { movs, rec, pag, ix, asi, netoVista } = _paramoTotales();
+  const ini = parseFloat(_corrSI[p.cuenta]) || 0;
+
+  document.getElementById('pm-kpi-ini').textContent = _cPeso(ini);
+  document.getElementById('pm-kpi-rec').textContent = _cPeso(rec);
+  document.getElementById('pm-kpi-pag').textContent = _cPeso(pag);
+  const eIx = document.getElementById('pm-kpi-ix');
+  eIx.textContent = _cPeso(ix);
+  eIx.style.color = ix < 0 ? 'var(--red)' : ix > 0 ? 'var(--blue)' : '';
+  const eAsi = document.getElementById('pm-kpi-asi');
+  if (eAsi) {
+    eAsi.textContent = _cPeso(asi);
+    eAsi.style.color = asi < 0 ? 'var(--red)' : asi > 0 ? 'var(--green)' : '';
+  }
+  const eFin = document.getElementById('pm-kpi-fin');
+  const fin = ini + netoVista;
+  eFin.textContent = _cPeso(fin);
+  eFin.style.color = fin < 0 ? 'var(--red)' : 'var(--green)';
+
+  const f = document.getElementById('pm-filtro')?.value || '';
+  let saldo = ini;
+  const filas = movs.map(m => {
+    // El saldo corre sobre todos, aunque el filtro esconda algunos
+    if (m.clase === 'rec') saldo -= m.monto;
+    else if (m.clase === 'pag') saldo += m.monto;
+    else saldo += (m.signo || 0) * m.monto;
+    if (f && f !== m.clase) return '';
+    const badge = m.clase === 'rec' ? 'badge-red'
+                : m.clase === 'pag' ? 'badge-green'
+                : m.clase === 'asi' ? (m.signo < 0 ? 'badge-red' : 'badge-green')
+                : 'badge-gray';
+    return `<tr>
+      <td style="text-align:center;color:var(--text2)">${m.op || ''}</td>
+      <td style="white-space:nowrap">${m.fecha}</td>
+      <td style="text-align:right;font-weight:700">${_cPeso(m.monto)}</td>
+      <td><span class="badge ${badge}">${m.tipo}</span></td>
+      <td style="font-size:11px;color:var(--text2)">${m.estado}</td>
+      <td style="font-size:11px;color:var(--text2);max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${m.cliente}</td>
+      <td style="font-size:11px;color:var(--text2)">${(m.operador||'').split(' ').slice(0,2).join(' ')}</td>
+      <td style="text-align:right;font-weight:600;color:${saldo<0?'var(--red)':'var(--green)'}">${_cPeso(saldo)}</td>
+    </tr>`;
+  }).filter(Boolean).join('');
+
+  tb.innerHTML = filas || '<tr><td colspan="8" style="text-align:center;color:var(--text2);padding:24px">Sin movimientos este mes</td></tr>';
+  document.getElementById('pm-resumen').textContent = `${movs.length} movimiento(s)`;
+}
+
+function imprimirParamo() {
+  const p = _corrPuente();
+  if (!p) return;
+  const { movs, rec, pag, ix, asi, netoVista } = _paramoTotales();
+  const ini = parseFloat(_corrSI[p.cuenta]) || 0;
+  let saldo = ini;
+  const filas = movs.map(m => {
+    if (m.clase === 'rec') saldo -= m.monto;
+    else if (m.clase === 'pag') saldo += m.monto;
+    else saldo += (m.signo || 0) * m.monto;
+    return `<tr>
+      <td class="c">${m.op || ''}</td><td>${m.fecha}</td>
+      <td class="r">${_cPeso(m.monto)}</td>
+      <td class="${m.clase}">${m.tipo}</td>
+      <td>${m.cliente}</td><td>${m.operador || ''}</td>
+      <td class="r">${_cPeso(saldo)}</td></tr>`;
+  }).join('');
+
+  const w = window.open('', '_blank');
+  if (!w) { toast('⚠ Permite las ventanas emergentes', 'error'); return; }
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8">
+    <title>${p.metodo} — ${mesActivo}</title><style>
+    body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;margin:26px;color:#111;font-size:12px}
+    h1{font-size:17px;margin:0 0 2px} .sub{color:#666;font-size:11px;margin-bottom:14px}
+    .kpis{display:flex;gap:24px;margin-bottom:14px;padding:10px 0;border-top:1px solid #ddd;border-bottom:1px solid #ddd}
+    .kpi b{display:block;font-size:14px} .kpi span{font-size:10px;color:#666;text-transform:uppercase}
+    table{width:100%;border-collapse:collapse}
+    th{background:#f0f0f0;text-align:left;padding:6px 8px;font-size:10px;text-transform:uppercase;border-bottom:2px solid #ccc}
+    td{padding:5px 8px;border-bottom:1px solid #eee} .r{text-align:right} .c{text-align:center}
+    .rec{color:#b3261e} .pag{color:#0a7f3f} .ix{color:#1d4ed8}
+    @media print{body{margin:12px}}</style></head><body>
+    <h1>${p.metodo}</h1>
+    <div class="sub">${_corrPunto()} · ${mesActivo} · generado ${_hoyLocal()}</div>
+    <div class="kpis">
+      <div class="kpi"><span>Saldo anterior</span><b>${_cPeso(ini)}</b></div>
+      <div class="kpi"><span>Recargas</span><b>${_cPeso(rec)}</b></div>
+      <div class="kpi"><span>Pagos</span><b>${_cPeso(pag)}</b></div>
+      <div class="kpi"><span>Intercambios</span><b>${_cPeso(ix)}</b></div>
+      <div class="kpi"><span>Liquidación / Asientos</span><b>${_cPeso(asi)}</b></div>
+      <div class="kpi"><span>Saldo final</span><b>${_cPeso(ini + netoVista)}</b></div>
+    </div>
+    <table><thead><tr><th>OP</th><th>Fecha</th><th class="r">Monto</th><th>Tipo</th>
+      <th>Cliente</th><th>Operador</th><th class="r">Saldo</th></tr></thead>
+      <tbody>${filas || '<tr><td colspan="7" style="text-align:center;padding:20px;color:#888">Sin movimientos</td></tr>'}</tbody></table>
+    <script>window.onload=()=>window.print()<\\/script></body></html>`);
+  w.document.close();
+}
+
+// ── Render cuentas ──
+function renderCorrCuentas() {
+  renderBalanceCorr();
+  const tb = document.getElementById('cc-tbody');
+  if (!tb) return;
+
+  // Acumular movimientos por cuenta
+  const acc = {};
+  _corrMovs.forEach(m => {
+    const k = m.cuenta;
+    if (!acc[k]) acc[k] = { in:0, eg:0 };
+    const v = parseFloat(m.monto) || 0;
+    if (m.movimiento === 'Egresos') acc[k].eg += v; else acc[k].in += v;
+  });
+
+  if (!_corrCuentas.length) {
+    tb.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--text2);padding:24px">Sin cuentas todavía. Usa <strong>+ Cuenta</strong> o <strong>⬆ Importar</strong>.</td></tr>`;
+    ['cc-kpi-ant','cc-kpi-in','cc-kpi-eg','cc-kpi-act'].forEach(id =>
+      document.getElementById(id).textContent = '$0');
+    return;
+  }
+
+  let tAnt=0, tIn=0, tEg=0;
+  tb.innerHTML = _corrCuentas.map((c, i) => {
+    const ant = parseFloat(_corrSI[c.nombre]) || 0;
+    const d   = acc[c.nombre] || { in:0, eg:0 };
+    // Lo que llega desde la caja del AMC (pagos − recargas)
+    const pte = _corrPuenteDe(c.nombre);
+    const din = d.in + Math.max(pte, 0);
+    const deg = d.eg + Math.max(-pte, 0);
+    const act = ant + din - deg;
+    tAnt+=ant; tIn+=din; tEg+=deg;
+    return `<tr>
+      <td class="col-fija-1" style="color:var(--text2)">${c.orden || i+1}</td>
+      <td class="col-fija-2" style="font-weight:600">${c.nombre}</td>
+      <td style="text-align:right;color:${ant<0?'var(--red)':'var(--text2)'}">${ant?_cPeso(ant):'—'}</td>
+      <td style="text-align:right;color:var(--green)">${din?_cPeso(din):'—'}${pte?`<span title="Sale de la hoja ${_corrPuente()?.cuenta||''}" style="color:var(--gold);font-size:11px;margin-left:5px;cursor:help">🔁</span>`:''}</td>
+      <td style="text-align:right;color:var(--red)">${deg?_cPeso(deg):'—'}</td>
+      <td style="text-align:right;font-weight:700;color:${act<0?'var(--red)':'var(--green)'}">${_cPeso(act)}</td>
+      <td style="color:var(--text2);font-size:11px">${c.responsable||'—'}${
+        c.operadorUid ? '<span title="Enlazada al operador" style="color:var(--green);margin-left:5px">🔗</span>' : ''}</td>
+      <td style="white-space:nowrap">
+        <button class="btn-icon" onclick="editarCuenta('${c.id}')" title="Editar">✏️</button>
+        <button class="btn-icon btn-eliminar-reg" onclick="borrarCuenta('${c.id}')" title="Eliminar">🗑</button>
+      </td>
+    </tr>`;
+  }).join('') + `<tr style="background:var(--bg3);font-weight:800">
+      <td class="col-fija-1"></td><td class="col-fija-2">TOTAL</td>
+      <td style="text-align:right">${_cPeso(tAnt)}</td>
+      <td style="text-align:right;color:var(--green)">${_cPeso(tIn)}</td>
+      <td style="text-align:right;color:var(--red)">${_cPeso(tEg)}</td>
+      <td style="text-align:right;color:${(tAnt+tIn-tEg)<0?'var(--red)':'var(--green)'}">${_cPeso(tAnt+tIn-tEg)}</td>
+      <td colspan="2"></td>
+    </tr>`;
+
+  document.getElementById('cc-kpi-ant').textContent = _cPeso(tAnt);
+  document.getElementById('cc-kpi-in').textContent  = _cPeso(tIn);
+  document.getElementById('cc-kpi-eg').textContent  = _cPeso(tEg);
+  document.getElementById('cc-kpi-act').textContent = _cPeso(tAnt+tIn-tEg);
+  aplicarPermisosCajero();
+  ajustarColsFijas();
+}
+
+// ── Render movimientos ──
+function renderCorrMovs() {
+  const tb = document.getElementById('cm-tbody');
+  if (!tb) return;
+  const fc = document.getElementById('cm-filtro-cuenta')?.value || '';
+  const ft = document.getElementById('cm-filtro-tipo')?.value   || '';
+  const q  = (document.getElementById('cm-buscar')?.value || '').toLowerCase();
+
+  const lista = _corrMovs.filter(m =>
+    (!fc || m.cuenta === fc) &&
+    (!ft || m.movimiento === ft) &&
+    (!q  || (m.descripcion||'').toLowerCase().includes(q) || (m.cuenta||'').toLowerCase().includes(q))
+  );
+
+  let sIn=0, sEg=0;
+  lista.forEach(m => {
+    const v = parseFloat(m.monto)||0;
+    if (m.movimiento === 'Egresos') sEg += v; else sIn += v;
+  });
+  const res = document.getElementById('cm-resumen');
+  if (res) res.innerHTML = `${lista.length} mov. · <span style="color:var(--green)">+${_cPeso(sIn)}</span> · <span style="color:var(--red)">-${_cPeso(sEg)}</span> · neto <strong>${_cPeso(sIn-sEg)}</strong>`;
+
+  tb.innerHTML = lista.length ? lista.map(m => {
+    const eg = m.movimiento === 'Egresos';
+    return `<tr>
+      <td style="color:var(--text2)">${m.op||''}</td>
+      <td style="white-space:nowrap">${m.fecha||'—'}</td>
+      <td style="font-weight:600">${m.cuenta||'—'}</td>
+      <td style="text-align:right;font-weight:600">${_cPeso(m.monto)}</td>
+      <td><span class="badge ${eg?'badge-red':'badge-green'}">${m.movimiento}</span></td>
+      <td style="color:var(--text2);font-size:11px">${m.especialista||'—'}</td>
+      <td style="color:var(--text2);font-size:11px;max-width:240px">${m.descripcion||''}</td>
+      <td style="white-space:nowrap">
+        <button class="btn-icon" onclick="editarCorrMov('${m.id}')" title="Editar">✏️</button>
+        <button class="btn-icon btn-eliminar-reg" onclick="borrarCorrMov('${m.id}')" title="Eliminar">🗑</button>
+      </td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="8" style="text-align:center;color:var(--text2);padding:24px">Sin movimientos</td></tr>';
+  aplicarPermisosCajero();
+}
+
+function _poblarSelectsCuentas() {
+  const opts = _corrCuentas.map(c => `<option value="${c.nombre}">${c.nombre}</option>`).join('');
+  const s1 = document.getElementById('cmv-cuenta');
+  if (s1) s1.innerHTML = opts;
+  const s2 = document.getElementById('cm-filtro-cuenta');
+  if (s2) { const p = s2.value; s2.innerHTML = '<option value="">Todas las cuentas</option>' + opts; s2.value = p; }
+}
+
+// ── CRUD cuentas ──
+function abrirModalCuenta() {
+  document.getElementById('cu-edit-id').value = '';
+  document.getElementById('cu-title').textContent = '📒 Nueva Cuenta';
+  document.getElementById('cu-nombre').value = '';
+  document.getElementById('cu-responsable').value = 'Corresponsal';
+  document.getElementById('cu-orden').value = _corrCuentas.length + 1;
+  _poblarOperadoresCuenta('');
+  openModal('modal-cuenta');
+}
+
+// Operadores de la oficina, para poder enlazar la cuenta
+function _poblarOperadoresCuenta(sel) {
+  const el = document.getElementById('cu-operador');
+  if (!el) return;
+  const lista = (operadores || []).slice().sort((a,b) => (a.nombre||'').localeCompare(b.nombre||''));
+  el.innerHTML = '<option value="">No — es una cuenta normal</option>'
+    + lista.map(o => `<option value="${o.uid}"${o.uid===sel?' selected':''}>${o.nombre}</option>`).join('');
+}
+
+function editarCuenta(id) {
+  const c = _corrCuentas.find(x => x.id === id);
+  if (!c) return;
+  document.getElementById('cu-edit-id').value = id;
+  document.getElementById('cu-title').textContent = '✏️ Editar Cuenta';
+  document.getElementById('cu-nombre').value      = c.nombre || '';
+  document.getElementById('cu-responsable').value = c.responsable || '';
+  document.getElementById('cu-orden').value       = c.orden || '';
+  _poblarOperadoresCuenta(c.operadorUid || '');
+  openModal('modal-cuenta');
+}
+
+async function guardarCuenta() {
+  const id     = document.getElementById('cu-edit-id').value;
+  const nombre = document.getElementById('cu-nombre').value.trim();
+  if (!nombre) { toast('⚠ Escribe el nombre', 'error'); return; }
+  const opUid = document.getElementById('cu-operador')?.value || '';
+  const data = {
+    oficina:      cajeroOficina || '',
+    nombre,
+    responsable:  document.getElementById('cu-responsable').value.trim() || 'Corresponsal',
+    orden:        parseInt(document.getElementById('cu-orden').value) || _corrCuentas.length + 1,
+    operadorUid:  opUid,
+  };
+  // Los movimientos y el saldo inicial apuntan a la cuenta por su nombre.
+  // Si cambia, hay que arrastrarlos o quedan huérfanos.
+  const anterior = id ? (_corrCuentas.find(c => c.id === id)?.nombre || '') : '';
+  const renombra = !!id && anterior && anterior !== nombre;
+  if (renombra) {
+    const usos = _corrMovs.filter(m => m.cuenta === anterior).length;
+    const ok = confirm(
+      `Vas a renombrar "${anterior}" a "${nombre}".\n\n` +
+      `Se van a actualizar ${usos} movimiento(s) del mes y su saldo inicial ` +
+      `para que sigan colgando de esta cuenta.\n\n¿Continuar?`);
+    if (!ok) return;
+  }
+
+  try {
+    if (id) await db.collection('corresponsal_cuentas').doc(id).update(data);
+    else    await db.collection('corresponsal_cuentas').add(data);
+
+    if (renombra) await _renombrarCuentaCascada(anterior, nombre);
+
+    closeModal('modal-cuenta');
+    toast('✅ Cuenta guardada', 'success');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+// Arrastra el cambio de nombre a movimientos y saldos iniciales
+async function _renombrarCuentaCascada(antes, ahora) {
+  const of = cajeroOficina || '';
+
+  // Movimientos de todos los meses
+  const movSnap = await db.collection('corresponsal_movimientos')
+    .where('oficina','==',of).where('cuenta','==',antes).get();
+  for (let i = 0; i < movSnap.docs.length; i += 400) {
+    const b = db.batch();
+    movSnap.docs.slice(i, i + 400).forEach(d => b.update(d.ref, { cuenta: ahora }));
+    await b.commit();
+  }
+
+  // Saldo inicial: la cuenta es una llave dentro del mapa
+  const siSnap = await db.collection('corresponsal_saldo_inicial')
+    .where('oficina','==',of).get();
+  for (const d of siSnap.docs) {
+    const saldos = d.data().saldos || {};
+    if (!(antes in saldos)) continue;
+    const nuevos = { ...saldos };
+    nuevos[ahora] = nuevos[antes];
+    delete nuevos[antes];
+    await d.ref.update({ saldos: nuevos });   // update reemplaza el mapa completo
+  }
+
+  if (movSnap.size) toast(`↻ ${movSnap.size} movimiento(s) reasignados`, 'info');
+}
+
+async function borrarCuenta(id) {
+  const c = _corrCuentas.find(x => x.id === id);
+  if (!c) return;
+  const usos = _corrMovs.filter(m => m.cuenta === c.nombre).length;
+  if (usos) { toast(`⚠ La cuenta tiene ${usos} movimiento(s). Bórralos primero.`, 'error'); return; }
+  if (!confirm(`¿Eliminar la cuenta "${c.nombre}"?`)) return;
+  try {
+    await db.collection('corresponsal_cuentas').doc(id).delete();
+    toast('🗑 Cuenta eliminada', 'success');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+// ── CRUD movimientos ──
+function setCorrTipo(t) {
+  document.getElementById('cmv-tipo').value = t;
+  const a = document.getElementById('cmv-btn-in'), b = document.getElementById('cmv-btn-eg');
+  a.style.cssText = 'flex:1;' + (t==='Ingresos' ? 'background:var(--green);color:#fff;border-color:var(--green)' : '');
+  b.style.cssText = 'flex:1;' + (t==='Egresos'  ? 'background:var(--red);color:#fff;border-color:var(--red)' : '');
+}
+
+function abrirModalCorrMov() {
+  if (!_corrCuentas.length) { toast('⚠ Primero crea al menos una cuenta', 'error'); return; }
+  document.getElementById('cmv-edit-id').value = '';
+  document.getElementById('cmv-title').textContent = '📝 Registrar Movimiento';
+  document.getElementById('cmv-fecha').value = _hoyLocal();
+  document.getElementById('cmv-monto').value = '';
+  document.getElementById('cmv-desc').value  = '';
+  setCorrTipo('Ingresos');
+  openModal('modal-corr-mov');
+}
+
+function editarCorrMov(id) {
+  const m = _corrMovs.find(x => x.id === id);
+  if (!m) return;
+  document.getElementById('cmv-edit-id').value = id;
+  document.getElementById('cmv-title').textContent = '✏️ Editar Movimiento';
+  document.getElementById('cmv-fecha').value  = m.fecha || '';
+  document.getElementById('cmv-cuenta').value = m.cuenta || '';
+  document.getElementById('cmv-monto').value  = formatCOP(String(Math.round(m.monto||0)));
+  document.getElementById('cmv-desc').value   = m.descripcion || '';
+  setCorrTipo(m.movimiento || 'Ingresos');
+  openModal('modal-corr-mov');
+}
+
+async function guardarCorrMov() {
+  const id     = document.getElementById('cmv-edit-id').value;
+  const fecha  = document.getElementById('cmv-fecha').value;
+  const cuenta = document.getElementById('cmv-cuenta').value;
+  const monto  = parseCOP(document.getElementById('cmv-monto').value);
+  if (!fecha)  { toast('⚠ Selecciona la fecha', 'error'); return; }
+  if (!cuenta) { toast('⚠ Selecciona la cuenta', 'error'); return; }
+  if (!monto)  { toast('⚠ Ingresa el monto', 'error'); return; }
+
+  const data = {
+    oficina:      cajeroOficina || '',
+        fecha, cuenta, monto,
+    movimiento:  document.getElementById('cmv-tipo').value,
+    descripcion: document.getElementById('cmv-desc').value.trim(),
+    especialista: opNombre || '',
+    mesKey:      fecha.slice(0,7),
+    ts: firebase.firestore.FieldValue.serverTimestamp(),
+  };
+  try {
+    if (id) await db.collection('corresponsal_movimientos').doc(id).update(data);
+    else {
+      data.op = _corrMovs.reduce((mx,m)=>Math.max(mx, m.op||0), 0) + 1;
+      await db.collection('corresponsal_movimientos').add(data);
+    }
+    closeModal('modal-corr-mov');
+    toast('✅ Movimiento guardado', 'success');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+async function borrarCorrMov(id) {
+  if (cajeroPermisos.eliminarTodo === false) { toast('⚠ Sin permiso para eliminar', 'error'); return; }
+  const m = _corrMovs.find(x => x.id === id);
+  if (!m) return;
+  if (!confirm(`¿Eliminar el movimiento de ${m.cuenta} por ${_cPeso(m.monto)}?`)) return;
+  try {
+    await db.collection('corresponsal_movimientos').doc(id).delete();
+    toast('🗑 Movimiento eliminado', 'success');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+// ── Saldo inicial ──
+function abrirSaldoInicialCorr() {
+  if (!_corrCuentas.length) { toast('⚠ Primero crea las cuentas', 'error'); return; }
+  document.getElementById('si-mes').textContent = mesActivo;
+  document.getElementById('si-lista').innerHTML = _corrCuentas.map(c => `
+    <div style="display:flex;gap:10px;align-items:center">
+      <span style="flex:1;font-size:12px">${c.nombre}</span>
+      <input type="text" id="si-${c.id}" value="${_corrSI[c.nombre] ? formatCOP(String(Math.round(_corrSI[c.nombre]))) : ''}"
+        placeholder="0" inputmode="numeric"
+        oninput="const s=this.selectionStart,l=this.value.length;this.value=formatCOP(this.value);this.setSelectionRange(s+this.value.length-l,s+this.value.length-l)"
+        style="width:140px;text-align:right;padding:6px 8px;font-size:12px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+    </div>`).join('');
+  openModal('modal-si-corr');
+}
+
+async function guardarSaldoInicialCorr() {
+  const saldos = {};
+  _corrCuentas.forEach(c => {
+    const v = parseCOP(document.getElementById('si-'+c.id)?.value || '');
+    if (v) saldos[c.nombre] = v;
+  });
+  try {
+    await db.collection('corresponsal_saldo_inicial').doc(_siCorrId()).set({
+      oficina: cajeroOficina || '', mesKey: mesActivo, saldos,
+      ts: firebase.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    _corrSI = saldos;
+    closeModal('modal-si-corr');
+    renderCorrCuentas();
+    toast('✅ Saldo inicial guardado', 'success');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CAJAS DEL CORRESPONSAL — cada una con su propio libro
+// ═══════════════════════════════════════════════════════════════
+let _cajas      = [];     // catálogo de cajas
+let _cajaSel    = '';     // caja seleccionada
+let _cajaMovs   = [];     // movimientos de la caja del mes
+let _cajaSI     = {};     // saldo inicial del mes por caja
+let _cajaUnsubC = null, _cajaUnsubM = null;
+let _cajaInit   = false;
+let _cajasCargadas = false;   // ya respondió la suscripción de cajas
+
+// Ingresos y Recargas suman; Egresos y Pagos restan. Son dos nombres para lo mismo
+// según el tipo de caja. Cancelada y No Encontrado no mueven saldo.
+const _CAJA_ENTRADA = new Set(['Ingresos','Recargas','Reembolso Ingreso']);
+// La recarga saca plata de la caja y el pago la mete — igual que en el AMC
+const _cajaSigno = m =>
+  (m.estado === 'Cancelada' || m.estado === 'No Encontrado') ? 0
+  : (_CAJA_ENTRADA.has(m.opcion) ? -1 : 1);
+
+function _siCajasId() { return `${_corrPunto() || 'global'}_${mesActivo}`; }
+
+function initCorrCajas() {
+  document.getElementById('cj-mes-lbl').textContent = mesActivo;
+  renderConteos('conteo-cajas');
+  _cargarMovsMesCajas();
+  _cargarBalanceEfecty();
+  _cargarCuadre();
+  if (_cajaInit) { renderGeneralEfecty(); _cargarMovsCaja(); _cargarSICajas(); return; }
+  _cajaInit = true;
+  const of = _corrPunto();
+  if (_cajaUnsubC) _cajaUnsubC();
+  _cajaUnsubC = db.collection('corresponsal_cajas').where('oficina','==',of)
+    .onSnapshot(s => {
+      _cajas = s.docs.map(d => ({id:d.id, ...d.data()}))
+        .sort((a,b) => (a.orden||99) - (b.orden||99));
+      _cajasCargadas = true;
+      if (!_cajaSel && _cajas.length) _cajaSel = _cajas[0].nombre;
+      renderListaCajas();
+      _cargarMovsCaja();
+    }, e => console.warn('cajas:', e));
+  _cargarSICajas();
+}
+
+let _cajaMovsMes = [];      // movimientos de todas las cajas del mes
+let _cajaUnsubMes = null;
+
+function _cargarMovsMesCajas() {
+  if (_cajaUnsubMes) _cajaUnsubMes();
+  _cajaUnsubMes = db.collection('corresponsal_caja_movs')
+    .where('oficina','==',_corrPunto()).where('mesKey','==',mesActivo)
+    .onSnapshot(s => {
+      _cajaMovsMes = s.docs.map(d => ({id:d.id, ...d.data()}));
+      renderGeneralEfecty();
+    }, e => console.warn('caja movs mes:', e));
+}
+
+// ── Cuadre diario ─────────────────────────────────────────────────────────
+// Efecty solo da dos totales al día. Lo de adentro ya lo registraste en las
+// cajas, así que lo que sobra al restarlo es del público:
+//   Cuadre = (Ingresos Efecty − Recargas) − (Egresos Efecty − Pagos)
+let _cqDatos = {};          // { 'YYYY-MM-DD': { ingresos, egresos, reembolsos } }
+let _cqTimer = null;
+
+function _cqDocId() { return `${_corrPunto() || 'global'}_${mesActivo}`; }
+
+function _toggleCuadre() {
+  const b = document.getElementById('cq-body');
+  const c = document.getElementById('cq-caret');
+  const oculto = b.style.display === 'none';
+  b.style.display = oculto ? '' : 'none';
+  if (c) c.textContent = oculto ? '▾' : '▸';
+}
+
+async function _cargarCuadre() {
+  try { _cqDatos = JSON.parse(localStorage.getItem('cq_' + _cqDocId()) || '{}'); }
+  catch(e) { _cqDatos = {}; }
+  try {
+    const d = await db.collection('corresponsal_efecty_cuadre').doc(_cqDocId()).get();
+    if (d.exists) { _cqDatos = d.data().dias || {}; localStorage.setItem('cq_' + _cqDocId(), JSON.stringify(_cqDatos)); }
+  } catch(e) {}
+  renderCuadreEfecty();
+}
+
+function _cqSet(fecha, campo, inp) {
+  const s = inp.selectionStart, l = inp.value.length;
+  inp.value = formatCOP(inp.value);
+  inp.setSelectionRange(s + inp.value.length - l, s + inp.value.length - l);
+
+  if (!_cqDatos[fecha]) _cqDatos[fecha] = {};
+  _cqDatos[fecha][campo] = parseCOP(inp.value);
+  if (!_cqDatos[fecha].ingresos && !_cqDatos[fecha].egresos && !_cqDatos[fecha].reembolsos) delete _cqDatos[fecha];
+
+  try { localStorage.setItem('cq_' + _cqDocId(), JSON.stringify(_cqDatos)); } catch(e) {}
+  _cqPintarFila(fecha);
+  renderGeneralEfecty();
+
+  const st = document.getElementById('cq-status');
+  if (st) { st.textContent = '⏳ Guardando…'; st.style.color = 'var(--text2)'; }
+  clearTimeout(_cqTimer);
+  _cqTimer = setTimeout(async () => {
+    try {
+      await db.collection('corresponsal_efecty_cuadre').doc(_cqDocId()).set({
+        oficina: _corrPunto(), mesKey: mesActivo, dias: _cqDatos,
+        ts: firebase.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+      if (st) { st.textContent = '✓ Guardado'; st.style.color = 'var(--green)'; }
+    } catch(e) {
+      if (st) { st.textContent = '⚠ Error'; st.style.color = 'var(--red)'; }
+    }
+  }, 700);
+}
+
+// Recargas y pagos del día, sumando todas las cajas menos la del público
+// Solo cuentan las cajas cuyas operaciones pasan por la plataforma de Efecty
+function _cqCajasDelCuadre() {
+  return _cajas.filter(c => c.tipo !== 'publico' && c.cuadre !== false);
+}
+
+function _cqMovsDia(fecha) {
+  const cuentan = new Set(_cqCajasDelCuadre().map(c => c.nombre));
+  let rec = 0, pag = 0;
+  _cajaMovsMes.forEach(m => {
+    if (m.fecha !== fecha || !cuentan.has(m.caja)) return;
+    if (m.estado === 'Cancelada' || m.estado === 'No Encontrado') return;
+    const v = parseFloat(m.monto) || 0;
+    if (_CAJA_ENTRADA.has(m.opcion)) rec += v; else pag += v;
+  });
+  // Las cajas que cuelgan del AMC también son movimiento de adentro
+  const met = _cqCajasDelCuadre()
+                    .filter(c => c.tipo === 'enlazada' && c.origen === 'amc')
+                    .map(c => normMetodo(c.enlace));
+
+  if (met.length && typeof movsDelMes === 'function') {
+    movsDelMes().forEach(mv => {
+      if ((mv.fecha || '') !== fecha || mv.estado_cajero === 'Rechazada') return;
+      if (!met.includes(normMetodo(mv.metodo))) return;
+      const v = mv.monto_cajero ?? mv.monto ?? 0;
+      if (mv.tipo === 'RECARGAS') rec += v; else pag += v;
+    });
+  }
+
+  // El intercambio del día, aparte: negativo si sacó plata de la caja
+  let ix = 0;
+  if (met.length && typeof ixDelMes === 'function') {
+    ixDelMes().forEach(x => {
+      if ((x.fecha || '') !== fecha) return;
+      const propio = x.tipo === 'I' || (x.tipo === 'C' && (!x.op2_uid || x.op2_nombre === 'Propio'));
+      if (!propio) return;
+      const v = parseFloat(x.monto) || 0;
+      if (met.includes(normMetodo(x.op1_egresa)))  ix -= v;
+      if (met.includes(normMetodo(x.op1_ingresa))) ix += v;
+    });
+  }
+
+  return { rec, pag, ix };
+}
+
+function _cqCalcDia(fecha) {
+  const { rec, pag, ix } = _cqMovsDia(fecha);
+  const d = _cqDatos[fecha] || {};
+  const ing = parseFloat(d.ingresos) || 0;
+  const egr = parseFloat(d.egresos)  || 0;
+  const ree = parseFloat(d.reembolsos) || 0;
+  // Si Efecty no reportó ese día no hay nada contra qué cruzar
+  const hayReporte = !!(ing || egr);
+  const monto = hayReporte ? (ing - rec - ree) - (egr - pag) + ix : 0;
+  return { rec, pag, ix, ing, egr, ree, monto, hayReporte };
+}
+
+// Total del mes que le corresponde a la caja del público
+function _cqTotalMes() {
+  let rec = 0, pag = 0;
+  _cqDiasDelMes().forEach(f => {
+    const { monto } = _cqCalcDia(f);
+    if (monto > 0) rec += monto; else if (monto < 0) pag += -monto;
+  });
+  return { rec, pag };
+}
+
+function _cqDiasDelMes() {
+  const [y, m] = mesActivo.split('-').map(Number);
+  const n = new Date(y, m, 0).getDate();
+  const out = [];
+  for (let i = 1; i <= n; i++) out.push(`${mesActivo}-${String(i).padStart(2,'0')}`);
+  return out;
+}
+
+function _cqPintarFila(fecha) {
+  const { rec, pag, ix, monto, hayReporte } = _cqCalcDia(fecha);
+  const setTxt = (id, v, color) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = v ? _cPeso(v) : '—';
+    if (color) el.style.color = color;
+  };
+  setTxt('cq-rec-' + fecha, rec, 'var(--text2)');
+  setTxt('cq-pag-' + fecha, pag, 'var(--text2)');
+  const eIx = document.getElementById('cq-ix-' + fecha);
+  if (eIx) {
+    eIx.textContent = ix ? _cPeso(ix) : '—';
+    eIx.style.color = ix < 0 ? 'var(--red)' : ix > 0 ? 'var(--blue)' : 'var(--text2)';
+  }
+  const eM = document.getElementById('cq-monto-' + fecha);
+  const eO = document.getElementById('cq-op-' + fecha);
+  if (eM) {
+    eM.textContent = monto ? _cPeso(Math.abs(monto)) : '—';
+    eM.style.color = monto > 0 ? 'var(--green)' : monto < 0 ? 'var(--red)' : 'var(--text2)';
+  }
+  if (eO) {
+    eO.innerHTML = !hayReporte ? '<span style="color:var(--text2);font-size:10px">sin reporte</span>'
+      : monto === 0 ? '<span style="color:var(--text2)">—</span>'
+      : monto > 0 ? '<span class="badge badge-green">Ingresos</span>'
+                  : '<span class="badge badge-red">Egresos</span>';
+  }
+}
+
+function renderCuadreEfecty() {
+  const tb = document.getElementById('cq-tbody');
+  if (!tb) return;
+  const dias = _cqDiasDelMes();
+  const inp = (fecha, campo) => {
+    const v = (_cqDatos[fecha] || {})[campo] || '';
+    return `<input type="text" id="cq-${campo}-${fecha}" value="${v ? formatCOP(String(v)) : ''}"
+      placeholder="0" inputmode="numeric" oninput="_cqSet('${fecha}','${campo}',this)"
+      style="width:110px;text-align:right;padding:4px 7px;font-size:12px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;color:var(--text)">`;
+  };
+  tb.innerHTML = dias.map(f => `<tr>
+      <td style="white-space:nowrap;color:var(--text2)">${f.slice(8)} <span style="font-size:10px">${
+        new Date(f + 'T12:00').toLocaleDateString('es-CO',{weekday:'short'})}</span></td>
+      <td style="text-align:right;border-left:1px solid var(--border)" id="cq-rec-${f}">—</td>
+      <td style="text-align:right" id="cq-pag-${f}">—</td>
+      <td style="text-align:right" id="cq-ix-${f}">—</td>
+      <td style="text-align:right">${inp(f,'reembolsos')}</td>
+      <td style="text-align:right;border-left:1px solid var(--border)">${inp(f,'ingresos')}</td>
+      <td style="text-align:right">${inp(f,'egresos')}</td>
+      <td style="text-align:right;font-weight:700;border-left:1px solid var(--border)" id="cq-monto-${f}">—</td>
+      <td style="text-align:center" id="cq-op-${f}">—</td>
+    </tr>`).join('');
+  dias.forEach(_cqPintarFila);
+}
+
+// ── Balance Efecty ────────────────────────────────────────────────────────
+//   Tirilla = efectivo contado − saldo de todas las cajas menos la del público
+//   Verificado = lo que dice la tirilla que entrega Efecty
+//   Si la resta da cero, cuadró.
+let _befTimer = null;
+
+function _befDocId() { return `${_corrPunto() || 'global'}_${mesActivo}`; }
+
+function _befAuto(inp) {
+  const s = inp.selectionStart, l = inp.value.length;
+  inp.value = formatCOP(inp.value);
+  inp.setSelectionRange(s + inp.value.length - l, s + inp.value.length - l);
+  renderBalanceEfecty();
+  try { localStorage.setItem('bef_' + _befDocId(), inp.value); } catch(e) {}
+  clearTimeout(_befTimer);
+  _befTimer = setTimeout(async () => {
+    try {
+      await db.collection('corresponsal_efecty_balance').doc(_befDocId()).set({
+        oficina: _corrPunto(), mesKey: mesActivo,
+        verificado: parseCOP(inp.value),
+        ts: firebase.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+    } catch(e) {}
+  }, 700);
+}
+
+async function _cargarBalanceEfecty() {
+  const inp = document.getElementById('bef-verificado');
+  if (!inp) return;
+  try { inp.value = localStorage.getItem('bef_' + _befDocId()) || ''; } catch(e) {}
+  try {
+    const d = await db.collection('corresponsal_efecty_balance').doc(_befDocId()).get();
+    if (d.exists && d.data().verificado != null && inp !== document.activeElement) {
+      inp.value = d.data().verificado ? formatCOP(String(d.data().verificado)) : '';
+    }
+  } catch(e) {}
+  renderBalanceEfecty();
+}
+
+function renderBalanceEfecty() {
+  const el = document.getElementById('bef-esperado');
+  if (!el) return;
+
+  const acc = {};
+  _cajaMovsMes.forEach(m => {
+    if (!m.caja || m.estado === 'Cancelada' || m.estado === 'No Encontrado') return;
+    if (!acc[m.caja]) acc[m.caja] = { rec:0, pag:0 };
+    const v = parseFloat(m.monto) || 0;
+    if (_CAJA_ENTRADA.has(m.opcion)) acc[m.caja].rec += v; else acc[m.caja].pag += v;
+  });
+
+  const delCuadre = _cqTotalMes();
+  const saldoDe = c => {
+    let d;
+    if (c.tipo === 'publico') d = delCuadre;
+    else if (c.tipo === 'enlazada' && c.origen === 'amc') d = _cajaTotalesAMC(c.enlace);
+    else d = acc[c.nombre] || { rec:0, pag:0 };
+    return (parseFloat(_cajaSI[c.nombre]) || 0) - d.rec + d.pag + (d.ix || 0);
+  };
+
+  // Las oficinas son las que entran al cuadre; el resto es corresponsal
+  const cupo         = _cajas.reduce((a,c) => a + (parseFloat(c.cupo) || 0), 0);
+  const cupoDeCajas  = _cajas.filter(c => c.tipo !== 'publico' && c.cuadre !== false)
+                             .reduce((a,c) => a + saldoDe(c), 0);
+  const corresponsal = -_cajas.filter(c => c.tipo !== 'publico' && c.cuadre === false)
+                              .reduce((a,c) => a + saldoDe(c), 0);
+  const saldoPublico = _cajas.filter(c => c.tipo === 'publico')
+                             .reduce((a,c) => a + saldoDe(c), 0);
+  const efectivo     = _cnTotal('cajas-corr');
+
+  const cupoEfecty = cupoDeCajas + (cupo + saldoPublico);
+
+  // La tirilla sale de las cajas, sin tocar el efectivo:
+  //   −( oficinas + caja del público )
+  const calculada = Math.round(-(cupoDeCajas + saldoPublico));
+  const deEfecty  = parseCOP(document.getElementById('bef-verificado')?.value || '');
+  const dif       = deEfecty - calculada;
+
+  const set = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = _cPeso(v); };
+  set('bef-cupo', cupo);
+  set('bef-cupocajas', cupoDeCajas);
+  set('bef-corresponsal', corresponsal);
+  set('bef-cupoefecty', cupoEfecty);
+  set('bef-efectivo', efectivo);
+  el.textContent = _cPeso(calculada);
+
+  const eF = document.getElementById('bef-formula');
+  if (eF) eF.textContent = `−( oficinas ${_cPeso(cupoDeCajas)} + caja del público ${_cPeso(saldoPublico)} )`;
+
+  const eE = document.getElementById('bef-estado');
+  const eN = document.getElementById('bef-nota');
+  if (!deEfecty) {
+    eE.textContent = '—'; eE.style.color = 'var(--text2)';
+    eN.textContent = 'Escribe la tirilla que entrega Efecty';
+  } else if (Math.abs(dif) < 1) {
+    eE.textContent = '✅ CORRECTO'; eE.style.color = 'var(--green)';
+    eN.textContent = 'La tirilla coincide con el portal';
+  } else {
+    eE.textContent = (dif > 0 ? '+' : '') + _cPeso(dif);
+    eE.style.color = dif > 0 ? 'var(--orange)' : 'var(--red)';
+    eN.textContent = dif > 0
+      ? `La tirilla trae ${_cPeso(dif)} de más`
+      : `La tirilla trae ${_cPeso(-dif)} de menos`;
+  }
+
+  // ── Efectivo: caja del público menos las cajas que no van al cuadre ──
+  const efEsperado = Math.round(saldoPublico + corresponsal);
+  const efDif      = efectivo - efEsperado;
+
+  set('bef-efesperado', efEsperado);
+  const eFF = document.getElementById('bef-efformula');
+  if (eFF) eFF.textContent = `caja del público ${_cPeso(saldoPublico)} + corresponsal ${_cPeso(corresponsal)}`;
+
+  const xE = document.getElementById('bef-efestado');
+  const xN = document.getElementById('bef-efnota');
+  if (Math.abs(efDif) < 1) {
+    xE.textContent = '✅ CORRECTO'; xE.style.color = 'var(--green)';
+    xN.textContent = 'El efectivo cuadra';
+  } else {
+    xE.textContent = (efDif > 0 ? '+' : '') + _cPeso(efDif);
+    xE.style.color = efDif > 0 ? 'var(--orange)' : 'var(--red)';
+    xN.textContent = efDif > 0
+      ? `Sobran ${_cPeso(efDif)} en efectivo`
+      : `Faltan ${_cPeso(-efDif)} en efectivo`;
+  }
+}
+
+// Recargas, pagos e intercambios que trae una caja del AMC
+function _cajaTotalesAMC(metodo) {
+  if (typeof movsDelMes !== 'function') return { rec:0, pag:0, ix:0 };
+  const nm = normMetodo(metodo);
+  let rec = 0, pag = 0;
+  movsDelMes().forEach(mv => {
+    if (normMetodo(mv.metodo) !== nm) return;
+    if (mv.estado_cajero === 'Rechazada') return;
+    const v = mv.monto_cajero ?? mv.monto ?? 0;
+    if (mv.tipo === 'RECARGAS') rec += v; else pag += v;
+  });
+  let ix = 0;
+  try { ix = calcNetIX()[nm] || 0; } catch(e) {}
+  return { rec, pag, ix };
+}
+
+// Resumen del mes por caja, con la misma estructura de la hoja GENERAL EFECTY
+function renderGeneralEfecty() {
+  const tb = document.getElementById('cj-general-tbody');
+  if (!tb) return;
+  if (!_cajas.length) {
+    // Mientras la suscripción no responda no se sabe si hay cajas o no
+    tb.innerHTML = _cajasCargadas
+      ? '<tr><td colspan="10" style="text-align:center;color:var(--text2);padding:24px">Sin cajas. Usa <strong>+ Caja</strong>.</td></tr>'
+      : '<tr><td colspan="10" style="text-align:center;color:var(--text2);padding:24px">⏳ Cargando…</td></tr>';
+    document.getElementById('cj-total-lbl').textContent = '';
+    return;
+  }
+
+  const acc = {};
+  _cajaMovsMes.forEach(m => {
+    if (!m.caja) return;
+    if (m.estado === 'Cancelada' || m.estado === 'No Encontrado') return;
+    if (!acc[m.caja]) acc[m.caja] = { rec:0, pag:0 };
+    const v = parseFloat(m.monto) || 0;
+    if (_CAJA_ENTRADA.has(m.opcion)) acc[m.caja].rec += v; else acc[m.caja].pag += v;
+  });
+
+  const delCuadre = _cqTotalMes();
+
+  const delAMC = _cajaTotalesAMC;
+
+  let tCupo=0, tAnt=0, tRec=0, tPag=0, tIx=0, tFin=0, tDeuda=0;
+  const filas = _cajas.map((c, i) => {
+    const cupo  = parseFloat(c.cupo) || 0;
+    const ant   = parseFloat(_cajaSI[c.nombre]) || 0;
+    // Según el tipo, los movimientos vienen de otro lado
+    const d     = c.tipo === 'publico' ? delCuadre
+                : (c.tipo === 'enlazada' && c.origen === 'amc') ? delAMC(c.enlace)
+                : (acc[c.nombre] || { rec:0, pag:0 });
+    const ix    = d.ix || 0;
+    const fin   = ant - d.rec + d.pag + ix;
+    const deuda = d.rec - d.pag;
+    tCupo+=cupo; tAnt+=ant; tRec+=d.rec; tPag+=d.pag; tIx+=ix; tFin+=fin; tDeuda+=deuda;
+
+    const ico = c.tipo === 'publico' ? '🌐'
+              : c.tipo === 'enlazada' ? (c.origen === 'amc' ? '⚡' : '🔗') : '📁';
+    const enCuadre = c.tipo !== 'publico' && c.cuadre !== false;
+    const sel = c.nombre === _cajaSel;
+    const num = v => v ? _cPeso(v) : '<span style="color:var(--text2)">—</span>';
+    return `<tr class="${sel?'sel':''}" onclick="seleccionarCaja('${c.nombre.replace(/'/g,"\\'")}')"
+      style="cursor:pointer">
+      <td style="text-align:center;color:var(--text2)">${c.orden || i+1}</td>
+      <td class="celda-nombre" style="font-weight:700">${ico} ${c.nombre}${enCuadre
+        ? '<span title="Entra al cuadre diario" style="color:var(--gold);font-size:10px;margin-left:6px">📅</span>' : ''}</td>
+      <td style="text-align:right;color:var(--gold)">${num(cupo)}</td>
+      <td style="text-align:right;color:${ant<0?'var(--red)':'var(--text)'}">${num(ant)}</td>
+      <td style="text-align:right">${num(d.rec)}</td>
+      <td style="text-align:right">${num(d.pag)}</td>
+      <td style="text-align:right;color:${ix<0?'var(--red)':ix>0?'var(--blue)':'var(--text2)'}">${ix?_cPeso(ix):'—'}</td>
+      <td style="text-align:right;font-weight:800;color:${fin<0?'var(--red)':'var(--green)'}">${_cPeso(fin)}</td>
+      <td style="text-align:right;color:${deuda<0?'var(--green)':'var(--text2)'}">${num(deuda)}</td>
+      <td style="white-space:nowrap;text-align:right">
+        <button class="btn-icon" title="Editar caja" onclick="event.stopPropagation();editarCaja('${c.id}')">✏️</button>
+        <button class="btn-icon btn-eliminar-reg" title="Eliminar" onclick="event.stopPropagation();borrarCaja('${c.id}')">🗑</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  const n = v => v ? _cPeso(v) : '—';
+  tb.innerHTML = filas + `<tr class="fila-total" style="font-weight:800">
+      <td></td><td class="celda-nombre">TOTAL</td>
+      <td style="text-align:right;color:var(--gold)">${n(tCupo)}</td>
+      <td style="text-align:right">${n(tAnt)}</td>
+      <td style="text-align:right">${n(tRec)}</td>
+      <td style="text-align:right">${n(tPag)}</td>
+      <td style="text-align:right">${n(tIx)}</td>
+      <td style="text-align:right;color:${tFin<0?'var(--red)':'var(--green)'}">${_cPeso(tFin)}</td>
+      <td style="text-align:right">${n(tDeuda)}</td>
+      <td></td>
+    </tr>`;
+
+  document.getElementById('cj-total-lbl').textContent = `${_cajas.length} cajas · saldo ${_cPeso(tFin)}`;
+  renderBalanceEfecty();
+  // Solo las celdas calculadas: rehacer la tabla borraría lo que se esté escribiendo
+  if (document.getElementById('cq-tbody')?.children.length > 1) _cqDiasDelMes().forEach(_cqPintarFila);
+}
+
+// Abre la caja y su formulario de movimiento de una vez
+function registrarEnCaja(nombre) {
+  seleccionarCaja(nombre);
+  setTimeout(() => abrirModalCajaMov(), 120);
+}
+
+// Detallado de la caja para entregarle a la oficina
+function imprimirCaja() {
+  if (!_cajaSel) { toast('⚠ Selecciona una caja', 'error'); return; }
+  const c   = _cajas.find(x => x.nombre === _cajaSel) || {};
+  const ant = parseFloat(_cajaSI[_cajaSel]) || 0;
+
+  let rec = 0, pag = 0, ixn = 0, saldo = ant;
+  const filas = _cajaMovs.map(m => {
+    const anul = m.estado === 'Cancelada' || m.estado === 'No Encontrado';
+    const esIx = m.estado === 'Intercambio';
+    const v = parseFloat(m.monto) || 0;
+    const entra = _CAJA_ENTRADA.has(m.opcion);
+    if (!anul) {
+      if (esIx)      { ixn += entra ? -v : v; saldo += entra ? -v : v; }
+      else if (entra){ rec += v; saldo -= v; }
+      else           { pag += v; saldo += v; }
+    }
+    return `<tr${anul ? ' class="anul"' : ''}>
+      <td class="c">${m.op || ''}</td>
+      <td>${m.fecha || ''}</td>
+      <td class="r">${_cPeso(v)}</td>
+      <td class="${esIx ? 'ix' : entra ? 'rec' : 'pag'}">${esIx ? 'Intercambio' : (m.opcion || '')}</td>
+      <td>${esIx ? '' : (m.estado || '')}</td>
+      <td>${m.soloLectura ? (m.cliente || '') : (m.cajero || '')}</td>
+      <td class="d">${m.soloLectura ? (m.operador || '') : (m.descripcion || '')}</td>
+      <td class="r">${anul ? '' : _cPeso(saldo)}</td>
+    </tr>`;
+  }).join('');
+
+  const w = window.open('', '_blank');
+  if (!w) { toast('⚠ Permite las ventanas emergentes', 'error'); return; }
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8">
+    <title>${_cajaSel} — ${mesActivo}</title>
+    <style>
+      *{box-sizing:border-box}
+      body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;margin:26px;color:#111;font-size:12px}
+      h1{font-size:17px;margin:0 0 2px}
+      .sub{color:#666;font-size:11px;margin-bottom:14px}
+      .kpis{display:flex;gap:26px;margin-bottom:14px;padding:10px 0;border-top:1px solid #ddd;border-bottom:1px solid #ddd}
+      .kpi b{display:block;font-size:14px}
+      .kpi span{font-size:10px;color:#666;text-transform:uppercase;letter-spacing:.5px}
+      table{width:100%;border-collapse:collapse}
+      th{background:#f0f0f0;text-align:left;padding:6px 8px;font-size:10px;text-transform:uppercase;letter-spacing:.4px;border-bottom:2px solid #ccc}
+      td{padding:5px 8px;border-bottom:1px solid #eee}
+      .r{text-align:right} .c{text-align:center} .d{color:#666;font-size:11px}
+      .rec{color:#b3261e} .pag{color:#0a7f3f} .ix{color:#1d4ed8}
+      .anul{opacity:.45;text-decoration:line-through}
+      tfoot td{font-weight:800;border-top:2px solid #ccc;background:#fafafa}
+      @media print{body{margin:12px}}
+    </style></head><body>
+    <h1>${_cajaSel}</h1>
+    <div class="sub">${_corrPunto() || ''} · ${mesActivo} · generado ${_hoyLocal()}</div>
+    <div class="kpis">
+      <div class="kpi"><span>Saldo mes anterior</span><b>${_cPeso(ant)}</b></div>
+      <div class="kpi"><span>Recargas</span><b>${_cPeso(rec)}</b></div>
+      <div class="kpi"><span>Pagos</span><b>${_cPeso(pag)}</b></div>
+      ${ixn ? `<div class="kpi"><span>Intercambios</span><b>${_cPeso(ixn)}</b></div>` : ''}
+      <div class="kpi"><span>Saldo final</span><b>${_cPeso(ant - rec + pag + ixn)}</b></div>
+    </div>
+    <table>
+      <thead><tr><th>OP</th><th>Fecha</th><th class="r">Monto</th><th>Opción</th>
+        <th>Estado</th><th>Cajero</th><th>Descripción</th><th class="r">Saldo</th></tr></thead>
+      <tbody>${filas || '<tr><td colspan="8" style="text-align:center;padding:20px;color:#888">Sin movimientos</td></tr>'}</tbody>
+      <tfoot><tr><td colspan="2">TOTAL ${_cajaMovs.length} movimiento(s)</td>
+        <td class="r">${_cPeso(rec + pag)}</td><td colspan="4"></td>
+        <td class="r">${_cPeso(ant - rec + pag + ixn)}</td></tr></tfoot>
+    </table>
+    <script>window.onload=()=>window.print()<\/script>
+    </body></html>`);
+  w.document.close();
+}
+
+function cerrarDetalleCaja() {
+  _cajaSel = null;
+  document.getElementById('cj-detalle').style.display = 'none';
+  renderGeneralEfecty();
+}
+
+// Los movimientos reales que los operadores registraron en esa caja del AMC
+function _cajaMovsDesdeAMC(metodo) {
+  if (typeof movsDelMes !== 'function') return [];
+  const nm = normMetodo(metodo);
+  const out = movsDelMes()
+    .filter(mv => normMetodo(mv.metodo) === nm)
+    .map(mv => ({
+      id: mv.id, op: parseInt((mv.op_id||'').match(/\d+/)?.[0] || 0) || null,
+      fecha: mv.fecha || '',
+      monto: mv.monto_cajero ?? mv.monto ?? 0,
+      opcion: mv.tipo === 'RECARGAS' ? 'Recargas' : 'Pagos',
+      estado: mv.estado_cajero || (mv.canal === 'I-OP' ? 'Realizada' : 'Pendiente'),
+      cliente: mv.cliente || '—',
+      operador: mv.opNombre || mv.operador || '',
+      soloLectura: true,
+    }));
+
+  // Los intercambios del método también mueven la caja
+  if (typeof ixDelMes === 'function') {
+    ixDelMes().forEach(ix => {
+      // Solo los internos mueven el saldo global; los cruzados se cancelan entre operadores
+      const propio = ix.tipo === 'I' || (ix.tipo === 'C' && (!ix.op2_uid || ix.op2_nombre === 'Propio'));
+      if (!propio) return;
+      const eg  = normMetodo(ix.op1_egresa)  === nm;
+      const ing = normMetodo(ix.op1_ingresa) === nm;
+      if (!eg && !ing) return;
+      out.push({
+        id: ix.id, op: null, fecha: ix.fecha || '',
+        monto: parseFloat(ix.monto) || 0,
+        opcion: ing ? 'Pagos' : 'Recargas',
+        estado: 'Intercambio',
+        cliente: `${ix.op1_egresa || ''} → ${ix.op1_ingresa || ''}`,
+        operador: ix.op1_nombre || ix.operador1 || '',
+        soloLectura: true,
+      });
+    });
+  }
+  return out.sort((a,b) => (a.fecha||'').localeCompare(b.fecha||'') || (a.op||0)-(b.op||0));
+}
+
+function _cargarMovsCaja() {
+  if (!_cajaSel) { _cajaMovs = []; renderCajaMovs(); return; }
+  const c = _cajas.find(x => x.nombre === _cajaSel);
+  if (c && c.tipo === 'enlazada' && c.origen === 'amc') {
+    if (_cajaUnsubM) { _cajaUnsubM(); _cajaUnsubM = null; }
+    _cajaMovs = _cajaMovsDesdeAMC(c.enlace);
+    renderCajaMovs(); renderGeneralEfecty();
+    return;
+  }
+  if (_cajaUnsubM) _cajaUnsubM();
+  _cajaUnsubM = db.collection('corresponsal_caja_movs')
+    .where('oficina','==',_corrPunto()).where('caja','==',_cajaSel)
+    .where('mesKey','==',mesActivo)
+    .onSnapshot(s => {
+      _cajaMovs = s.docs.map(d => ({id:d.id, ...d.data()}))
+        .sort((a,b) => (a.fecha||'').localeCompare(b.fecha||'') || (a.op||0)-(b.op||0));
+      renderCajaMovs(); renderListaCajas();
+    }, e => console.warn('caja movs:', e));
+}
+
+async function _cargarSICajas() {
+  try {
+    const d = await db.collection('corresponsal_caja_inicial').doc(_siCajasId()).get();
+    _cajaSI = d.exists ? (d.data().saldos || {}) : {};
+  } catch(e) { _cajaSI = {}; }
+  renderListaCajas(); renderCajaMovs();
+}
+
+function seleccionarCaja(nombre) {
+  const nuevo = _cajaSel !== nombre;
+  _cajaSel = nombre;
+  const det = document.getElementById('cj-detalle');
+  if (det) {
+    det.style.display = '';
+    if (nuevo) setTimeout(() => det.scrollIntoView({ behavior:'smooth', block:'start' }), 60);
+  }
+  renderGeneralEfecty();
+  _cargarMovsCaja();
+}
+
+function renderListaCajas() { renderGeneralEfecty(); }
+// Cada tipo de caja se comporta distinto — decirlo en pantalla
+function _explicarCaja(c) {
+  const box = document.getElementById('cj-explica');
+  const btn = document.querySelector('#sec-corr-cajas .btn-gold');
+  const cupoEl = document.getElementById('cj-kpi-cupo');
+  const lblIni = document.getElementById('cj-lbl-ini');
+  if (!box) return;
+
+  if (cupoEl) cupoEl.textContent = c.cupo ? 'Cupo ' + _cPeso(c.cupo) : '';
+  if (lblIni) lblIni.textContent = 'Saldo Mes Anterior';
+
+  if (!_cajaSel) { box.style.display = 'none'; return; }
+  box.style.display = '';
+
+  if (c.tipo === 'publico') {
+    box.style.background = 'rgba(74,158,255,.08)';
+    box.style.border     = '1px solid rgba(74,158,255,.25)';
+    box.innerHTML = `🌐 <strong>Caja del público.</strong> Acá no se registra a mano.
+      Cada día entra un solo movimiento con el resultado del cuadre: lo que reporta Efecty
+      menos lo que registraste de las oficinas y del corresponsal. Lo que sobra es del público.`;
+    if (btn) { btn.style.opacity = '.45'; btn.title = 'Esta caja se alimenta del cuadre diario'; }
+  } else if (c.tipo === 'enlazada' && c.origen === 'amc') {
+    box.style.background = 'rgba(53,204,47,.08)';
+    box.style.border     = '1px solid rgba(53,204,47,.25)';
+    box.innerHTML = `⚡ <strong>Viene del AMC — caja "${c.enlace || '—'}".</strong>
+      Las recargas y los pagos los registran los operadores en su portal y llegan solos acá,
+      con los intercambios incluidos. No hay que copiar nada.`;
+    if (btn) { btn.style.opacity = '.45'; btn.title = 'Esta caja la alimentan los operadores desde el AMC'; }
+  } else if (c.tipo === 'enlazada') {
+    box.style.background = 'rgba(251,191,36,.08)';
+    box.style.border     = '1px solid rgba(251,191,36,.25)';
+    box.innerHTML = `🔗 <strong>Espejo de "${c.enlace || '—'}"</strong> en el libro del Corresponsal.
+      Cuando Efecty le presta efectivo al corresponsal esta caja baja y esa cuenta sube, y al revés.
+      Es una sola plata vista desde los dos negocios.`;
+    if (btn) { btn.style.opacity = ''; btn.title = ''; }
+  } else {
+    box.style.background = 'var(--bg2)';
+    box.style.border     = '1px solid var(--border)';
+    box.innerHTML = `📁 <strong>Cuenta corriente.</strong> Registras acá lo que esta oficina
+      opera a través de tu punto. El saldo dice cuánto te deben o cuánto les debes.`;
+    if (btn) { btn.style.opacity = ''; btn.title = ''; }
+  }
+}
+
+function renderCajaMovs() {
+  const tb = document.getElementById('cj-movs-tbody');
+  if (!tb) return;
+  const _c = _cajas.find(x => x.nombre === _cajaSel);
+  document.getElementById('cj-titulo').textContent = _cajaSel
+    ? `${_c?.orden ? _c.orden + ' · ' : ''}${_cajaSel}`
+    : 'Selecciona una caja';
+
+  const caja = _cajas.find(c => c.nombre === _cajaSel) || {};
+  _explicarCaja(caja);
+  const desdeAMC = caja.tipo === 'enlazada' && caja.origen === 'amc';
+  const thC = document.getElementById('cj-th-cajero');
+  const thD = document.getElementById('cj-th-desc');
+  if (thC) thC.textContent = desdeAMC ? 'Cliente'  : 'Cajero';
+  if (thD) thD.textContent = desdeAMC ? 'Operador' : 'Descripción';
+
+  const ini = parseFloat(_cajaSI[_cajaSel]) || 0;
+  let tRec = 0, tPag = 0, tIx = 0;
+  _cajaMovs.forEach(m => {
+    if (_cajaSigno(m) === 0) return;
+    const v = parseFloat(m.monto) || 0;
+    if (m.estado === 'Intercambio') { tIx += _CAJA_ENTRADA.has(m.opcion) ? -v : v; return; }
+    if (_CAJA_ENTRADA.has(m.opcion)) tRec += v; else tPag += v;
+  });
+  document.getElementById('cj-kpi-ini').textContent = _cPeso(ini);
+  document.getElementById('cj-kpi-in').textContent  = _cPeso(tRec);
+  document.getElementById('cj-kpi-eg').textContent  = _cPeso(tPag);
+  const wIx = document.getElementById('cj-kpi-ix-wrap');
+  if (wIx) {
+    wIx.style.display = tIx ? '' : 'none';
+    const e = document.getElementById('cj-kpi-ix');
+    e.textContent = _cPeso(tIx);
+    e.style.color = tIx < 0 ? 'var(--red)' : 'var(--blue)';
+  }
+  const act = ini - tRec + tPag + tIx;
+  const elAct = document.getElementById('cj-kpi-act');
+  elAct.textContent = _cPeso(act);
+  elAct.style.color = act < 0 ? 'var(--red)' : 'var(--green)';
+
+  const f = document.getElementById('cj-filtro-tipo')?.value || '';
+  const lista = _cajaMovs.filter(m => {
+    if (f === 'in') return _CAJA_ENTRADA.has(m.opcion);
+    if (f === 'eg') return !_CAJA_ENTRADA.has(m.opcion);
+    return true;
+  });
+
+  tb.innerHTML = lista.length ? lista.map(m => {
+    const s = _cajaSigno(m);
+    const badge = s === 0 ? 'badge-gray' : (_CAJA_ENTRADA.has(m.opcion) ? 'badge-red' : 'badge-green');
+    const anulada = s === 0 ? 'opacity:.5;text-decoration:line-through' : '';
+    const estOk = (m.estado||'') === 'Realizada';
+    const col6 = m.soloLectura ? (m.cliente || '') : (m.cajero || '');
+    const col7 = m.soloLectura ? (m.operador || '') : (m.descripcion || '');
+    return `<tr style="${anulada}">
+      <td style="text-align:center;color:var(--text2)">${m.op||''}</td>
+      <td style="white-space:nowrap">${m.fecha||'—'}</td>
+      <td style="text-align:right;font-weight:700">${_cPeso(m.monto)}</td>
+      <td><span class="badge ${badge}">${m.opcion||''}</span></td>
+      <td style="font-size:11px"><span class="badge ${estOk?'badge-green':'badge-gray'}">${m.estado||''}</span></td>
+      <td style="font-size:11px;color:var(--text2);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${col6}</td>
+      <td style="font-size:11px;color:var(--text2);max-width:220px">${col7}</td>
+      <td style="white-space:nowrap">${m.soloLectura ? '<span style="font-size:10px;color:var(--text2)">AMC</span>' : `
+        <button class="btn-icon" onclick="editarCajaMov('${m.id}')" title="Editar">✏️</button>
+        <button class="btn-icon btn-eliminar-reg" onclick="borrarCajaMov('${m.id}')" title="Eliminar">🗑</button>`}
+      </td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="8" style="text-align:center;color:var(--text2);padding:24px">${
+    _cajaSel ? 'Sin movimientos en esta caja' : 'Selecciona una caja de la izquierda'}</td></tr>`;
+  aplicarPermisosCajero();
+}
+
+// Las cajas de Efecty son de tres clases y cada una se comporta distinto
+const CAJA_TIPOS = {
+  libre:    'Tú registras las entradas y salidas. Sirve para las oficinas — JWC, Golden, Diana — y para lo pendiente.',
+  publico:  'No se registra a mano: recibe un movimiento por día con el resultado del cuadre contra el reporte de Efecty.',
+  enlazada: 'Es la otra cara de una cuenta del Corresponsal. Un solo movimiento mueve los dos lados.',
+};
+
+function _cajaTipoChange() {
+  const t = document.getElementById('cj-tipo').value;
+  document.getElementById('cj-tipo-hint').textContent = CAJA_TIPOS[t] || '';
+  document.getElementById('cj-wrap-enlace').style.display = t === 'enlazada' ? '' : 'none';
+  if (t === 'enlazada') _cajaOrigenChange();
+  const wc = document.getElementById('cj-wrap-cuadre');
+  if (wc) wc.style.display = t === 'publico' ? 'none' : '';
+}
+
+function _cajaOrigenChange() {
+  _poblarEnlaceCajas('');
+  document.getElementById('cj-enlace-hint').textContent =
+    document.getElementById('cj-origen').value === 'amc'
+      ? 'Los movimientos los traen los operadores desde el AMC. Acá no se registra nada a mano.'
+      : 'Lo que suba en esta caja baja en esa cuenta, y al revés.';
+}
+
+function _poblarEnlaceCajas(sel) {
+  const el = document.getElementById('cj-enlace');
+  if (!el) return;
+  const origen = document.getElementById('cj-origen')?.value || 'corresponsal';
+  const opts = origen === 'amc'
+    ? METODOS.filter(m => normMetodo(m) !== 'SALDO CLIENTES' && normMetodo(m) !== 'BONIFICACION')
+    : _corrCuentas.map(c => c.nombre);
+  el.innerHTML = '<option value="">— Escoge —</option>'
+    + opts.map(n => `<option value="${String(n).replace(/"/g,'&quot;')}"${n===sel?' selected':''}>${n}</option>`).join('');
+}
+
+function abrirModalCaja() {
+  document.getElementById('cj-edit-id').value = '';
+  document.getElementById('cj-modal-title').textContent = '🏦 Nueva Caja';
+  document.getElementById('cj-nombre').value = '';
+  document.getElementById('cj-cupo').value   = '';
+  document.getElementById('cj-tipo').value   = 'libre';
+  document.getElementById('cj-orden').value  = _cajas.length + 1;
+  document.getElementById('cj-origen').value = 'corresponsal';
+  document.getElementById('cj-cuadre').checked = true;
+  _poblarEnlaceCajas('');
+  _cajaTipoChange();
+  openModal('modal-caja');
+}
+
+function editarCaja(id) {
+  const c = _cajas.find(x => x.id === id);
+  if (!c) return;
+  document.getElementById('cj-edit-id').value = id;
+  document.getElementById('cj-modal-title').textContent = '🏦 Editar Caja';
+  document.getElementById('cj-nombre').value = c.nombre || '';
+  document.getElementById('cj-cupo').value   = c.cupo ? formatCOP(String(Math.round(c.cupo))) : '';
+  document.getElementById('cj-tipo').value   = c.tipo || 'libre';
+  document.getElementById('cj-orden').value  = c.orden || 1;
+  document.getElementById('cj-origen').value = c.origen || 'corresponsal';
+  document.getElementById('cj-cuadre').checked = c.cuadre !== false;
+  _poblarEnlaceCajas(c.enlace || '');
+  _cajaTipoChange();
+  openModal('modal-caja');
+}
+
+async function guardarCaja() {
+  const id = document.getElementById('cj-edit-id').value;
+  const nombre = document.getElementById('cj-nombre').value.trim();
+  if (!nombre) { toast('⚠ Escribe el nombre', 'error'); return; }
+  const tipo = document.getElementById('cj-tipo').value;
+  const enlace = tipo === 'enlazada' ? (document.getElementById('cj-enlace').value || '') : '';
+  if (tipo === 'enlazada' && !enlace) { toast('⚠ Escoge la cuenta espejo', 'error'); return; }
+  if (tipo === 'publico') {
+    const otra = _cajas.find(c => c.tipo === 'publico' && c.id !== id);
+    if (otra) { toast(`⚠ "${otra.nombre}" ya es la caja del público`, 'error'); return; }
+  }
+  const origen = tipo === 'enlazada' ? (document.getElementById('cj-origen').value || 'corresponsal') : '';
+  const data = {
+    oficina: _corrPunto(), nombre, tipo, enlace, origen,
+    cuadre: tipo === 'publico' ? false : document.getElementById('cj-cuadre').checked,
+    cupo:  parseCOP(document.getElementById('cj-cupo').value),
+    orden: parseInt(document.getElementById('cj-orden').value) || _cajas.length + 1,
+  };
+  try {
+    if (id) await db.collection('corresponsal_cajas').doc(id).update(data);
+    else    await db.collection('corresponsal_cajas').add(data);
+    closeModal('modal-caja');
+    toast('✅ Caja guardada', 'success');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+async function borrarCaja(id) {
+  const c = _cajas.find(x => x.id === id);
+  if (!c) return;
+  // Contar sus movimientos en todos los meses antes de permitir el borrado
+  let n = 0;
+  try {
+    const s = await db.collection('corresponsal_caja_movs')
+      .where('oficina','==',_corrPunto()).where('caja','==',c.nombre).get();
+    n = s.size;
+  } catch(e) {}
+  if (n && !confirm(`"${c.nombre}" tiene ${n} movimiento(s).\n\n¿Eliminar la caja y todos sus movimientos?`)) return;
+  if (!n && !confirm(`¿Eliminar la caja "${c.nombre}"?`)) return;
+
+  try {
+    if (n) {
+      const s = await db.collection('corresponsal_caja_movs')
+        .where('oficina','==',_corrPunto()).where('caja','==',c.nombre).get();
+      for (let i = 0; i < s.docs.length; i += 400) {
+        const b = db.batch();
+        s.docs.slice(i, i+400).forEach(d => b.delete(d.ref));
+        await b.commit();
+      }
+    }
+    await db.collection('corresponsal_cajas').doc(id).delete();
+    // Quitarla también del saldo inicial del mes
+    if (_cajaSI[c.nombre] !== undefined) {
+      const saldos = { ..._cajaSI };
+      delete saldos[c.nombre];
+      await db.collection('corresponsal_caja_inicial').doc(_siCajasId())
+        .set({ oficina: _corrPunto(), mesKey: mesActivo, saldos }, { merge: false });
+      _cajaSI = saldos;
+    }
+    if (_cajaSel === c.nombre) _cajaSel = '';
+    toast('🗑 Caja eliminada', 'success');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+function abrirModalCajaMov() {
+  if (!_cajaSel) { toast('⚠ Selecciona una caja primero', 'error'); return; }
+  document.getElementById('cjm-edit-id').value = '';
+  document.getElementById('cjm-title').textContent = '📝 Movimiento de Caja';
+  document.getElementById('cjm-caja-lbl').textContent = _cajaSel;
+  document.getElementById('cjm-fecha').value = _hoyLocal();
+  document.getElementById('cjm-monto').value = '';
+  document.getElementById('cjm-desc').value = '';
+  document.getElementById('cjm-opcion').value = 'Ingresos';
+  document.getElementById('cjm-estado').value = 'Realizada';
+  openModal('modal-caja-mov');
+}
+
+function editarCajaMov(id) {
+  const m = _cajaMovs.find(x => x.id === id);
+  if (!m) return;
+  document.getElementById('cjm-edit-id').value = id;
+  document.getElementById('cjm-title').textContent = '✏️ Editar Movimiento';
+  document.getElementById('cjm-caja-lbl').textContent = _cajaSel;
+  document.getElementById('cjm-fecha').value  = m.fecha || '';
+  document.getElementById('cjm-monto').value  = formatCOP(String(Math.round(m.monto||0)));
+  document.getElementById('cjm-opcion').value = m.opcion || 'Ingresos';
+  document.getElementById('cjm-estado').value = m.estado || 'Realizada';
+  document.getElementById('cjm-desc').value   = m.descripcion || '';
+  openModal('modal-caja-mov');
+}
+
+async function guardarCajaMov() {
+  const id    = document.getElementById('cjm-edit-id').value;
+  const fecha = document.getElementById('cjm-fecha').value;
+  const monto = parseCOP(document.getElementById('cjm-monto').value);
+  if (!fecha) { toast('⚠ Selecciona la fecha', 'error'); return; }
+  if (!monto) { toast('⚠ Ingresa el monto', 'error'); return; }
+  const data = {
+    oficina: _corrPunto(), caja: _cajaSel, fecha, monto,
+    opcion:      document.getElementById('cjm-opcion').value,
+    estado:      document.getElementById('cjm-estado').value,
+    descripcion: document.getElementById('cjm-desc').value.trim(),
+    cajero:      opNombre || '',
+    mesKey:      fecha.slice(0,7),
+    ts: firebase.firestore.FieldValue.serverTimestamp(),
+  };
+  try {
+    if (id) await db.collection('corresponsal_caja_movs').doc(id).update(data);
+    else {
+      data.op = _cajaMovs.reduce((mx,m) => Math.max(mx, m.op||0), 0) + 1;
+      await db.collection('corresponsal_caja_movs').add(data);
+    }
+    closeModal('modal-caja-mov');
+    toast('✅ Movimiento guardado', 'success');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+async function borrarCajaMov(id) {
+  if (cajeroPermisos.eliminarTodo === false) { toast('⚠ Sin permiso para eliminar', 'error'); return; }
+  const m = _cajaMovs.find(x => x.id === id);
+  if (!m) return;
+  if (!confirm(`¿Eliminar el movimiento de ${_cPeso(m.monto)}?`)) return;
+  try {
+    await db.collection('corresponsal_caja_movs').doc(id).delete();
+    toast('🗑 Movimiento eliminado', 'success');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+function abrirSaldoInicialCajas() {
+  if (!_cajas.length) { toast('⚠ Primero crea las cajas', 'error'); return; }
+  document.getElementById('sic-mes').textContent = mesActivo;
+  _pintarSICajas(_cajaSI);
+  openModal('modal-si-cajas');
+}
+
+function _pintarSICajas(valores) {
+  document.getElementById('sic-lista').innerHTML = _cajas.map(c => {
+    const v = parseFloat(valores[c.nombre]) || 0;
+    return `<div style="display:flex;gap:10px;align-items:center">
+      <span style="flex:1;font-size:12px">${c.nombre}</span>
+      <input type="text" id="sic-${c.id}" value="${v ? formatCOP(String(Math.round(v))) : ''}"
+        placeholder="0" inputmode="numeric" oninput="_sumarSICajas();
+          const s=this.selectionStart,l=this.value.length;this.value=formatCOP(this.value);
+          this.setSelectionRange(s+this.value.length-l,s+this.value.length-l)"
+        style="width:150px;text-align:right;padding:6px 8px;font-size:12px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+    </div>`;
+  }).join('');
+  _sumarSICajas();
+}
+
+function _sumarSICajas() {
+  let t = 0;
+  _cajas.forEach(c => { t += parseCOP(document.getElementById('sic-'+c.id)?.value || ''); });
+  const el = document.getElementById('sic-total');
+  if (el) el.textContent = _cPeso(t);
+}
+
+async function traerCierreCajasMesAnterior() {
+  const [y, m] = mesActivo.split('-').map(Number);
+  const prev = (m===1 ? (y-1)+'-12' : y+'-'+String(m-1).padStart(2,'0'));
+  const of = _corrPunto();
+  try {
+    const iniDoc = await db.collection('corresponsal_caja_inicial').doc(`${of||'global'}_${prev}`).get();
+    const base = iniDoc.exists ? (iniDoc.data().saldos || {}) : {};
+    const snap = await db.collection('corresponsal_caja_movs')
+      .where('oficina','==',of).where('mesKey','==',prev).get();
+    const cierre = {};
+    Object.entries(base).forEach(([k,v]) => cierre[k] = parseFloat(v) || 0);
+    snap.docs.forEach(d => {
+      const m2 = d.data();
+      if (!m2.caja) return;
+      cierre[m2.caja] = (cierre[m2.caja] || 0) + _cajaSigno(m2) * (parseFloat(m2.monto)||0);
+    });
+    if (!Object.keys(cierre).length) { toast(`⚠ Sin datos de ${prev}`, 'error'); return; }
+    _pintarSICajas(cierre);
+    toast(`↩ Traído el cierre de ${prev}`, 'success');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+async function guardarSaldoInicialCajas() {
+  const saldos = {};
+  _cajas.forEach(c => {
+    const v = parseCOP(document.getElementById('sic-'+c.id)?.value || '');
+    if (v) saldos[c.nombre] = v;
+  });
+  try {
+    await db.collection('corresponsal_caja_inicial').doc(_siCajasId()).set({
+      oficina: _corrPunto(), mesKey: mesActivo, saldos,
+      ts: firebase.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    _cajaSI = saldos;
+    closeModal('modal-si-cajas');
+    renderListaCajas(); renderCajaMovs();
+    toast('✅ Saldo inicial guardado', 'success');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CORRESPONSAL BANCARIO — un solo libro, cada línea con su método
+// (Bancolombia, Punto Red, Be Movil, Pago Fácil, Caja Social…)
+// ═══════════════════════════════════════════════════════════════
+let _bancoMet   = [];    // métodos del corresponsal
+let _bancoSI    = {};    // cupo inicial del mes por método
+let _bancoMovs  = [];    // movimientos del mes
+let _bancoUnsubMet = null, _bancoUnsubMov = null;
+let _bancoInit  = false;
+
+function initCorrBanco() {
+  document.getElementById('cb-mes-lbl').textContent = mesActivo;
+  renderConteos('conteo-banco');
+  if (!_corrInit) initCorrCuentas();   // el balance usa las cuentas de clientes
+  else renderBalanceCorr();
+  if (_bancoInit) { _cargarBancoMovs(); _cargarCruceBanco(); _cargarSIBanco(); return; }
+  _bancoInit = true;
+  _cargarCruceBanco();
+  _cargarSIBanco();
+  const of = _corrPunto();
+  if (_bancoUnsubMet) _bancoUnsubMet();
+  _bancoUnsubMet = db.collection('corresponsal_banco_metodos').where('oficina','==',of)
+    .onSnapshot(s => {
+      _bancoMet = s.docs.map(d => ({id:d.id, ...d.data()}))
+        .sort((a,b) => (a.nombre||'').localeCompare(b.nombre||''));
+      _poblarSelectsBanco();
+      renderBancoMetodos();
+      renderCruceBanco();
+      renderBalanceCorr();
+    }, e => console.warn('banco metodos:', e));
+  _cargarBancoMovs();
+}
+
+function _cargarBancoMovs() {
+  if (_bancoUnsubMov) _bancoUnsubMov();
+  _bancoUnsubMov = db.collection('corresponsal_banco_movs')
+    .where('oficina','==',_corrPunto()).where('mesKey','==',mesActivo)
+    .onSnapshot(s => {
+      _bancoMovs = s.docs.map(d => ({id:d.id, ...d.data()}))
+        .sort((a,b) => (a.fecha||'').localeCompare(b.fecha||''));
+      renderBancoMetodos(); renderBancoMovs(); renderCruceBanco(); renderBalanceCorr();
+    }, e => console.warn('banco movs:', e));
+}
+
+function _poblarSelectsBanco() {
+  const opts = _bancoMet.map(m => `<option value="${m.nombre}">${m.nombre}</option>`).join('');
+  const s1 = document.getElementById('bm-metodo');
+  if (s1) s1.innerHTML = opts;
+  const s2 = document.getElementById('cb-filtro-met');
+  if (s2) { const p = s2.value; s2.innerHTML = '<option value="">Todos los métodos</option>' + opts; s2.value = p; }
+}
+
+function renderBancoMetodos() {
+  const cont = document.getElementById('cb-metodos');
+  if (!cont) return;
+  if (!_bancoMet.length) {
+    cont.innerHTML = '<div style="grid-column:1/-1;padding:20px;text-align:center;color:var(--text2);font-size:12px">Sin métodos. Usa <strong>+ Método</strong> para agregar Bancolombia, Punto Red, etc.</div>';
+    return;
+  }
+  cont.innerHTML = _bancoMet.map(m => {
+    const ini = _bancoIni(m);
+    let inn = 0, eg = 0;
+    _bancoMovs.filter(x => x.metodo === m.nombre).forEach(x => {
+      const v = parseFloat(x.monto) || 0;
+      if (x.movimiento === 'Egresos') eg += v; else inn += v;
+    });
+    const saldo = ini + eg - inn;   // egresos suman, ingresos restan
+    return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:6px">
+        <span style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">${m.nombre}</span>
+        <button class="btn-icon" onclick="borrarMetodoBanco('${m.id}')" title="Eliminar">🗑</button>
+      </div>
+      <div style="font-size:18px;font-weight:800;color:${saldo<0?'var(--red)':'var(--green)'}">${_cPeso(saldo)}</div>
+      <div style="font-size:10px;color:var(--text2);margin-top:4px">
+        Inicial ${_cPeso(ini)} · <span style="color:var(--green)">+${_cPeso(eg)}</span> · <span style="color:var(--red)">−${_cPeso(inn)}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── Cruce: lo que dice el sistema contra lo que realmente quedó ──
+let _bancoReal = {};        // { metodo: valor digitado }
+let _bancoRealTimer = null;
+
+function _bancoRealId() { return `${_corrPunto() || 'global'}_${mesActivo}`; }
+
+function _bancoRealLoadLS() {
+  try { _bancoReal = JSON.parse(localStorage.getItem('cb_real_' + _bancoRealId()) || '{}'); }
+  catch(e) { _bancoReal = {}; }
+}
+function _bancoRealSaveLS() {
+  try { localStorage.setItem('cb_real_' + _bancoRealId(), JSON.stringify(_bancoReal)); } catch(e) {}
+}
+
+// Se guarda solo: primero en el navegador y luego en Firestore con un pequeño retardo
+function _bancoRealAuto(metodo, valor) {
+  _bancoReal[metodo] = valor;
+  _bancoRealSaveLS();
+  renderCruceBanco();
+  const st = document.getElementById('cb-cruce-estado');
+  if (st) { st.textContent = '⏳ Guardando…'; st.style.color = 'var(--text2)'; }
+  clearTimeout(_bancoRealTimer);
+  _bancoRealTimer = setTimeout(async () => {
+    try {
+      await db.collection('corresponsal_banco_cruce').doc(_bancoRealId()).set({
+        oficina: _corrPunto(), mesKey: mesActivo, valores: _bancoReal,
+        ts: firebase.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+      if (st) { st.textContent = '✓ Guardado'; st.style.color = 'var(--green)'; }
+    } catch(e) {
+      if (st) { st.textContent = '⚠ Error'; st.style.color = 'var(--red)'; }
+    }
+  }, 700);
+}
+
+async function _cargarCruceBanco() {
+  _bancoRealLoadLS();
+  try {
+    const d = await db.collection('corresponsal_banco_cruce').doc(_bancoRealId()).get();
+    if (d.exists) { _bancoReal = { ..._bancoReal, ...(d.data().valores || {}) }; _bancoRealSaveLS(); }
+  } catch(e) {}
+  renderCruceBanco();
+}
+
+function renderCruceBanco() {
+  const tb = document.getElementById('cb-cruce-tbody');
+  if (!tb) return;
+  if (!_bancoMet.length) {
+    tb.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text2);padding:20px">Sin métodos</td></tr>';
+    return;
+  }
+  let tCupo=0, tIni=0, tIn=0, tEg=0, tSis=0, tReal=0, sinDigitar=0;
+
+  const filas = _bancoMet.map(m => {
+    const cupo = _bancoCupo(m);
+    const ini  = _bancoIni(m);
+    let inn = 0, eg = 0;
+    _bancoMovs.filter(x => x.metodo === m.nombre).forEach(x => {
+      const v = parseFloat(x.monto) || 0;
+      if (x.movimiento === 'Egresos') eg += v; else inn += v;
+    });
+    const sis = ini + eg - inn;   // egresos suman, ingresos restan
+    const crudo = _bancoReal[m.nombre];
+    const tiene = crudo !== undefined && String(crudo).trim() !== '';
+    const real = tiene ? parseCOP(String(crudo)) : null;
+    const dif = tiene ? real - sis : null;
+
+    tCupo+=cupo; tIni+=ini; tIn+=inn; tEg+=eg; tSis+=sis;
+    if (tiene) tReal += real; else sinDigitar++;
+
+    const difTxt = !tiene
+      ? '<span style="color:var(--text2);font-size:11px">sin digitar</span>'
+      : dif === 0
+        ? '<span style="color:var(--green);font-weight:700">✅ CORRECTO</span>'
+        : `<span style="color:${dif>0?'var(--orange)':'var(--red)'};font-weight:700">${dif>0?'+':''}${_cPeso(dif)}</span>`;
+
+    return `<tr>
+      <td class="celda-nombre" style="font-weight:600">${m.nombre}</td>
+      <td style="text-align:right;color:var(--gold);font-weight:600">${cupo?_cPeso(cupo):'—'}</td>
+      <td style="text-align:right;color:var(--text2)">${ini?_cPeso(ini):'—'}</td>
+      <td style="text-align:right;color:var(--red)">${inn?_cPeso(inn):'—'}</td>
+      <td style="text-align:right;color:var(--green)">${eg?_cPeso(eg):'—'}</td>
+      <td style="text-align:right;font-weight:700;color:${sis<0?'var(--red)':'var(--green)'}">
+        ${_cPeso(sis)}
+        <button onclick="_copiarSistemaBanco('${m.nombre.replace(/'/g,"\\'")}',${sis})"
+          title="Copiar al Real" style="margin-left:6px;background:rgba(53,204,47,.12);border:1px solid rgba(53,204,47,.3);border-radius:4px;color:var(--gold);cursor:pointer;font-size:11px;padding:1px 6px">←</button>
+      </td>
+      <td style="text-align:right">
+        <input type="text" id="cbr-${m.id}" value="${tiene ? formatCOP(String(crudo).replace(/[^\d,.-]/g,'')) : ''}"
+          placeholder="0" inputmode="numeric"
+          oninput="const s=this.selectionStart,l=this.value.length;this.value=formatCOP(this.value);
+                   this.setSelectionRange(s+this.value.length-l,s+this.value.length-l);
+                   _bancoRealAuto('${m.nombre.replace(/'/g,"\\'")}', this.value)"
+          style="width:130px;text-align:right;padding:5px 8px;font-size:12px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+      </td>
+      <td style="text-align:right">${difTxt}</td>
+    </tr>`;
+  }).join('');
+
+  const difTot = tReal - tSis + (sinDigitar ? 0 : 0);
+  const cuadraTodo = sinDigitar === 0 && Math.abs(difTot) < 1;
+  tb.innerHTML = filas + `<tr class="fila-total" style="font-weight:800;border-top:2px solid var(--border)">
+      <td class="celda-nombre">TOTAL</td>
+      <td style="text-align:right;color:var(--gold)">${_cPeso(tCupo)}</td>
+      <td style="text-align:right">${_cPeso(tIni)}</td>
+      <td style="text-align:right;color:var(--red)">${_cPeso(tIn)}</td>
+      <td style="text-align:right;color:var(--green)">${_cPeso(tEg)}</td>
+      <td style="text-align:right">${_cPeso(tSis)}</td>
+      <td style="text-align:right">${_cPeso(tReal)}</td>
+      <td style="text-align:right;color:${cuadraTodo?'var(--green)':difTot>0?'var(--orange)':'var(--red)'}">
+        ${sinDigitar ? `<span style="font-size:11px;color:var(--text2)">faltan ${sinDigitar}</span>`
+          : cuadraTodo ? '✅ CUADRA' : (difTot>0?'+':'')+_cPeso(difTot)}
+      </td>
+    </tr>`;
+}
+
+// ── Puente AMC → Corresponsal ─────────────────────────────────────────────
+// La caja del AMC alimenta una cuenta del corresponsal: lo que los operadores
+// pagaron entra, lo que recargaron sale. Va por oficina — otra cajera con otro
+// portal no lo tiene hasta que se agregue aquí.
+const CORR_PUENTES = {
+  'Unity': { cuenta: 'Caja Corresponsal Operadores 1 de Mayo', metodo: 'CORRESPONSAL EL PARAMO' },
+};
+
+function _corrPuente() { return CORR_PUENTES[cajeroOficina] || null; }
+
+// Pagos − recargas del método en el mes activo (sin intercambios)
+function _corrPuenteValor() {
+  const p = _corrPuente();
+  if (!p || typeof movsDelMes !== 'function') return 0;
+  let v = 0;
+  movsDelMes()
+    .filter(mv => normMetodo(mv.metodo) === normMetodo(p.metodo))
+    .forEach(mv => {
+      if (mv.estado_cajero === 'Rechazada') return;
+      const monto = mv.monto_cajero ?? mv.monto ?? 0;
+      v += (mv.tipo === 'RECARGAS') ? -monto : monto;
+    });
+  return v;
+}
+
+// Cuánto le entra a esta cuenta desde la hoja de El Paramo
+function _corrPuenteDe(nombreCuenta) {
+  const p = _corrPuente();
+  if (!p || p.cuenta !== nombreCuenta) return 0;
+  try { return _paramoTotales().neto; } catch(e) { return _corrPuenteValor(); }
+}
+
+// Balance del corresponsal:
+//   (cupo inicial + cuentas de clientes) − métodos hoy − efectivo contado
+// Si da cero, todo está donde debe estar.
+function renderBalanceCorr() {
+  const elC = document.getElementById('bal-cupo');
+  if (!elC) return;
+
+  const cupo = _bancoMet.reduce((a, m) => a + _bancoCupo(m), 0);
+
+  // Cuentas de clientes: saldo inicial del mes + ingresos − egresos
+  const acc = {};
+  _corrMovs.forEach(m => {
+    const v = parseFloat(m.monto) || 0;
+    acc[m.cuenta] = (acc[m.cuenta] || 0) + (m.movimiento === 'Egresos' ? -v : v);
+  });
+  const clientes = _corrCuentas.reduce((a, c) =>
+    a + (parseFloat(_corrSI[c.nombre]) || 0) + (acc[c.nombre] || 0)
+      + _corrPuenteDe(c.nombre), 0);
+
+  // Métodos hoy: el egreso suma y el ingreso resta
+  const sistema = _bancoMet.reduce((a, m) => {
+    let n = _bancoIni(m);
+    _bancoMovs.filter(x => x.metodo === m.nombre).forEach(x => {
+      const v = parseFloat(x.monto) || 0;
+      n += (x.movimiento === 'Egresos') ? v : -v;
+    });
+    return a + n;
+  }, 0);
+
+  const efectivo = _cnTotal('banco-corr');
+  const total    = cupo + clientes;
+  const dif      = (sistema + efectivo) - total;
+
+  elC.textContent = _cPeso(cupo);
+  document.getElementById('bal-clientes').textContent = _cPeso(clientes);
+  document.getElementById('bal-total').textContent    = _cPeso(total);
+  document.getElementById('bal-sistema').textContent  = _cPeso(sistema);
+  document.getElementById('bal-efectivo').textContent = _cPeso(efectivo);
+
+  const eD = document.getElementById('bal-dif');
+  const eN = document.getElementById('bal-nota');
+  if (Math.abs(dif) < 1) {
+    eD.textContent = '✅ CORRECTO';
+    eD.style.color = 'var(--green)';
+    eD.style.fontSize = '30px';
+    eN.textContent = 'El balance cuadra.';
+  } else {
+    eD.textContent = (dif > 0 ? '+' : '') + _cPeso(dif);
+    eD.style.color = dif > 0 ? 'var(--orange)' : 'var(--red)';
+    eD.style.fontSize = '30px';
+    eN.textContent = dif > 0
+      ? `Sobran ${_cPeso(dif)}.`
+      : `Faltan ${_cPeso(-dif)}.`;
+  }
+}
+
+function _copiarSistemaBanco(metodo, valor) {
+  const m = _bancoMet.find(x => x.nombre === metodo);
+  if (!m) return;
+  const inp = document.getElementById('cbr-' + m.id);
+  if (inp) inp.value = formatCOP(String(Math.round(valor)));
+  _bancoRealAuto(metodo, String(Math.round(valor)));
+}
+
+function renderBancoMovs() {
+  const tb = document.getElementById('cb-movs-tbody');
+  if (!tb) return;
+  const fm = document.getElementById('cb-filtro-met')?.value  || '';
+  const ft = document.getElementById('cb-filtro-tipo')?.value || '';
+  const lista = _bancoMovs.filter(m =>
+    (!fm || m.metodo === fm) && (!ft || m.movimiento === ft));
+
+  tb.innerHTML = lista.length ? lista.map(m => {
+    const eg = m.movimiento === 'Egresos';
+    return `<tr>
+      <td style="white-space:nowrap">${m.fecha||'—'}</td>
+      <td style="font-weight:600">${m.metodo||'—'}</td>
+      <td style="text-align:right;font-weight:600">${_cPeso(m.monto)}</td>
+      <td><span class="badge ${eg?'badge-red':'badge-green'}">${m.movimiento}</span></td>
+      <td style="font-size:11px;color:var(--text2)">${(m.cajero||'').split(' ')[0]}</td>
+      <td style="font-size:11px;color:var(--text2);max-width:240px">${m.descripcion||''}</td>
+      <td style="white-space:nowrap">
+        <button class="btn-icon" onclick="editarBancoMov('${m.id}')" title="Editar">✏️</button>
+        <button class="btn-icon btn-eliminar-reg" onclick="borrarBancoMov('${m.id}')" title="Eliminar">🗑</button>
+      </td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="7" style="text-align:center;color:var(--text2);padding:24px">Sin movimientos</td></tr>';
+  aplicarPermisosCajero();
+}
+
+// ── Métodos ──
+// ── Cupo inicial: la plata fija con la que arrancó cada método ──
+// Vive en el documento del método, no cambia mes a mes.
+function _bancoCupo(m) { return parseFloat(m.cupo) || 0; }
+
+function abrirCupoBanco() {
+  if (!_bancoMet.length) { toast('⚠ Primero crea los métodos', 'error'); return; }
+  document.getElementById('cub-lista').innerHTML = _bancoMet.map(m => {
+    const v = _bancoCupo(m);
+    return `<div style="display:flex;gap:10px;align-items:center">
+      <span style="flex:1;font-size:12px">${m.nombre}</span>
+      <input type="text" id="cub-${m.id}" value="${v ? formatCOP(String(Math.round(v))) : ''}"
+        placeholder="0" inputmode="numeric" oninput="_sumarCupoBanco();
+          const s=this.selectionStart,l=this.value.length;this.value=formatCOP(this.value);
+          this.setSelectionRange(s+this.value.length-l,s+this.value.length-l)"
+        style="width:150px;text-align:right;padding:6px 8px;font-size:12px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+    </div>`;
+  }).join('');
+  _sumarCupoBanco();
+  openModal('modal-cupo-banco');
+}
+
+function _sumarCupoBanco() {
+  let t = 0;
+  _bancoMet.forEach(m => { t += parseCOP(document.getElementById('cub-'+m.id)?.value || ''); });
+  const el = document.getElementById('cub-total');
+  if (el) el.textContent = _cPeso(t);
+}
+
+async function guardarCupoBanco() {
+  try {
+    const b = db.batch();
+    _bancoMet.forEach(m => {
+      const v = parseCOP(document.getElementById('cub-'+m.id)?.value || '');
+      b.update(db.collection('corresponsal_banco_metodos').doc(m.id), { cupo: v });
+    });
+    await b.commit();
+    closeModal('modal-cupo-banco');
+    toast('✅ Cupo inicial guardado', 'success');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+// ── Saldo inicial: el corte con que abre cada mes ──
+// Antes vivía en el documento del método (un solo valor para siempre).
+// Ahora cada mes tiene el suyo, igual que las cajas Efecty.
+function _siBancoId() { return `${_corrPunto() || 'global'}_${mesActivo}`; }
+
+// El saldo inicial del mes. El campo viejo del método solo aplica al mes
+// en que se creó — si no, todos los meses arrancarían con el mismo saldo.
+function _bancoIni(m) {
+  const v = _bancoSI[m.nombre];
+  if (v !== undefined) return parseFloat(v) || 0;
+  return (m.mesKey && m.mesKey === mesActivo) ? (parseFloat(m.saldoInicial) || 0) : 0;
+}
+
+async function _cargarSIBanco() {
+  try {
+    const d = await db.collection('corresponsal_banco_inicial').doc(_siBancoId()).get();
+    _bancoSI = d.exists ? (d.data().saldos || {}) : {};
+  } catch(e) { _bancoSI = {}; }
+  renderBancoMetodos(); renderCruceBanco(); renderBalanceCorr();
+}
+
+function abrirSaldoInicialBanco() {
+  if (!_bancoMet.length) { toast('⚠ Primero crea los métodos', 'error'); return; }
+  document.getElementById('sib-mes').textContent = mesActivo;
+  const actuales = {};
+  _bancoMet.forEach(m => { actuales[m.nombre] = _bancoIni(m); });
+  _pintarSIBanco(actuales);
+  openModal('modal-si-banco');
+}
+
+function _pintarSIBanco(valores) {
+  document.getElementById('sib-lista').innerHTML = _bancoMet.map(m => {
+    const v = parseFloat(valores[m.nombre]) || 0;
+    return `<div style="display:flex;gap:10px;align-items:center">
+      <span style="flex:1;font-size:12px">${m.nombre}</span>
+      <input type="text" id="sib-${m.id}" value="${v ? formatCOP(String(Math.round(v))) : ''}"
+        placeholder="0" inputmode="numeric" oninput="_sumarSIBanco();
+          const s=this.selectionStart,l=this.value.length;this.value=formatCOP(this.value);
+          this.setSelectionRange(s+this.value.length-l,s+this.value.length-l)"
+        style="width:150px;text-align:right;padding:6px 8px;font-size:12px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+    </div>`;
+  }).join('');
+  _sumarSIBanco();
+}
+
+function _sumarSIBanco() {
+  let t = 0;
+  _bancoMet.forEach(m => { t += parseCOP(document.getElementById('sib-'+m.id)?.value || ''); });
+  const el = document.getElementById('sib-total');
+  if (el) el.textContent = _cPeso(t);
+}
+
+// Trae el saldo con que cerró cada método el mes pasado
+async function traerCierreBancoMesAnterior() {
+  const [y, mm] = mesActivo.split('-').map(Number);
+  const prev = _hoyLocal(new Date(y, mm-2, 1)).slice(0,7);
+  const of = _corrPunto();
+  try {
+    const iniDoc = await db.collection('corresponsal_banco_inicial').doc(`${of||'global'}_${prev}`).get();
+    const base = iniDoc.exists ? (iniDoc.data().saldos || {}) : {};
+    const snap = await db.collection('corresponsal_banco_movs')
+      .where('oficina','==',of).where('mesKey','==',prev).get();
+    const cierre = {};
+    _bancoMet.forEach(m => { cierre[m.nombre] = parseFloat(base[m.nombre]) || 0; });
+    snap.docs.forEach(d => {
+      const mv = d.data();
+      if (!mv.metodo) return;
+      // Igual que en las tarjetas: el egreso suma y el ingreso resta
+      const signo = mv.movimiento === 'Egresos' ? 1 : -1;
+      cierre[mv.metodo] = (cierre[mv.metodo] || 0) + signo * (parseFloat(mv.monto) || 0);
+    });
+    if (!snap.size && !Object.keys(base).length) { toast(`⚠ Sin datos de ${prev}`, 'error'); return; }
+    _pintarSIBanco(cierre);
+    toast(`↩ Traído el cierre de ${prev}`, 'success');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+async function guardarSaldoInicialBanco() {
+  const saldos = {};
+  _bancoMet.forEach(m => {
+    saldos[m.nombre] = parseCOP(document.getElementById('sib-'+m.id)?.value || '');
+  });
+  try {
+    await db.collection('corresponsal_banco_inicial').doc(_siBancoId()).set({
+      oficina: _corrPunto(), mesKey: mesActivo, saldos,
+      ts: firebase.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    _bancoSI = saldos;
+    closeModal('modal-si-banco');
+    renderBancoMetodos(); renderCruceBanco();
+    toast('✅ Cupo inicial guardado', 'success');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+function abrirModalMetodoBanco() {
+  document.getElementById('mb-nombre').value = '';
+  document.getElementById('mb-saldo').value  = '';
+  openModal('modal-metodo-banco');
+}
+
+async function guardarMetodoBanco() {
+  const nombre = document.getElementById('mb-nombre').value.trim();
+  if (!nombre) { toast('⚠ Escribe el nombre', 'error'); return; }
+  if (_bancoMet.some(m => m.nombre.toUpperCase() === nombre.toUpperCase())) {
+    toast('⚠ Ese método ya existe', 'error'); return;
+  }
+  try {
+    await db.collection('corresponsal_banco_metodos').add({
+      oficina: _corrPunto(), nombre,
+      cupo: parseCOP(document.getElementById('mb-saldo').value),
+      mesKey: mesActivo,
+    });
+    closeModal('modal-metodo-banco');
+    toast('✅ Método agregado', 'success');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+async function borrarMetodoBanco(id) {
+  const m = _bancoMet.find(x => x.id === id);
+  if (!m) return;
+  const usos = _bancoMovs.filter(x => x.metodo === m.nombre).length;
+  if (usos) { toast(`⚠ Tiene ${usos} movimiento(s). Bórralos primero.`, 'error'); return; }
+  if (!confirm(`¿Eliminar el método "${m.nombre}"?`)) return;
+  try {
+    await db.collection('corresponsal_banco_metodos').doc(id).delete();
+    toast('🗑 Método eliminado', 'success');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+// ── Movimientos ──
+function setBancoTipo(t) {
+  document.getElementById('bm-tipo').value = t;
+  const a = document.getElementById('bm-btn-in'), b = document.getElementById('bm-btn-eg');
+  a.style.cssText = 'flex:1;' + (t==='Ingresos' ? 'background:var(--green);color:#fff;border-color:var(--green)' : '');
+  b.style.cssText = 'flex:1;' + (t==='Egresos'  ? 'background:var(--red);color:#fff;border-color:var(--red)' : '');
+}
+
+function abrirModalBancoMov() {
+  if (!_bancoMet.length) { toast('⚠ Primero agrega un método', 'error'); return; }
+  document.getElementById('bm-edit-id').value = '';
+  document.getElementById('bm-title').textContent = '🏦 Movimiento del Corresponsal';
+  document.getElementById('bm-fecha').value = _hoyLocal();
+  document.getElementById('bm-monto').value = '';
+  document.getElementById('bm-desc').value = '';
+  setBancoTipo('Ingresos');
+  openModal('modal-banco-mov');
+}
+
+function editarBancoMov(id) {
+  const m = _bancoMovs.find(x => x.id === id);
+  if (!m) return;
+  document.getElementById('bm-edit-id').value = id;
+  document.getElementById('bm-title').textContent = '✏️ Editar Movimiento';
+  document.getElementById('bm-fecha').value  = m.fecha || '';
+  document.getElementById('bm-metodo').value = m.metodo || '';
+  document.getElementById('bm-monto').value  = formatCOP(String(Math.round(m.monto||0)));
+  document.getElementById('bm-desc').value   = m.descripcion || '';
+  setBancoTipo(m.movimiento || 'Ingresos');
+  openModal('modal-banco-mov');
+}
+
+async function guardarBancoMov() {
+  const id     = document.getElementById('bm-edit-id').value;
+  const fecha  = document.getElementById('bm-fecha').value;
+  const metodo = document.getElementById('bm-metodo').value;
+  const monto  = parseCOP(document.getElementById('bm-monto').value);
+  if (!fecha)  { toast('⚠ Selecciona la fecha', 'error'); return; }
+  if (!metodo) { toast('⚠ Selecciona el método', 'error'); return; }
+  if (!monto)  { toast('⚠ Ingresa el monto', 'error'); return; }
+  const data = {
+    oficina: _corrPunto(), fecha, metodo, monto,
+    movimiento:  document.getElementById('bm-tipo').value,
+    descripcion: document.getElementById('bm-desc').value.trim(),
+    cajero:      opNombre || '',
+    mesKey:      fecha.slice(0,7),
+    ts: firebase.firestore.FieldValue.serverTimestamp(),
+  };
+  try {
+    if (id) await db.collection('corresponsal_banco_movs').doc(id).update(data);
+    else    await db.collection('corresponsal_banco_movs').add(data);
+    closeModal('modal-banco-mov');
+    toast('✅ Movimiento guardado', 'success');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+async function borrarBancoMov(id) {
+  if (cajeroPermisos.eliminarTodo === false) { toast('⚠ Sin permiso para eliminar', 'error'); return; }
+  const m = _bancoMovs.find(x => x.id === id);
+  if (!m) return;
+  if (!confirm(`¿Eliminar el movimiento de ${_cPeso(m.monto)} en ${m.metodo}?`)) return;
+  try {
+    await db.collection('corresponsal_banco_movs').doc(id).delete();
+    toast('🗑 Movimiento eliminado', 'success');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+function exportBancoCSV() {
+  if (!_bancoMovs.length) { toast('Nada que exportar', 'error'); return; }
+  const rows = _bancoMovs.map(m =>
+    [m.fecha, `"${m.metodo}"`, Math.round(m.monto||0), m.movimiento,
+     `"${m.cajero||''}"`, `"${m.descripcion||''}"`].join(','));
+  _bajarCSV('Fecha,Metodo,Monto,Movimiento,Cajero,Descripcion\n' + rows.join('\n'),
+            `corresponsal_${mesActivo}.csv`);
+}
+
+// ── Importar cajas desde el Excel ──
+// Cada caja vive en su propia hoja con el encabezado ID/CAJA/SALDO y luego
+// la tabla OP · MONTO · OPCION · ESTADO · FECHA · CAJERO · DESCRIPCION.
+let _impCajas = [];   // [{nombre, saldoInicial, movs:[…]}]
+
+function abrirImportCajas() {
+  if (cajeroPermisos.importarExcel === false) { toast('⚠ Sin permiso para importar', 'error'); return; }
+  _impCajas = [];
+  document.getElementById('icj-file').value = '';
+  document.getElementById('icj-resumen').style.display = 'none';
+  document.getElementById('icj-lista').innerHTML = '';
+  document.getElementById('icj-btn').disabled = true;
+  openModal('modal-imp-cajas');
+}
+
+async function parseImportCajas() {
+  const f = document.getElementById('icj-file').files[0];
+  if (!f) return;
+  let wb;
+  try { wb = XLSX.read(await f.arrayBuffer(), { type:'array', cellDates:true }); }
+  catch(e) { toast('⚠ No se pudo leer el archivo', 'error'); return; }
+
+  _impCajas = [];
+  wb.SheetNames.forEach(hoja => {
+    const filas = XLSX.utils.sheet_to_json(wb.Sheets[hoja], { header:1, raw:true, defval:null });
+    // Una hoja es caja si en las primeras filas dice "CAJA" y más abajo tiene la tabla OP/MONTO
+    let nombre = null, saldoIni = 0;
+    for (const fila of filas.slice(0, 8)) {
+      if (!fila) continue;
+      for (let i = 0; i < fila.length - 1; i++) {
+        const et = String(fila[i] || '').trim().toUpperCase();
+        if (et === 'CAJA' && fila[i+1]) nombre = String(fila[i+1]).trim();
+        if (et === 'SALDO INICIAL' && fila[i+1] != null) saldoIni = _impNum(fila[i+1]);
+      }
+    }
+    if (!nombre) return;
+    // Buscar el encabezado de la tabla
+    let hdr = -1, c0 = 0;
+    filas.slice(0, 20).forEach((fila, idx) => {
+      if (hdr >= 0 || !fila) return;
+      const i = fila.findIndex(c => String(c||'').trim().toUpperCase() === 'OP');
+      if (i >= 0 && fila.slice(i, i+7).some(c => /OPCION|OPCIÓN/i.test(String(c||'')))) { hdr = idx; c0 = i; }
+    });
+    if (hdr < 0) return;
+
+    const movs = [];
+    filas.slice(hdr + 1).forEach(fila => {
+      if (!fila) return;
+      const monto  = _impNum(fila[c0+1]);
+      const opcion = String(fila[c0+2] || '').trim();
+      const fecha  = _impFecha(fila[c0+4]);
+      if (!monto || !opcion || !fecha) return;
+      movs.push({
+        op: parseInt(fila[c0]) || null, monto, fecha,
+        opcion: opcion.charAt(0).toUpperCase() + opcion.slice(1).toLowerCase()
+                  .replace('ingresos','ngresos').replace(/^./, c=>c) ,
+        estado: String(fila[c0+3] || 'Realizada').trim(),
+        cajero: String(fila[c0+5] || '').trim(),
+        descripcion: String(fila[c0+6] ?? '').trim(),
+      });
+    });
+    // Normalizar el nombre de la opción a las que maneja el sistema
+    const norm = s => {
+      const t = s.toUpperCase();
+      if (t.startsWith('INGRES')) return 'Ingresos';
+      if (t.startsWith('EGRES'))  return 'Egresos';
+      if (t.startsWith('RECARG')) return 'Recargas';
+      if (t.startsWith('PAGO'))   return 'Pagos';
+      return s;
+    };
+    movs.forEach(m => m.opcion = norm(m.opcion));
+    _impCajas.push({ nombre, saldoInicial: saldoIni, movs });
+  });
+
+  const res = document.getElementById('icj-resumen');
+  const cont = document.getElementById('icj-lista');
+  if (!_impCajas.length) {
+    res.style.display = 'block';
+    res.innerHTML = '<span style="color:var(--orange)">⚠ No se encontraron hojas con estructura de caja</span>';
+    cont.innerHTML = '';
+    document.getElementById('icj-btn').disabled = true;
+    return;
+  }
+  const totMovs = _impCajas.reduce((s,c)=>s+c.movs.length, 0);
+  const totIni  = _impCajas.reduce((s,c)=>s+c.saldoInicial, 0);
+  res.style.display = 'block';
+  res.innerHTML = `<strong>${_impCajas.length}</strong> cajas · <strong>${totMovs}</strong> movimientos · saldo inicial ${_cPeso(totIni)}`;
+  cont.innerHTML = _impCajas.map((c,i) => `
+    <label style="display:flex;align-items:center;gap:10px;padding:7px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:7px;cursor:pointer">
+      <input type="checkbox" class="icj-chk" data-i="${i}" checked style="width:15px;height:15px;accent-color:var(--gold)">
+      <span style="flex:1;font-size:12px;font-weight:600">${c.nombre}</span>
+      <span style="font-size:11px;color:var(--text2)">${c.movs.length} mov · ${_cPeso(c.saldoInicial)}</span>
+    </label>`).join('');
+  document.getElementById('icj-btn').disabled = false;
+}
+
+async function ejecutarImportCajas() {
+  const btn = document.getElementById('icj-btn');
+  btn.disabled = true; btn.textContent = '⏳ Importando…';
+  const of = _corrPunto();
+  const sel = [...document.querySelectorAll('.icj-chk')].filter(c=>c.checked).map(c=>_impCajas[+c.dataset.i]);
+
+  try {
+    const saldos = { ..._cajaSI };
+    let nCajas = 0, nMovs = 0;
+
+    for (let k = 0; k < sel.length; k++) {
+      const c = sel[k];
+      // Caja con ID determinístico para no duplicar
+      const docId = `${of||'global'}_${c.nombre.replace(/[^\w]/g,'_')}`.slice(0,140);
+      await db.collection('corresponsal_cajas').doc(docId).set({
+        oficina: of, nombre: c.nombre, orden: _cajas.length + k + 1
+      }, { merge: true });
+      nCajas++;
+      if (c.saldoInicial) saldos[c.nombre] = c.saldoInicial;
+
+      // Movimientos por lotes
+      for (let i = 0; i < c.movs.length; i += 400) {
+        const b = db.batch();
+        c.movs.slice(i, i+400).forEach((m, j) => {
+          b.set(db.collection('corresponsal_caja_movs').doc(), {
+            oficina: of, caja: c.nombre,
+            fecha: m.fecha, monto: m.monto, opcion: m.opcion, estado: m.estado,
+            cajero: m.cajero, descripcion: m.descripcion,
+            mesKey: m.fecha.slice(0,7), op: m.op || (i+j+1),
+            importado: true, ts: firebase.firestore.FieldValue.serverTimestamp(),
+          });
+          nMovs++;
+        });
+        await b.commit();
+      }
+    }
+
+    await db.collection('corresponsal_caja_inicial').doc(_siCajasId()).set({
+      oficina: of, mesKey: mesActivo, saldos,
+      ts: firebase.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    _cajaSI = saldos;
+
+    closeModal('modal-imp-cajas');
+    toast(`✅ ${nCajas} cajas y ${nMovs} movimientos importados`, 'success');
+  } catch(e) {
+    toast('⚠ ' + e.message, 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = '✓ Importar';
+  }
+}
+
+function exportCajaCSV() {
+  if (!_cajaMovs.length) { toast('Nada que exportar', 'error'); return; }
+  const rows = _cajaMovs.map(m =>
+    [m.op||'', m.fecha, Math.round(m.monto||0), m.opcion, m.estado,
+     `"${m.cajero||''}"`, `"${m.descripcion||''}"`].join(','));
+  _bajarCSV('OP,Fecha,Monto,Opcion,Estado,Cajero,Descripcion\n' + rows.join('\n'),
+            `caja_${_cajaSel}_${mesActivo}.csv`);
+}
+
+// ── IMPORTAR DESDE EXCEL ────────────────────────────────────────
+let _icModo  = 'cuentas';   // 'cuentas' | 'movs'
+let _icFilas = [];
+let _icWB    = null;
+
+function abrirImportCorr(modo) {
+  if (cajeroPermisos.importarExcel === false) { toast('⚠ Sin permiso para importar', 'error'); return; }
+  if (modo === 'movs' && !_corrCuentas.length) { toast('⚠ Primero importa o crea las cuentas', 'error'); return; }
+  _icModo = modo; _icFilas = []; _icWB = null;
+
+  document.getElementById('ic-modo-lbl').textContent = modo === 'cuentas' ? 'Cuentas' : 'Movimientos';
+  document.getElementById('ic-cols').innerHTML = modo === 'cuentas'
+    ? 'Hoja <strong>CLIENTES</strong> — columnas: <strong>ID · NOMBRE · SALDO · RESPONSABLE</strong><br><span style="color:var(--text2)">Crea las cuentas y carga el saldo inicial del mes ' + mesActivo + '</span>'
+    : 'Hoja <strong>TX. CLIENTES</strong> — columnas: <strong>OP · FECHA · NOMBRE CLIENTE · MONTO · MOVIMIENTO · ESPECIALISTA · DESCRIPCIÓN</strong>';
+
+  document.getElementById('ic-paste').value = '';
+  document.getElementById('ic-paste').placeholder = modo === 'cuentas'
+    ? '1\tAcademia Aj1.6\t40.263.726\tCorresponsal\n2\tMetodo Corresponsal\t0\tCorresponsal'
+    : '1\t1/07/26\tCaja Efecty 1 De Mayo\t2.900.000\tEgresos\tPaola Andrea Silva Rosas\tINTERCAMBIO OP 8';
+  document.getElementById('ic-file').value = '';
+  document.getElementById('ic-reemplazar').checked = false;
+  ['ic-hojas-wrap','ic-resumen','ic-preview-wrap'].forEach(id => document.getElementById(id).style.display = 'none');
+  document.getElementById('ic-btn').disabled = true;
+  openModal('modal-imp-corr');
+}
+
+async function parseImportCorr(origen) {
+  let filas = [];
+
+  if (origen === 'paste') {
+    const txt = document.getElementById('ic-paste').value.trim();
+    if (!txt) { _icRender([]); return; }
+    filas = txt.split(/\r?\n/).map(l => l.split('\t'));
+    if (filas[0].length < 3) filas = txt.split(/\r?\n/).map(l => l.split(/\t|;|\s{2,}/));
+  } else {
+    if (origen === 'file') {
+      const f = document.getElementById('ic-file').files[0];
+      if (!f) return;
+      try { _icWB = XLSX.read(await f.arrayBuffer(), { type:'array', cellDates:true }); }
+      catch(e) { toast('⚠ No se pudo leer el archivo', 'error'); return; }
+      const sel = document.getElementById('ic-hoja');
+      sel.innerHTML = _icWB.SheetNames.map(n => `<option value="${n}">${n}</option>`).join('');
+      const buscar = _icModo === 'cuentas' ? /^CLIENTES\s*$/i : /^TX\.?\s*CLIENTES/i;
+      sel.value = _icWB.SheetNames.find(n => buscar.test(n.trim())) || _icWB.SheetNames[0];
+      document.getElementById('ic-hojas-wrap').style.display = 'block';
+    }
+    if (!_icWB) return;
+    filas = XLSX.utils.sheet_to_json(_icWB.Sheets[document.getElementById('ic-hoja').value],
+      { header:1, raw:true, defval:null });
+  }
+
+  const out = [];
+  if (_icModo === 'cuentas') {
+    // Detectar la columna donde empieza el encabezado ID / NOMBRE
+    let c0 = 0;
+    for (const f of filas.slice(0, 20)) {
+      if (!f) continue;
+      const i = f.findIndex(c => /^ID\s*CLIENTES?/i.test(String(c||'').trim()));
+      if (i >= 0) { c0 = i; break; }
+    }
+    filas.forEach(f => {
+      if (!f) return;
+      const id     = f[c0], nombre = f[c0+1], saldo = f[c0+2], resp = f[c0+3];
+      const n = String(nombre||'').trim();
+      if (!n || !/^[\d.,]+$/.test(String(id??'').trim())) return;
+      if (/^NOMBRE/i.test(n)) return;
+      out.push({ orden: parseInt(id)||out.length+1, nombre: n,
+                 saldo: _impNum(saldo), responsable: String(resp||'Corresponsal').trim() });
+    });
+  } else {
+    let c0 = 0;
+    for (const f of filas.slice(0, 20)) {
+      if (!f) continue;
+      const i = f.findIndex(c => /^OP$/i.test(String(c||'').trim()));
+      if (i >= 0 && f.slice(i, i+8).some(c => /MOVIMIENTO/i.test(String(c||'')))) { c0 = i; break; }
+    }
+    filas.forEach(f => {
+      if (!f) return;
+      const fecha  = _impFecha(f[c0+1]);
+      const cuenta = String(f[c0+2]||'').trim();
+      const monto  = _impNum(f[c0+3]);
+      const tipoRaw= String(f[c0+4]||'').trim().toLowerCase();
+      if (!fecha || !cuenta || !monto) return;
+      const tipo = tipoRaw.startsWith('egres') ? 'Egresos' : tipoRaw.startsWith('ingres') ? 'Ingresos' : null;
+      if (!tipo) return;
+      out.push({ op: parseInt(f[c0])||null, fecha, cuenta, monto, movimiento: tipo,
+                 especialista: String(f[c0+5]||'').trim(), descripcion: String(f[c0+6]||'').trim() });
+    });
+  }
+  _icRender(out);
+}
+
+function _icRender(filas) {
+  const btn = document.getElementById('ic-btn');
+  const res = document.getElementById('ic-resumen');
+  _icFilas = filas;
+
+  if (!filas.length) {
+    res.style.display = 'none';
+    document.getElementById('ic-preview-wrap').style.display = 'none';
+    btn.disabled = true;
+    return;
+  }
+
+  res.style.display = 'block';
+  if (_icModo === 'cuentas') {
+    const tot = filas.reduce((s,f)=>s+f.saldo, 0);
+    res.innerHTML = `<strong>${filas.length}</strong> cuentas detectadas · saldo inicial total <strong>${_cPeso(tot)}</strong>`;
+    document.getElementById('ic-thead').innerHTML =
+      '<tr><th>ID Cuenta</th><th>Cuenta</th><th style="text-align:right">Saldo</th><th>Responsable</th></tr>';
+    document.getElementById('ic-preview').innerHTML = filas.map(f => `<tr>
+      <td style="color:var(--text2)">${f.orden}</td>
+      <td style="font-weight:600">${f.nombre}</td>
+      <td style="text-align:right;color:${f.saldo<0?'var(--red)':'var(--text)'}">${_cPeso(f.saldo)}</td>
+      <td style="color:var(--text2)">${f.responsable}</td></tr>`).join('');
+  } else {
+    const conocidas = new Set(_corrCuentas.map(c => c.nombre.toUpperCase()));
+    const desconocidas = [...new Set(filas.filter(f => !conocidas.has(f.cuenta.toUpperCase())).map(f=>f.cuenta))];
+    const sIn = filas.filter(f=>f.movimiento==='Ingresos').reduce((s,f)=>s+f.monto,0);
+    const sEg = filas.filter(f=>f.movimiento==='Egresos').reduce((s,f)=>s+f.monto,0);
+    const meses = [...new Set(filas.map(f=>f.fecha.slice(0,7)))].sort();
+    res.innerHTML = `<strong>${filas.length}</strong> movimientos · ${meses.join(', ')}<br>
+      Ingresos <span style="color:var(--green);font-weight:600">${_cPeso(sIn)}</span> ·
+      Egresos <span style="color:var(--red);font-weight:600">${_cPeso(sEg)}</span> ·
+      Neto <strong>${_cPeso(sIn-sEg)}</strong>
+      ${desconocidas.length ? `<div style="color:var(--orange);margin-top:5px">⚠ ${desconocidas.length} cuenta(s) que no existen se crearán automáticamente: ${desconocidas.slice(0,4).join(', ')}${desconocidas.length>4?'…':''}</div>` : ''}`;
+    document.getElementById('ic-thead').innerHTML =
+      '<tr><th>OP</th><th>Fecha</th><th>Cuenta</th><th style="text-align:right">Monto</th><th>Mov.</th><th>Descripción</th></tr>';
+    document.getElementById('ic-preview').innerHTML = filas.slice(0,60).map(f => `<tr>
+      <td style="color:var(--text2)">${f.op||''}</td><td>${f.fecha}</td>
+      <td>${f.cuenta}</td><td style="text-align:right">${_cPeso(f.monto)}</td>
+      <td><span class="badge ${f.movimiento==='Egresos'?'badge-red':'badge-green'}">${f.movimiento}</span></td>
+      <td style="color:var(--text2);font-size:10px">${f.descripcion||''}</td></tr>`).join('')
+      + (filas.length>60 ? `<tr><td colspan="6" style="text-align:center;color:var(--text2);padding:8px">… y ${filas.length-60} más</td></tr>` : '');
+  }
+
+  document.getElementById('ic-preview-wrap').style.display = 'block';
+  btn.disabled = false;
+}
+
+async function ejecutarImportCorr() {
+  const btn = document.getElementById('ic-btn');
+  btn.disabled = true; btn.textContent = '⏳ Importando…';
+  const of = cajeroOficina || '';
+
+  try {
+    if (_icModo === 'cuentas') {
+      if (document.getElementById('ic-reemplazar').checked) {
+        const snap = await db.collection('corresponsal_cuentas').where('oficina','==',of).get();
+        for (let i=0;i<snap.docs.length;i+=400) {
+          const b = db.batch();
+          snap.docs.slice(i,i+400).forEach(d => b.delete(d.ref));
+          await b.commit();
+        }
+      }
+      // Crear/actualizar cuentas con ID determinístico (evita duplicados)
+      const saldos = {};
+      for (let i=0;i<_icFilas.length;i+=400) {
+        const b = db.batch();
+        _icFilas.slice(i,i+400).forEach(f => {
+          const docId = `${of||'global'}_${f.nombre.replace(/[^\w]/g,'_')}`.slice(0,140);
+          b.set(db.collection('corresponsal_cuentas').doc(docId), {
+            oficina: of, nombre: f.nombre,
+            responsable: f.responsable, orden: f.orden
+          }, { merge: true });
+          if (f.saldo) saldos[f.nombre] = f.saldo;
+        });
+        await b.commit();
+      }
+      // Guardar el saldo inicial del mes
+      await db.collection('corresponsal_saldo_inicial').doc(_siCorrId()).set({
+        oficina: of, mesKey: mesActivo, saldos,
+        ts: firebase.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+      _corrSI = saldos;
+      toast(`✅ ${_icFilas.length} cuentas importadas`, 'success');
+
+    } else {
+      if (document.getElementById('ic-reemplazar').checked) {
+        for (const mk of [...new Set(_icFilas.map(f=>f.fecha.slice(0,7)))]) {
+          const snap = await db.collection('corresponsal_movimientos')
+            .where('oficina','==',of).where('mesKey','==',mk).get();
+          for (let i=0;i<snap.docs.length;i+=400) {
+            const b = db.batch();
+            snap.docs.slice(i,i+400).forEach(d => b.delete(d.ref));
+            await b.commit();
+          }
+        }
+      }
+      // Crear las cuentas que no existan
+      const conocidas = new Set(_corrCuentas.map(c => c.nombre.toUpperCase()));
+      const nuevas = [...new Set(_icFilas.map(f=>f.cuenta).filter(n => !conocidas.has(n.toUpperCase())))];
+      if (nuevas.length) {
+        const b = db.batch();
+        nuevas.forEach((n, i) => {
+          const docId = `${of||'global'}_${n.replace(/[^\w]/g,'_')}`.slice(0,140);
+          b.set(db.collection('corresponsal_cuentas').doc(docId), {
+            oficina: of, nombre: n,
+            responsable: 'Corresponsal', orden: _corrCuentas.length + i + 1
+          }, { merge: true });
+        });
+        await b.commit();
+      }
+      // Insertar movimientos
+      for (let i=0;i<_icFilas.length;i+=400) {
+        const b = db.batch();
+        _icFilas.slice(i,i+400).forEach((f, j) => {
+          b.set(db.collection('corresponsal_movimientos').doc(), {
+            oficina: of,             fecha: f.fecha, cuenta: f.cuenta, monto: f.monto,
+            movimiento: f.movimiento, especialista: f.especialista,
+            descripcion: f.descripcion, mesKey: f.fecha.slice(0,7),
+            op: f.op || (i+j+1), importado: true,
+            ts: firebase.firestore.FieldValue.serverTimestamp(),
+          });
+        });
+        await b.commit();
+      }
+      toast(`✅ ${_icFilas.length} movimientos importados`, 'success');
+    }
+    closeModal('modal-imp-corr');
+  } catch(e) {
+    toast('⚠ ' + e.message, 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = '✓ Importar';
+  }
+}
+
+// ── Export ──
+function exportCuentasCSV() {
+  const rows = [...document.querySelectorAll('#cc-tbody tr')].map(tr =>
+    [...tr.querySelectorAll('td')].slice(0,7).map(td => `"${td.textContent.trim()}"`).join(','));
+  const csv = 'ID Cuenta,Cuenta,Saldo Anterior,Ingresos,Egresos,Saldo Actual,Responsable\n' + rows.join('\n');
+  _bajarCSV(csv, `cuentas_${mesActivo}.csv`);
+}
+
+function exportCorrMovsCSV() {
+  const rows = [...document.querySelectorAll('#cm-tbody tr')].map(tr =>
+    [...tr.querySelectorAll('td')].slice(0,7).map(td => `"${td.textContent.trim()}"`).join(','));
+  const csv = 'OP,Fecha,Cuenta,Monto,Movimiento,Especialista,Descripcion\n' + rows.join('\n');
+  _bajarCSV(csv, `movimientos_corresponsal_${mesActivo}.csv`);
+}
+
+function _bajarCSV(csv, nombre) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'}));
+  a.download = nombre;
+  a.click();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CIERRE DE MES — CAJERO
+// Los saldos del sistema pasan a ser la Caja General del mes siguiente
+// ═══════════════════════════════════════════════════════════════
+function _mesSiguienteKey(mk) {
+  const [y, m] = (mk || '').split('-').map(Number);
+  if (!y || !m) return '';
+  return (m===12 ? (y+1)+'-01' : y+'-'+String(m+1).padStart(2,'0'));
+}
+
+async function abrirCierreCajero() {
+  if (cajeroPermisos.cerrarMes === false) {
+    toast('⚠ No tienes permiso para cerrar el mes', 'error'); return;
+  }
+  if (!_cruceData.length) { toast('⚠ Aún no hay saldos calculados', 'error'); return; }
+
+  const mesSig = _mesSiguienteKey(mesActivo);
+  if (!mesSig) { toast('⚠ Mes inválido', 'error'); return; }
+
+  // ¿Ya existe un cierre para este mes?
+  try {
+    const prev = await db.collection('cajero_cierres')
+      .where('mes', '==', mesActivo)
+      .where('oficina', '==', cajeroOficina || '')
+      .get();
+    const activo = prev.docs.find(d => d.data().estado !== 'rechazado');
+    if (activo) {
+      toast(activo.data().estado === 'pendiente'
+        ? '⏳ Ya hay un cierre pendiente de aprobación'
+        : '✅ Este mes ya fue cerrado', 'info');
+      return;
+    }
+  } catch(e) { console.warn('cierre check:', e); }
+
+  document.getElementById('cc-mes').textContent     = mesActivo;
+  document.getElementById('cc-mes-sig').textContent = mesSig;
+
+  let total = 0, descuadres = 0, difTotal = 0;
+  const filas = _cruceData.map(r => {
+    const fisRaw = _cruceFisicoValues[r.metodo];
+    const tieneFis = fisRaw !== undefined && String(fisRaw).trim() !== '';
+    const fis = tieneFis ? parseCOP(String(fisRaw)) : null;
+    const dif = tieneFis ? fis - r.sistema : null;
+    total += r.sistema;
+    if (dif !== null && dif !== 0) { descuadres++; difTotal += dif; }
+    const difTxt = dif === null
+      ? '<span style="color:var(--text2)">sin contar</span>'
+      : dif === 0
+        ? '<span style="color:var(--green)">✓</span>'
+        : `<span style="color:${dif>0?'var(--orange)':'var(--red)'};font-weight:700">${dif>0?'+':''}${pesos(dif)}</span>`;
+    return `<tr>
+      <td style="font-weight:600">${r.metodo}</td>
+      <td style="text-align:right;font-weight:700;color:var(--green)">${pesos(r.sistema)}</td>
+      <td style="text-align:right;color:var(--text2)">${tieneFis ? pesos(fis) : '—'}</td>
+      <td style="text-align:right">${difTxt}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('cc-tbody').innerHTML = filas;
+  document.getElementById('cc-total').textContent = pesos(total);
+
+  const alerta = document.getElementById('cc-alerta');
+  if (descuadres) {
+    alerta.style.display = '';
+    alerta.innerHTML = `⚠ Hay <strong>${descuadres} método${descuadres>1?'s':''}</strong> con diferencia
+      (neto ${difTotal>0?'+':''}${pesos(difTotal)}). Puedes cerrar igual — el descuadre queda registrado
+      y el administrador podrá ajustar la Caja General.`;
+  } else {
+    alerta.style.display = 'none';
+  }
+
+  const btn = document.getElementById('cc-btn');
+  btn.disabled = false; btn.textContent = '✅ Confirmar y Enviar';
+  openModal('modal-cierre-caj');
+}
+
+async function enviarCierreCajero() {
+  const btn = document.getElementById('cc-btn');
+  btn.disabled = true; btn.textContent = 'Enviando…';
+
+  const mesSig = _mesSiguienteKey(mesActivo);
+  const saldos = {}, fisico = {}, diferencias = {};
+  _cruceData.forEach(r => {
+    saldos[r.metodo] = Math.round(r.sistema);
+    const fisRaw = _cruceFisicoValues[r.metodo];
+    if (fisRaw !== undefined && String(fisRaw).trim() !== '') {
+      const f = parseCOP(String(fisRaw));
+      fisico[r.metodo] = Math.round(f);
+      const d = Math.round(f - r.sistema);
+      if (d !== 0) diferencias[r.metodo] = d;
+    }
+  });
+
+  try {
+    await db.collection('cajero_cierres').add({
+      oficina:       cajeroOficina || '',
+      cajeroUid:     opId,
+      cajeroNombre:  opNombre,
+      mes:           mesActivo,
+      mesSiguiente:  mesSig,
+      saldos, fisico, diferencias,
+      totalSistema:  Object.values(saldos).reduce((s,v)=>s+v, 0),
+      estado:        'pendiente',
+      ts:            firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    closeModal('modal-cierre-caj');
+    toast('✅ Cierre enviado al administrador', 'success');
+  } catch(e) {
+    toast('⚠ ' + e.message, 'error');
+    btn.disabled = false; btn.textContent = '✅ Confirmar y Enviar';
+  }
+}
+
+// El ancho de las columnas fijas ahora es fijo por CSS (210px / 130px en móvil),
+// así que no hay nada que medir. Se conserva la función porque varias vistas la llaman.
+function ajustarColsFijas() {}
+
+function _guardarFisico(idx, val) {
+  const metodo = _cruceData[idx]?.metodo;
+  if (metodo !== undefined) {
+    _cruceFisicoValues[metodo] = val;
+    _cruceSaveLS();
+    _cruceSaveFirestore();
+  }
+}
+
+function _copiarSistema(idx) {
+  const row = _cruceData[idx];
+  if (!row) return;
+  const raw = String(row.sistema);
+  _cruceFisicoValues[row.metodo] = raw;
+  _cruceSaveLS();
+  _cruceSaveFirestore();
+  const inp = document.getElementById('cruce-inp-'+idx);
+  if (inp) inp.value = raw;
+  _actualizarCruce();
+}
+
+function _copiarTodo() {
+  _cruceData.forEach((row, i) => {
+    _cruceFisicoValues[row.metodo] = String(row.sistema);
+    const inp = document.getElementById('cruce-inp-'+i);
+    if (inp) inp.value = String(row.sistema);
+  });
+  _cruceSaveLS();
+  _cruceSaveFirestore();
+  _actualizarCruce();
+}
+
+function limpiarCruce() {
+  _cruceFisicoValues = {};
+  _cruceSaveLS();
+  _cruceSaveFirestore();
+  document.querySelectorAll('.cruce-fisico').forEach(inp => inp.value = '');
+  _actualizarCruce();
+}
+
+function _parsePesosInput(val) {
+  if (!val) return null;
+  let s = val.replace(/[$\s]/g, '').trim();
+  if (!s) return null;
+
+  const hasDot   = s.includes('.');
+  const hasComma = s.includes(',');
+
+  if (hasDot && hasComma) {
+    // Ambos: el último es el separador decimal
+    if (s.lastIndexOf(',') > s.lastIndexOf('.')) {
+      // Formato europeo: 5.927.433,24 → coma=decimal
+      s = s.replace(/\./g, '').replace(',', '.');
+    } else {
+      // Formato US: 5,927,433.24 → punto=decimal
+      s = s.replace(/,/g, '');
+    }
+  } else if (hasComma) {
+    const partes = s.split(',');
+    const ultimo = partes[partes.length - 1];
+    if (partes.length === 2 && ultimo.length <= 2) {
+      // "5927433,24" → coma decimal → convertir a punto
+      s = s.replace(',', '.');
+    } else {
+      // "5,927,433" → comas de miles → eliminar
+      s = s.replace(/,/g, '');
+    }
+  } else if (hasDot) {
+    const partes = s.split('.');
+    const ultimo = partes[partes.length - 1];
+    if (partes.length === 2 && ultimo.length <= 2) {
+      // "5927433.24" → punto decimal → mantener
+    } else {
+      // "5.927.433" → puntos de miles → eliminar
+      s = s.replace(/\./g, '');
+    }
+  }
+
+  const n = parseFloat(s);
+  return isNaN(n) ? null : Math.round(n); // Redondear a pesos enteros
+}
+
+function _actualizarCruce() {
+  let totFis = 0, todosLlenos = true;
+  const totSis = _cruceData.reduce((s,r) => s + r.sistema, 0);
+  const totIni = _cruceData.reduce((s,r) => s + (r.ini||0), 0);
+  const totIx  = _cruceData.reduce((s,r) => s + (r.ix||0),  0);
+  const totPag = _cruceData.reduce((s,r) => s + (r.pag||0), 0);
+  const totRec = _cruceData.reduce((s,r) => s + (r.rec||0), 0);
+  const totGas = _cruceData.reduce((s,r) => s + (r.gas||0),  0);
+  const totLiq = _cruceData.reduce((s,r) => s + (r.liq||0),  0);
+
+  document.querySelectorAll('.cruce-fisico').forEach(inp => {
+    const i   = parseInt(inp.dataset.idx);
+    const sis = _cruceData[i].sistema;
+    const fis = _parsePesosInput(inp.value);
+    const celDif = document.getElementById('cruce-dif-'+i);
+    const row    = document.getElementById('cruce-row-'+i);
+    if (fis === null) {
+      todosLlenos = false;
+      celDif.textContent = '—';
+      celDif.style.color = 'var(--text2)';
+      row.style.background = '';
+      return;
+    }
+    totFis += fis;
+    const dif = fis - sis;
+    if (dif === 0) {
+      celDif.textContent = '✅ CORRECTO';
+      celDif.style.color = 'var(--green)';
+      celDif.style.fontWeight = '800';
+      row.style.background = 'rgba(36,191,98,.06)';
+    } else {
+      celDif.textContent = (dif > 0 ? '+' : '') + pesos(dif);
+      celDif.style.color = dif > 0 ? 'var(--orange)' : 'var(--red)';
+      celDif.style.fontWeight = '700';
+      row.style.background = 'rgba(224,80,80,.04)';
+    }
+  });
+
+  const totSisEl = document.getElementById('cruce-tot-sis');
+  const totFisEl = document.getElementById('cruce-tot-fis');
+  const totDifEl = document.getElementById('cruce-tot-dif');
+  const totIniEl = document.getElementById('cruce-tot-ini');
+  const totIxEl  = document.getElementById('cruce-tot-ix');
+  const totPagEl = document.getElementById('cruce-tot-pag');
+  const totRecEl = document.getElementById('cruce-tot-rec');
+  const totGasEl = document.getElementById('cruce-tot-gas');
+  const totLiqEl = document.getElementById('cruce-tot-liq');
+  if (!totSisEl) return;
+
+  // Totales: S. Inicial, Intercambios, Saldo Op., Gastos
+  if (totIniEl) { totIniEl.textContent = totIni ? pesos(totIni) : '—'; totIniEl.style.color = 'var(--text2)'; }
+  if (totIxEl)  {
+    totIxEl.textContent = totIx ? (totIx>0?'+':'')+pesos(Math.abs(totIx)) : '—';
+    totIxEl.style.color = totIx > 0 ? 'var(--green)' : totIx < 0 ? 'var(--red)' : 'var(--text2)';
+  }
+  if (totPagEl) {
+    totPagEl.textContent = totPag ? '+'+pesos(totPag) : '—';
+    totPagEl.style.color = totPag ? 'var(--green)' : 'var(--text2)';
+  }
+  if (totRecEl) {
+    totRecEl.textContent = totRec ? '−'+pesos(totRec) : '—';
+    totRecEl.style.color = totRec ? 'var(--red)' : 'var(--text2)';
+  }
+  if (totGasEl) { totGasEl.textContent = totGas ? '−'+pesos(totGas) : '—'; totGasEl.style.color = totGas ? 'var(--red)' : 'var(--text2)'; }
+  if (totLiqEl) { totLiqEl.textContent = totLiq ? '−'+pesos(totLiq) : '—'; totLiqEl.style.color = totLiq ? 'var(--red)' : 'var(--text2)'; }
+
+  totSisEl.textContent = pesos(totSis);
+  totSisEl.style.color = totSis < 0 ? 'var(--red)' : 'var(--green)';
+
+  if (!todosLlenos) {
+    totFisEl.textContent = '—'; totFisEl.style.color = 'var(--text2)';
+    totDifEl.textContent = '—'; totDifEl.style.color = 'var(--text2)';
+    return;
+  }
+  totFisEl.textContent = pesos(totFis);
+  totFisEl.style.color = 'var(--text)';
+  const totDif = totFis - totSis;
+  if (totDif === 0) {
+    totDifEl.textContent = '✅ CORRECTO';
+    totDifEl.style.color = 'var(--green)';
+  } else {
+    totDifEl.textContent = (totDif > 0 ? '+' : '') + pesos(totDif);
+    totDifEl.style.color = totDif > 0 ? 'var(--orange)' : 'var(--red)';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// REGISTRO DE EFECTIVO — ingresos/egresos por operador + conteo
+// ═══════════════════════════════════════════════════════════════
+const EF_DENOMS = [100000, 50000, 20000, 10000, 5000, 2000, 1000];
+let _efMovs      = [];    // movimientos del mes
+let _efConteo    = {};    // denominación → cantidad de billetes
+let _efUnsub     = null;
+let _efInited    = false;
+let _efConteoUnsub = null;
+let _efConteoTimer = null;
+let _efSaldoIni    = {};   // uid → saldo con el que arranca el mes
+
+function openModal(id)  { document.getElementById(id)?.classList.add('open'); }
+function closeModal(id) { document.getElementById(id)?.classList.remove('open'); }
+
+function _efDocId() { return mesActivo + '_' + (cajeroOficina || 'global'); }
+
+async function initEfectivo() {
+  _efInited = true;
+  cargarEfectivo();
+  await calcEfectivoSistema();
+  renderEfectivo();
+}
+
+// Calcula el EFECTIVO OPERADOR que el sistema espera, por operador.
+// Misma fórmula que Cupo Actual: cupo inicial + pagos − recargas − gastos ± intercambios − liquidaciones.
+async function calcEfectivoSistema() {
+  const MET = 'EFECTIVO OPERADOR';
+  const net = {};
+  const add = (uid, delta) => {
+    if (!uid) return;
+    net[uid] = (net[uid] || 0) + delta;
+  };
+
+  // Movimientos del mes
+  movsDelMes().forEach(mv => {
+    if (normMetodo(mv.metodo || '') !== MET) return;
+    if (mv.tipo === 'PAGOS')    add(mv.opId, +(mv.monto || 0));
+    if (mv.tipo === 'RECARGAS') add(mv.opId, -(mv.monto || 0));
+  });
+
+  // Gastos del mes
+  allGastosGlobal.forEach(g => {
+    if (getMesKey(g) !== mesActivo) return;
+    if (normMetodo(g.metodo || '') !== MET) return;
+    add(g.opId, -(parseFloat(g.valor) || 0));
+  });
+
+  // Intercambios del mes
+  try {
+    const ixSnap = await db.collection('patriarca_intercambios').get();
+    ixSnap.docs.forEach(d => {
+      const ix = d.data();
+      if (!(ix.fecha || '').startsWith(mesActivo)) return;
+      if (ix.estado === 'pendiente_aceptar' || ix.estado === 'cancelado') return;
+      const m = parseFloat(ix.monto) || 0;
+      if (normMetodo(ix.caja_egresa  || '') === MET) add(ix.opId, -m);
+      if (normMetodo(ix.caja_ingresa || '') === MET) add(ix.opId, +m);
+    });
+  } catch(e) { console.warn('calcEfectivoSistema ix:', e); }
+
+  // Liquidaciones pagadas del mes anterior
+  try {
+    const [yk, mk] = mesActivo.split('-').map(Number);
+    const prevKey  = (mk===1 ? (yk-1)+'-12' : yk+'-'+String(mk-1).padStart(2,'0'));
+    const liqSnap  = await db.collection('patriarca_liquidacion_txs')
+      .where('mesKey','==',prevKey).where('tipo','==','saldo').where('estado','==','aprobado').get();
+    liqSnap.docs.forEach(d => {
+      const tx = d.data();
+      if (normMetodo(tx.metodo || '') !== MET) return;
+      add(tx.operadorId, -(parseFloat(tx.monto) || 0));
+    });
+  } catch(e) { console.warn('calcEfectivoSistema liq:', e); }
+
+  // Sumar el cupo inicial asignado en efectivo
+  _efSistemaPorOp = {};
+  operadores.forEach(o => {
+    const ini = Object.entries(cupoAsignado[o.uid] || {})
+      .reduce((acc,[k,v]) => normMetodo(k) === MET && v ? v : acc, 0);
+    const val = ini + (net[o.uid] || 0);
+    if (val) _efSistemaPorOp[o.uid] = val;
+  });
+}
+
+function cargarEfectivo() {
+  const lbl = document.getElementById('ef-mes-lbl');
+  if (lbl) lbl.textContent = mesActivo;
+
+  // Poblar selectores de operador
+  const opts = operadores.slice().sort((a,b)=>a.nombre.localeCompare(b.nombre))
+    .map(o => `<option value="${o.uid}">${o.nombre}</option>`).join('');
+  const selF = document.getElementById('ef-f-operador');
+  if (selF) selF.innerHTML = opts;
+  const selFil = document.getElementById('ef-filtro-op');
+  if (selFil) {
+    const prev = selFil.value;
+    selFil.innerHTML = '<option value="">Todos</option>' + opts;
+    selFil.value = prev;
+  }
+
+  // Listener de movimientos del mes
+  if (_efUnsub) { _efUnsub(); _efUnsub = null; }
+  let q = db.collection('patriarca_efectivo').where('mesKey','==',mesActivo);
+  if (cajeroOficina) q = q.where('oficina','==',cajeroOficina);
+  _efUnsub = q.onSnapshot(snap => {
+    _efMovs = snap.docs.map(d => ({ id:d.id, ...d.data() }))
+      .sort((a,b) => (a.fecha||'').localeCompare(b.fecha||'') || (a.num||0)-(b.num||0));
+    renderEfectivo();
+  }, e => console.warn('efectivo:', e));
+
+  // Saldo inicial del mes
+  db.collection('patriarca_efectivo_inicial').doc(_efDocId()).get()
+    .then(d => { _efSaldoIni = d.exists ? (d.data().saldos || {}) : {}; renderEfectivo(); })
+    .catch(e => { _efSaldoIni = {}; console.warn('saldo ini ef:', e); });
+
+  // Conteo: cache local inmediato + sincronización en tiempo real
+  _efConteoLoadLS();
+  renderConteoTabla();
+  _efLibreCargar();
+
+  if (_efConteoUnsub) { _efConteoUnsub(); _efConteoUnsub = null; }
+  _efConteoUnsub = db.collection('patriarca_efectivo_conteo').doc(_efDocId())
+    .onSnapshot(d => {
+      if (!d.exists) return;
+      const remoto = d.data().conteo || {};
+      let cambio = false;
+      [...EF_DENOMS, 'monedas'].forEach(k => {
+        const v = remoto[k] || 0;
+        if ((_efConteo[k] || 0) !== v) { _efConteo[k] = v; cambio = true; }
+      });
+      if (!cambio) return;
+      _efConteoSaveLS();
+      // Refrescar inputs sin pisar el campo que se está editando
+      [...EF_DENOMS, 'monedas'].forEach(k => {
+        const inp = document.getElementById('ef-ct-' + k);
+        if (inp && document.activeElement !== inp) inp.value = _efConteo[k] || '';
+      });
+      calcConteo();
+    }, e => console.warn('conteo snap:', e));
+
+  renderEfectivo();
+}
+
+// ── Persistencia del conteo: localStorage inmediato + Firestore con debounce ──
+function _efConteoSaveLS() {
+  try { localStorage.setItem('ef_conteo_' + _efDocId(), JSON.stringify(_efConteo)); } catch(e) {}
+}
+function _efConteoLoadLS() {
+  try {
+    const raw = localStorage.getItem('ef_conteo_' + _efDocId());
+    _efConteo = raw ? JSON.parse(raw) : {};
+  } catch(e) { _efConteo = {}; }
+}
+function _efConteoAutoSave() {
+  // Capturar valores actuales
+  const conteo = {};
+  EF_DENOMS.forEach(d => {
+    conteo[d] = parseInt(document.getElementById('ef-ct-'+d)?.value) || 0;
+  });
+  conteo.monedas = parseInt(document.getElementById('ef-ct-monedas')?.value) || 0;
+  _efConteo = conteo;
+  _efConteoSaveLS();
+
+  const st = document.getElementById('ef-conteo-status');
+  if (st) { st.textContent = '⏳ Guardando…'; st.style.color = 'var(--text2)'; }
+
+  if (_efConteoTimer) clearTimeout(_efConteoTimer);
+  _efConteoTimer = setTimeout(async () => {
+    try {
+      await db.collection('patriarca_efectivo_conteo').doc(_efDocId()).set({
+        mesKey: mesActivo, oficina: cajeroOficina || '',
+        conteo, total: _efTotalContado(),
+        actualizadoEn: firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+      if (st) { st.textContent = '✓ Guardado'; st.style.color = 'var(--green)'; }
+    } catch(e) {
+      if (st) { st.textContent = '⚠ Error al guardar'; st.style.color = 'var(--red)'; }
+      console.warn('conteo save:', e);
+    }
+  }, 700);
+}
+
+// ── CONTEO LIBRE ──────────────────────────────────────────────────────────
+// Calculadora de billetes aparte. No toca el cruce ni el estado, solo cuenta.
+let _efLibre = {};          // { denominacion: cantidad }
+let _efLibreNota = '';
+let _efLibreTimer = null;
+
+function _efLibreKey() { return 'ef_libre_' + _efDocId(); }
+
+function _efLibreLoadLS() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(_efLibreKey()) || '{}');
+    _efLibre     = raw.conteo || {};
+    _efLibreNota = raw.nota   || '';
+  } catch(e) { _efLibre = {}; _efLibreNota = ''; }
+}
+
+function _efLibreSaveLS() {
+  try { localStorage.setItem(_efLibreKey(), JSON.stringify({ conteo: _efLibre, nota: _efLibreNota })); } catch(e) {}
+}
+
+function _efLibreAutoSave() {
+  const conteo = {};
+  EF_DENOMS.forEach(d => {
+    conteo[d] = parseInt(document.getElementById('ef-lb-'+d)?.value) || 0;
+  });
+  conteo.monedas = parseInt(document.getElementById('ef-lb-monedas')?.value) || 0;
+  _efLibre     = conteo;
+  _efLibreNota = document.getElementById('ef-lb-nota')?.value || '';
+  _efLibreSaveLS();
+  calcConteoLibre();
+
+  const st = document.getElementById('ef-lb-status');
+  if (st) { st.textContent = '⏳ Guardando…'; st.style.color = 'var(--text2)'; }
+
+  clearTimeout(_efLibreTimer);
+  _efLibreTimer = setTimeout(async () => {
+    try {
+      await db.collection('patriarca_efectivo_conteo').doc(_efDocId() + '_libre').set({
+        mesKey: mesActivo, oficina: cajeroOficina || '', tipo: 'libre',
+        conteo: _efLibre, nota: _efLibreNota, total: _efLibreTotal(),
+        actualizadoEn: firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+      if (st) { st.textContent = '✓ Guardado'; st.style.color = 'var(--green)'; }
+    } catch(e) {
+      if (st) { st.textContent = '⚠ Error'; st.style.color = 'var(--red)'; }
+    }
+  }, 700);
+}
+
+async function _efLibreCargar() {
+  _efLibreLoadLS();
+  try {
+    const d = await db.collection('patriarca_efectivo_conteo').doc(_efDocId() + '_libre').get();
+    if (d.exists) {
+      _efLibre     = d.data().conteo || _efLibre;
+      _efLibreNota = d.data().nota ?? _efLibreNota;
+      _efLibreSaveLS();
+    }
+  } catch(e) {}
+  renderConteoLibre();
+}
+
+function renderConteoLibre() {
+  const t = document.getElementById('ef-lb-tabla');
+  if (!t) return;
+  const nota = document.getElementById('ef-lb-nota');
+  if (nota && nota !== document.activeElement) nota.value = _efLibreNota || '';
+
+  const fila = (key, label) => `
+    <tr>
+      <td style="padding:4px 6px;color:var(--text2)">${label}</td>
+      <td style="padding:4px 6px;width:80px">
+        <input type="number" min="0" id="ef-lb-${key}" value="${_efLibre[key]||''}" placeholder="0"
+          oninput="_efLibreAutoSave()"
+          style="width:100%;text-align:center;padding:4px;font-size:12px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);box-sizing:border-box">
+      </td>
+      <td style="padding:4px 6px;text-align:right;font-weight:600" id="ef-lbv-${key}">$0</td>
+    </tr>`;
+  t.innerHTML = EF_DENOMS.map(d => fila(d, pesos(d))).join('') + fila('monedas', 'MONEDAS');
+  calcConteoLibre();
+}
+
+function _efLibreTotal() {
+  let tot = 0;
+  EF_DENOMS.forEach(d => { tot += (parseInt(document.getElementById('ef-lb-'+d)?.value) || 0) * d; });
+  return tot + (parseInt(document.getElementById('ef-lb-monedas')?.value) || 0);
+}
+
+function calcConteoLibre() {
+  let billetes = 0;
+  EF_DENOMS.forEach(d => {
+    const n = parseInt(document.getElementById('ef-lb-'+d)?.value) || 0;
+    billetes += n;
+    const c = document.getElementById('ef-lbv-'+d);
+    if (c) c.textContent = pesos(n * d);
+  });
+  const mon = parseInt(document.getElementById('ef-lb-monedas')?.value) || 0;
+  const cm = document.getElementById('ef-lbv-monedas');
+  if (cm) cm.textContent = pesos(mon);
+
+  const elB = document.getElementById('ef-lb-billetes');
+  if (elB) elB.textContent = billetes.toLocaleString('es-CO');
+  const elT = document.getElementById('ef-lb-total');
+  if (elT) elT.textContent = pesos(_efLibreTotal());
+}
+
+function limpiarConteoLibre() {
+  if (!confirm('¿Borrar el conteo libre?')) return;
+  _efLibre = {}; _efLibreNota = '';
+  const nota = document.getElementById('ef-lb-nota');
+  if (nota) nota.value = '';
+  EF_DENOMS.concat('monedas').forEach(d => {
+    const i = document.getElementById('ef-lb-'+d);
+    if (i) i.value = '';
+  });
+  _efLibreSaveLS();
+  calcConteoLibre();
+  _efLibreAutoSave();
+}
+
+function toggleConteoLibre() {
+  const b = document.getElementById('ef-lb-body');
+  const c = document.getElementById('ef-lb-caret');
+  const oculto = b.style.display === 'none';
+  b.style.display = oculto ? '' : 'none';
+  if (c) c.textContent = oculto ? '▾' : '▸';
+}
+
+function toggleConteo() {
+  const b = document.getElementById('ef-conteo-body');
+  const c = document.getElementById('ef-conteo-caret');
+  const oculto = b.style.display === 'none';
+  b.style.display = oculto ? '' : 'none';
+  if (c) c.textContent = oculto ? '▾' : '▸';
+}
+
+function renderConteoTabla() {
+  const t = document.getElementById('ef-conteo-tabla');
+  if (!t) return;
+  const fila = (key, label) => `
+    <tr>
+      <td style="padding:4px 6px;color:var(--text2)">${label}</td>
+      <td style="padding:4px 6px;width:80px">
+        <input type="number" min="0" id="ef-ct-${key}" value="${_efConteo[key]||''}" placeholder="0"
+          oninput="calcConteo();_efConteoAutoSave()"
+          style="width:100%;text-align:center;padding:4px;font-size:12px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);box-sizing:border-box">
+      </td>
+      <td style="padding:4px 6px;text-align:right;font-weight:600" id="ef-ctv-${key}">$0</td>
+    </tr>`;
+  t.innerHTML = EF_DENOMS.map(d => fila(d, pesos(d))).join('') + fila('monedas', 'MONEDAS');
+  calcConteo();
+}
+
+function _efTotalContado() {
+  let tot = 0;
+  EF_DENOMS.forEach(d => {
+    const n = parseInt(document.getElementById('ef-ct-'+d)?.value) || 0;
+    tot += n * d;
+  });
+  tot += parseInt(document.getElementById('ef-ct-monedas')?.value) || 0;
+  return tot;
+}
+
+function calcConteo() {
+  EF_DENOMS.forEach(d => {
+    const n = parseInt(document.getElementById('ef-ct-'+d)?.value) || 0;
+    const el = document.getElementById('ef-ctv-'+d);
+    if (el) el.textContent = pesos(n * d);
+  });
+  const mon = parseInt(document.getElementById('ef-ct-monedas')?.value) || 0;
+  const elM = document.getElementById('ef-ctv-monedas');
+  if (elM) elM.textContent = pesos(mon);
+
+  const contado = _efTotalContado();
+  let registrado = _efTotalInicial;   // arranca con el saldo del mes anterior
+  _efMovs.forEach(m => {
+    registrado += (m.operacion === 'EGRESA' ? -1 : 1) * (parseFloat(m.cantidad)||0);
+  });
+  const dif = contado - registrado;
+
+  const set = (id, txt, color) => {
+    const el = document.getElementById(id);
+    if (el) { el.textContent = txt; if (color) el.style.color = color; }
+  };
+  set('ef-ct-registrado', pesos(registrado));
+  set('ef-ct-efectivo',   pesos(contado));
+  set('ef-kpi-cont',      pesos(contado));
+  if (dif === 0) {
+    set('ef-ct-estado', '✅ CUADRA', 'var(--green)');
+    set('ef-kpi-dif',   '✅ $0',     'var(--green)');
+  } else {
+    const txt = (dif > 0 ? '+' : '') + pesos(dif);
+    const col = dif > 0 ? 'var(--orange)' : 'var(--red)';
+    set('ef-ct-estado', txt, col);
+    set('ef-kpi-dif',   txt, col);
+  }
+}
+
+function renderEfectivo() {
+  const filtroOp = document.getElementById('ef-filtro-op')?.value || '';
+
+  // ── Resumen por operador ──
+  const res = {};
+  let totIn = 0, totEg = 0;
+  _efMovs.forEach(m => {
+    const uid = m.opUid || '—';
+    if (!res[uid]) res[uid] = { nombre: m.opNombre || uid, in:0, eg:0 };
+    const v = parseFloat(m.cantidad) || 0;
+    if (m.operacion === 'EGRESA') { res[uid].eg += v; totEg += v; }
+    else                          { res[uid].in += v; totIn += v; }
+  });
+  // ── Cruce: físico (registro) vs sistema (cupo actual) ──
+  // Incluir también operadores que tienen saldo en el sistema aunque no tengan registros
+  [...Object.keys(_efSistemaPorOp), ...Object.keys(_efSaldoIni)].forEach(uid => {
+    if (!res[uid] && (_efSistemaPorOp[uid] || _efSaldoIni[uid])) {
+      const op = operadores.find(o => o.uid === uid);
+      res[uid] = { nombre: op?.nombre || uid, in:0, eg:0 };
+    }
+  });
+
+  const filas = Object.entries(res)
+    .filter(([uid,r]) => r.in || r.eg || _efSistemaPorOp[uid] || _efSaldoIni[uid])
+    .map(([uid,r]) => ({ uid, ...r, ini: parseFloat(_efSaldoIni[uid]) || 0, sist: _efSistemaPorOp[uid] || 0 }))
+    .sort((a,b) => (b.ini+b.in-b.eg)-(a.ini+a.in-a.eg));
+
+  const tbC = document.getElementById('ef-cruce-tbody');
+  let totIni = 0;
+  if (tbC) {
+    let sFis=0, sSis=0;
+    const html = filas.map(r => {
+      const fis = r.ini + r.in - r.eg;   // saldo inicial + movimientos del mes
+      const dif = fis - r.sist;
+      sFis += fis; sSis += r.sist; totIni += r.ini;
+      const difTxt = dif === 0
+        ? '<span style="color:var(--green);font-weight:700">✅ CORRECTO</span>'
+        : `<span style="color:${dif>0?'var(--orange)':'var(--red)'};font-weight:700">${dif>0?'+':''}${pesos(dif)}</span>`;
+      return `<tr>
+        <td style="font-weight:600">${r.nombre}</td>
+        <td style="text-align:right;color:var(--text2)">${r.ini?pesos(r.ini):'—'}</td>
+        <td style="text-align:right;color:var(--green)">${r.in?pesos(r.in):'—'}</td>
+        <td style="text-align:right;color:var(--red)">${r.eg?pesos(r.eg):'—'}</td>
+        <td style="text-align:right;font-weight:700">${pesos(fis)}</td>
+        <td style="text-align:right;color:var(--text2)">${r.sist?pesos(r.sist):'—'}</td>
+        <td style="text-align:right">${difTxt}</td>
+      </tr>`;
+    }).join('');
+    const difTot = sFis - sSis;
+    tbC.innerHTML = filas.length ? html + `<tr style="background:var(--bg3);font-weight:800;border-top:2px solid var(--border)">
+        <td>TOTAL</td>
+        <td style="text-align:right">${pesos(totIni)}</td>
+        <td style="text-align:right;color:var(--green)">${pesos(totIn)}</td>
+        <td style="text-align:right;color:var(--red)">${pesos(totEg)}</td>
+        <td style="text-align:right">${pesos(sFis)}</td>
+        <td style="text-align:right">${pesos(sSis)}</td>
+        <td style="text-align:right;color:${difTot===0?'var(--green)':difTot>0?'var(--orange)':'var(--red)'}">${difTot===0?'✅ $0':(difTot>0?'+':'')+pesos(difTot)}</td>
+      </tr>`
+      : '<tr><td colspan="7" style="text-align:center;color:var(--text2);padding:20px">Sin registros</td></tr>';
+  }
+  _efTotalInicial = totIni;
+
+  // ── KPIs ──
+  document.getElementById('ef-kpi-ini').textContent = pesos(_efTotalInicial);
+  document.getElementById('ef-kpi-in').textContent  = pesos(totIn);
+  document.getElementById('ef-kpi-eg').textContent  = pesos(totEg);
+  document.getElementById('ef-kpi-tot').textContent = pesos(_efTotalInicial + totIn - totEg);
+
+  // ── Movimientos ──
+  const lista = filtroOp ? _efMovs.filter(m => m.opUid === filtroOp) : _efMovs;
+  const tbM = document.getElementById('ef-movs-tbody');
+  if (tbM) {
+    tbM.innerHTML = lista.length ? lista.map(m => {
+      const esEg = m.operacion === 'EGRESA';
+      return `<tr>
+        <td style="white-space:nowrap">${m.fecha||'—'}</td>
+        <td style="color:var(--text2)">${m.num||''}</td>
+        <td>${m.opNombre||'—'}</td>
+        <td style="text-align:right;font-weight:600">${pesos(m.cantidad)}</td>
+        <td><span class="badge ${esEg?'badge-red':'badge-green'}">${m.operacion}</span></td>
+        <td style="color:var(--text2);max-width:260px;font-size:11px">${m.nota ? `📝 ${m.nota}` : ''}</td>
+        <td style="white-space:nowrap">
+          <button class="btn-icon" onclick="editarEfectivo('${m.id}')" title="Editar">✏️</button>
+          <button class="btn-icon btn-eliminar-reg" onclick="borrarEfectivo('${m.id}')" title="Eliminar">🗑</button>
+        </td>
+      </tr>`;
+    }).join('')
+      : '<tr><td colspan="7" style="text-align:center;color:var(--text2);padding:20px">Sin movimientos</td></tr>';
+  }
+
+  calcConteo();
+  aplicarPermisosCajero();   // los botones se regeneran en cada render
+}
+
+function setEfOperacion(op) {
+  document.getElementById('ef-f-operacion').value = op;
+  const bIn = document.getElementById('ef-btn-in');
+  const bEg = document.getElementById('ef-btn-eg');
+  const on  = 'background:var(--green);color:#fff;border-color:var(--green)';
+  const onR = 'background:var(--red);color:#fff;border-color:var(--red)';
+  bIn.style.cssText = 'flex:1;' + (op==='INGRESA' ? on : '');
+  bEg.style.cssText = 'flex:1;' + (op==='EGRESA'  ? onR : '');
+}
+
+function abrirModalEfectivo() {
+  document.getElementById('ef-edit-id').value = '';
+  document.getElementById('ef-modal-title').textContent = '💵 Registrar Efectivo';
+  document.getElementById('ef-f-fecha').value = _hoyLocal();
+  document.getElementById('ef-f-cantidad').value = '';
+  document.getElementById('ef-f-nota').value = '';
+  setEfOperacion('INGRESA');
+  openModal('modal-efectivo');
+}
+
+function editarEfectivo(id) {
+  const m = _efMovs.find(x => x.id === id);
+  if (!m) return;
+  document.getElementById('ef-edit-id').value = id;
+  document.getElementById('ef-modal-title').textContent = '✏️ Editar Registro';
+  document.getElementById('ef-f-fecha').value    = m.fecha || '';
+  document.getElementById('ef-f-operador').value = m.opUid || '';
+  document.getElementById('ef-f-cantidad').value = formatCOP(String(Math.round(m.cantidad||0)));
+  document.getElementById('ef-f-nota').value     = m.nota || '';
+  setEfOperacion(m.operacion || 'INGRESA');
+  openModal('modal-efectivo');
+}
+
+async function guardarEfectivo() {
+  const editId   = document.getElementById('ef-edit-id').value;
+  const fecha    = document.getElementById('ef-f-fecha').value;
+  const opUid    = document.getElementById('ef-f-operador').value;
+  const cantidad = parseCOP(document.getElementById('ef-f-cantidad').value);
+  const operacion= document.getElementById('ef-f-operacion').value;
+  const nota     = document.getElementById('ef-f-nota').value.trim();
+
+  if (!fecha)     { toast('⚠ Selecciona la fecha', 'error'); return; }
+  if (!opUid)     { toast('⚠ Selecciona el operador', 'error'); return; }
+  if (!cantidad)  { toast('⚠ Ingresa la cantidad', 'error'); return; }
+
+  const op = operadores.find(o => o.uid === opUid);
+  const data = {
+    fecha, opUid, opNombre: op?.nombre || opUid,
+    cantidad, operacion, nota,
+    mesKey: fecha.slice(0,7),
+    oficina: cajeroOficina || '',
+    ts: firebase.firestore.FieldValue.serverTimestamp()
+  };
+
+  try {
+    if (editId) {
+      await db.collection('patriarca_efectivo').doc(editId).update(data);
+      toast('✅ Registro actualizado', 'success');
+    } else {
+      const maxNum = _efMovs.reduce((mx,m) => Math.max(mx, m.num||0), 0);
+      data.num = maxNum + 1;
+      await db.collection('patriarca_efectivo').add(data);
+      toast('✅ Registro guardado', 'success');
+    }
+    closeModal('modal-efectivo');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+async function borrarEfectivo(id) {
+  if (cajeroPermisos.eliminarTodo === false) {
+    toast('⚠ No tienes permiso para eliminar registros', 'error'); return;
+  }
+  const m = _efMovs.find(x => x.id === id);
+  if (!m) return;
+  if (!confirm(`¿Eliminar el registro de ${m.opNombre} por ${pesos(m.cantidad)}?`)) return;
+  try {
+    await db.collection('patriarca_efectivo').doc(id).delete();
+    toast('🗑 Registro eliminado', 'success');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+let _efTotalInicial = 0;
+
+// ── Saldo inicial de efectivo ──────────────────────────────────────────────
+function abrirSaldoInicialEf() {
+  document.getElementById('sie-mes').textContent = mesActivo;
+  _pintarSaldoIniEf(_efSaldoIni);
+  openModal('modal-si-ef');
+}
+
+function _pintarSaldoIniEf(valores) {
+  const lista = operadores.slice().sort((a,b)=>a.nombre.localeCompare(b.nombre));
+  document.getElementById('sie-lista').innerHTML = lista.map(o => {
+    const v = parseFloat(valores[o.uid]) || 0;
+    return `<div style="display:flex;gap:10px;align-items:center">
+      <span style="flex:1;font-size:12px">${o.nombre}</span>
+      <input type="text" id="sie-${o.uid}" value="${v ? formatCOP(String(Math.round(v))) : ''}"
+        placeholder="0" inputmode="numeric" oninput="_sumarSaldoIniEf();
+          const s=this.selectionStart,l=this.value.length;this.value=formatCOP(this.value);
+          this.setSelectionRange(s+this.value.length-l,s+this.value.length-l)"
+        style="width:150px;text-align:right;padding:6px 8px;font-size:12px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+    </div>`;
+  }).join('');
+  _sumarSaldoIniEf();
+}
+
+function _sumarSaldoIniEf() {
+  let t = 0;
+  operadores.forEach(o => { t += parseCOP(document.getElementById('sie-'+o.uid)?.value || ''); });
+  const el = document.getElementById('sie-total');
+  if (el) el.textContent = pesos(t);
+}
+
+// Calcula cómo terminó cada operador el mes anterior y lo trae como saldo inicial
+async function traerCierreMesAnterior() {
+  const [y, m] = mesActivo.split('-').map(Number);
+  const prev = (m===1 ? (y-1)+'-12' : y+'-'+String(m-1).padStart(2,'0'));
+  const of = cajeroOficina || '';
+  try {
+    // Saldo inicial del mes anterior
+    const iniDoc = await db.collection('patriarca_efectivo_inicial')
+      .doc(`${prev}_${of || 'global'}`).get();
+    const iniPrev = iniDoc.exists ? (iniDoc.data().saldos || {}) : {};
+
+    // Movimientos del mes anterior
+    let q = db.collection('patriarca_efectivo').where('mesKey','==',prev);
+    if (of) q = q.where('oficina','==',of);
+    const snap = await q.get();
+
+    const cierre = { ...iniPrev };
+    Object.keys(cierre).forEach(k => cierre[k] = parseFloat(cierre[k]) || 0);
+    snap.docs.forEach(d => {
+      const mv = d.data();
+      if (!mv.opUid) return;
+      const v = parseFloat(mv.cantidad) || 0;
+      cierre[mv.opUid] = (cierre[mv.opUid] || 0) + (mv.operacion === 'EGRESA' ? -v : v);
+    });
+
+    const n = Object.values(cierre).filter(v => v).length;
+    if (!n) { toast(`⚠ No hay movimientos de efectivo en ${prev}`, 'error'); return; }
+    _pintarSaldoIniEf(cierre);
+    toast(`↩ Traído el cierre de ${prev} — ${n} operador(es)`, 'success');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+async function guardarSaldoInicialEf() {
+  const saldos = {};
+  operadores.forEach(o => {
+    const v = parseCOP(document.getElementById('sie-'+o.uid)?.value || '');
+    if (v) saldos[o.uid] = v;
+  });
+  try {
+    await db.collection('patriarca_efectivo_inicial').doc(_efDocId()).set({
+      mesKey: mesActivo, oficina: cajeroOficina || '', saldos,
+      actualizadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    _efSaldoIni = saldos;
+    closeModal('modal-si-ef');
+    renderEfectivo();
+    toast('✅ Saldo inicial guardado', 'success');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+// Aplica los permisos que el admin configuró para este cajero
+function aplicarPermisosCajero() {
+  const p = cajeroPermisos || {};
+  const puedeImportar = p.importarExcel !== false;
+  const puedeBorrar   = p.eliminarTodo  !== false;
+
+  document.querySelectorAll('.btn-importar').forEach(b => {
+    b.style.display = puedeImportar ? '' : 'none';
+  });
+  document.querySelectorAll('.btn-eliminar-reg').forEach(b => {
+    b.style.display = puedeBorrar ? '' : 'none';
+  });
+  const btnCierre = document.getElementById('btn-cerrar-mes-caj');
+  if (btnCierre) btnCierre.style.display = (p.cerrarMes !== false) ? '' : 'none';
+
+  // El botón de cambiar módulo solo tiene sentido si tiene los dos habilitados
+  const per = _modulosPermitidos();
+  const btnMod = document.getElementById('btn-cambiar-modulo');
+  if (btnMod) btnMod.style.display = (per.amc && per.corresponsal) ? '' : 'none';
+}
+
+// ── IMPORTAR DESDE EXCEL ────────────────────────────────────────
+let _impFilas   = [];   // filas parseadas y válidas
+let _impNoMatch = [];   // nombres sin coincidencia
+let _impWB      = null; // workbook cargado
+
+function _norm(s) {
+  return String(s||'').toUpperCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g,'')
+    .replace(/[^A-Z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+}
+
+// Busca operador por nombre — exacto, luego por similitud de palabras
+function _matchOperador(nombre) {
+  const n = _norm(nombre);
+  if (!n) return null;
+  let op = operadores.find(o => _norm(o.nombre) === n);
+  if (op) return op;
+  // Coincidencia por nombre+apellido (al menos 2 palabras en común de 4+ letras)
+  const pal = n.split(' ').filter(w => w.length >= 4);
+  let mejor = null, mejorPts = 0;
+  operadores.forEach(o => {
+    const on = _norm(o.nombre).split(' ').filter(w => w.length >= 4);
+    const pts = pal.filter(w => on.includes(w)).length;
+    if (pts > mejorPts) { mejorPts = pts; mejor = o; }
+  });
+  return mejorPts >= 2 ? mejor : null;
+}
+
+// ── CONTEO DE BILLETES DEL CORRESPONSAL ───────────────────────────────────
+// Cuatro tablas: un par en Efecty y otro en Corresponsal. Cada una guarda
+// aparte y solo totaliza — no cruza contra nada.
+const CONTEO_PANELES = [
+  { id:'cajas-corr',  cont:'conteo-cajas', icono:'🏧', titulo:'Efectivo del Efecty' },
+  { id:'cajas-libre', cont:'conteo-cajas', icono:'🧾', titulo:'Conteo Libre',  libre:true },
+  { id:'banco-corr',  cont:'conteo-banco', icono:'🏦', titulo:'Efectivo del Corresponsal' },
+  { id:'banco-libre', cont:'conteo-banco', icono:'🧾', titulo:'Conteo Libre',  libre:true },
+];
+
+let _conteos      = {};   // id → { conteo:{denom:cant}, nota:'' }
+let _conteoTimers = {};
+
+function _cnDocId(id) { return `${_corrPunto() || 'global'}_${mesActivo}_${id}`; }
+
+function _cnSaveLS(id) {
+  try { localStorage.setItem('cn_' + _cnDocId(id), JSON.stringify(_conteos[id] || {})); } catch(e) {}
+}
+
+function _cnLoadLS(id) {
+  try { _conteos[id] = JSON.parse(localStorage.getItem('cn_' + _cnDocId(id)) || '{}'); }
+  catch(e) { _conteos[id] = {}; }
+  if (!_conteos[id].conteo) _conteos[id].conteo = {};
+}
+
+function _cnAuto(id) {
+  const conteo = {};
+  EF_DENOMS.forEach(d => {
+    conteo[d] = parseInt(document.getElementById(`cn-${id}-${d}`)?.value) || 0;
+  });
+  conteo.monedas = parseInt(document.getElementById(`cn-${id}-monedas`)?.value) || 0;
+  _conteos[id] = { conteo, nota: document.getElementById(`cn-${id}-nota`)?.value || '' };
+  _cnSaveLS(id);
+  _cnCalc(id);
+
+  const st = document.getElementById(`cn-${id}-status`);
+  if (st) { st.textContent = '⏳ Guardando…'; st.style.color = 'var(--text2)'; }
+
+  clearTimeout(_conteoTimers[id]);
+  _conteoTimers[id] = setTimeout(async () => {
+    try {
+      await db.collection('corresponsal_conteo').doc(_cnDocId(id)).set({
+        oficina: _corrPunto(), mesKey: mesActivo, panel: id,
+        conteo, nota: _conteos[id].nota, total: _cnTotal(id),
+        ts: firebase.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+      if (st) { st.textContent = '✓ Guardado'; st.style.color = 'var(--green)'; }
+    } catch(e) {
+      if (st) { st.textContent = '⚠ Error'; st.style.color = 'var(--red)'; }
+    }
+  }, 700);
+}
+
+function _cnTotal(id) {
+  let tot = 0;
+  EF_DENOMS.forEach(d => { tot += (parseInt(document.getElementById(`cn-${id}-${d}`)?.value) || 0) * d; });
+  return tot + (parseInt(document.getElementById(`cn-${id}-monedas`)?.value) || 0);
+}
+
+function _cnCalc(id) {
+  let billetes = 0;
+  EF_DENOMS.forEach(d => {
+    const n = parseInt(document.getElementById(`cn-${id}-${d}`)?.value) || 0;
+    billetes += n;
+    const c = document.getElementById(`cn-${id}-v-${d}`);
+    if (c) c.textContent = pesos(n * d);
+  });
+  const cm = document.getElementById(`cn-${id}-v-monedas`);
+  if (cm) cm.textContent = pesos(parseInt(document.getElementById(`cn-${id}-monedas`)?.value) || 0);
+  const eb = document.getElementById(`cn-${id}-billetes`);
+  if (eb) eb.textContent = billetes.toLocaleString('es-CO');
+  const et = document.getElementById(`cn-${id}-total`);
+  if (et) et.textContent = pesos(_cnTotal(id));
+  if (id === 'banco-corr')  { try { renderBalanceCorr();   } catch(e) {} }
+  if (id === 'cajas-corr')  { try { renderBalanceEfecty(); } catch(e) {} }
+}
+
+function _cnHtml(p) {
+  const st = _conteos[p.id] || { conteo:{}, nota:'' };
+  const fila = (key, label) => `
+    <tr>
+      <td style="padding:4px 6px;color:var(--text2)">${label}</td>
+      <td style="padding:4px 6px;width:80px">
+        <input type="number" min="0" id="cn-${p.id}-${key}" value="${st.conteo[key]||''}" placeholder="0"
+          oninput="_cnAuto('${p.id}')"
+          style="width:100%;text-align:center;padding:4px;font-size:12px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);box-sizing:border-box">
+      </td>
+      <td style="padding:4px 6px;text-align:right;font-weight:600" id="cn-${p.id}-v-${key}">$0</td>
+    </tr>`;
+  return `<div class="panel" style="margin-bottom:0;display:flex;flex-direction:column">
+    <div class="panel-header" style="cursor:pointer" onclick="_cnToggle('${p.id}')">
+      <span class="panel-title">${p.icono} ${p.titulo} <span id="cn-${p.id}-caret" style="font-size:10px;color:var(--text2)">▾</span></span>
+      <span id="cn-${p.id}-status" style="font-size:11px;color:var(--text2)">Automático</span>
+    </div>
+    <div id="cn-${p.id}-body" style="padding:12px;display:flex;flex-direction:column;flex:1">
+      ${p.libre
+        ? `<input type="text" id="cn-${p.id}-nota" value="${(st.nota||'').replace(/"/g,'&quot;')}"
+             placeholder="¿Qué estás contando? (opcional)" maxlength="60" oninput="_cnAuto('${p.id}')"
+             style="width:100%;padding:6px 8px;margin-bottom:10px;font-size:12px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);box-sizing:border-box">`
+        : `<div style="padding:6px 8px;margin-bottom:10px;font-size:12px;color:var(--text2);border:1px solid transparent">Conteo del cierre</div>`}
+      <table style="width:100%;font-size:12px;border-collapse:collapse">
+        ${EF_DENOMS.map(d => fila(d, pesos(d))).join('')}
+        ${fila('monedas', 'MONEDAS')}
+      </table>
+      <div style="border-top:2px solid var(--border);margin-top:10px;padding-top:10px">
+        <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:11px;color:var(--text2)">
+          <span>BILLETES</span><span id="cn-${p.id}-billetes">0</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:8px 0;font-weight:800;font-size:16px;border-top:1px solid var(--border);margin-top:4px">
+          <span>TOTAL</span><span id="cn-${p.id}-total" style="color:var(--green)">$0</span>
+        </div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="_cnLimpiar('${p.id}')" style="width:100%;margin-top:auto;padding-top:8px">🧹 Limpiar</button>
+    </div>
+  </div>`;
+}
+
+function _cnToggle(id) {
+  const b = document.getElementById(`cn-${id}-body`);
+  const c = document.getElementById(`cn-${id}-caret`);
+  const oculto = b.style.display === 'none';
+  b.style.display = oculto ? '' : 'none';
+  if (c) c.textContent = oculto ? '▾' : '▸';
+}
+
+function _cnLimpiar(id) {
+  if (!confirm('¿Borrar este conteo?')) return;
+  EF_DENOMS.concat('monedas').forEach(d => {
+    const i = document.getElementById(`cn-${id}-${d}`);
+    if (i) i.value = '';
+  });
+  const n = document.getElementById(`cn-${id}-nota`);
+  if (n) n.value = '';
+  _cnAuto(id);
+}
+
+// Pinta el par de tablas de un contenedor y trae lo guardado
+async function renderConteos(contenedor) {
+  const cont = document.getElementById(contenedor);
+  if (!cont) return;
+  const paneles = CONTEO_PANELES.filter(p => p.cont === contenedor);
+  paneles.forEach(p => _cnLoadLS(p.id));
+  cont.innerHTML = paneles.map(_cnHtml).join('');
+  paneles.forEach(p => _cnCalc(p.id));
+
+  for (const p of paneles) {
+    try {
+      const d = await db.collection('corresponsal_conteo').doc(_cnDocId(p.id)).get();
+      if (!d.exists) continue;
+      _conteos[p.id] = { conteo: d.data().conteo || {}, nota: d.data().nota || '' };
+      _cnSaveLS(p.id);
+      EF_DENOMS.concat('monedas').forEach(k => {
+        const i = document.getElementById(`cn-${p.id}-${k}`);
+        if (i && i !== document.activeElement) i.value = _conteos[p.id].conteo[k] || '';
+      });
+      const n = document.getElementById(`cn-${p.id}-nota`);
+      if (n && n !== document.activeElement) n.value = _conteos[p.id].nota || '';
+      _cnCalc(p.id);
+    } catch(e) {}
+  }
+}
+
+// Fecha de hoy en hora local — no usar toISOString(), que devuelve UTC
+function _hoyLocal(d) {
+  d = d || new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+// Convierte fecha en varios formatos a 'YYYY-MM-DD'
+function _impFecha(v) {
+  if (v == null || v === '') return null;
+  // Serial de Excel
+  if (typeof v === 'number' && v > 20000 && v < 80000) {
+    const d = new Date(Date.UTC(1899,11,30) + v*86400000);
+    return d.toISOString().slice(0,10);
+  }
+  if (v instanceof Date) return _hoyLocal(v);
+  const s = String(v).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);
+  // d/m/yy o d/m/yyyy
+  const m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+  if (m) {
+    let [,d,mo,y] = m;
+    y = y.length === 2 ? '20'+y : y;
+    return `${y}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+  }
+  return null;
+}
+
+function _impNum(v) {
+  if (typeof v === 'number') return v;
+  if (v == null) return 0;
+  // "1.234.567,89" o "$ 927.600"
+  const s = String(v).replace(/[^\d,.-]/g,'');
+  if (!s) return 0;
+  const tieneComaDec = /,\d{1,2}$/.test(s);
+  return Math.abs(parseFloat(
+    tieneComaDec ? s.replace(/\./g,'').replace(',','.') : s.replace(/[.,](?=\d{3}\b)/g,'')
+  ) || 0);
+}
+
+function abrirModalImportar() {
+  if (cajeroPermisos.importarExcel === false) {
+    toast('⚠ No tienes permiso para importar', 'error'); return;
+  }
+  _impFilas = []; _impNoMatch = []; _impWB = null;
+  document.getElementById('imp-paste').value = '';
+  document.getElementById('imp-file').value = '';
+  document.getElementById('imp-reemplazar').checked = false;
+  document.getElementById('imp-hojas-wrap').style.display = 'none';
+  document.getElementById('imp-resumen').style.display = 'none';
+  document.getElementById('imp-mapeo-wrap').style.display = 'none';
+  document.getElementById('imp-preview-wrap').style.display = 'none';
+  document.getElementById('imp-btn').disabled = true;
+  openModal('modal-importar');
+}
+
+async function parseImportar(origen) {
+  let filas = [];
+
+  if (origen === 'paste') {
+    const txt = document.getElementById('imp-paste').value.trim();
+    if (!txt) { _impRender([]); return; }
+    filas = txt.split(/\r?\n/).map(l => l.split('\t'));
+    // Si no hay tabs, intentar separar por 2+ espacios o ;
+    if (filas[0].length < 5) filas = txt.split(/\r?\n/).map(l => l.split(/\t|;|\s{2,}/));
+
+  } else {
+    if (origen === 'file') {
+      const f = document.getElementById('imp-file').files[0];
+      if (!f) return;
+      try {
+        const buf = await f.arrayBuffer();
+        _impWB = XLSX.read(buf, { type:'array', cellDates:true });
+      } catch(e) { toast('⚠ No se pudo leer el archivo', 'error'); return; }
+      // Poblar selector de hojas — preseleccionar la que se llame EFECTIVO
+      const sel = document.getElementById('imp-hoja');
+      sel.innerHTML = _impWB.SheetNames.map(n => `<option value="${n}">${n}</option>`).join('');
+      const pref = _impWB.SheetNames.find(n => /EFECTIVO/i.test(n)) || _impWB.SheetNames[0];
+      sel.value = pref;
+      document.getElementById('imp-hojas-wrap').style.display = 'block';
+    }
+    if (!_impWB) return;
+    const hoja = document.getElementById('imp-hoja').value;
+    filas = XLSX.utils.sheet_to_json(_impWB.Sheets[hoja], { header:1, raw:true, defval:null });
+  }
+
+  // Detectar en qué columna arranca el bloque FECHA/#/OPERADOR/CANTIDAD/OPERACIÓN
+  let col0 = 0;
+  for (const f of filas.slice(0, 20)) {
+    if (!f) continue;
+    const i = f.findIndex(c => _norm(c) === 'FECHA');
+    if (i >= 0 && f.slice(i, i+6).some(c => /OPERACION/.test(_norm(c)))) { col0 = i; break; }
+  }
+
+  // Extraer filas válidas
+  const out = [];
+  filas.forEach(f => {
+    if (!f) return;
+    const fecha = _impFecha(f[col0]);
+    const oper  = _norm(f[col0+4]);
+    const nom   = f[col0+2];
+    const cant  = _impNum(f[col0+3]);
+    if (!fecha || !nom || !cant) return;
+    if (oper !== 'INGRESA' && oper !== 'EGRESA') return;
+    out.push({
+      fecha, num: parseInt(f[col0+1]) || null,
+      nombre: String(nom).trim(), cantidad: cant, operacion: oper
+    });
+  });
+
+  _impRender(out);
+}
+
+function _impRender(filas) {
+  const btn = document.getElementById('imp-btn');
+  const res = document.getElementById('imp-resumen');
+
+  if (!filas.length) {
+    _impFilas = [];
+    res.style.display = 'none';
+    document.getElementById('imp-mapeo-wrap').style.display = 'none';
+    document.getElementById('imp-preview-wrap').style.display = 'none';
+    btn.disabled = true;
+    return;
+  }
+
+  // Resolver operadores
+  const noMatch = new Set();
+  filas.forEach(f => {
+    const op = _matchOperador(f.nombre);
+    if (op) { f.opUid = op.uid; f.opNombre = op.nombre; }
+    else    { f.opUid = null;   noMatch.add(f.nombre); }
+  });
+  _impFilas   = filas;
+  _impNoMatch = [...noMatch];
+
+  // Meses detectados
+  const meses = [...new Set(filas.map(f => f.fecha.slice(0,7)))].sort();
+  const otroMes = meses.filter(m => m !== mesActivo);
+  const totIn = filas.filter(f=>f.operacion==='INGRESA').reduce((s,f)=>s+f.cantidad,0);
+  const totEg = filas.filter(f=>f.operacion==='EGRESA').reduce((s,f)=>s+f.cantidad,0);
+
+  res.style.display = 'block';
+  res.innerHTML = `
+    <div><strong>${filas.length}</strong> movimientos detectados · ${meses.join(', ')}</div>
+    <div style="margin-top:4px">
+      Ingresa <span style="color:var(--green);font-weight:600">${pesos(totIn)}</span> ·
+      Egresa <span style="color:var(--red);font-weight:600">${pesos(totEg)}</span> ·
+      Neto <strong>${pesos(totIn-totEg)}</strong>
+    </div>
+    ${otroMes.length ? `<div style="color:var(--orange);margin-top:5px">⚠ Hay fechas fuera del mes activo (${mesActivo}). Se importarán en su mes correspondiente.</div>` : ''}
+    ${_impNoMatch.length ? `<div style="color:var(--orange);margin-top:5px">⚠ ${_impNoMatch.length} nombre(s) sin coincidencia automática</div>` : ''}`;
+
+  // Mapeo manual
+  const wrapM = document.getElementById('imp-mapeo-wrap');
+  if (_impNoMatch.length) {
+    const opts = operadores.slice().sort((a,b)=>a.nombre.localeCompare(b.nombre))
+      .map(o => `<option value="${o.uid}">${o.nombre}</option>`).join('');
+    document.getElementById('imp-mapeo').innerHTML = _impNoMatch.map((n,i) => `
+      <div style="display:flex;gap:8px;align-items:center">
+        <span style="flex:1;font-size:11px;color:var(--text2)">${n}</span>
+        <select onchange="_impAsignar(${i}, this.value)" style="flex:1;padding:4px;font-size:11px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text)">
+          <option value="">— Omitir —</option>${opts}
+        </select>
+      </div>`).join('');
+    wrapM.style.display = 'block';
+  } else {
+    wrapM.style.display = 'none';
+  }
+
+  // Preview (primeras 60)
+  document.getElementById('imp-preview-wrap').style.display = 'block';
+  document.getElementById('imp-preview').innerHTML = filas.slice(0,60).map(f => `
+    <tr style="${f.opUid?'':'opacity:.5'}">
+      <td>${f.fecha}</td><td style="color:var(--text2)">${f.num||''}</td>
+      <td>${f.opNombre || f.nombre}${f.opUid?'':' <span style="color:var(--orange)">⚠</span>'}</td>
+      <td style="text-align:right">${pesos(f.cantidad)}</td>
+      <td><span class="badge ${f.operacion==='EGRESA'?'badge-red':'badge-green'}">${f.operacion}</span></td>
+    </tr>`).join('') + (filas.length>60 ? `<tr><td colspan="5" style="text-align:center;color:var(--text2);padding:8px">… y ${filas.length-60} más</td></tr>` : '');
+
+  btn.disabled = false;
+}
+
+function _impAsignar(idx, uid) {
+  const nombre = _impNoMatch[idx];
+  const op = operadores.find(o => o.uid === uid);
+  _impFilas.forEach(f => {
+    if (f.nombre === nombre) {
+      f.opUid    = op ? op.uid : null;
+      f.opNombre = op ? op.nombre : null;
+    }
+  });
+  _impRender(_impFilas);
+}
+
+async function ejecutarImportar() {
+  const validas = _impFilas.filter(f => f.opUid);
+  if (!validas.length) { toast('⚠ No hay filas con operador asignado', 'error'); return; }
+
+  const btn = document.getElementById('imp-btn');
+  btn.disabled = true; btn.textContent = '⏳ Importando…';
+
+  try {
+    // Borrar existentes si se pidió
+    if (document.getElementById('imp-reemplazar').checked) {
+      const meses = [...new Set(validas.map(f => f.fecha.slice(0,7)))];
+      for (const mk of meses) {
+        let q = db.collection('patriarca_efectivo').where('mesKey','==',mk);
+        if (cajeroOficina) q = q.where('oficina','==',cajeroOficina);
+        const snap = await q.get();
+        for (let i = 0; i < snap.docs.length; i += 400) {
+          const b = db.batch();
+          snap.docs.slice(i, i+400).forEach(d => b.delete(d.ref));
+          await b.commit();
+        }
+      }
+    }
+
+    // Insertar en lotes
+    for (let i = 0; i < validas.length; i += 400) {
+      const batch = db.batch();
+      validas.slice(i, i+400).forEach((f, j) => {
+        const ref = db.collection('patriarca_efectivo').doc();
+        batch.set(ref, {
+          fecha: f.fecha,
+          num: f.num || (i + j + 1),
+          opUid: f.opUid, opNombre: f.opNombre,
+          cantidad: f.cantidad, operacion: f.operacion,
+          nota: '', mesKey: f.fecha.slice(0,7),
+          oficina: cajeroOficina || '',
+          importado: true,
+          ts: firebase.firestore.FieldValue.serverTimestamp()
+        });
+      });
+      await batch.commit();
+    }
+
+    const omitidas = _impFilas.length - validas.length;
+    toast(`✅ ${validas.length} movimientos importados${omitidas?` · ${omitidas} omitidos`:''}`, 'success');
+    closeModal('modal-importar');
+  } catch(e) {
+    toast('⚠ ' + e.message, 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = '✓ Importar';
+  }
+}
+
+function exportEfectivoCSV() {
+  if (!_efMovs.length) { toast('Nada que exportar', 'error'); return; }
+  const filtroOp = document.getElementById('ef-filtro-op')?.value || '';
+  const lista = filtroOp ? _efMovs.filter(m => m.opUid === filtroOp) : _efMovs;
+  const rows = lista.map(m =>
+    [m.fecha, m.num||'', `"${m.opNombre||''}"`, Math.round(m.cantidad||0), m.operacion, `"${m.nota||''}"`].join(',')
+  );
+  const csv = 'Fecha,#,Operador,Cantidad,Operacion,Nota\n' + rows.join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'}));
+  a.download = `efectivo_${mesActivo}.csv`;
+  a.click();
+}

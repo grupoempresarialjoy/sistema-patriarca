@@ -2,12 +2,10 @@
   "hosting": [
     {
       "site": "portal-aj16",
-      "public": ".",
+      "public": "publico",
       "ignore": [
         "firebase.json",
-        "seed-users.html",
         ".firebaserc",
-        "functions/**",
         "**/node_modules/**",
         "**/.*"
       ]

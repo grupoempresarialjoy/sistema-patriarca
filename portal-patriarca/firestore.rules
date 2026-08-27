@@ -1,8 +1,156 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
-      allow read, write: if request.auth != null;
+
+    // ── Quién es administrador ────────────────────────────────────────────
+    // admin_accesos usa el uid como identificador del documento, igual que
+    // hace admin.html al entrar. Firestore reutiliza esta lectura dentro de
+    // la misma petición, así que no se paga una vez por documento.
+    function esAdmin() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/admin_accesos/$(request.auth.uid))
+        && get(/databases/$(database)/documents/admin_accesos/$(request.auth.uid)).data.rol == 'admin';
+    }
+
+    // Permiso, configurado por el administrador, para que un operador
+    // transmita un anuncio a todos los demás operadores (no a los cajeros).
+    // Vive en patriarca_config/{uid}.chat.transmitir — apagado por defecto,
+    // así que si nunca se configuró, .get(...) con valor por defecto evita
+    // que la ausencia del campo rompa la regla.
+    function puedeTransmitir() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/patriarca_config/$(request.auth.uid))
+        && get(/databases/$(database)/documents/patriarca_config/$(request.auth.uid))
+             .data.get('chat', {}).get('transmitir', false) == true;
+    }
+
+    // ── MODO AUDITORÍA ────────────────────────────────────────────────────
+    // Un candado general: mientras está activo, operadores y cajeros solo
+    // leen — nada de registrar apuestas, movimientos, cierres, cupones ni
+    // cuotas. El administrador lo prende antes de la auditoría y lo apaga al
+    // terminar. Si alguien necesita corregir algo puntual mientras dura, el
+    // administrador lo marca como excepción en su propia ficha.
+    //
+    // Ojo con el orden: esto lee el documento auditoria y el patriarca_config
+    // de la persona TAL COMO ESTÁN GUARDADOS AHORA MISMO, no lo que la
+    // petición intenta escribir. Por eso nadie puede "escribirse a sí mismo"
+    // la salida del candado — para cuando Firestore evalúa el permiso, el
+    // candado que cuenta es el que ya existía antes de esa escritura.
+    function auditoriaActiva() {
+      return exists(/databases/$(database)/documents/patriarca_config_global/auditoria)
+        && get(/databases/$(database)/documents/patriarca_config_global/auditoria).data.activo == true;
+    }
+    function permitidoEnAuditoria() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/patriarca_config/$(request.auth.uid))
+        && get(/databases/$(database)/documents/patriarca_config/$(request.auth.uid))
+             .data.get('auditoria', {}).get('permitido', false) == true;
+    }
+
+    // ── MENSAJERÍA ────────────────────────────────────────────────────────
+    // Esta parte sí va cerrada: un operador no puede leer la conversación de
+    // otro ni abriendo la consola del navegador. Sostiene la regla de que la
+    // información del negocio no circula entre cuentas.
+
+    match /patriarca_chat_hilos/{uid} {
+      // Cada quien abre el suyo por identificador; solo el administrador
+      // puede pedir la lista completa de conversaciones.
+      allow get:   if request.auth != null && (request.auth.uid == uid || esAdmin());
+      allow list:  if esAdmin();
+      allow write: if request.auth != null && (request.auth.uid == uid || esAdmin());
+
+      match /mensajes/{msg} {
+        allow read, create, update: if request.auth != null
+          && (request.auth.uid == uid || esAdmin());
+        // Nadie borra mensajes desde el portal: el archivado lo hace el servidor
+        allow delete: if false;
+      }
+
+      // Las imágenes de los reportes viven aparte para no engordar el hilo,
+      // pero son igual de privadas que los mensajes que las acompañan.
+      match /imagenes/{img} {
+        allow read, create: if request.auth != null
+          && (request.auth.uid == uid || esAdmin());
+        allow update, delete: if false;
+      }
+    }
+
+    // El archivo es del administrador. El operador ve su conversación viva,
+    // no el histórico completo.
+    match /patriarca_chat_archivo/{uid}/{sub}/{doc} {
+      allow read:  if esAdmin();          // mensajes e imágenes archivados
+      allow write: if false;              // solo lo escribe la función programada
+    }
+
+    // Anuncios: todos los leen, solo el administrador publica.
+    // La única excepción es leidoPor — cada quien marca el suyo con «Entendido»
+    // y no puede tocar el de nadie más ni cambiar el texto del anuncio.
+    match /patriarca_chat_anuncios/{id} {
+      allow read: if request.auth != null;
+      allow delete: if esAdmin();
+
+      // El administrador publica libre. Un operador con permiso solo puede
+      // crear su propia transmisión, y con las manijas de seguridad fijas:
+      // siempre a "operadores" (nunca cajeros), nunca fijado (siempre se
+      // puede cerrar) y con su propio uid como autor — no puede hacerse
+      // pasar por otro ni convertirlo en un anuncio importante bloqueante.
+      allow create: if esAdmin()
+        || (puedeTransmitir()
+            && request.resource.data.origenOperador == true
+            && request.resource.data.publico == 'operadores'
+            && request.resource.data.fijado == false
+            && request.resource.data.autorUid == request.auth.uid
+            && request.resource.data.leidoPor == {});
+
+      allow update: if esAdmin()
+        || (request.auth != null
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['leidoPor'])
+            && request.resource.data.leidoPor.diff(resource.data.leidoPor)
+                 .affectedKeys().hasOnly([request.auth.uid]));
+
+      // La imagen de la transmisión (una cuota, un cupón) vive aparte, igual
+      // que en los hilos. La lee cualquiera con sesión —el anuncio ya es
+      // público para operadores— y solo la crea quien tiene permiso.
+      match /imagenes/{img} {
+        allow read: if request.auth != null;
+        allow create: if esAdmin() || puedeTransmitir();
+        allow update, delete: if false;
+      }
+    }
+
+    // ── ESTADO DEL BOT ────────────────────────────────────────────────────
+    // Acá vive, entre otras cosas, la tabla de rendimiento: el resultado de
+    // analizar 113.155 apuestas. Antes estaba escrita en el portal y cualquiera
+    // podía descargarla sin siquiera iniciar sesión.
+    //
+    // Leer: quien tenga sesión. Escribir: nadie desde el navegador — lo escriben
+    // las funciones del servidor, que usan el SDK de administrador y no pasan
+    // por estas reglas.
+    match /trixibot_estado/{doc} {
+      allow read:  if request.auth != null;
+      allow write: if esAdmin();
+    }
+
+    // ── EL RESTO DEL SISTEMA ──────────────────────────────────────────────
+    // Queda como estaba, salvo por el candado de auditoría en la escritura.
+    // En Firestore basta con que UNA regla permita el acceso, así que este
+    // comodín tiene que excluir las colecciones del chat a mano — si no, las
+    // anularía por completo.
+    // Cerrar el resto colección por colección es un trabajo aparte; hacerlo
+    // de golpe rompería portales que hoy funcionan.
+    match /{col}/{resto=**} {
+      allow read: if request.auth != null
+        && !(col in ['patriarca_chat_hilos',
+                     'patriarca_chat_anuncios',
+                     'patriarca_chat_archivo']);
+
+      // Ver, siempre. Escribir, no si el candado de auditoría está puesto —
+      // salvo que sea el administrador o esa persona tenga la excepción.
+      allow write: if request.auth != null
+        && !(col in ['patriarca_chat_hilos',
+                     'patriarca_chat_anuncios',
+                     'patriarca_chat_archivo'])
+        && (esAdmin() || !auditoriaActiva() || permitidoEnAuditoria());
     }
   }
 }

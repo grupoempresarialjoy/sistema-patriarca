@@ -92,10 +92,28 @@ function paisKambi(ev) {
 // La lista general de Kambi es una selección de destacados, no el catálogo.
 // Medido: se dejaba por fuera 151 partidos, entre ellos toda la Liga BetPlay
 // Dimayor. Cada país tiene su propio listado y hay que pedirlos aparte.
-// Probados uno por uno: estos diez responden. 'venezuela' y 'brasil' no existen
-// como ruta —Brasil va en inglés— y pedirlos sería gastar por nada.
-const PAISES_KAMBI = ['colombia','argentina','chile','peru','ecuador',
+// Probados uno por uno; 'venezuela' y 'brasil' no existen como ruta —Brasil va
+// en inglés— y pedirlos sería gastar por nada.
+//
+// Europa entraba solo de rebote, por la lista de destacados, y eso dejaba al
+// modelo a ciegas: el histórico gratuito de football-data.co.uk cubre justo
+// estas ligas europeas y ninguna sudamericana salvo Argentina, Brasil y México.
+// Medido el 20/08/2026 sobre el catálogo real:
+//
+//   partidos con los dos equipos modelables · Latinoamérica  9.1%
+//                                           · Europa        27.5%
+//
+// Desde Colombia se puede apostar a todos ellos; la casa solo los muestra en
+// horario local. No había ninguna razón para no mirarlos.
+const PAISES_LATAM = ['colombia','argentina','chile','peru','ecuador',
                       'uruguay','paraguay','mexico','bolivia','brazil'];
+
+const PAISES_EUROPA = ['england','spain','italy','germany','france',
+                       'netherlands','portugal','belgium','turkey','scotland',
+                       'greece','denmark','sweden','norway','austria',
+                       'poland','czech_republic','switzerland'];
+
+const PAISES_KAMBI = [...PAISES_LATAM, ...PAISES_EUROPA];
 
 async function leerKambi(casa, marca) {
   const base = `https://us.offering-api.kambicdn.com/offering/v2018/${marca}/listView/football`;

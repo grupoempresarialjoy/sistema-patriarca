@@ -1,0 +1,7546 @@
+(function(){var t=localStorage.getItem('aj16-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)})();
+;
+
+// ── CONFIG ──
+const firebaseConfig = {
+  apiKey: "AIzaSyBQ42PzffxkEUEJVaPIVxHPKDqA_wk6IS0",
+  authDomain: "portal-patriarca-aj16.firebaseapp.com",
+  projectId: "portal-patriarca-aj16",
+  storageBucket: "portal-patriarca-aj16.firebasestorage.app",
+  messagingSenderId: "1073575698338",
+  appId: "1:1073575698338:web:f014083b3092c6dc245cfb"
+};
+firebase.initializeApp(firebaseConfig);
+// App secundaria para crear usuarios sin cerrar sesión del admin
+const secondaryApp = firebase.initializeApp(firebaseConfig, "secondary");
+const auth = firebase.auth();
+const authSecondary = secondaryApp.auth();
+const db = firebase.firestore();
+
+// ── ADMIN SEED (primer admin, se auto-registra en Firestore) ──
+const ADMIN_SEED = {
+  'ronaldo140294@gmail.com': 'Ronaldo Pedraza',
+};
+const ADMIN_DOMAIN = '@admin.aj16.com'; // sufijo para cuentas admin creadas aquí
+
+// ── CASAS (para comisiones) ──
+const CASAS = ['AQUI JUEGOS','BET ALFA','BET PLAY','BETFAIR','BETSSON','BWIN','CODERE',
+  'FULL RETO','LUCKIA','MEGA APUESTAS','MOZZARTBET','RIVALO','RUSHBET','SPORTIUM',
+  'STAKE','WILLIAM HILL','WPLAY','YA JUEGOS','ZAMBA','BETANO'];
+
+// ── STATE ──
+let metodos = [];       // [{nombre, tipo}] cargado de Firestore
+let casas   = [];       // [string] casas de apuestas cargadas de Firestore
+let allUsers = [];      // operadores registrados
+
+// ── MES GLOBAL ADMIN ──
+const _now = new Date();
+let _adminMes = _now.getFullYear() + '-' + String(_now.getMonth()+1).padStart(2,'0'); // "YYYY-MM"
+
+const _MESES_LABEL = {
+  '01':'Enero','02':'Febrero','03':'Marzo','04':'Abril','05':'Mayo','06':'Junio',
+  '07':'Julio','08':'Agosto','09':'Septiembre','10':'Octubre','11':'Noviembre','12':'Diciembre'
+};
+function _adminMesLabel(mk) {
+  if (!mk) return '—';
+  const [y, m] = mk.split('-');
+  return (_MESES_LABEL[m] || m) + ' ' + y;
+}
+function openAdminMesModal() {
+  const sel = document.getElementById('admin-mes-select');
+  if (sel) sel.value = _adminMes;
+  document.getElementById('modal-admin-mes').style.display = 'flex';
+}
+function confirmarMesAdmin() {
+  const sel = document.getElementById('admin-mes-select');
+  const nuevo = sel?.value;
+  if (!nuevo) return;
+  _adminMes = nuevo;
+  document.getElementById('admin-mes-badge').textContent = '📅 ' + _adminMesLabel(nuevo);
+  document.getElementById('modal-admin-mes').style.display = 'none';
+  // Sincronizar selectores de tabs
+  const ciSel = document.getElementById('ci-sel-mes');
+  if (ciSel) { ciSel.value = nuevo; loadCupoInicialAdmin(); }
+  const esfSel = document.getElementById('esf-ops-mes');
+  if (esfSel) { esfSel.value = nuevo; loadESFOps(); }
+}
+
+// ── AUTH ──
+async function doLogin() {
+  let username = document.getElementById('user-in').value.trim().toLowerCase();
+  const pass   = document.getElementById('pass-in').value;
+  const errEl  = document.getElementById('auth-err');
+  errEl.style.display = 'none';
+
+  // Si el usuario tecleó un email completo (seed admin como ronaldo140294@gmail.com), úsalo directo
+  // Si no tiene @, es un username admin → construir email
+  const email = username.includes('@') ? username : username + ADMIN_DOMAIN;
+
+  try {
+    await auth.signInWithEmailAndPassword(email, pass);
+  } catch(e) {
+    errEl.textContent = 'Usuario o contraseña incorrectos';
+    errEl.style.display = 'block';
+  }
+}
+
+function doLogout() { auth.signOut().then(() => location.reload()); }
+
+let _adminInited = false; // guard — evita inicializar dos veces
+
+auth.onAuthStateChanged(async user => {
+  if (!user) {
+    _adminInited = false;
+    return;
+  }
+  // Si ya se inicializó (Firebase puede disparar esto varias veces), no repetir
+  if (_adminInited) return;
+
+  const email = user.email.toLowerCase();
+
+  try {
+    // Verificar en Firestore si tiene rol admin
+    const adminDoc = await db.collection('admin_accesos').doc(user.uid).get();
+
+    if (adminDoc.exists && adminDoc.data().rol === 'admin') {
+      mostrarApp(adminDoc.data().nombre || user.email);
+    } else if (ADMIN_SEED[email]) {
+      // Seed admin — registrar si no existe (sin await para no bloquear)
+      db.collection('admin_accesos').doc(user.uid).set({
+        uid: user.uid, email, nombre: ADMIN_SEED[email], rol: 'admin',
+        username: email.split('@')[0], tipo: 'seed',
+        creadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true }).catch(e => console.warn('seed admin set:', e));
+      mostrarApp(ADMIN_SEED[email]);
+    } else {
+      // Fallback: verificar en admin_usuarios
+      const usrSnap = await db.collection('admin_usuarios')
+        .where('uid','==',user.uid).where('rol','==','admin').get();
+      if (!usrSnap.empty) {
+        const usrData = usrSnap.docs[0].data();
+        db.collection('admin_accesos').doc(user.uid).set({
+          uid: user.uid, email, nombre: usrData.nombre || email,
+          username: usrData.username || email.split('@')[0],
+          rol: 'admin', tipo: 'admin',
+          reparadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true }).catch(e => console.warn('repair admin:', e));
+        mostrarApp(usrData.nombre || email);
+      } else {
+        toast('⚠ Sin acceso de administrador', 'error');
+        auth.signOut();
+      }
+    }
+  } catch(e) {
+    console.error('onAuthStateChanged error:', e);
+    // Si falla la verificación en Firestore, intentar seed como fallback
+    if (ADMIN_SEED[email]) {
+      console.warn('Firestore falló, acceso por seed');
+      mostrarApp(ADMIN_SEED[email]);
+    } else {
+      toast('⚠ Error de conexión al verificar acceso. Recarga la página.', 'error');
+    }
+  }
+});
+
+function mostrarApp(nombre) {
+  if (_adminInited) return; // guard doble
+  _adminInited = true;
+  document.getElementById('auth-overlay').style.display = 'none';
+  document.getElementById('app').style.display = 'flex';
+  document.getElementById('user-name').textContent = nombre;
+  initAdmin();
+  if (window.AJChat) AJChat.iniciarAdmin({
+    db, auth, uid: auth.currentUser.uid,
+    nombre: nombre || 'Administración', montarEn: '#ch-montar'
+  });
+}
+
+// ── INIT ──
+function initAdmin() {
+  loadOficinas();
+  loadMetodos();
+  loadCasas();
+  loadComisiones();
+  loadUsuarios();
+  loadDashboard();
+  setTimeout(loadDashboardESF, 1200); // esperar que allUsers cargue primero
+  precargarEscaleras();
+  // Iniciar listeners para badges de notificación
+  setTimeout(() => { initSolicitudes(); initCierres(); }, 800);
+  // Avisos del menú: se enteran solos, sin entrar a cada sección.
+  // Se repinta unas veces al arranque porque otras rutinas reescriben el menú
+  // mientras cargan y podrían borrar el aviso.
+  avEscuchar();
+  [1200, 2500, 5000].forEach(ms => setTimeout(avPintar, ms));
+  // Mostrar mes actual en el badge del header
+  document.getElementById('admin-mes-badge').textContent = '📅 ' + _adminMesLabel(_adminMes);
+  auditoriaEscuchar();
+}
+
+// ── MODO AUDITORÍA ───────────────────────────────────────────────────────────
+// patriarca_config_global/auditoria.activo es el candado general, que hacen
+// cumplir las reglas de Firestore (no esta pantalla — esto solo lo prende y
+// apaga). patriarca_config/{uid}.auditoria.permitido es la excepción, persona
+// por persona, para cuando alguien necesita corregir algo mientras dura.
+let _auditoriaActiva = false;
+let _auditoriaPersonas = [];   // se recarga cada vez que se abre el modal
+
+function auditoriaEscuchar() {
+  db.collection('patriarca_config_global').doc('auditoria').onSnapshot(doc => {
+    _auditoriaActiva = !!(doc.exists && doc.data().activo);
+    auditoriaPintarBadge();
+  }, e => console.warn('auditoria:', e.message));
+}
+
+function auditoriaPintarBadge() {
+  const b = document.getElementById('aud-badge');
+  if (!b) return;
+  b.textContent = _auditoriaActiva ? '🔒 Auditoría activa' : '🔓 Auditoría';
+  b.style.color = _auditoriaActiva ? 'var(--red)' : 'var(--text2)';
+  b.style.background = _auditoriaActiva ? 'rgba(255,80,80,.14)' : 'rgba(53,204,47,.12)';
+  b.style.borderColor = _auditoriaActiva ? 'rgba(255,80,80,.4)' : 'rgba(53,204,47,.30)';
+}
+
+async function openAuditoriaModal() {
+  document.getElementById('modal-auditoria').style.display = 'flex';
+  auditoriaPintarEstado();
+  await auditoriaCargarPersonas();
+}
+
+function auditoriaPintarEstado() {
+  document.getElementById('aud-estado-txt').textContent =
+    _auditoriaActiva ? 'Auditoría ACTIVA' : 'Auditoría apagada';
+  document.getElementById('aud-estado-sub').textContent =
+    _auditoriaActiva ? 'Solo pueden ver, salvo las excepciones de abajo' : 'Todos pueden operar normal';
+  const btn = document.getElementById('aud-toggle-btn');
+  btn.textContent = _auditoriaActiva ? 'Desactivar' : 'Activar';
+  btn.style.background = _auditoriaActiva ? 'var(--red)' : 'var(--green)';
+  btn.style.color = '#fff';
+}
+
+async function auditoriaToggle() {
+  const activar = !_auditoriaActiva;
+  const msg = activar
+    ? '¿Activar el modo auditoría? Operadores y cajeros van a quedar SOLO VIENDO hasta que lo apagues.'
+    : '¿Desactivar el modo auditoría? Todos vuelven a operar normal.';
+  if (!confirm(msg)) return;
+  try {
+    await db.collection('patriarca_config_global').doc('auditoria').set({
+      activo: activar,
+      cambiadoPor: auth.currentUser?.email || 'admin',
+      cambiadoEn: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+    toast(activar ? '🔒 Auditoría activada' : '🔓 Auditoría desactivada', 'success');
+    auditoriaPintarEstado();
+  } catch (e) { toast('No se pudo cambiar: ' + e.message, 'error'); }
+}
+
+async function auditoriaCargarPersonas() {
+  const cont = document.getElementById('aud-personas');
+  cont.innerHTML = 'Cargando…';
+  try {
+    const snap = await db.collection('admin_usuarios').get();
+    _auditoriaPersonas = snap.docs.map(d => ({ uid: d.data().uid || d.id, nombre: d.data().nombre || d.data().email, rol: d.data().rol }))
+      .filter(p => p.uid && (p.rol === 'operador' || p.rol === 'cajero'))
+      .sort((a,b) => (a.nombre||'').localeCompare(b.nombre||''));
+
+    const cfgs = await Promise.all(_auditoriaPersonas.map(p =>
+      db.collection('patriarca_config').doc(p.uid).get().catch(() => null)));
+    _auditoriaPersonas.forEach((p, i) => {
+      const c = cfgs[i];
+      p.permitido = !!(c && c.exists && c.data().auditoria && c.data().auditoria.permitido);
+    });
+
+    cont.innerHTML = _auditoriaPersonas.length ? _auditoriaPersonas.map(p => `
+      <label style="display:flex;align-items:center;gap:8px;font-size:12px;padding:5px 6px;border-radius:6px;cursor:pointer;user-select:none">
+        <input type="checkbox" id="aud-per-${p.uid}" ${p.permitido?'checked':''} style="width:15px;height:15px;cursor:pointer">
+        ${p.nombre} <span style="color:var(--text2);font-size:10px">(${p.rol})</span>
+      </label>`).join('') : '<div style="color:var(--text2);font-size:12px">No hay operadores ni cajeros.</div>';
+  } catch (e) {
+    cont.innerHTML = `<div style="color:var(--red);font-size:12px">Error: ${e.message}</div>`;
+  }
+}
+
+async function auditoriaGuardarExcepciones() {
+  try {
+    await Promise.all(_auditoriaPersonas.map(p => {
+      const permitido = document.getElementById('aud-per-' + p.uid)?.checked || false;
+      return db.collection('patriarca_config').doc(p.uid).set({
+        auditoria: { permitido }
+      }, { merge: true });
+    }));
+    toast('✅ Excepciones guardadas', 'success');
+  } catch (e) { toast('No se pudo guardar: ' + e.message, 'error'); }
+}
+
+// ── UI ──
+function showTab(name) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.tab, .navgrp-item').forEach(t => t.classList.remove('active'));
+  if (typeof avPintar === 'function') setTimeout(avPintar, 60);
+  const sec = document.getElementById('sec-' + name);
+  if (sec) sec.classList.add('active');
+
+  // Marcar el ítem y, si está en un grupo, también el tab del grupo
+  const item = document.querySelector(`[data-sec="${name}"]`);
+  if (item) {
+    item.classList.add('active');
+    const grp = item.closest('.navgrp');
+    if (grp) {
+      grp.querySelector('.tab').classList.add('active');
+      grp.classList.remove('open'); // cerrar el menú tras elegir
+      setTimeout(() => grp.classList.remove('open'), 10);
+    }
+  }
+
+  if (name === 'comisiones') renderComOficinas();
+  if (name === 'cupo-inicial') initCupoInicialAdmin();
+  if (name === 'saldo-inicial') initSaldoInicialAdmin();
+  if (name === 'correcciones') initCorreccionesAdmin();
+  if (name === 'solicitudes') initSolicitudes();
+  if (name === 'cierres')    initCierres();
+  if (name === 'auditor') initAuditor();
+  if (name === 'trixibot') initTrixiBot();
+  if (window.AJChat) AJChat.visible(name === 'mensajes');
+}
+
+// ── Menús desplegables: abrir con clic (necesario en móvil/táctil) ──
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.navgrp > .tab').forEach(t => {
+    t.addEventListener('click', e => {
+      e.stopPropagation();
+      const grp = t.closest('.navgrp');
+      const abierto = grp.classList.contains('open');
+      document.querySelectorAll('.navgrp').forEach(g => g.classList.remove('open'));
+      if (!abierto) grp.classList.add('open');
+    });
+  });
+  // Cerrar al hacer clic fuera
+  document.addEventListener('click', () => {
+    document.querySelectorAll('.navgrp').forEach(g => g.classList.remove('open'));
+  });
+});
+
+// ── Badge de pendientes en el tab del grupo (Gestión) ──
+function _syncGrpBadge() {
+  const grp = document.getElementById('grp-gestion');
+  if (!grp) return;
+  const tab = grp.querySelector('.tab');
+  const hayPend = [...grp.querySelectorAll('.navgrp-item')]
+    .some(i => /\(\d+\)/.test(i.textContent));
+  tab.textContent = hayPend ? '📋 Gestión •' : '📋 Gestión';
+}
+
+// ── CUPO INICIAL ADMIN ──────────────────────────────────────────────────────
+let ciOps = [], ciMetodos = [], ciInitDone = false;
+
+async function initCupoInicialAdmin() {
+  if (!ciInitDone) {
+    ciInitDone = true;
+    // Mes por defecto = mes actual
+    const mesSel = document.getElementById('ci-sel-mes');
+    if (!mesSel.value) {
+      const now = new Date();
+      mesSel.value = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0');
+    }
+    // Poblar selector de oficinas
+    const sel = document.getElementById('ci-sel-oficina');
+    try {
+      const ofSnap = await db.collection('admin_oficinas').get();
+      ofSnap.docs.forEach(d => {
+        const opt = document.createElement('option');
+        opt.value = d.data().nombre || d.id;
+        opt.textContent = d.data().nombre || d.id;
+        sel.appendChild(opt);
+      });
+      if (sel.options.length > 1) sel.selectedIndex = 1;
+    } catch(e) {}
+  }
+  loadCupoInicialAdmin();
+}
+
+let ciPozo = {}; // cajero_config/main.cupo_pozo
+
+async function loadCupoInicialAdmin() {
+  const oficina = document.getElementById('ci-sel-oficina').value;
+  const mesSel  = document.getElementById('ci-sel-mes').value ||
+    (new Date().getFullYear() + '-' + String(new Date().getMonth()+1).padStart(2,'0'));
+  const wrap = document.getElementById('ci-admin-wrap');
+  wrap.innerHTML = '<div class="empty"><div class="empty-icon">⏳</div><p>Cargando...</p></div>';
+  try {
+    // Operadores filtrados por oficina
+    let opsQ = db.collection('admin_usuarios').where('rol','==','operador');
+    if (oficina) opsQ = opsQ.where('oficinaNombre','==', oficina);
+    const opsSnap = await opsQ.get();
+    ciOps = opsSnap.docs
+      .filter(d => d.data().estado !== 'inactivo')
+      .map(d => ({ docId: d.id, uid: d.data().uid || d.id, nombre: d.data().nombre || d.data().email || d.id }));
+
+    // Métodos desde admin_config
+    const metSnap = await db.collection('admin_config').doc('metodos').get();
+    ciMetodos = (metSnap.exists ? (metSnap.data().lista || []) : []).map(m => m.nombre);
+
+    // Cupo pozo general — leer por mes; si cupo_por_mes existe pero no tiene el mes → $0
+    const pozoSnap = await db.collection('cajero_config').doc('main').get();
+    const pozoData = pozoSnap.exists ? pozoSnap.data() : {};
+    if (pozoData.cupo_por_mes) {
+      ciPozo = pozoData.cupo_por_mes[mesSel] || {};
+    } else {
+      ciPozo = pozoData.cupo_pozo || {}; // legacy fallback (antes del primer guardado)
+    }
+
+    // Cupo existente por operador — misma lógica
+    const cupoData = {};
+    const cupoTotalData = {}; // uid → cupo total asignado (capital_propio + capital_asignado)
+    await Promise.all(ciOps.map(op =>
+      db.collection('patriarca_config').doc(op.uid).get().then(s => {
+        const d = s.exists ? s.data() : {};
+        if (d.cupos_por_mes) {
+          cupoData[op.uid] = d.cupos_por_mes[mesSel] || {};
+        } else {
+          cupoData[op.uid] = d.cupos_cajero || {}; // legacy fallback
+        }
+        // CUPO TOTAL: usar el guardado en cupos_por_mes si existe, sino capital_propio + capital_asignado
+        const cupoTotalGuardado = cupoData[op.uid]?.['CUPO TOTAL'];
+        const cupoTotalCalc     = (parseFloat(d.capital_propio) || 0) + (parseFloat(d.capital_asignado) || 0);
+        cupoTotalData[op.uid]   = cupoTotalGuardado || cupoTotalCalc || 0;
+      })
+    ));
+
+    renderCupoInicialAdmin(cupoData, cupoTotalData);
+  } catch(e) {
+    wrap.innerHTML = `<div class="empty"><div class="empty-icon">⚠️</div><p style="color:var(--red)">Error: ${e.message}</p></div>`;
+    console.error('loadCupoInicialAdmin:', e);
+  }
+}
+
+function renderCupoInicialAdmin(cupoData, cupoTotalData = {}) {
+  const wrap = document.getElementById('ci-admin-wrap');
+  if (!ciOps.length)    { wrap.innerHTML = '<div class="empty">Sin operadores para esta oficina</div>'; return; }
+  if (!ciMetodos.length){ wrap.innerHTML = '<div class="empty">Sin métodos configurados</div>'; return; }
+
+  // Totales por operador
+  const totOp = {};
+  ciOps.forEach(op => {
+    totOp[op.uid] = ciMetodos.reduce((s,m) => s + (cupoData[op.uid]?.[m] || 0), 0);
+  });
+  const totPozo = ciMetodos.reduce((s,m) => s + (ciPozo[m] || 0), 0);
+
+  // Diferencia por método: ciPozo[m] - sum(ops)
+  const diffPorMetodo = {};
+  ciMetodos.forEach(m => {
+    const sumOps = ciOps.reduce((s, op) => s + (cupoData[op.uid]?.[m] || 0), 0);
+    diffPorMetodo[m] = (ciPozo[m] || 0) - sumOps;
+  });
+  const totDiff = ciMetodos.reduce((s,m) => s + diffPorMetodo[m], 0);
+
+  let html = '<table style="min-width:600px"><thead><tr><th>MÉTODO</th>';
+  html += `<th style="text-align:right;min-width:160px;color:var(--gold)">🏦 CAJA GENERAL</th>`;
+  ciOps.forEach(op => { html += `<th style="text-align:right;min-width:150px">${op.nombre}</th>`; });
+  html += `<th style="text-align:right;min-width:140px;color:var(--purple)">⚖️ DIFERENCIA</th>`;
+  html += '</tr></thead><tbody>';
+
+  // ── Fila especial: CUPO TOTAL ASIGNADO (capital propio + asignado) ──────────
+  html += `<tr style="background:rgba(74,158,255,.12);border-bottom:2px solid rgba(74,158,255,.40)">
+    <td style="font-weight:800;color:var(--blue);font-size:13px">🎯 CUPO TOTAL ASIGNADO</td>
+    <td style="text-align:right;color:var(--text2);font-size:11px;font-style:italic">— por operador</td>`;
+  ciOps.forEach(op => {
+    const v = cupoTotalData[op.uid] || 0;
+    html += `<td style="text-align:right">
+      <input class="ci-inp" type="text" id="ci-${op.uid}-CUPO_TOTAL"
+        value="${v ? ciNumToCOP(v) : ''}" placeholder="0"
+        style="border-color:var(--blue);font-weight:700"
+        oninput="ciFormatInput(this)">
+    </td>`;
+  });
+  html += `<td style="text-align:right;color:var(--text2)">—</td></tr>
+  <tr style="height:6px;background:transparent"><td colspan="${2 + ciOps.length + 1}"></td></tr>`;
+
+  ciMetodos.forEach(m => {
+    const mk = m.replace(/ /g,'_');
+    const pv = ciPozo[m] || 0;
+    const dv = diffPorMetodo[m];
+    html += `<tr><td style="font-weight:600;min-width:180px">${m}</td>`;
+    html += `<td style="text-align:right"><input class="ci-inp" style="border-color:var(--gold)" type="text" id="ci-pozo-${mk}" value="${pv ? ciNumToCOP(pv) : ''}" placeholder="0" oninput="ciFormatInput(this)"></td>`;
+    ciOps.forEach(op => {
+      const v = cupoData[op.uid]?.[m] || 0;
+      html += `<td style="text-align:right;white-space:nowrap">
+        <input class="ci-inp" type="text" id="ci-${op.uid}-${mk}" value="${v ? ciNumToCOP(v) : ''}" placeholder="0"
+          oninput="ciFormatInput(this);this.dataset.explicitZero='false'">
+        <button onclick="ciSetExplicitZero('${op.uid}','${mk}')" title="Poner en cero intencionalmente"
+          style="background:none;border:1px solid var(--red);border-radius:4px;color:var(--red);cursor:pointer;padding:2px 5px;font-size:10px;margin-left:3px;opacity:0.6"
+          onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.6'">✕0</button>
+      </td>`;
+    });
+    html += `<td id="ci-diff-${mk}" class="${dv<0?'ci-td-neg':'ci-td-pos'}" style="text-align:right;font-weight:600;min-width:140px">${ciPesos(dv)}</td>`;
+    html += '</tr>';
+  });
+
+  // Fila de totales
+  html += '</tbody><tfoot><tr style="background:var(--bg3)"><td style="font-weight:700">TOTAL</td>';
+  html += `<td id="ci-tot-pozo" class="${totPozo<0?'ci-td-neg':'ci-td-pos'}" style="text-align:right;font-weight:700">${ciPesos(totPozo)}</td>`;
+  ciOps.forEach(op => {
+    const t = totOp[op.uid];
+    html += `<td id="ci-tot-op-${op.uid}" class="${t<0?'ci-td-neg':'ci-td-pos'}" style="text-align:right;font-weight:700">${ciPesos(t)}</td>`;
+  });
+  html += `<td id="ci-tot-diff" class="${totDiff<0?'ci-td-neg':'ci-td-pos'}" style="text-align:right;font-weight:700">${ciPesos(totDiff)}</td>`;
+  html += '</tr>';
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // SECCIÓN MANUAL: ACTIVOS, PASIVOS, PATRIMONIO
+  // ══════════════════════════════════════════════════════════════════════════
+
+  // ── ACTIVOS ──
+  html += `<tr style="background:rgba(76,175,80,.08);border-top:2px solid rgba(76,175,80,.3)">
+    <td style="font-weight:800;color:#4caf50;font-size:13px">📈 ACTIVOS</td>
+    <td style="text-align:right;color:var(--text2);font-size:11px">—</td>`;
+  ciOps.forEach(op => {
+    html += `<td style="text-align:center"><span style="opacity:.6">↓</span></td>`;
+  });
+  html += `<td style="text-align:right;color:var(--text2)">—</td></tr>`;
+
+  // Comisiones por Cobrar Mes Anterior
+  html += `<tr style="background:rgba(76,175,80,.03)">
+    <td style="padding-left:20px;font-size:12px">Comisiones por Cobrar Mes Ant.</td>
+    <td style="text-align:right;color:var(--text2);font-size:11px">—</td>`;
+  ciOps.forEach(op => {
+    const val = ciNumToCOP(cupoData[op.uid]?.['COM_MES_ANT'] || '');
+    html += `<td style="text-align:right;min-width:150px"><input class="ci-inp-manual" type="text" id="ci-${op.uid}-COM_MES_ANT" value="${val}" placeholder="0" style="width:100%;text-align:right" oninput="ciUpdateTotals()"></td>`;
+  });
+  html += `<td style="text-align:right;color:var(--text2)">—</td></tr>`;
+
+  // TOTAL ACTIVOS (métodos + comisiones mes ant.)
+  html += `<tr style="background:rgba(76,175,80,.12)">
+    <td style="padding-left:20px;font-size:12px;color:#4caf50;font-weight:800">▸ TOTAL ACTIVOS</td>
+    <td style="text-align:right;color:var(--text2);font-size:11px">—</td>`;
+  ciOps.forEach(op => {
+    html += `<td id="ci-tota-${op.uid}" style="text-align:right;color:#4caf50;font-weight:800;padding:6px">—</td>`;
+  });
+  html += `<td style="text-align:right;color:var(--text2)">—</td></tr>`;
+
+  // ── PASIVOS ──
+  html += `<tr style="background:rgba(244,67,54,.08);border-top:2px solid rgba(244,67,54,.3)">
+    <td style="font-weight:800;color:#f44336;font-size:13px">📉 PASIVOS</td>
+    <td style="text-align:right;color:var(--text2);font-size:11px">—</td>`;
+  ciOps.forEach(op => {
+    html += `<td style="text-align:center"><span style="opacity:.6">↓</span></td>`;
+  });
+  html += `<td style="text-align:right;color:var(--text2)">—</td></tr>`;
+
+  // Liquidación por Pagar
+  html += `<tr style="background:rgba(244,67,54,.03)">
+    <td style="padding-left:20px;font-size:12px">Liquidación por Pagar</td>
+    <td style="text-align:right;color:var(--text2);font-size:11px">—</td>`;
+  ciOps.forEach(op => {
+    html += `<td id="ci-${op.uid}-LIQ_POR_PAGAR" style="text-align:right;min-width:150px;padding:6px 8px;color:var(--text2)" title="Total Activos − Cupo Total Asignado">—</td>`;
+  });
+  html += `<td style="text-align:right;color:var(--text2)">—</td></tr>`;
+
+  // TOTAL PASIVOS
+  html += `<tr style="background:rgba(244,67,54,.12)">
+    <td style="padding-left:20px;font-size:12px;color:#f44336;font-weight:800">▸ TOTAL PASIVOS</td>
+    <td style="text-align:right;color:var(--text2);font-size:11px">—</td>`;
+  ciOps.forEach(op => {
+    html += `<td id="ci-totp-${op.uid}" style="text-align:right;color:#f44336;font-weight:800;padding:6px">—</td>`;
+  });
+  html += `<td style="text-align:right;color:var(--text2)">—</td></tr>`;
+
+  // ── PATRIMONIO ──
+  html += `<tr style="background:rgba(74,158,255,.08);border-top:2px solid rgba(74,158,255,.30)">
+    <td style="font-weight:800;color:var(--blue);font-size:13px">👑 PATRIMONIO</td>
+    <td style="text-align:right;color:var(--text2);font-size:11px">—</td>`;
+  ciOps.forEach(op => {
+    html += `<td style="text-align:center"><span style="opacity:.6">↓</span></td>`;
+  });
+  html += `<td style="text-align:right;color:var(--text2)">—</td></tr>`;
+
+  // Clientes Mes Anterior
+  html += `<tr style="background:rgba(74,158,255,.04)">
+    <td style="padding-left:20px;font-size:12px">Clientes Mes Anterior</td>
+    <td style="text-align:right;color:var(--text2);font-size:11px">—</td>`;
+  ciOps.forEach(op => {
+    html += `<td id="ci-${op.uid}-CLI_MES_ANT" style="text-align:right;min-width:150px;padding:6px 8px;color:var(--text2)" title="Fila SALDO CLIENTES ANTERIOR">—</td>`;
+  });
+  html += `<td style="text-align:right;color:var(--text2)">—</td></tr>`;
+
+  // Cupo Residual
+  html += `<tr style="background:rgba(74,158,255,.04)">
+    <td style="padding-left:20px;font-size:12px">Cupo Residual</td>
+    <td style="text-align:right;color:var(--text2);font-size:11px">—</td>`;
+  ciOps.forEach(op => {
+    html += `<td id="ci-${op.uid}-CUPO_RESIDUAL" style="text-align:right;min-width:150px;padding:6px 8px;color:var(--text2)" title="Cupo Total Asignado − Clientes Mes Anterior">—</td>`;
+  });
+  html += `<td style="text-align:right;color:var(--text2)">—</td></tr>`;
+
+  // TOTAL PATRIMONIO (clientes mes ant. + cupo residual)
+  html += `<tr style="background:rgba(74,158,255,.12)">
+    <td style="padding-left:20px;font-size:12px;color:var(--blue);font-weight:800">▸ TOTAL PATRIMONIO</td>
+    <td style="text-align:right;color:var(--text2);font-size:11px">—</td>`;
+  ciOps.forEach(op => {
+    html += `<td id="ci-totq-${op.uid}" style="text-align:right;color:var(--blue);font-weight:800;padding:6px">—</td>`;
+  });
+  html += `<td style="text-align:right;color:var(--text2)">—</td></tr>`;
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // VERIFICACIÓN: TOTAL ACTIVOS = TOTAL PASIVOS + TOTAL PATRIMONIO
+  // ══════════════════════════════════════════════════════════════════════════
+  html += `<tr style="background:rgba(74,158,255,.12);border-top:2px solid rgba(74,158,255,.35);font-weight:700;font-size:12px">
+    <td style="padding-left:20px;color:var(--blue);font-weight:800">✓ VERIFICACIÓN (A = P + PA)</td>
+    <td style="text-align:right;color:var(--text2)">—</td>`;
+  ciOps.forEach(op => {
+    html += `<td id="ci-verif-${op.uid}" style="text-align:center;font-weight:800;padding:6px">—</td>`;
+  });
+  html += `<td style="text-align:right;color:var(--text2)">—</td></tr>`;
+
+  html += '</tfoot></table>';
+  wrap.innerHTML = html;
+  ciUpdateTotals();
+}
+
+function ciSetExplicitZero(uid, mk) {
+  const el = document.getElementById(`ci-${uid}-${mk}`);
+  if (!el) return;
+  if (!confirm('¿Poner este método en $0 para este operador? Esto borrará el valor existente.')) return;
+  el.value = '';
+  el.dataset.explicitZero = 'true';
+  el.style.borderColor = 'var(--red)';
+  el.placeholder = '← puesto en 0';
+  ciUpdateTotals();
+}
+
+function ciFormatInput(el) {
+  const neg = el.value.startsWith('-');
+  let raw = el.value.replace(/[^\d,]/g,'');
+  const lc = raw.lastIndexOf(',');
+  let r = lc !== -1
+    ? raw.substring(0,lc).replace(/\B(?=(\d{3})+(?!\d))/g,'.') + ',' + raw.substring(lc+1).substring(0,2)
+    : raw.replace(/\B(?=(\d{3})+(?!\d))/g,'.');
+  el.value = (neg ? '-' : '') + r;
+  ciUpdateTotals();
+}
+
+function ciUpdateTotals() {
+  // Total caja general
+  let totPozo = 0;
+  ciMetodos.forEach(m => {
+    const mk = m.replace(/ /g,'_');
+    totPozo += ciParseCOP(document.getElementById(`ci-pozo-${mk}`)?.value || '');
+  });
+  const tdPozo = document.getElementById('ci-tot-pozo');
+  if (tdPozo) {
+    tdPozo.textContent = ciPesos(totPozo);
+    tdPozo.className = totPozo < 0 ? 'ci-td-neg' : 'ci-td-pos';
+    tdPozo.style.textAlign = 'right'; tdPozo.style.fontWeight = '700';
+  }
+  // Total por operador
+  ciOps.forEach(op => {
+    let tot = 0;
+    ciMetodos.forEach(m => {
+      const mk = m.replace(/ /g,'_');
+      tot += ciParseCOP(document.getElementById(`ci-${op.uid}-${mk}`)?.value || '');
+    });
+    const td = document.getElementById(`ci-tot-op-${op.uid}`);
+    if (td) {
+      td.textContent = ciPesos(tot);
+      td.className = tot < 0 ? 'ci-td-neg' : 'ci-td-pos';
+      td.style.textAlign = 'right'; td.style.fontWeight = '700';
+    }
+  });
+  // Diferencia por fila (Caja General − suma operadores)
+  let totDiff = 0;
+  ciMetodos.forEach(m => {
+    const mk = m.replace(/ /g,'_');
+    const pozo = ciParseCOP(document.getElementById(`ci-pozo-${mk}`)?.value || '');
+    const sumOps = ciOps.reduce((s, op) => s + ciParseCOP(document.getElementById(`ci-${op.uid}-${mk}`)?.value || ''), 0);
+    const diff = pozo - sumOps;
+    totDiff += diff;
+    const td = document.getElementById(`ci-diff-${mk}`);
+    if (td) {
+      td.textContent = ciPesos(diff);
+      td.className = diff < 0 ? 'ci-td-neg' : 'ci-td-pos';
+      td.style.textAlign = 'right'; td.style.fontWeight = '600';
+    }
+  });
+  const tdDiff = document.getElementById('ci-tot-diff');
+  if (tdDiff) {
+    tdDiff.textContent = ciPesos(totDiff);
+    tdDiff.className = totDiff < 0 ? 'ci-td-neg' : 'ci-td-pos';
+    tdDiff.style.textAlign = 'right'; tdDiff.style.fontWeight = '700';
+  }
+
+  // ── ESF inicial: TODO se deriva del CUPO TOTAL ASIGNADO ────────────────────
+  //   TOTAL ACTIVOS   = suma de métodos + Comisiones Mes Ant.  (único dato manual)
+  //   Clientes Mes Ant.= fila SALDO CLIENTES ANTERIOR
+  //   Cupo Residual    = Cupo Total Asignado − Clientes Mes Ant.
+  //   Liquidación x Pagar = TOTAL ACTIVOS − Cupo Total Asignado
+  //   TOTAL PATRIMONIO = Cupo Total Asignado   → el cuadre se cumple por construcción
+  ciOps.forEach(op => {
+    let totMetodos = 0;
+    ciMetodos.forEach(m => {
+      const mk = m.replace(/ /g,'_');
+      totMetodos += ciParseCOP(document.getElementById(`ci-${op.uid}-${mk}`)?.value || '');
+    });
+    const cupoAsignado = ciParseCOP(document.getElementById(`ci-${op.uid}-CUPO_TOTAL`)?.value || '');
+    const com          = ciParseCOP(document.getElementById(`ci-${op.uid}-COM_MES_ANT`)?.value || '');
+    const cli          = ciParseCOP(document.getElementById(`ci-${op.uid}-SALDO_CLIENTES_ANTERIOR`)?.value || '');
+
+    const activos      = totMetodos + com;
+    const cupoResidual = cupoAsignado - cli;
+    const pasivos      = activos - cupoAsignado;
+    const patrimonio   = cli + cupoResidual;          // = cupoAsignado
+    const dif          = Math.round(activos - (pasivos + patrimonio));
+
+    const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = ciPesos(val); };
+    set(`ci-${op.uid}-CLI_MES_ANT`,    cli);
+    set(`ci-${op.uid}-CUPO_RESIDUAL`,  cupoResidual);
+    set(`ci-${op.uid}-LIQ_POR_PAGAR`,  pasivos);
+    set(`ci-tota-${op.uid}`, activos);
+    set(`ci-totp-${op.uid}`, pasivos);
+    set(`ci-totq-${op.uid}`, patrimonio);
+
+    const tdV = document.getElementById(`ci-verif-${op.uid}`);
+    if (tdV) {
+      tdV.textContent = dif === 0 ? '✓ OK' : '✗ ' + ciPesos(dif);
+      tdV.style.color = dif === 0 ? '#4caf50' : '#ff6b6b';
+    }
+  });
+}
+
+function ciNumToCOP(n) {
+  if (!n) return '';
+  const neg = n < 0;
+  const fixed = Math.abs(n).toFixed(2);
+  const [i, d] = fixed.split('.');
+  return (neg?'-':'') + i.replace(/\B(?=(\d{3})+(?!\d))/g,'.') + (d==='00' ? '' : ','+d);
+}
+
+function ciParseCOP(str) {
+  if (!str) return 0;
+  const neg = str.startsWith('-');
+  const v = parseFloat(str.replace(/-/g,'').replace(/\./g,'').replace(',','.')) || 0;
+  return neg ? -v : v;
+}
+
+function ciPesos(v) {
+  return '$' + Math.round(v || 0).toLocaleString('es-CO');
+}
+
+async function saveCupoInicialAdmin() {
+  const btn = document.getElementById('ci-save-btn');
+  const mesSel = document.getElementById('ci-sel-mes').value ||
+    (new Date().getFullYear() + '-' + String(new Date().getMonth()+1).padStart(2,'0'));
+  btn.disabled = true; btn.textContent = '⏳ Guardando...';
+  try {
+    // Guardar cupo pozo (caja general) — guardar TODOS los métodos (incluido 0) para borrar viejos
+    const cupo_pozo = {};
+    ciMetodos.forEach(m => {
+      const mk = m.replace(/ /g,'_');
+      const v = ciParseCOP(document.getElementById(`ci-pozo-${mk}`)?.value || '');
+      cupo_pozo[m] = v; // incluir 0 para sobreescribir valores viejos
+    });
+    // Guardar plano (backward compat) + por mes
+    const pozoRef = db.collection('cajero_config').doc('main');
+    const pozoUpdate = { cupo_pozo };
+    pozoUpdate[`cupo_por_mes.${mesSel}`] = cupo_pozo;
+    try { await pozoRef.update(pozoUpdate); }
+    catch(_) { await pozoRef.set({ cupo_pozo, cupo_por_mes: { [mesSel]: cupo_pozo } }, { merge: true }); }
+
+    // Guardar cupo por operador — leer existente primero para no sobrescribir con 0 accidentalmente
+    await Promise.all(ciOps.map(async op => {
+      // Leer datos actuales de Firestore para este operador
+      const snap = await db.collection('patriarca_config').doc(op.uid).get();
+      const existing = snap.exists ? (snap.data().cupos_cajero || {}) : {};
+
+      const cupos = {};
+      ciMetodos.forEach(m => {
+        const mk = m.replace(/ /g,'_');
+        const el = document.getElementById(`ci-${op.uid}-${mk}`);
+        const uiVal = ciParseCOP(el?.value || '');
+        const explicitZero = el?.dataset?.explicitZero === 'true';
+        // Si el campo tiene valor no-cero → usar ese valor
+        // Si el admin presionó ✕0 (explicitZero) → guardar 0 intencionalmente
+        // Si el campo está en 0/vacío sin intención → conservar valor existente en Firestore
+        cupos[m] = (uiVal !== 0 || explicitZero) ? uiVal : (existing[m] || 0);
+      });
+      // NO guardar CUPO TOTAL como campo separado — el total se calcula sumando los métodos
+
+      // ── ESF inicial derivado del CUPO TOTAL ASIGNADO ──
+      // Se guarda en un mapa APARTE (esf_inicial_por_mes) para no contaminar los
+      // cupos por método — si va dentro de `cupos`, el portal lo suma como si
+      // fuera una caja más e infla el cupo del operador.
+      const cupoAsignado = ciParseCOP(document.getElementById(`ci-${op.uid}-CUPO_TOTAL`)?.value || '');
+      const comMesAnt    = ciParseCOP(document.getElementById(`ci-${op.uid}-COM_MES_ANT`)?.value || '');
+      const cliMesAnt    = ciParseCOP(document.getElementById(`ci-${op.uid}-SALDO_CLIENTES_ANTERIOR`)?.value || '');
+      const totMetodos   = Object.values(cupos).reduce((s,v) => s + (parseFloat(v)||0), 0);
+
+      const esfInicial = {
+        CUPO_ASIGNADO:  cupoAsignado,
+        COM_MES_ANT:    comMesAnt,
+        CLI_MES_ANT:    cliMesAnt,
+        CUPO_RESIDUAL:  cupoAsignado - cliMesAnt,
+        LIQ_POR_PAGAR:  (totMetodos + comMesAnt) - cupoAsignado,
+        TOTAL_ACTIVOS:  totMetodos + comMesAnt,
+        TOTAL_PASIVOS:  (totMetodos + comMesAnt) - cupoAsignado,
+        TOTAL_PATRIMONIO: cupoAsignado
+      };
+
+      // Guardar plano (backward compat) + por mes
+      const cfgRef = db.collection('patriarca_config').doc(op.uid);
+      const cfgUpdate = { cupos_cajero: cupos };
+      cfgUpdate[`cupos_por_mes.${mesSel}`] = cupos;
+      cfgUpdate[`esf_inicial_por_mes.${mesSel}`] = esfInicial;
+      try { return cfgRef.update(cfgUpdate); }
+      catch(_) { return cfgRef.set({ cupos_cajero: cupos, cupos_por_mes: { [mesSel]: cupos } }, { merge: true }); }
+    }));
+    // ── Auto-guardar snapshot ESF inicial ──────────────────────────────────
+    // Guarda los valores "fijos" del mes para detectar si alguien los cambia
+    const prevMes = (() => {
+      const [y, m] = mesSel.split('-').map(Number);
+      const d = new Date(y, m - 2, 1); // mes anterior
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    })();
+    const uid_admin = auth.currentUser?.uid || '';
+    const email_admin = auth.currentUser?.email || 'admin';
+
+    await Promise.all(ciOps.map(async op => {
+      try {
+        // Cupos iniciales ya guardados arriba
+        const cfgSnap = await db.collection('patriarca_config').doc(op.uid).get();
+        const cuposIniciales = cfgSnap.exists ? (cfgSnap.data().cupos_por_mes?.[mesSel] || {}) : {};
+
+        // Clientes mes anterior — desde saldo_inicial del mes ACTUAL (fuente autorizada)
+        // saldo_inicial contiene los saldos ingresados manualmente por admin al cerrar mes
+        let clientesMesAnterior = 0;
+        try {
+          const siSnap = await db.collection('patriarca_saldo_inicial').doc(`${op.uid}_${mesSel}`).get({ source: 'server' });
+          if (siSnap.exists) {
+            const saldos = siSnap.data().saldos || {};
+            Object.values(saldos).forEach(casaMap => {
+              Object.values(casaMap || {}).forEach(v => { clientesMesAnterior += parseFloat(v) || 0; });
+            });
+            clientesMesAnterior = Math.round(clientesMesAnterior);
+          }
+          // Fallback: esf_resumen del mes previo si no hay saldo_inicial
+          if (!clientesMesAnterior) {
+            const prevSnap = await db.collection('patriarca_esf_resumen').doc(`${op.uid}_${prevMes}`).get();
+            if (prevSnap.exists) clientesMesAnterior = Math.round(prevSnap.data().totalClientes || 0);
+          }
+        } catch(_) {}
+
+        await db.collection('patriarca_esf_inicial').doc(`${op.uid}_${mesSel}`).set({
+          uid:               op.uid,
+          operadorNombre:    op.nombre || op.email || op.uid,
+          mesKey:            mesSel,
+          cuposIniciales,
+          clientesMesAnterior,
+          savedAt:           firebase.firestore.FieldValue.serverTimestamp(),
+          savedBy:           email_admin,
+        });
+      } catch(e) { console.warn('ESF inicial snapshot error:', op.uid, e); }
+    }));
+    toast('✅ Cupo inicial + snapshot ESF guardados', 'success');
+  } catch(e) { toast('❌ ' + e.message, 'error'); }
+  btn.disabled = false; btn.textContent = '💾 Guardar';
+}
+// ────────────────────────────────────────────────────────────────────────────
+
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+let _toastTimer;
+function toast(msg, type='info') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'show ' + type;
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => el.className = '', 3000);
+}
+
+// ────────────────────── DASHBOARD ──────────────────────
+// ── DASHBOARD ESF — Resumen por operador ──
+let _dashEsfData = [];
+
+let _dashUltMov = {};   // uid → fecha del último movimiento del mes
+
+async function loadDashboardESF() {
+  const lbl = document.getElementById('dash-esf-mes-lbl');
+  if (lbl) lbl.textContent = _adminMesLabel(_adminMes);
+  try {
+    const snap = await db.collection('patriarca_esf_resumen')
+      .where('mesKey', '==', _adminMes).get();
+    _dashEsfData = snap.docs.map(d => d.data());
+
+    // Última actividad real de cada operador en el mes. Sirve para avisar
+    // cuando la foto del ESF quedó vieja: si hay movimientos posteriores al
+    // cálculo, las cifras de la tarjeta ya no son las de hoy.
+    _dashUltMov = {};
+    try {
+      const [y, m] = _adminMes.split('-').map(Number);
+      const fin = new Date(y, m, 0).getDate();
+      const mvs = await db.collection('patriarca_movimientos')
+        .where('fecha', '>=', `${_adminMes}-01`)
+        .where('fecha', '<=', `${_adminMes}-${String(fin).padStart(2,'0')}`).get();
+      mvs.docs.forEach(d => {
+        const x = d.data();
+        if (!x.opId || !x.fecha) return;
+        if (!_dashUltMov[x.opId] || x.fecha > _dashUltMov[x.opId]) _dashUltMov[x.opId] = x.fecha;
+      });
+    } catch(e) { console.warn('ultMov:', e); }
+    // Poblar selector de oficinas usando oficinaNombre
+    const nombresOf = [...new Set(allUsers.filter(u=>u.oficinaNombre).map(u=>u.oficinaNombre))].sort((a,b)=>{
+      if(a==='Unity') return -1; if(b==='Unity') return 1; return a.localeCompare(b);
+    });
+    const sel = document.getElementById('dash-esf-oficina');
+    if (sel) {
+      const prev = sel.value;
+      sel.innerHTML = '<option value="">Todas las oficinas</option>' +
+        nombresOf.map(o=>`<option value="${o}"${o===prev||(!prev&&o==='Unity')?'selected':''}>${o}</option>`).join('');
+    }
+    renderDashboardESF();
+  } catch(e) { console.warn('dashboardESF:', e); }
+}
+
+function renderDashboardESF() {
+  const oficina = document.getElementById('dash-esf-oficina')?.value || '';
+  const fmt = v => '$' + Math.round(v||0).toLocaleString('es-CO');
+  const col = v => v >= 0 ? 'var(--green)' : 'var(--red)';
+
+  // Solo operadores activos con datos ESF calculados
+  const opUids = new Set(allUsers.filter(u=>u.rol==='operador'&&u.uid&&(u.estado||'activo')==='activo').map(u=>u.uid));
+  let data = _dashEsfData.filter(r =>
+    r.uid && opUids.has(r.uid) &&
+    ((r.totalActivos||0) > 0 || (r.utilidad||0) > 0 || (r.totalComisiones||0) > 0)
+  );
+  if (oficina) {
+    const uids = new Set(allUsers.filter(u=>u.oficinaNombre===oficina&&u.rol==='operador').map(u=>u.uid));
+    data = data.filter(r => uids.has(r.uid));
+  }
+  data.sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
+
+  const container = document.getElementById('dash-esf-cards');
+  if (!container) return;
+  if (!data.length) {
+    container.innerHTML = '<div style="color:var(--text2);font-size:13px;padding:16px;grid-column:1/-1">Sin datos ESF para este mes — usa "Calcular ESF" en la sección ESF por Operador.</div>';
+    return;
+  }
+
+  // Totales para fila de resumen
+  let totCom=0, totUtil=0, totGan=0, totVencidos=0;
+  const cards = data.map(r => {
+    const com  = r.totalComisiones || 0;
+    const util = (r.utilidad||0) - (r.totalGastos||0);
+    // La ganancia sale del patrimonio: hay que descontar el pasivo (liquidación por pagar)
+    const gan  = (r.totalActivos||0) - (r.totalPasivos||0) - (r.clientesMesAnt||0) - (r.cupoEnCajas||0);
+    totCom+=com; totUtil+=util; totGan+=gan;
+
+    // ¿La foto quedó vieja? Se compara cuándo se calculó el ESF contra el
+    // último movimiento registrado. Si hay movimientos después, estas cifras
+    // no incluyen todo y hay que recalcular.
+    const calc = r.actualizadoEn?.seconds ? new Date(r.actualizadoEn.seconds*1000) : null;
+    const fechaCalc = calc ? new Intl.DateTimeFormat('es-CO',{timeZone:'America/Bogota',
+      day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit', hour12:false}).format(calc) : null;
+    const diaCalc = calc ? new Intl.DateTimeFormat('en-CA',{timeZone:'America/Bogota',
+      year:'numeric',month:'2-digit',day:'2-digit'}).format(calc) : null;
+    const ultMov = _dashUltMov[r.uid] || null;
+    const vencido = !!(calc && ultMov && ultMov >= diaCalc);
+    if (vencido) totVencidos++;
+
+    const pie = !calc
+      ? `<div style="font-size:9px;color:var(--text2);margin-top:2px">sin fecha de cálculo</div>`
+      : vencido
+        ? `<div style="font-size:9px;color:var(--orange);margin-top:2px" title="Hay movimientos del ${ultMov} posteriores a este cálculo. Recalcula el ESF para ver las cifras al día.">⚠ calculado ${fechaCalc} · hay movimientos después</div>`
+        : `<div style="font-size:9px;color:var(--text2);margin-top:2px">calculado ${fechaCalc}</div>`;
+
+    return `<div style="background:var(--bg2);border:1px solid ${vencido?'rgba(240,160,80,.45)':'var(--border)'};border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:8px">
+      <div style="font-weight:700;font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${r.nombre}">${r.nombre}</div>
+      <div style="display:flex;flex-direction:column;gap:5px">
+        <div style="display:flex;justify-content:space-between;font-size:11px">
+          <span style="color:var(--text2)">Comisiones</span>
+          <span style="color:var(--orange);font-weight:600">${fmt(com)}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:11px">
+          <span style="color:var(--text2)">Utilidad Neta</span>
+          <span style="color:${col(util)};font-weight:600">${fmt(util)}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:11px;border-top:1px solid var(--border);padding-top:5px;margin-top:2px">
+          <span style="color:var(--text2);font-weight:600">Ganancia Total</span>
+          <span style="color:${col(gan)};font-weight:700">${fmt(gan)}</span>
+        </div>
+        ${pie}
+      </div>
+    </div>`;
+  });
+
+  // Card de totales
+  cards.push(`<div style="background:var(--bg3);border:2px solid var(--purple);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:8px">
+    <div style="font-weight:800;font-size:12px;color:var(--purple)">TOTAL ${oficina||'GENERAL'}</div>
+    <div style="display:flex;flex-direction:column;gap:5px">
+      <div style="display:flex;justify-content:space-between;font-size:11px">
+        <span style="color:var(--text2)">Comisiones</span>
+        <span style="color:var(--orange);font-weight:700">${fmt(totCom)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:11px">
+        <span style="color:var(--text2)">Utilidad Neta</span>
+        <span style="color:${col(totUtil)};font-weight:700">${fmt(totUtil)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:11px;border-top:1px solid var(--border);padding-top:5px;margin-top:2px">
+        <span style="color:var(--text2);font-weight:700">Ganancia Total</span>
+        <span style="color:${col(totGan)};font-weight:800">${fmt(totGan)}</span>
+      </div>
+      ${totVencidos
+        ? `<div style="font-size:9px;color:var(--orange);margin-top:4px;line-height:1.4">
+             ⚠ ${totVencidos} operador(es) con movimientos posteriores al cálculo.<br>
+             Estas cifras están incompletas — recalcula el ESF o mira Ganancia Diaria.</div>`
+        : `<div style="font-size:9px;color:var(--green);margin-top:4px">✓ todas las cifras al día</div>`}
+    </div>
+  </div>`);
+
+  container.innerHTML = cards.join('');
+}
+
+let _dashOpsMap = {};  // uid → nombre, para no mostrar el uid crudo en la lista de pendientes
+let _pendMovs = [];
+
+function loadDashboard() {
+  // Operadores
+  db.collection('patriarca_operadores').onSnapshot(snap => {
+    const activos = snap.docs.filter(d => d.data().estado !== 'Inactivo');
+    document.getElementById('kpi-ops').textContent = activos.length;
+    renderDashOps(activos.map(d => ({id: d.id, ...d.data()})));
+    _dashOpsMap = {};
+    snap.docs.forEach(d => { _dashOpsMap[d.id] = d.data().nombre || d.data().email || d.id; });
+    renderPendPanelSiAbierto();
+  });
+
+  // Métodos count
+  document.getElementById('kpi-mets').textContent = metodos.length || '—';
+
+  // Movimientos hoy
+  const _dh = new Date();
+  const hoy = _dh.getFullYear()+'-'+String(_dh.getMonth()+1).padStart(2,'0')+'-'+String(_dh.getDate()).padStart(2,'0');
+  db.collection('patriarca_movimientos').where('fecha','==',hoy).get().then(snap => {
+    document.getElementById('kpi-movs').textContent = snap.size;
+  });
+
+  // Pendientes cajero — en vivo, para que la lista se actualice sola cuando
+  // la cajera va confirmando movimientos.
+  db.collection('patriarca_movimientos')
+    .where('estado_cajero','==','Pendiente').onSnapshot(snap => {
+    // Un movimiento con solicitud de eliminación aprobada queda con
+    // eliminado:true pero NUNCA le tocan estado_cajero — sigue diciendo
+    // "Pendiente" para siempre aunque ya no exista para nadie más. Si no se
+    // descarta aquí, cuenta como pendiente eternamente.
+    _pendMovs = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(mv => !mv.eliminado);
+    document.getElementById('kpi-pend').textContent = _pendMovs.length;
+    renderPendPanelSiAbierto();
+  }, e => console.warn('pendientes cajero:', e.message));
+}
+
+// ── Panel desplegable de "Pendientes cajero" ────────────────────────────────
+function togglePendPanel() {
+  const p = document.getElementById('pend-panel');
+  const caret = document.getElementById('kpi-pend-caret');
+  if (!p) return;
+  const abrir = p.style.display === 'none';
+  p.style.display = abrir ? '' : 'none';
+  if (caret) caret.textContent = abrir ? '▴' : '▾';
+  if (abrir) renderPendPanel();
+}
+
+function renderPendPanelSiAbierto() {
+  const p = document.getElementById('pend-panel');
+  if (p && p.style.display !== 'none') renderPendPanel();
+}
+
+function renderPendPanel() {
+  const p = document.getElementById('pend-panel');
+  if (!p) return;
+  if (!_pendMovs.length) {
+    p.innerHTML = '<div style="padding:14px;color:var(--text2);font-size:12px">No hay movimientos pendientes de la cajera.</div>';
+    return;
+  }
+  const orden = [..._pendMovs].sort((a,b) => (b.fecha||'').localeCompare(a.fecha||''));
+  p.innerHTML = `<table class="tbl" style="width:100%">
+    <thead><tr>
+      <th>ID</th><th>Fecha</th><th>Operador</th><th>Tipo</th><th>Cliente</th><th>Casa</th><th>Método</th>
+      <th style="text-align:right">Monto</th>
+    </tr></thead>
+    <tbody>${orden.map(mv => `<tr>
+      <td style="color:var(--text2);font-size:11px">${mv.op_id || mv.id}</td>
+      <td>${mv.fecha || '—'}</td>
+      <td>${_dashOpsMap[mv.opId] || mv.opId || '—'}</td>
+      <td>${mv.tipo || '—'}</td>
+      <td>${mv.cliente || '—'}</td>
+      <td>${mv.casa || '—'}</td>
+      <td>${mv.metodo || '—'}</td>
+      <td style="text-align:right;font-weight:700;color:var(--orange)">${ciPesos(mv.monto)}</td>
+    </tr>`).join('')}</tbody>
+  </table>`;
+}
+
+function renderDashOps(ops) {
+  const tbody = document.getElementById('dash-ops-tbody');
+  if (!ops.length) {
+    tbody.innerHTML = '<tr><td colspan="4"><div class="empty"><div class="empty-icon">👤</div>Sin operadores</div></td></tr>';
+    return;
+  }
+  tbody.innerHTML = ops.map(op => {
+    const lastSeen = op.lastSeen?.toDate?.();
+    const lastStr = lastSeen ? lastSeen.toLocaleDateString('es-CO') : '—';
+    return `<tr>
+      <td style="font-weight:600">${op.nombre || '—'}</td>
+      <td style="color:var(--text2)">${op.email || '—'}</td>
+      <td><span class="badge ${op.estado==='Activo'?'badge-green':'badge-gray'}">${op.estado||'—'}</span></td>
+      <td style="color:var(--text2)">${lastStr}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ────────────────────── OFICINAS ──────────────────────
+let oficinas = [];
+
+function loadOficinas() {
+  db.collection('admin_oficinas').orderBy('nombre').onSnapshot(snap => {
+    oficinas = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderOficinasGrid();
+    renderOficinasTabla();
+    poblarSelectOficinasModal();
+  }, err => {
+    console.warn('oficinas:', err);
+    toast('⚠ Error cargando oficinas: ' + err.code, 'error');
+  });
+}
+
+function renderOficinasGrid() {
+  const grid = document.getElementById('oficinas-grid');
+  if (!oficinas.length) {
+    grid.innerHTML = '<div class="empty" style="grid-column:span 2"><div class="empty-icon">🏢</div>Sin oficinas. Crea la primera.</div>';
+    return;
+  }
+  grid.innerHTML = oficinas.map(o => {
+    const color = o.color || 'var(--gold)';
+    return `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-left:4px solid ${color};border-radius:var(--radius);padding:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div>
+          <span style="font-size:15px;font-weight:700">${o.nombre}</span>
+          <span style="margin-left:8px;background:${color}22;color:${color};padding:2px 8px;border-radius:12px;font-size:10px;font-weight:700">${o.codigo||''}</span>
+        </div>
+        <div style="display:flex;gap:4px">
+          <button class="btn-icon" onclick="editarOficina('${o.id}')" title="Editar">✏️</button>
+          <button class="btn-icon del" onclick="eliminarOficina('${o.id}','${o.nombre}')" title="Eliminar">🗑</button>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:10px">${o.descripcion||'Sin descripción'}</div>
+      <div style="display:flex;gap:16px">
+        <div style="font-size:11px"><span style="color:var(--text2)">Operadores: </span><span style="font-weight:700" id="ofic-ops-${o.id}">—</span></div>
+        <div style="font-size:11px"><span style="color:var(--text2)">Cajeros: </span><span style="font-weight:700" id="ofic-caj-${o.id}">—</span></div>
+      </div>
+      <div style="margin-top:10px">
+        <span class="badge ${o.estado==='activa'?'badge-green':'badge-gray'}">${o.estado||'activa'}</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Contar usuarios por oficina
+  db.collection('admin_usuarios').get().then(snap => {
+    const counts = {};
+    snap.docs.forEach(d => {
+      const u = d.data();
+      if (!u.oficina) return;
+      if (!counts[u.oficina]) counts[u.oficina] = { ops: 0, caj: 0 };
+      if (u.rol === 'operador') counts[u.oficina].ops++;
+      if (u.rol === 'cajero')   counts[u.oficina].caj++;
+    });
+    oficinas.forEach(o => {
+      const c = counts[o.id] || { ops: 0, caj: 0 };
+      const elOps = document.getElementById('ofic-ops-' + o.id);
+      const elCaj = document.getElementById('ofic-caj-' + o.id);
+      if (elOps) elOps.textContent = c.ops;
+      if (elCaj) elCaj.textContent = c.caj;
+    });
+  });
+}
+
+function renderOficinasTabla() {
+  const tbody = document.getElementById('oficinas-tbody');
+  if (!oficinas.length) {
+    tbody.innerHTML = '<tr><td colspan="6"><div class="empty">Sin oficinas</div></td></tr>';
+    return;
+  }
+  tbody.innerHTML = oficinas.map(o => {
+    const color = o.color || 'var(--gold)';
+    return `<tr>
+      <td><span style="font-weight:700;color:${color}">${o.nombre}</span> <span style="color:var(--text2);font-size:11px">${o.codigo||''}</span></td>
+      <td id="tbl-ops-${o.id}" style="color:var(--text2)">—</td>
+      <td id="tbl-caj-${o.id}" style="color:var(--text2)">—</td>
+      <td style="color:var(--text2);font-size:11px">—</td>
+      <td><span class="badge ${o.estado==='activa'?'badge-green':'badge-gray'}">${o.estado||'activa'}</span></td>
+      <td>
+        <button class="btn-icon" onclick="editarOficina('${o.id}')">✏️</button>
+        <button class="btn-icon del" onclick="eliminarOficina('${o.id}','${o.nombre}')">🗑</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function poblarSelectOficinasModal() {
+  const sel = document.getElementById('usr-oficina');
+  if (!sel) return;
+  const val = sel.value;
+  sel.innerHTML = '<option value="">— Sin asignar —</option>' +
+    oficinas.filter(o => o.estado !== 'inactiva').map(o =>
+      `<option value="${o.id}"${o.id===val?' selected':''}>${o.nombre}</option>`
+    ).join('');
+}
+
+async function guardarOficina() {
+  const nombre  = document.getElementById('ofic-nombre').value.trim();
+  const codigo  = document.getElementById('ofic-codigo').value.trim().toUpperCase();
+  const desc    = document.getElementById('ofic-desc').value.trim();
+  const color   = document.getElementById('ofic-color').value;
+  const estado  = document.getElementById('ofic-estado').value;
+  const editId  = document.getElementById('ofic-edit-id').value;
+
+  if (!nombre) { toast('⚠ Escribe el nombre de la oficina', 'error'); return; }
+
+  const data = { nombre, codigo, descripcion: desc, color, estado };
+
+  try {
+    if (editId) {
+      await db.collection('admin_oficinas').doc(editId).update(data);
+      toast('✅ Oficina actualizada', 'success');
+    } else {
+      data.creadoEn = firebase.firestore.FieldValue.serverTimestamp();
+      await db.collection('admin_oficinas').add(data);
+      toast('✅ Oficina creada: ' + nombre, 'success');
+    }
+    closeModal('modal-oficina');
+    limpiarModalOficina();
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+function editarOficina(id) {
+  const o = oficinas.find(x => x.id === id);
+  if (!o) return;
+  document.getElementById('ofic-edit-id').value = id;
+  document.getElementById('ofic-nombre').value  = o.nombre || '';
+  document.getElementById('ofic-codigo').value  = o.codigo || '';
+  document.getElementById('ofic-desc').value    = o.descripcion || '';
+  document.getElementById('ofic-color').value   = o.color || 'var(--gold)';
+  document.getElementById('ofic-estado').value  = o.estado || 'activa';
+  document.getElementById('modal-ofic-title').textContent = 'Editar Oficina';
+  openModal('modal-oficina');
+}
+
+async function eliminarOficina(id, nombre) {
+  if (!confirm(`¿Eliminar la oficina "${nombre}"? Los usuarios asignados quedarán sin oficina.`)) return;
+  await db.collection('admin_oficinas').doc(id).delete();
+  toast('Oficina eliminada', 'info');
+}
+
+function limpiarModalOficina() {
+  ['ofic-edit-id','ofic-nombre','ofic-codigo','ofic-desc'].forEach(i => {
+    const el = document.getElementById(i); if(el) el.value = '';
+  });
+  document.getElementById('modal-ofic-title').textContent = 'Nueva Oficina';
+  document.getElementById('ofic-color').value = 'var(--gold)';
+  document.getElementById('ofic-estado').value = 'activa';
+}
+
+// Al abrir modal oficina, limpiar si es nuevo
+document.addEventListener('DOMContentLoaded', () => {
+  const btnNuevaOfic = document.querySelector('[onclick="openModal(\'modal-oficina\')"]');
+  if (btnNuevaOfic) btnNuevaOfic.addEventListener('click', limpiarModalOficina);
+});
+
+// ────────────────────── USUARIOS ──────────────────────
+let usrFiltro = 'todos';
+
+function loadUsuarios() {
+  db.collection('admin_usuarios').onSnapshot(snap => {
+    allUsers = snap.docs.map(d => ({id: d.id, ...d.data()}));
+    renderUsuarios();
+  }, err => {
+    console.warn('usuarios:', err);
+    toast('⚠ Error cargando usuarios: ' + err.code, 'error');
+  });
+}
+
+function filtrarUsuarios(filtro, btn) {
+  usrFiltro = filtro;
+  document.querySelectorAll('.filter-usr').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  renderUsuarios();
+}
+
+function renderUsuarios() {
+  const tbody = document.getElementById('users-tbody');
+  let lista = allUsers.filter(u => u.rol !== 'admin'); // admins van en su propia sección
+
+  if (usrFiltro === 'cajero')   lista = lista.filter(u => u.rol === 'cajero');
+  if (usrFiltro === 'operador') lista = lista.filter(u => u.rol === 'operador');
+  if (usrFiltro === 'activo')   lista = lista.filter(u => (u.estado||'activo') === 'activo');
+  if (usrFiltro === 'inactivo') lista = lista.filter(u => u.estado === 'inactivo');
+
+  document.getElementById('users-count').textContent = lista.length + ' usuario(s)';
+
+  if (!lista.length) {
+    tbody.innerHTML = '<tr><td colspan="7"><div class="empty"><div class="empty-icon">👤</div>Sin usuarios</div></td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = lista.map(u => {
+    const rolBadge = u.rol === 'cajero' ? 'badge-blue' : 'badge-green';
+    const ofic = oficinas.find(o => o.id === u.oficina);
+    const oficColor = ofic?.color || 'var(--text2)';
+    const oficLabel = ofic
+      ? `<span style="color:${oficColor};font-weight:600">${ofic.nombre}</span>`
+      : '<span style="color:var(--text2)">—</span>';
+    const estado = u.estado || 'activo';
+    const estadoBadge = estado === 'activo'
+      ? '<span class="badge badge-green">🟢 Activo</span>'
+      : '<span class="badge badge-red">🔴 Inactivo</span>';
+
+    const esInfo = u.informativo === true;
+    const infoBadge = u.rol === 'operador'
+      ? `<button class="btn-icon" onclick="toggleInformativo('${u.id}',${esInfo})"
+           title="${esInfo?'Marcar como Principal':'Marcar como Informativo'}"
+           style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;
+             background:${esInfo?'rgba(53,204,47,.20)':'rgba(128,128,128,.12)'};
+             color:${esInfo?'var(--gold)':'var(--text2)'};border:1px solid ${esInfo?'rgba(53,204,47,.40)':'var(--border)'}">
+           ${esInfo?'ℹ INFO':'— PPAL'}
+         </button>` : '';
+    const uidDisplay = u.uid
+      ? `<span style="font-size:10px;font-family:monospace;color:var(--text2);cursor:pointer" title="Click para copiar" onclick="navigator.clipboard.writeText('${u.uid}');toast('UID copiado','success')">${u.uid.slice(0,8)}…</span>`
+      : '<span style="color:var(--text2)">—</span>';
+    return `<tr style="${estado==='inactivo'?'opacity:.55':''}${esInfo?';font-style:italic':''}">
+      <td style="font-weight:600">${u.nombre}${esInfo?' <span style="font-size:9px;color:var(--gold);font-weight:400">(informativo)</span>':''}</td>
+      <td style="color:var(--text2);font-size:12px">${u.email || '—'}</td>
+      <td>${uidDisplay}</td>
+      <td><span class="badge ${rolBadge}">${u.rol}</span></td>
+      <td>${oficLabel}</td>
+      <td>${estadoBadge}</td>
+      <td style="display:flex;gap:4px;flex-wrap:wrap">
+        ${infoBadge}
+        <button class="btn-icon" onclick="abrirEditarUsuario('${u.id}')" title="Editar">✏️</button>
+        <button class="btn-icon" onclick="abrirCambioPass('${u.uid||''}','${u.nombre}','${u.email||''}')" title="Cambiar contraseña">🔑</button>
+        <button class="btn-icon" onclick="toggleEstadoUsuario('${u.id}','${estado}')" title="${estado==='activo'?'Desactivar':'Activar'}">
+          ${estado==='activo'?'🔴':'🟢'}
+        </button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function toggleInformativo(docId, esActualmenteInfo) {
+  try {
+    await db.collection('admin_usuarios').doc(docId).update({ informativo: !esActualmenteInfo });
+    toast(!esActualmenteInfo ? 'Marcado como Informativo' : 'Marcado como Principal', 'success');
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+function editCalcCupo() {
+  const p = parseFloat(document.getElementById('edit-capital-propio')?.value) || 0;
+  const a = parseFloat(document.getElementById('edit-capital-asignado')?.value) || 0;
+  const el = document.getElementById('edit-cupo');
+  if (el) el.value = p + a || '';
+}
+
+async function abrirEditarUsuario(docId) {
+  const u = allUsers.find(x => x.id === docId);
+  if (!u) return;
+  document.getElementById('edit-usr-id').value  = docId;
+  document.getElementById('edit-usr-uid').value = u.uid || '';
+  document.getElementById('edit-usr-rol').value = u.rol || '';
+  document.getElementById('edit-usr-nombre-label').textContent = u.nombre + ' — ' + u.rol;
+  document.getElementById('edit-usr-nombre').value = u.nombre || '';
+  document.getElementById('edit-usr-estado').value = u.estado || 'activo';
+
+  // Poblar select de oficinas
+  const sel = document.getElementById('edit-usr-oficina');
+  sel.innerHTML = '<option value="">— Sin asignar —</option>' +
+    oficinas.map(o => `<option value="${o.id}"${o.id===u.oficina?' selected':''}>${o.nombre}</option>`).join('');
+
+  // Sección financiera solo para operadores
+  const opSection = document.getElementById('edit-op-section');
+  const statusEl  = document.getElementById('edit-config-status');
+  if (u.rol === 'operador' && u.uid) {
+    opSection.style.display = 'block';
+    statusEl.textContent = 'Cargando configuración...';
+    try {
+      const snap = await db.collection('patriarca_config').doc(u.uid).get();
+      if (snap.exists) {
+        const cfg = snap.data();
+        document.getElementById('edit-capital-propio').value   = cfg.capital_propio   || 0;
+        document.getElementById('edit-capital-asignado').value = cfg.capital_asignado || 0;
+        document.getElementById('edit-cupo').value             = cfg.cupo             || 0;
+        document.getElementById('edit-meta').value             = cfg.meta             || 0;
+        document.getElementById('edit-vinc').value             = cfg.vinc             || 'Oficina';
+        document.getElementById('edit-metodo').value           = cfg.metodo_participacion || 'Escalera de Ganancia';
+        document.getElementById('edit-participacion').value    = cfg.participacion     || 50;
+        toggleEditVincFields();
+        // Cargar permisos
+        const p = cfg.permisos || {};
+        document.getElementById('perm-cerrar-mes').checked        = p.cerrarMes        !== false;
+        document.getElementById('perm-hoja-comisiones').checked   = p.hojaComisiones   !== false;
+        document.getElementById('perm-importar-excel').checked    = p.importarExcel    !== false;
+        document.getElementById('perm-eliminar-todo').checked     = p.eliminarTodo     !== false;
+        document.getElementById('perm-revincular-origen').checked = p.revinculatOrigen !== false;
+        statusEl.textContent = `✓ Config existente · Mes: ${cfg.mes || '—'}`;
+        statusEl.style.color = 'var(--green)';
+      } else {
+        // No tiene config aún — valores en 0
+        document.getElementById('edit-capital-propio').value   = 0;
+        document.getElementById('edit-capital-asignado').value = 0;
+        document.getElementById('edit-cupo').value             = 0;
+        document.getElementById('edit-meta').value             = 0;
+        document.getElementById('edit-vinc').value             = 'Oficina';
+        document.getElementById('edit-metodo').value           = 'Escalera de Ganancia';
+        document.getElementById('edit-participacion').value    = 50;
+        toggleEditVincFields();
+        // Sin config: todos los permisos ON por defecto
+        document.getElementById('perm-cerrar-mes').checked        = true;
+        document.getElementById('perm-hoja-comisiones').checked   = true;
+        document.getElementById('perm-importar-excel').checked    = true;
+        document.getElementById('perm-eliminar-todo').checked     = true;
+        document.getElementById('perm-revincular-origen').checked = true;
+        statusEl.textContent = '⚠ Sin config — se creará al guardar';
+        statusEl.style.color = 'var(--orange)';
+      }
+    } catch(e) {
+      statusEl.textContent = '⚠ Error cargando config: ' + e.message;
+      statusEl.style.color = 'var(--red)';
+    }
+  } else {
+    opSection.style.display = 'none';
+  }
+
+  // ── Permisos del cajero ──
+  const cajSection = document.getElementById('edit-cajero-section');
+  const cajStatus  = document.getElementById('edit-cajero-status');
+  if (u.rol === 'cajero' && u.uid) {
+    cajSection.style.display = 'block';
+    cajStatus.textContent = 'Cargando permisos...';
+    try {
+      const snap = await db.collection('patriarca_config').doc(u.uid).get();
+      const p = snap.exists ? (snap.data().permisos || {}) : {};
+      document.getElementById('perm-caj-importar').checked = p.importarExcel !== false;
+      document.getElementById('perm-caj-eliminar').checked = p.eliminarTodo  !== false;
+      document.getElementById('perm-caj-cerrar').checked   = p.cerrarMes     !== false;
+      document.getElementById('perm-caj-mod-amc').checked  = p.moduloAMC     !== false;
+      document.getElementById('perm-caj-mod-corr').checked = p.moduloCorresponsal !== false;
+      cajStatus.textContent = '✓ marcado = el cajero ve el botón en su portal';
+      cajStatus.style.color = 'var(--text2)';
+    } catch(e) {
+      cajStatus.textContent = '⚠ ' + e.message;
+      cajStatus.style.color = 'var(--red)';
+    }
+  } else {
+    cajSection.style.display = 'none';
+  }
+
+  openModal('modal-edit-usr');
+}
+
+async function guardarEdicionUsuario() {
+  const docId   = document.getElementById('edit-usr-id').value;
+  const uid     = document.getElementById('edit-usr-uid').value;
+  const rol     = document.getElementById('edit-usr-rol').value;
+  const nombre  = document.getElementById('edit-usr-nombre').value.trim();
+  const oficina = document.getElementById('edit-usr-oficina').value;
+  const estado  = document.getElementById('edit-usr-estado').value;
+
+  const ofic = oficinas.find(o => o.id === oficina);
+  const oficinaNombre = ofic?.nombre || '';
+
+  try {
+    await db.collection('admin_usuarios').doc(docId).update({ nombre, oficina, oficinaNombre, estado });
+
+    // Sincronizar con patriarca_operadores por uid o por email
+    const u2 = allUsers.find(x => x.id === docId);
+    const userEmail = u2?.email || '';
+    let resolvedUid = uid;
+
+    if (uid) {
+      const opRef  = db.collection('patriarca_operadores').doc(uid);
+      const opSnap = await opRef.get();
+      if (opSnap.exists) {
+        await opRef.update({ nombre, oficina, oficinaNombre, uid, estado: estado === 'activo' ? 'Activo' : 'Inactivo' });
+      }
+    } else if (userEmail) {
+      const opByEmail = await db.collection('patriarca_operadores').where('email','==',userEmail).get();
+      if (!opByEmail.empty) {
+        resolvedUid = opByEmail.docs[0].data().uid || null;
+        await opByEmail.docs[0].ref.update({ nombre, oficina, oficinaNombre, estado: estado === 'activo' ? 'Activo' : 'Inactivo' });
+        if (resolvedUid) await db.collection('admin_usuarios').doc(docId).update({ uid: resolvedUid });
+      }
+    }
+
+    // ── Permisos para cajeros (sin estructura financiera) ──
+    if (rol === 'cajero' && resolvedUid) {
+      await db.collection('patriarca_config').doc(resolvedUid).set({
+        permisos: {
+          importarExcel: document.getElementById('perm-caj-importar')?.checked ?? true,
+          eliminarTodo:  document.getElementById('perm-caj-eliminar')?.checked ?? true,
+          cerrarMes:     document.getElementById('perm-caj-cerrar')?.checked   ?? true,
+          moduloAMC:          document.getElementById('perm-caj-mod-amc')?.checked  ?? true,
+          moduloCorresponsal: document.getElementById('perm-caj-mod-corr')?.checked ?? true,
+        }
+      }, { merge: true });
+    }
+
+    // ── Guardar estructura financiera si es operador y tiene uid ──
+    if (rol === 'operador' && resolvedUid) {
+      const propioVal  = parseFloat(document.getElementById('edit-capital-propio')?.value) || 0;
+      const asigVal    = parseFloat(document.getElementById('edit-capital-asignado')?.value) || 0;
+      const cupoVal    = propioVal + asigVal;
+      const metaVal    = parseFloat(document.getElementById('edit-meta')?.value) || 0;
+      const vincVal    = document.getElementById('edit-vinc')?.value || 'Oficina';
+      const metodoPart = document.getElementById('edit-metodo')?.value || 'Escalera de Ganancia';
+      const partVal    = parseFloat(document.getElementById('edit-participacion')?.value) || 50;
+      const esSocio    = vincVal === 'Socio';
+
+      const ahora     = new Date();
+      const mesLabel  = ahora.toLocaleDateString('es-CO', { month:'long', year:'numeric' });
+      const mesNombre = mesLabel.charAt(0).toUpperCase() + mesLabel.slice(1);
+
+      const permisos = {
+        cerrarMes:        document.getElementById('perm-cerrar-mes')?.checked        ?? true,
+        hojaComisiones:   document.getElementById('perm-hoja-comisiones')?.checked   ?? true,
+        importarExcel:    document.getElementById('perm-importar-excel')?.checked    ?? true,
+        eliminarTodo:     document.getElementById('perm-eliminar-todo')?.checked     ?? true,
+        revinculatOrigen: document.getElementById('perm-revincular-origen')?.checked ?? true,
+      };
+
+      const configExiste = (await db.collection('patriarca_config').doc(resolvedUid).get()).exists;
+      await db.collection('patriarca_config').doc(resolvedUid).set({
+        cupo:                  cupoVal,
+        capital_propio:        propioVal,
+        capital_asignado:      asigVal,
+        meta:                  metaVal,
+        vinc:                  vincVal,
+        metodo_participacion:  esSocio ? null : metodoPart,
+        participacion:         esSocio ? partVal : null,
+        interes_capital:       esSocio ? 0 : 5,
+        interes_diario:        esSocio ? 0 : 0.2,
+        permisos,
+        ...(!configExiste && { mes: mesNombre }),
+      }, { merge: true });
+
+      // También actualizar patriarca_operadores con el capital
+      await db.collection('patriarca_operadores').doc(resolvedUid).set({
+        cupo: cupoVal, capital_propio: propioVal, capital_asignado: asigVal, meta: metaVal, vinc: vincVal,
+      }, { merge: true });
+    }
+
+    closeModal('modal-edit-usr');
+    toast('✅ Usuario actualizado', 'success');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+async function toggleEstadoUsuario(docId, estadoActual) {
+  const nuevoEstado = estadoActual === 'activo' ? 'inactivo' : 'activo';
+  const u = allUsers.find(x => x.id === docId);
+  await db.collection('admin_usuarios').doc(docId).update({ estado: nuevoEstado });
+  // Sincronizar con patriarca_operadores
+  if (u?.uid) {
+    const opRef = db.collection('patriarca_operadores').doc(u.uid);
+    const opSnap = await opRef.get();
+    if (opSnap.exists) {
+      await opRef.update({ estado: nuevoEstado === 'activo' ? 'Activo' : 'Inactivo' });
+    }
+  }
+  toast(`Usuario ${nuevoEstado === 'activo' ? 'activado 🟢' : 'desactivado 🔴'}`, 'info');
+}
+
+async function sincronizarOperadores() {
+  try {
+    const [opsSnap, admSnap] = await Promise.all([
+      db.collection('patriarca_operadores').get(),
+      db.collection('admin_usuarios').get()
+    ]);
+
+    // Mapa uid → ya existe en admin_usuarios
+    const existingUids = new Set(admSnap.docs.map(d => d.data().uid).filter(Boolean));
+    // Mapa email(lowercase) → docId en admin_usuarios (para rellenar uid faltante)
+    const emailToDocId = {};
+    admSnap.docs.forEach(d => {
+      const e = (d.data().email || '').toLowerCase();
+      if (e && !d.data().uid) emailToDocId[e] = d.id;
+    });
+
+    let nuevos = 0, actualizados = 0;
+    const batch = db.batch();
+
+    opsSnap.docs.forEach(d => {
+      const op  = d.data();
+      const uid = d.id;
+      const emailLow = (op.email || '').toLowerCase();
+
+      if (!existingUids.has(uid)) {
+        if (emailToDocId[emailLow]) {
+          // Ya existe por email pero sin uid → rellenar uid
+          const ref = db.collection('admin_usuarios').doc(emailToDocId[emailLow]);
+          batch.update(ref, { uid, email: emailLow });
+          actualizados++;
+        } else {
+          // No existe en absoluto → crear
+          const ref = db.collection('admin_usuarios').doc();
+          batch.set(ref, {
+            uid, nombre: op.nombre || op.name || '—',
+            email: emailLow, rol: 'operador', tipo: 'oficina',
+            estado: op.estado === 'Inactivo' ? 'inactivo' : 'activo',
+            oficina: op.oficina || '', oficinaNombre: op.oficinaNombre || '',
+            importado: true, creadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+          });
+          nuevos++;
+        }
+      }
+    });
+
+    await batch.commit();
+    const msg = [nuevos && `${nuevos} importado(s)`, actualizados && `${actualizados} UID(s) vinculado(s)`].filter(Boolean).join(', ');
+    toast(`✅ ${msg || 'Todo sincronizado'}`, 'success');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+// ── FIX UIDs ──────────────────────────────────────────────────────────────
+let _fixAdminDocs = [];
+let _fixOpsDocs   = [];
+
+async function abrirFixUIDs() {
+  openModal('modal-fix-uids');
+  const contentEl = document.getElementById('fix-uid-content');
+  contentEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text2)">⏳ Cargando...</div>';
+
+  const [admSnap, opsSnap] = await Promise.all([
+    db.collection('admin_usuarios').where('rol','==','operador').get(),
+    db.collection('patriarca_operadores').get()
+  ]);
+
+  _fixAdminDocs = admSnap.docs.map(d => ({ docId: d.id, ...d.data() }));
+  _fixOpsDocs   = opsSnap.docs.map(d => ({ uid: d.id, ...d.data() }));
+
+  // Contar cuántas veces aparece cada UID
+  const uidCount = {};
+  _fixAdminDocs.forEach(d => { if(d.uid) uidCount[d.uid] = (uidCount[d.uid]||0)+1; });
+
+  // Portal emails válidos: @aj16.com o emails conocidos del portal (ej: AJ1.6joy1@gmail.com de Vanlly)
+  const esEmailPortal = email => {
+    if (!email) return false;
+    const e = email.toLowerCase();
+    return e.endsWith('@aj16.com') || e === 'aj1.6joy1@gmail.com';
+  };
+
+  // Clasificar cada entrada
+  const aBorrar  = []; // SIN UID, o con UID duplicado y email NO es portal, o admin duplicado
+  const aKeep    = []; // con UID y email portal, o con UID único
+
+  _fixAdminDocs.forEach(d => {
+    const sinUID = !d.uid;
+    const emailNoPortal = !esEmailPortal(d.email);
+    const esAdminDup = d.email && d.email.includes('admin.aj16');
+    const uidDuplicado = d.uid && uidCount[d.uid] > 1;
+
+    if (sinUID || (uidDuplicado && emailNoPortal) || esAdminDup) {
+      aBorrar.push(d);
+    } else {
+      aKeep.push(d);
+    }
+  });
+
+  let html = '';
+
+  // A BORRAR
+  if (aBorrar.length) {
+    html += `<div style="margin-bottom:14px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--red);margin-bottom:8px">🗑 ELIMINAR (${aBorrar.length}) — Entradas incorrectas o duplicadas</div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:8px">Sin UID, con email personal duplicado, o entradas de admin incorrectas.</div>`;
+    aBorrar.forEach(d => {
+      const nombre = (d.nombre||'').replace(/'/g,"\\'");
+      const razon = !d.uid ? 'Sin UID' : (d.email?.includes('admin.aj16') ? 'Email admin incorrecto' : 'UID duplicado');
+      html += `<div style="background:rgba(224,80,80,.05);border:1px solid rgba(224,80,80,.25);border-radius:6px;padding:8px 12px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <span style="font-weight:700">${d.nombre||d.email||'—'}</span>
+          <span style="color:var(--text2);font-size:11px;margin-left:8px">${d.email||'sin email'}</span>
+          <span style="color:var(--orange);font-size:10px;margin-left:8px">${razon}</span>
+        </div>
+        <button class="btn btn-red btn-sm" onclick="fixEliminarAdmin('${d.docId}','${nombre}')">🗑 Eliminar</button>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
+  // CORRECTAS
+  if (aKeep.length) {
+    html += `<div style="margin-bottom:14px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--green);margin-bottom:8px">✅ CORRECTAS (${aKeep.length})</div>`;
+    aKeep.forEach(d => {
+      html += `<div style="background:rgba(36,191,98,.05);border:1px solid rgba(36,191,98,.2);border-radius:6px;padding:8px 12px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <span style="font-weight:700">${d.nombre||d.email||'—'}</span>
+          <span style="color:var(--text2);font-size:11px;margin-left:8px">${d.email||'—'}</span>
+          <span style="color:var(--blue);font-size:10px;margin-left:8px">UID: ${d.uid.substring(0,14)}...</span>
+        </div>
+        <span class="badge badge-green">OK</span>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
+  if (!aBorrar.length && !aKeep.length) {
+    html = '<div style="text-align:center;padding:20px;color:var(--green)">✅ Todo en orden.</div>';
+  }
+
+  // Panel vinculación solo si hay entradas sin UID que no tienen portal email equivalente
+  const sinUID  = _fixAdminDocs.filter(d => !d.uid);
+
+  contentEl.innerHTML = html;
+
+  // Panel de vinculación manual
+  const linkPanel = document.getElementById('fix-uid-link-panel');
+  if (sinUID.length) {
+    linkPanel.style.display = '';
+    const selAdmin = document.getElementById('fix-sel-admin');
+    const selOp    = document.getElementById('fix-sel-op-uid');
+    selAdmin.innerHTML = sinUID.map(d =>
+      `<option value="${d.docId}">${d.nombre} — ${d.email||'sin email'}</option>`
+    ).join('');
+    selOp.innerHTML = _fixOpsDocs.map(d =>
+      `<option value="${d.uid}">${d.nombre||d.name||'—'} (${d.email||'—'})</option>`
+    ).join('');
+  } else {
+    linkPanel.style.display = 'none';
+  }
+}
+
+async function fixEliminarAdmin(docId, nombre) {
+  if (!confirm(`¿Eliminar "${nombre}" de admin_usuarios?\n(No elimina la cuenta Firebase Auth)`)) return;
+  try {
+    await db.collection('admin_usuarios').doc(docId).delete();
+    toast(`✅ Entrada eliminada: ${nombre}`, 'success');
+    await abrirFixUIDs();
+  } catch(e) { toast('❌ ' + e.message, 'error'); }
+}
+
+async function fixVincularUID() {
+  const docId = document.getElementById('fix-sel-admin').value;
+  const uid   = document.getElementById('fix-sel-op-uid').value;
+  if (!docId || !uid) { toast('⚠ Selecciona ambos campos', 'error'); return; }
+  try {
+    await db.collection('admin_usuarios').doc(docId).update({ uid });
+    toast('✅ UID vinculado correctamente', 'success');
+    await abrirFixUIDs();
+  } catch(e) { toast('❌ ' + e.message, 'error'); }
+}
+// ────────────────────────────────────────────────────────────────────────────
+
+function calcCupoTotal() {
+  const propio = parseFloat(document.getElementById('usr-capital-propio')?.value) || 0;
+  const asig   = parseFloat(document.getElementById('usr-capital-asignado')?.value) || 0;
+  const cupoEl = document.getElementById('usr-cupo');
+  if (cupoEl) cupoEl.value = propio + asig || '';
+}
+function toggleUsrVincFields() {
+  const vinc = document.getElementById('usr-vinc')?.value;
+  document.getElementById('usr-metodo-wrap').style.display       = vinc === 'Oficina' ? '' : 'none';
+  document.getElementById('usr-participacion-wrap').style.display= vinc === 'Socio'   ? '' : 'none';
+}
+function toggleEditVincFields() {
+  const vinc = document.getElementById('edit-vinc')?.value;
+  document.getElementById('edit-metodo-wrap').style.display       = vinc === 'Oficina' ? '' : 'none';
+  document.getElementById('edit-participacion-wrap').style.display= vinc === 'Socio'   ? '' : 'none';
+}
+
+function toggleUsrCredField() {
+  const rol = document.getElementById('usr-rol').value;
+  const isAdmin = rol === 'admin';
+  const isOp    = rol === 'operador';
+  const isCaj   = rol === 'cajero';
+  document.getElementById('usr-email-wrap').style.display    = isAdmin ? 'none' : '';
+  document.getElementById('usr-username-wrap').style.display = isAdmin ? '' : 'none';
+  document.getElementById('usr-tipo-wrap').style.display     = isAdmin ? 'none' : '';
+  document.getElementById('usr-op-fields').style.display     = isOp ? 'contents' : 'none';
+  // Operador → campo @aj16.com; cajero → campo email libre
+  document.getElementById('usr-email-portal-wrap').style.display = isOp ? '' : 'none';
+  document.getElementById('usr-email-cajero').style.display       = isCaj ? '' : 'none';
+}
+
+function syncEmailPortal() {
+  const prefix = document.getElementById('usr-email-prefix').value.trim().toLowerCase();
+  document.getElementById('usr-email').value = prefix ? prefix + '@aj16.com' : '';
+}
+
+async function crearUsuario() {
+  const nombre = document.getElementById('usr-nombre').value.trim();
+  const pass   = document.getElementById('usr-pass').value;
+  const rol    = document.getElementById('usr-rol').value;
+
+  if (!nombre || !pass) { toast('⚠ Completa todos los campos', 'error'); return; }
+  if (pass.length < 6) { toast('⚠ La contraseña debe tener al menos 6 caracteres', 'error'); return; }
+
+  let email, username, tipo;
+
+  if (rol === 'admin') {
+    username = document.getElementById('usr-username').value.trim().toLowerCase().replace(/\s+/g,'.');
+    if (!username) { toast('⚠ Escribe el nombre de usuario', 'error'); return; }
+    email = username + ADMIN_DOMAIN;
+    tipo = 'admin';
+  } else if (rol === 'operador') {
+    const prefix = document.getElementById('usr-email-prefix').value.trim().toLowerCase();
+    if (!prefix) { toast('⚠ Escribe el usuario del portal (ej: diana)', 'error'); return; }
+    email = prefix + '@aj16.com';
+    tipo  = document.getElementById('usr-tipo').value;
+  } else {
+    email = document.getElementById('usr-email-cajero').value.trim();
+    tipo  = document.getElementById('usr-tipo').value;
+    if (!email) { toast('⚠ Escribe el correo', 'error'); return; }
+  }
+
+  try {
+    // Crear en Firebase Auth usando app secundaria (sin cerrar sesión del admin)
+    // Si la cuenta ya existe, intentamos autenticar con la contraseña proporcionada para obtener el UID
+    let uid;
+    try {
+      const cred = await authSecondary.createUserWithEmailAndPassword(email, pass);
+      uid = cred.user.uid;
+    } catch(authErr) {
+      if (authErr.code === 'auth/email-already-in-use') {
+        // Cuenta ya existe — autenticar para obtener UID
+        try {
+          const cred2 = await authSecondary.signInWithEmailAndPassword(email, pass);
+          uid = cred2.user.uid;
+          toast('ℹ La cuenta ya existía — vinculando al sistema...', 'info');
+        } catch(e2) {
+          toast('⚠ La cuenta ya existe pero la contraseña no coincide. Verifica o usa otra contraseña.', 'error');
+          return;
+        }
+      } else { throw authErr; }
+    }
+    await authSecondary.signOut();
+
+    // Guardar en colección según rol
+    if (rol === 'admin') {
+      await db.collection('admin_accesos').doc(uid).set({
+        uid, nombre, email, username, rol: 'admin', tipo: 'admin',
+        creadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+    // Siempre guardar en admin_usuarios para la lista general
+    const oficina = document.getElementById('usr-oficina')?.value || '';
+    const oficinaNombre = oficinas.find(o => o.id === oficina)?.nombre || '';
+    await db.collection('admin_usuarios').add({
+      uid, nombre,
+      email: email.toLowerCase(),
+      rol, tipo,
+      username: rol === 'admin' ? username : null,
+      oficina, oficinaNombre,
+      estado: 'activo',
+      creadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+
+    // Si es operador, crear entrada en patriarca_operadores e inicializar portal
+    if (rol === 'operador') {
+      const estadoOp   = document.getElementById('usr-estado-op')?.value || 'activo';
+      const propioVal  = parseFloat(document.getElementById('usr-capital-propio')?.value) || 0;
+      const asigVal    = parseFloat(document.getElementById('usr-capital-asignado')?.value) || 0;
+      const cupoVal    = propioVal + asigVal;
+      const metaVal    = parseFloat(document.getElementById('usr-meta')?.value) || 0;
+      const vincVal    = document.getElementById('usr-vinc')?.value || 'Oficina';
+      const metodoPart = document.getElementById('usr-metodo')?.value || 'Escalera de Ganancia';
+      const partVal    = parseFloat(document.getElementById('usr-participacion')?.value) || 50;
+      const esSocio    = vincVal === 'Socio';
+
+      await db.collection('patriarca_operadores').doc(uid).set({
+        uid, nombre, email, estado: estadoOp === 'activo' ? 'Activo' : 'Pendiente',
+        creadoPorAdmin: true, oficina, oficinaNombre,
+        cupo: cupoVal, capital_propio: propioVal, capital_asignado: asigVal,
+        meta: metaVal, vinc: vincVal,
+      }, { merge: true });
+
+      // Inicializar patriarca_config si el operador queda activo
+      if (estadoOp === 'activo') {
+        const ahora     = new Date();
+        const mesLabel  = ahora.toLocaleDateString('es-CO', { month:'long', year:'numeric' });
+        const mesNombre = mesLabel.charAt(0).toUpperCase() + mesLabel.slice(1);
+        await db.collection('patriarca_config').doc(uid).set({
+          cupo:              cupoVal,
+          capital_propio:    propioVal,
+          capital_asignado:  asigVal,
+          meta:              metaVal,
+          mes:               mesNombre,
+          vinc:                  vincVal,
+          metodo_participacion:  esSocio ? null : metodoPart,
+          participacion:         esSocio ? partVal : null,
+          interes_capital:       esSocio ? 0 : 5,
+          interes_diario:        esSocio ? 0 : 0.2,
+          creadoPorAdmin:    true,
+          activadoEn:        firebase.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+
+        // Mostrar modal de portal listo
+        closeModal('modal-usuario');
+        const fmt = v => '$' + Math.round(v).toLocaleString('es-CO');
+        document.getElementById('pl-nombre').textContent          = nombre;
+        document.getElementById('pl-email').textContent           = email;
+        document.getElementById('pl-pass').textContent            = pass;
+        document.getElementById('pl-capital-propio').textContent  = fmt(propioVal);
+        document.getElementById('pl-capital-asignado').textContent= fmt(asigVal);
+        document.getElementById('pl-cupo').textContent            = fmt(cupoVal);
+        document.getElementById('pl-meta').textContent            = fmt(metaVal);
+        // Guardar para copiar
+        window._lastPortalCred = { nombre, email, pass, cupo: cupoVal, propioVal, asigVal, meta: metaVal, vinc: vincVal };
+        openModal('modal-portal-listo');
+        ['usr-nombre','usr-email','usr-pass','usr-capital-propio','usr-capital-asignado','usr-cupo','usr-meta'].forEach(id => {
+          const el = document.getElementById(id); if (el) el.value = '';
+        });
+        return; // salir antes del toast genérico
+      }
+    }
+
+    closeModal('modal-usuario');
+    ['usr-nombre','usr-email','usr-username','usr-pass'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.value = '';
+    });
+    const labelCred = rol === 'admin' ? `@${username}` : email;
+    toast(`✅ ${rol} creado: ${labelCred}`, 'success');
+  } catch(e) {
+    const msg = e.code === 'auth/email-already-in-use' ? 'El usuario ya existe' : e.message;
+    toast('⚠ Error: ' + msg, 'error');
+  }
+}
+
+// ── ESCALERAS DE GANANCIA (múltiples) ─────────────────────────────────────────
+
+const RANGOS_DEFAULT = [
+  { desde:0,       hasta:2799999, rojo:600000, participacion:50, interesCapital:true,  interesDiario:true  },
+  { desde:2800000, hasta:2999999, rojo:300000, participacion:50, interesCapital:true,  interesDiario:true  },
+  { desde:3000000, hasta:3999999, rojo:0,      participacion:45, interesCapital:true,  interesDiario:true  },
+  { desde:4000000, hasta:4999999, rojo:0,      participacion:50, interesCapital:true,  interesDiario:true  },
+  { desde:5000000, hasta:5999999, rojo:0,      participacion:50, interesCapital:true,  interesDiario:false },
+  { desde:6000000, hasta:null,    rojo:0,      participacion:50, interesCapital:false, interesDiario:false },
+];
+
+let escalera_rangos = [...RANGOS_DEFAULT]; // rangos del editor activo
+let todasEscaleras  = [];                  // lista cargada de Firestore
+
+// ── Lista de escaleras ──
+async function abrirModalEscaleras() {
+  openModal('modal-escaleras');
+  await cargarListaEscaleras();
+}
+
+async function cargarListaEscaleras() {
+  const lista = document.getElementById('escaleras-lista');
+  lista.innerHTML = '<div style="color:var(--text2);font-size:12px;text-align:center;padding:20px">Cargando...</div>';
+  try {
+    const snap = await db.collection('patriarca_escalera').orderBy('nombre').get();
+    todasEscaleras = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    if (todasEscaleras.length === 0) {
+      lista.innerHTML = '<div style="color:var(--text2);font-size:12px;text-align:center;padding:20px">No hay escaleras. Crea la primera.</div>';
+    } else {
+      lista.innerHTML = todasEscaleras.map(e => `
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <div style="font-weight:600;font-size:13px">📈 ${e.nombre || e.id}</div>
+            <div style="font-size:11px;color:var(--text2);margin-top:2px">${(e.rangos||[]).length} rangos · Int. capital ${e.interes_capital??5}%/mes · Int. diario ${e.interes_diario??0.2}%/día</div>
+          </div>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-ghost btn-sm" onclick="editarEscalera('${e.id}')">✏️ Editar</button>
+            <button class="btn btn-sm btn-red" onclick="eliminarEscalera('${e.id}','${e.nombre}')">🗑</button>
+          </div>
+        </div>
+      `).join('');
+    }
+    // Actualizar dropdown en form de operador
+    actualizarDropdownEscaleras();
+  } catch(e) { lista.innerHTML = `<div style="color:var(--red);font-size:12px">${e.message}</div>`; }
+}
+
+function actualizarDropdownEscaleras() {
+  ['usr-metodo','edit-metodo'].forEach(id => {
+    const sel = document.getElementById(id);
+    if (!sel) return;
+    const actual = sel.value;
+    sel.innerHTML = todasEscaleras.map(e =>
+      `<option value="${e.nombre||e.id}"${(e.nombre||e.id)===actual?' selected':''}>${e.nombre||e.id}</option>`
+    ).join('') || '<option value="">— Sin escaleras —</option>';
+  });
+}
+
+// ── Crear nueva escalera ──
+function nuevaEscalera() {
+  document.getElementById('esc-doc-id').value    = '';
+  document.getElementById('esc-nombre').value    = '';
+  document.getElementById('esc-editor-titulo').textContent = '📈 Nueva Escalera';
+  document.getElementById('esc-interes-capital').value = 5;
+  document.getElementById('esc-interes-diario').value  = 0.2;
+  escalera_rangos = [...RANGOS_DEFAULT.map(r => ({...r}))];
+  bono_casas = [...BONO_CASAS_DEFAULT.map(c=>({...c}))];
+  document.getElementById('bono-meta').value        = 40000000;
+  document.getElementById('bono-pct-solo').value    = 5;
+  document.getElementById('bono-pct-combo').value   = 3;
+  document.getElementById('bono-canal-wplay').value = 'WPLAY UNITY';
+  document.getElementById('bono-canal-bemovil').value = 'BE MOVIL CAJA';
+  renderEscalera();
+  renderBonoCasas();
+  closeModal('modal-escaleras');
+  openModal('modal-editor-escalera');
+}
+
+// ── Editar escalera existente ──
+function editarEscalera(docId) {
+  const e = todasEscaleras.find(x => x.id === docId);
+  if (!e) return;
+  document.getElementById('esc-doc-id').value    = docId;
+  document.getElementById('esc-nombre').value    = e.nombre || '';
+  document.getElementById('esc-editor-titulo').textContent = `✏️ Editar: ${e.nombre}`;
+  document.getElementById('esc-interes-capital').value = e.interes_capital ?? 5;
+  document.getElementById('esc-interes-diario').value  = e.interes_diario  ?? 0.2;
+  escalera_rangos = (e.rangos || [...RANGOS_DEFAULT]).map(r => ({...r}));
+  bono_casas = [...BONO_CASAS_DEFAULT.map(c=>({...c}))];
+  cargarBono(e.bono || null);
+  renderEscalera();
+  renderBonoCasas();
+  closeModal('modal-escaleras');
+  openModal('modal-editor-escalera');
+}
+
+// ── Eliminar escalera ──
+async function eliminarEscalera(docId, nombre) {
+  if (!confirm(`¿Eliminar escalera "${nombre}"? Los operadores asignados a ella quedarán sin método.`)) return;
+  try {
+    await db.collection('patriarca_escalera').doc(docId).delete();
+    toast('🗑 Escalera eliminada', 'success');
+    cargarListaEscaleras();
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+// ── Render tabla de rangos ──
+function renderEscalera() {
+  const tbody = document.getElementById('escalera-body');
+  if (!tbody) return;
+  const inp = (i, campo, val, color, w) =>
+    `<input type="number" value="${val??''}" style="background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:5px 7px;color:${color||'var(--text)'};width:${w||'110px'};font-size:12px" oninput="escUpdate(${i},'${campo}',this.value)">`;
+  tbody.innerHTML = escalera_rangos.map((r, i) => `
+    <tr>
+      <td style="text-align:center;color:var(--text2);font-weight:700;font-size:12px">${i+1}</td>
+      <td>${inp(i,'desde',r.desde,'var(--text)','100px')}</td>
+      <td>${inp(i,'hasta',r.hasta??'','var(--text)','100px').replace('value=""','placeholder="Sin límite"')}</td>
+      <td>${inp(i,'rojo',r.rojo??0,'var(--red)','95px')}</td>
+      <td>${inp(i,'participacion',r.participacion??50,'var(--gold)','70px')}</td>
+      <td style="text-align:center"><input type="checkbox" ${r.interesCapital?'checked':''} onchange="escUpdate(${i},'interesCapital',this.checked)" style="width:15px;height:15px;cursor:pointer"></td>
+      <td style="text-align:center"><input type="checkbox" ${r.interesDiario?'checked':''} onchange="escUpdate(${i},'interesDiario',this.checked)" style="width:15px;height:15px;cursor:pointer"></td>
+      <td><button class="btn-icon del" onclick="eliminarRango(${i})">🗑</button></td>
+    </tr>
+  `).join('');
+}
+
+function escUpdate(i, campo, valor) {
+  if (campo === 'interesCapital' || campo === 'interesDiario') {
+    escalera_rangos[i][campo] = !!valor;
+  } else if (campo === 'hasta' && (valor === '' || valor == null)) {
+    escalera_rangos[i][campo] = null;
+  } else {
+    escalera_rangos[i][campo] = parseFloat(valor) || 0;
+  }
+}
+
+function agregarRangoEscalera() {
+  const ultimo = escalera_rangos[escalera_rangos.length - 1];
+  const desde  = ultimo ? (ultimo.hasta != null ? ultimo.hasta + 1 : (ultimo.desde||0) + 1000000) : 0;
+  escalera_rangos.push({ desde, hasta:null, rojo:0, participacion:50, interesCapital:true, interesDiario:false });
+  renderEscalera();
+}
+
+function eliminarRango(i) {
+  if (escalera_rangos.length <= 1) return toast('⚠ Debe haber al menos un rango', 'error');
+  escalera_rangos.splice(i, 1);
+  renderEscalera();
+}
+
+// ── Guardar escalera ──
+async function guardarEscalera() {
+  const nombre  = document.getElementById('esc-nombre').value.trim();
+  const docId   = document.getElementById('esc-doc-id').value;
+  const _intCapStr = document.getElementById('esc-interes-capital').value.trim();
+  const _intDiaStr = document.getElementById('esc-interes-diario').value.trim();
+  const intCap  = _intCapStr === '' ? 5   : (parseFloat(_intCapStr) || 0);
+  const intDia  = _intDiaStr === '' ? 0.2 : (parseFloat(_intDiaStr) || 0);
+  const statusEl= document.getElementById('escalera-status');
+  if (!nombre) return toast('⚠ Escribe un nombre para la escalera', 'error');
+  try {
+    const data = { nombre, rangos: escalera_rangos, interes_capital: intCap, interes_diario: intDia,
+                   bono: getBono(),
+                   actualizadoEn: firebase.firestore.FieldValue.serverTimestamp() };
+    if (docId) {
+      await db.collection('patriarca_escalera').doc(docId).set(data, { merge: true });
+    } else {
+      await db.collection('patriarca_escalera').add({ ...data, creadoEn: firebase.firestore.FieldValue.serverTimestamp() });
+    }
+    toast('✅ Escalera guardada', 'success');
+    closeModal('modal-editor-escalera');
+    openModal('modal-escaleras');
+    cargarListaEscaleras();
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+// ── Cargar escaleras al iniciar (para poblar dropdowns) ──
+async function precargarEscaleras() {
+  try {
+    const snap = await db.collection('patriarca_escalera').orderBy('nombre').get();
+    todasEscaleras = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    actualizarDropdownEscaleras();
+  } catch(e) {}
+}
+
+// ── BONO DE PRODUCTIVIDAD ─────────────────────────────────────────────────────
+
+const BONO_CASAS_DEFAULT = [
+  { casa:'YA JUEGOS', factor:100 },
+  { casa:'BETSSON',   factor:75  },
+  { casa:'LUCKIA',    factor:75  },
+  { casa:'BWIN',      factor:60  },
+  { casa:'RUSHBET',   factor:55  },
+  { casa:'SPORTIUM',  factor:40  },
+];
+
+let bono_casas = [...BONO_CASAS_DEFAULT.map(c=>({...c}))];
+
+function renderBonoCasas() {
+  const tbody = document.getElementById('bono-casas-body');
+  if (!tbody) return;
+  tbody.innerHTML = bono_casas.map((c,i) => `
+    <tr>
+      <td style="padding:5px 8px">
+        <input type="text" value="${c.casa}" placeholder="Nombre de la casa" oninput="bonoUpdate(${i},'casa',this.value)"
+          style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:5px 8px;color:var(--text);width:160px;font-size:12px">
+      </td>
+      <td style="padding:5px 8px">
+        <input type="number" value="${c.factor}" min="0" max="100" step="1" oninput="bonoUpdate(${i},'factor',this.value)"
+          style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:5px 8px;color:var(--gold);width:70px;font-size:12px">
+        <span style="font-size:11px;color:var(--text2);margin-left:4px">%</span>
+      </td>
+      <td style="padding:5px 8px;text-align:center">
+        <button class="btn-icon del" onclick="eliminarCasaBono(${i})">🗑</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function bonoUpdate(i, campo, valor) {
+  bono_casas[i][campo] = campo === 'factor' ? (parseFloat(valor)||0) : valor;
+}
+
+function agregarCasaBono() {
+  bono_casas.push({ casa:'', factor:100 });
+  renderBonoCasas();
+}
+
+function eliminarCasaBono(i) {
+  bono_casas.splice(i,1);
+  renderBonoCasas();
+}
+
+function cargarBono(data) {
+  if (!data) return;
+  if (data.meta        != null) document.getElementById('bono-meta').value          = data.meta;
+  if (data.pct_solo    != null) document.getElementById('bono-pct-solo').value      = data.pct_solo;
+  if (data.pct_combo   != null) document.getElementById('bono-pct-combo').value     = data.pct_combo;
+  if (data.canal_wplay)         document.getElementById('bono-canal-wplay').value   = data.canal_wplay;
+  if (data.canal_bemovil)       document.getElementById('bono-canal-bemovil').value = data.canal_bemovil;
+  if (data.casas && data.casas.length) bono_casas = data.casas.map(c=>({...c}));
+  renderBonoCasas();
+}
+
+function getBono() {
+  const _pctSoloStr  = document.getElementById('bono-pct-solo').value.trim();
+  const _pctComboStr = document.getElementById('bono-pct-combo').value.trim();
+  return {
+    meta:          parseFloat(document.getElementById('bono-meta').value)       || 40000000,
+    pct_solo:      _pctSoloStr  === '' ? 5 : (parseFloat(_pctSoloStr)  || 0),
+    pct_combo:     _pctComboStr === '' ? 3 : (parseFloat(_pctComboStr) || 0),
+    canal_wplay:   (document.getElementById('bono-canal-wplay').value   || 'WPLAY UNITY').trim().toUpperCase(),
+    canal_bemovil: (document.getElementById('bono-canal-bemovil').value || 'BE MOVIL CAJA').trim().toUpperCase(),
+    casas:         bono_casas.filter(c => c.casa.trim()),
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+function copiarCredenciales() {
+  const c = window._lastPortalCred;
+  if (!c) return;
+  const fmt = v => '$' + Math.round(v||0).toLocaleString('es-CO');
+  const texto = [
+    `Portal Patriarca — Credenciales de acceso`,
+    ``,
+    `Operador: ${c.nombre}`,
+    `URL: https://portal-aj16.web.app`,
+    `Email: ${c.email}`,
+    `Contraseña: ${c.pass}`,
+    ``,
+    `Capital Propio:    ${fmt(c.propioVal)}`,
+    `Capital Asignado:  ${fmt(c.asigVal)}  (cobra 5%/mes)`,
+    `Cupo Total:        ${fmt(c.cupo)}`,
+    `Meta del Mes:      ${fmt(c.meta)}`,
+    `Vinculación:       ${c.vinc}`,
+  ].join('\n');
+  navigator.clipboard.writeText(texto).then(() => toast('📋 Credenciales copiadas', 'success'));
+}
+
+function abrirCambioPass(uid, nombre, emailDirecto) {
+  const u = allUsers.find(x => x.uid === uid);
+  document.getElementById('pass-uid').value   = uid;
+  document.getElementById('pass-email').value = emailDirecto || u?.email || '';
+  document.getElementById('pass-nombre-label').textContent = nombre;
+  document.getElementById('pass-actual').value  = '';
+  document.getElementById('pass-nueva').value   = '';
+  document.getElementById('pass-confirm').value = '';
+  openModal('modal-pass');
+}
+
+async function cambiarPassword() {
+  const email   = document.getElementById('pass-email').value;
+  const actual  = document.getElementById('pass-actual').value;
+  const nueva   = document.getElementById('pass-nueva').value;
+  const confirm = document.getElementById('pass-confirm').value;
+
+  if (!actual) { toast('⚠ Escribe la contraseña actual del usuario', 'error'); return; }
+  if (!nueva || nueva.length < 6) { toast('⚠ La nueva contraseña debe tener mínimo 6 caracteres', 'error'); return; }
+  if (nueva !== confirm) { toast('⚠ Las contraseñas nuevas no coinciden', 'error'); return; }
+
+  try {
+    // Iniciar sesión con la contraseña actual en app secundaria
+    const cred = await authSecondary.signInWithEmailAndPassword(email, actual);
+    // Actualizar a la nueva contraseña
+    await cred.user.updatePassword(nueva);
+    await authSecondary.signOut();
+    closeModal('modal-pass');
+    toast('✅ Contraseña actualizada correctamente', 'success');
+  } catch(e) {
+    if (e.code === 'auth/wrong-password' || e.code === 'auth/invalid-credential') {
+      toast('⚠ La contraseña actual es incorrecta', 'error');
+    } else {
+      toast('⚠ Error: ' + e.message, 'error');
+    }
+  }
+}
+
+async function desactivarUsuario(docId, nombre) {
+  if (!confirm(`¿Desactivar a ${nombre}?`)) return;
+  await db.collection('admin_usuarios').doc(docId).update({ activo: false });
+  toast('Usuario desactivado', 'info');
+}
+
+// ────────────────────── MÉTODOS ──────────────────────
+async function loadMetodos() {
+  const snap = await db.collection('admin_config').doc('metodos').get();
+  if (snap.exists) {
+    metodos = snap.data().lista || [];
+  } else {
+    // Primera vez: inicializar con los métodos actuales
+    metodos = [
+      {nombre:'SALDO CLIENTES ANTERIOR', tipo:'cajero'},
+      {nombre:'EFECTIVO OPERADOR',       tipo:'interno'},
+      {nombre:'BE MOVIL CAJA',           tipo:'interno'},
+      {nombre:'PTM PROPIO',              tipo:'cajero'},
+      {nombre:'BE MOVIL MASTER',         tipo:'cajero'},
+      {nombre:'MEGA RED',                tipo:'cajero'},
+      {nombre:'PUNTO RED UNITY',         tipo:'cajero'},
+      {nombre:'BET RED',                 tipo:'cajero'},
+      {nombre:'WPLAY UNITY',             tipo:'cajero'},
+      {nombre:'SUPER GIROS UNITY',       tipo:'cajero'},
+      {nombre:'EFECTY 1 DE MAYO',        tipo:'cajero'},
+      {nombre:'SUPER GIROS MAQUINA',     tipo:'cajero'},
+      {nombre:'CORRESPONSAL EL PARAMO',  tipo:'cajero'},
+      {nombre:'EASY CHANGER',            tipo:'cajero'},
+      {nombre:'COSTO DE SERVICIOS',      tipo:'cajero'},
+      {nombre:'BONIFICACION',            tipo:'interno'},
+      {nombre:'CUENTA BANCARIA',         tipo:'interno'},
+    ];
+    await db.collection('admin_config').doc('metodos').set({ lista: metodos });
+  }
+  renderMetodos();
+  document.getElementById('kpi-mets').textContent = metodos.filter(m => m.tipo === 'cajero').length;
+}
+
+function renderMetodos() {
+  const list = document.getElementById('metodos-list');
+  document.getElementById('mets-count').textContent = metodos.length + ' métodos';
+  if (!metodos.length) {
+    list.innerHTML = '<div class="empty"><div class="empty-icon">📋</div>Sin métodos. Agrega el primero.</div>';
+    return;
+  }
+  list.innerHTML = metodos.map((m, i) => `
+    <div class="drag-item" style="flex-wrap:wrap;gap:6px">
+      <span class="drag-handle">⠿</span>
+      <span class="drag-item-name" style="flex:1;min-width:120px">${m.nombre}</span>
+      <span class="badge ${m.tipo==='interno'?'badge-blue':'badge-green'}" onclick="toggleTipoMetodo(${i})" title="Clic para cambiar tipo" style="cursor:pointer">${m.tipo==='interno'?'I-OP':'C-OP'}</span>
+      <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text2);margin:0" title="Límite diario de recarga (0 = sin límite)">
+        🔒&nbsp;Lím/día
+        <input type="number" min="0" step="100000"
+          style="width:110px;padding:3px 7px;font-size:12px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;color:var(--text)"
+          value="${m.limite_diario || ''}"
+          placeholder="Sin límite"
+          onchange="metodos[${i}].limite_diario = this.value ? +this.value : null"
+          onkeydown="if(event.key==='Enter')saveMetodos()">
+      </label>
+      <button class="btn-icon del" onclick="eliminarMetodo(${i})" title="Eliminar">🗑</button>
+    </div>`).join('');
+}
+
+function openAddMetodo() {
+  document.getElementById('add-metodo-panel').style.display = 'block';
+  document.getElementById('met-nombre').value = '';
+  document.getElementById('met-nombre').focus();
+}
+
+function closeAddMetodo() {
+  document.getElementById('add-metodo-panel').style.display = 'none';
+}
+
+async function addMetodo() {
+  const nombre = document.getElementById('met-nombre').value.trim().toUpperCase();
+  const tipo   = document.getElementById('met-tipo').value;
+  if (!nombre) { toast('⚠ Escribe el nombre del método', 'error'); return; }
+  if (metodos.find(m => m.nombre === nombre)) { toast('⚠ Ya existe ese método', 'error'); return; }
+  metodos.push({ nombre, tipo });
+  await saveMetodos();
+  closeAddMetodo();
+}
+
+async function eliminarMetodo(i) {
+  if (!confirm(`¿Eliminar "${metodos[i].nombre}"?`)) return;
+  metodos.splice(i, 1);
+  await saveMetodos();
+}
+
+async function toggleTipoMetodo(i) {
+  metodos[i].tipo = metodos[i].tipo === 'interno' ? 'cajero' : 'interno';
+  await saveMetodos();
+}
+
+async function saveMetodos() {
+  // Leer limite_diario desde los inputs actuales antes de guardar
+  document.querySelectorAll('#metodos-list .drag-item').forEach((row, i) => {
+    const inp = row.querySelector('input[type="number"]');
+    if (inp && metodos[i]) metodos[i].limite_diario = inp.value ? +inp.value : null;
+  });
+  const lista = metodos.map(m => {
+    const obj = { nombre: m.nombre, tipo: m.tipo };
+    if (m.limite_diario) obj.limite_diario = m.limite_diario;
+    return obj;
+  });
+  await db.collection('admin_config').doc('metodos').set({ lista });
+  renderMetodos();
+  toast('✅ Métodos guardados', 'success');
+}
+
+// ────────────────────── CASAS DE APUESTAS ──────────────────────
+const DEFAULT_CASAS = ['AQUI JUEGOS','BET ALFA','BET PLAY','BETFAIR','BETSSON','BWIN','CODERE','FULL RETO','LUCKIA','MEGA APUESTAS','MOZZARTBET','RIVALO','RUSHBET','SPORTIUM','STAKE','WILLIAM HILL','WPLAY','YA JUEGOS','ZAMBA','BETANO'];
+
+async function loadCasas() {
+  const snap = await db.collection('admin_config').doc('casas').get();
+  if (snap.exists) {
+    casas = snap.data().lista || [];
+  } else {
+    casas = [...DEFAULT_CASAS];
+    await db.collection('admin_config').doc('casas').set({ lista: casas });
+  }
+  renderCasas();
+  document.getElementById('kpi-mets').textContent = metodos.filter(m=>m.tipo==='cajero').length;
+}
+
+function renderCasas() {
+  const list = document.getElementById('casas-list');
+  document.getElementById('casas-count').textContent = casas.length + ' casas';
+  if (!casas.length) {
+    list.innerHTML = '<div class="empty"><div class="empty-icon">🎰</div>Sin casas. Agrega la primera.</div>';
+    return;
+  }
+  list.innerHTML = casas.map((c, i) => `
+    <div class="drag-item">
+      <span class="drag-handle">⠿</span>
+      <span class="drag-item-name">${c}</span>
+      <button class="btn-icon del" onclick="eliminarCasa(${i})" title="Eliminar">🗑</button>
+    </div>`).join('');
+}
+
+function openAddCasa() {
+  document.getElementById('add-casa-panel').style.display = 'block';
+  document.getElementById('casa-nombre').focus();
+}
+function closeAddCasa() {
+  document.getElementById('add-casa-panel').style.display = 'none';
+  document.getElementById('casa-nombre').value = '';
+}
+
+async function addCasa() {
+  const nombre = document.getElementById('casa-nombre').value.trim().toUpperCase();
+  if (!nombre) { toast('⚠ Escribe el nombre de la casa', 'error'); return; }
+  if (casas.includes(nombre)) { toast('⚠ Ya existe esa casa', 'error'); return; }
+  casas.push(nombre);
+  await saveCasas();
+  closeAddCasa();
+}
+
+async function eliminarCasa(i) {
+  if (!confirm(`¿Eliminar "${casas[i]}"?`)) return;
+  casas.splice(i, 1);
+  await saveCasas();
+}
+
+async function saveCasas() {
+  await db.collection('admin_config').doc('casas').set({ lista: casas });
+  renderCasas();
+  toast('✅ Casas guardadas', 'success');
+}
+
+// ────────────────────── COMISIONES POR OFICINA ──────────────────────
+let comOficinaId = null;   // oficina seleccionada actualmente
+let comisiones   = [];     // filas de la oficina activa
+
+function loadComisiones() {
+  // Se activa cuando se carga la sección. Las oficinas ya están en `oficinas[]`
+  renderComOficinas();
+  // Si ya hay una oficina seleccionada, recargar
+  if (comOficinaId) cargarComOficina(comOficinaId);
+}
+
+function renderComOficinas() {
+  const tabsEl = document.getElementById('com-oficina-tabs');
+  if (!tabsEl) return;
+  if (!oficinas.length) {
+    tabsEl.innerHTML = '<span style="color:var(--text2);font-size:12px">Crea una oficina primero</span>';
+    return;
+  }
+  tabsEl.innerHTML = oficinas.map(o => {
+    const isActive = o.id === comOficinaId;
+    return `<button class="com-tab${isActive?' active':''}"
+      style="${isActive?`background:${o.color};border-color:${o.color};color:#fff`:''}"
+      onclick="cargarComOficina('${o.id}')">${o.nombre}</button>`;
+  }).join('');
+}
+
+async function cargarComOficina(ofId) {
+  comOficinaId = ofId;
+  renderComOficinas();
+  const ofic = oficinas.find(o => o.id === ofId);
+  document.getElementById('com-panel-title').textContent =
+    `Comisiones — ${ofic?.nombre || ofId}`;
+
+  const snap = await db.collection('admin_comisiones').doc(ofId).get();
+  comisiones = snap.exists ? (snap.data().lista || []) : [];
+  renderComisiones();
+}
+
+function renderComisiones() {
+  const list = document.getElementById('comisiones-list');
+  document.getElementById('com-count').textContent = comisiones.length + ' filas';
+
+  const todosMetodos = metodos.map(m => m.nombre);
+  const casaOpts  = CASAS.map(c => `<option>${c}</option>`).join('');
+  const metOpts   = todosMetodos.map(m => `<option>${m}</option>`).join('');
+
+  if (!comisiones.length) {
+    list.innerHTML = '<div class="empty" style="padding:20px"><div class="empty-icon">📊</div>Sin comisiones. Agrega la primera fila.</div>';
+    return;
+  }
+
+  list.innerHTML = comisiones.map((c, i) => `
+    <div class="com-row">
+      <select onchange="comisiones[${i}].casa=this.value">
+        <option value="">— Casa —</option>
+        ${CASAS.map(ca=>`<option${ca===c.casa?' selected':''}>${ca}</option>`).join('')}
+      </select>
+      <select onchange="comisiones[${i}].metodo=this.value">
+        <option value="">— Método —</option>
+        ${todosMetodos.map(m=>`<option${m===c.metodo?' selected':''}>${m}</option>`).join('')}
+      </select>
+      <input type="number" step="0.001" min="0" max="100"
+        value="${(c.tasaRecarga||0)}"
+        placeholder="0.00"
+        onchange="comisiones[${i}].tasaRecarga=parseFloat(this.value)||0"
+        title="% Recarga">
+      <input type="number" step="0.001" min="0" max="100"
+        value="${(c.tasaPago||0)}"
+        placeholder="0.00"
+        onchange="comisiones[${i}].tasaPago=parseFloat(this.value)||0"
+        title="% Pago">
+      <button class="btn-icon del" onclick="eliminarComision(${i})">🗑</button>
+    </div>`).join('');
+}
+
+function openAddComision() {
+  if (!comOficinaId) { toast('⚠ Selecciona una oficina primero', 'error'); return; }
+  comisiones.push({ casa:'', metodo:'', tasaRecarga:0, tasaPago:0 });
+  renderComisiones();
+  // Scroll al final
+  document.getElementById('comisiones-list').lastElementChild?.scrollIntoView({behavior:'smooth'});
+}
+
+function eliminarComision(i) {
+  comisiones.splice(i, 1);
+  renderComisiones();
+}
+
+async function saveComisiones() {
+  if (!comOficinaId) { toast('⚠ Selecciona una oficina', 'error'); return; }
+  const validas = comisiones.filter(c => c.casa && c.metodo);
+  await db.collection('admin_comisiones').doc(comOficinaId).set({
+    lista: validas,
+    actualizadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+  });
+  comisiones = validas;
+  renderComisiones();
+  const ofic = oficinas.find(o => o.id === comOficinaId);
+  toast(`✅ Comisiones de ${ofic?.nombre} guardadas`, 'success');
+}
+
+async function copiarComisiones() {
+  if (!comOficinaId) { toast('⚠ Selecciona la oficina destino primero', 'error'); return; }
+  if (oficinas.length < 2) { toast('Solo hay una oficina', 'info'); return; }
+
+  const origen = oficinas.find(o => o.id !== comOficinaId);
+  if (!origen) return;
+
+  const snap = await db.collection('admin_comisiones').doc(origen.id).get();
+  if (!snap.exists || !(snap.data().lista||[]).length) {
+    toast(`${origen.nombre} no tiene comisiones para copiar`, 'info'); return;
+  }
+
+  const ofic = oficinas.find(o => o.id === comOficinaId);
+  if (!confirm(`¿Copiar comisiones de "${origen.nombre}" a "${ofic?.nombre}"? Se reemplazarán las actuales.`)) return;
+
+  comisiones = (snap.data().lista || []).map(c => ({...c}));
+  renderComisiones();
+  toast(`📋 Copiadas ${comisiones.length} filas desde ${origen.nombre}. Guarda para confirmar.`, 'success');
+}
+
+// ──────────────────── SALDO INICIAL DE CLIENTES (ADMIN) ────────────────────
+// Formato lista: [{ id, clienteId, clienteNombre, casa, monto }]
+let siRows     = [];      // filas en memoria
+let siClientes = [];      // clientes del operador seleccionado: [{ id, nombre }]
+let siAdminOps    = [];
+let siAdminInited = false;
+let siRowIdSeq = 0;
+
+async function initSaldoInicialAdmin() {
+  // Poblar selector de meses
+  const selMes = document.getElementById('si-sel-mes');
+  if (!selMes.options.length) {
+    const now = new Date();
+    const opts = [];
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const val = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+      const label = d.toLocaleDateString('es-CO', { month: 'long', year: 'numeric' });
+      opts.push(`<option value="${val}"${i===0?' selected':''}>${label.charAt(0).toUpperCase()+label.slice(1)}</option>`);
+    }
+    selMes.innerHTML = opts.join('');
+  }
+
+  // Siempre leer del servidor para evitar caché con UIDs obsoletos
+  {
+    const snap = await db.collection('admin_usuarios').where('rol','==','operador').get({ source: 'server' });
+    siAdminOps = snap.docs.map(d => ({ uid: d.data().uid || d.id, nombre: d.data().nombre || d.data().email || d.id }));
+    const selOp = document.getElementById('si-sel-op');
+    const prevVal = selOp.value;
+    selOp.innerHTML = '<option value="">— Selecciona operador —</option>' +
+      siAdminOps.map(op => `<option value="${op.uid}">${op.nombre}</option>`).join('');
+    if (prevVal) selOp.value = prevVal; // mantener selección actual si ya había una
+    siAdminInited = true;
+  }
+}
+
+function siAdminGetMes() { return document.getElementById('si-sel-mes')?.value || ''; }
+function siAdminGetOp()  { return document.getElementById('si-sel-op')?.value  || ''; }
+
+async function loadSaldoInicialAdmin() {
+  const opUid  = siAdminGetOp();
+  const mesKey = siAdminGetMes();
+  const wrap   = document.getElementById('si-admin-wrap');
+
+  if (!opUid) {
+    wrap.innerHTML = '<div class="empty"><div class="empty-icon">📊</div><p>Selecciona un operador para continuar</p></div>';
+    return;
+  }
+
+  wrap.innerHTML = '<div class="empty"><div class="empty-icon">⏳</div><p>Cargando...</p></div>';
+
+  // Cargar clientes del operador
+  siClientes = [{ id: '_externo_', nombre: 'Externo' }];
+  try {
+    const cSnap = await db.collection('patriarca_clientes').where('opId','==',opUid).get({ source: 'server' });
+    const clis = cSnap.docs.map(d => ({ id: d.id, nombre: d.data().nombre_completo || d.data().nombre || d.id }));
+    siClientes = [...clis, { id: '_externo_', nombre: 'Externo' }];
+  } catch(e) {}
+
+  // Cargar saldos de Firestore y convertir a lista de filas
+  siRows = [];
+  try {
+    const docKey = `${opUid}_${mesKey}`;
+    console.log('[SI Admin] Buscando doc:', docKey, '| opUid:', opUid, '| mesKey:', mesKey);
+    const snap = await db.collection('patriarca_saldo_inicial').doc(docKey).get({ source: 'server' });
+    console.log('[SI Admin] Doc exists:', snap.exists, snap.exists ? snap.data() : '(vacío)');
+    if (snap.exists) {
+      const saldos = snap.data().saldos || {};
+      Object.entries(saldos).forEach(([clienteId, casaMap]) => {
+        const cli = siClientes.find(c => c.id === clienteId);
+        const clienteNombre = cli ? cli.nombre : clienteId;
+        Object.entries(casaMap).forEach(([casa, monto]) => {
+          if ((parseFloat(monto)||0) !== 0) {
+            siRows.push({ id: ++siRowIdSeq, clienteId, clienteNombre, casa, monto: parseFloat(monto) });
+          }
+        });
+      });
+    }
+  } catch(e) { console.error('[SI Admin] Error al cargar:', e); }
+
+  renderSiAdminTable();
+}
+
+function renderSiAdminTable() {
+  const wrap   = document.getElementById('si-admin-wrap');
+  const casaList = casas.length ? casas : DEFAULT_CASAS;
+  const cliOpts  = siClientes.map(c => `<option value="${c.id}">${c.nombre}</option>`).join('');
+  const casaOpts = casaList.map(c => `<option value="${c}">${c}</option>`).join('');
+
+  const grandTotal = siRows.reduce((s,r) => s + (parseFloat(r.monto)||0), 0);
+
+  const tbody = siRows.map(row => {
+    const selCli  = siClientes.map(c => `<option value="${c.id}"${c.id===row.clienteId?' selected':''}>${c.nombre}</option>`).join('');
+    const selCasa = `<option value="">— Casa —</option>` + casaList.map(c => `<option value="${c}"${c===row.casa?' selected':''}>${c}</option>`).join('');
+    const monto   = parseFloat(row.monto) || 0;
+    const color   = monto < 0 ? '#f87171' : monto > 0 ? '#4ade80' : 'var(--text2)';
+    return `<tr id="si-row-${row.id}">
+      <td style="padding:4px">
+        <select onchange="siRowChange(${row.id},'clienteId',this.value,this.options[this.selectedIndex].text)"
+          style="width:100%;padding:5px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px">
+          ${selCli}
+        </select>
+      </td>
+      <td style="padding:4px">
+        <select onchange="siRowChange(${row.id},'casa',this.value)"
+          style="width:100%;padding:5px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px">
+          ${selCasa}
+        </select>
+      </td>
+      <td style="padding:4px">
+        <input type="number" step="1" value="${row.monto||''}" placeholder="0"
+          oninput="siRowChange(${row.id},'monto',parseFloat(this.value)||0)"
+          style="width:100%;padding:5px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:${color};font-size:12px;text-align:right;font-weight:600">
+      </td>
+      <td style="padding:4px;text-align:center">
+        <button onclick="siDeleteRow(${row.id})" style="background:none;border:none;color:#f87171;cursor:pointer;font-size:16px;padding:2px 6px">✕</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  wrap.innerHTML = `
+    <div style="margin-bottom:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <button onclick="siAddRow()" style="padding:7px 14px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;font-size:12px">+ Agregar fila</button>
+      <button onclick="siTogglePaste()" style="padding:7px 14px;background:#1e3a5f;border:1px solid #3b82f6;border-radius:6px;color:#93c5fd;cursor:pointer;font-size:12px">📋 Pegar desde Excel</button>
+    </div>
+    <div id="si-paste-area" style="display:none;margin-bottom:12px;padding:12px;background:var(--bg2);border:1px solid #3b82f6;border-radius:8px">
+      <p style="font-size:12px;color:#93c5fd;margin:0 0 8px">1. En Excel selecciona las columnas <b>Clientes · Casa · Montos</b> (sin encabezados)<br>2. Copia (Cmd+C) · 3. Pega aquí (Cmd+V) · 4. Clic en <b>Importar</b></p>
+      <textarea id="si-paste-txt" rows="8" placeholder="Pega aquí los datos de Excel..." style="width:100%;padding:8px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;font-family:monospace;resize:vertical;box-sizing:border-box"></textarea>
+      <div style="margin-top:8px;display:flex;gap:8px">
+        <button onclick="siImportarExcel()" style="padding:7px 16px;background:#2563eb;border:none;border-radius:6px;color:#fff;cursor:pointer;font-size:12px;font-weight:600">⬆ Importar</button>
+        <button onclick="siTogglePaste()" style="padding:7px 14px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;font-size:12px">Cancelar</button>
+      </div>
+    </div>
+    <table style="border-collapse:collapse;width:100%;max-width:700px">
+      <thead>
+        <tr style="background:var(--bg2)">
+          <th style="padding:8px;text-align:left;font-size:12px;min-width:160px">Cliente</th>
+          <th style="padding:8px;text-align:left;font-size:12px;min-width:160px">Casa de Apuestas</th>
+          <th style="padding:8px;text-align:right;font-size:12px;min-width:120px">Monto</th>
+          <th style="padding:8px;width:40px"></th>
+        </tr>
+      </thead>
+      <tbody>${tbody || '<tr><td colspan="4" style="padding:20px;text-align:center;color:var(--text2)">Sin registros — usa "+ Agregar fila"</td></tr>'}</tbody>
+      <tfoot>
+        <tr style="background:var(--bg2);border-top:2px solid var(--border)">
+          <td colspan="2" style="padding:8px;font-weight:700">TOTAL</td>
+          <td style="padding:8px;text-align:right;font-weight:700;color:#facc15">$${grandTotal.toLocaleString('es-CO')}</td>
+          <td></td>
+        </tr>
+      </tfoot>
+    </table>`;
+}
+
+function siTogglePaste() {
+  const area = document.getElementById('si-paste-area');
+  const txt  = document.getElementById('si-paste-txt');
+  if (area.style.display === 'none') {
+    area.style.display = 'block';
+    setTimeout(() => txt.focus(), 50);
+  } else {
+    area.style.display = 'none';
+    txt.value = '';
+  }
+}
+
+function siParseMonto(raw) {
+  // Soporta: "$ 1.180.700", "-$ 163", "1180700", "1,180,700", "-163"
+  if (!raw) return 0;
+  let s = String(raw).trim();
+  const negativo = s.startsWith('-');
+  s = s.replace(/[^0-9.,]/g, ''); // quitar $, espacios, etc.
+  // Si tiene punto Y coma: detectar cuál es decimal
+  // Formato colombiano: 1.180.700 (puntos = miles, coma = decimal)
+  // Detectar: si el último separador es coma y hay 1-2 dígitos después → coma es decimal
+  if (/,\d{1,2}$/.test(s)) {
+    s = s.replace(/\./g, '').replace(',', '.'); // 1180700.50
+  } else {
+    s = s.replace(/[.,]/g, ''); // quitar todos los separadores de miles
+  }
+  const v = parseFloat(s) || 0;
+  return negativo ? -v : v;
+}
+
+function siImportarExcel() {
+  const txt      = document.getElementById('si-paste-txt')?.value || '';
+  const casaList = casas.length ? casas : DEFAULT_CASAS;
+
+  const lineas = txt.split('\n').map(l => l.trim()).filter(l => l);
+  let importadas = 0, ignoradas = 0;
+
+  lineas.forEach(linea => {
+    // Separador puede ser tab (Excel) o punto y coma (CSV europeo)
+    const cols = linea.includes('\t') ? linea.split('\t') : linea.split(';');
+    if (cols.length < 3) { ignoradas++; return; }
+
+    const clienteRaw = cols[0].trim();
+    const casaRaw    = cols[1].trim();
+    const montoRaw   = cols[2].trim();
+
+    if (!clienteRaw || !casaRaw) { ignoradas++; return; }
+
+    const monto = siParseMonto(montoRaw);
+
+    // Buscar cliente (coincidencia parcial insensible a mayúsculas)
+    let clienteId     = '_externo_';
+    let clienteNombre = clienteRaw;
+    const match = siClientes.find(c =>
+      c.nombre.toLowerCase() === clienteRaw.toLowerCase() ||
+      c.nombre.toLowerCase().startsWith(clienteRaw.toLowerCase().substring(0, 8))
+    );
+    if (match) { clienteId = match.id; clienteNombre = match.nombre; }
+    else if (clienteRaw.toLowerCase().includes('externo')) {
+      clienteId = '_externo_'; clienteNombre = 'Externo';
+    }
+
+    // Buscar casa: exacto primero, luego starts-with con mínimo 5 chars para evitar BET ALFA vs BET PLAY
+    const casaRawN = casaRaw.toLowerCase().trim();
+    const casaMatch = casaList.find(c => c.toLowerCase() === casaRawN) ||
+      casaList.find(c => casaRawN.length >= 5 && c.toLowerCase().startsWith(casaRawN)) ||
+      casaList.find(c => casaRawN.length >= 5 && casaRawN.startsWith(c.toLowerCase())) ||
+      casaRaw.toUpperCase();
+
+    siRows.push({ id: ++siRowIdSeq, clienteId, clienteNombre, casa: casaMatch, monto });
+    importadas++;
+  });
+
+  document.getElementById('si-paste-area').style.display = 'none';
+  document.getElementById('si-paste-txt').value = '';
+  renderSiAdminTable();
+  toast(`✅ ${importadas} filas importadas${ignoradas ? ` · ${ignoradas} ignoradas` : ''}`, 'success');
+}
+
+function siAddRow() {
+  siRows.push({
+    id: ++siRowIdSeq,
+    clienteId: siClientes[0]?.id || '_externo_',
+    clienteNombre: siClientes[0]?.nombre || 'Externo',
+    casa: '',   // sin default: admin debe elegir la casa explícitamente
+    monto: 0
+  });
+  renderSiAdminTable();
+  // Scroll al final
+  const wrap = document.getElementById('si-admin-wrap');
+  wrap.scrollTop = wrap.scrollHeight;
+}
+
+function siDeleteRow(id) {
+  siRows = siRows.filter(r => r.id !== id);
+  renderSiAdminTable();
+}
+
+function siRowChange(id, field, value, text) {
+  const row = siRows.find(r => r.id === id);
+  if (!row) return;
+  row[field] = value;
+  if (field === 'clienteId' && text) row.clienteNombre = text;
+  if (field === 'monto') {
+    // Actualizar color del input en tiempo real sin re-render completo
+    const tr = document.getElementById(`si-row-${id}`);
+    if (tr) {
+      const inp = tr.querySelector('input[type=number]');
+      if (inp) inp.style.color = value < 0 ? '#f87171' : value > 0 ? '#4ade80' : 'var(--text2)';
+    }
+    // Actualizar total
+    const grandTotal = siRows.reduce((s,r) => s + (parseFloat(r.monto)||0), 0);
+    const tfoot = document.querySelector('#si-admin-wrap tfoot td:nth-child(3)');
+    if (tfoot) tfoot.textContent = '$' + grandTotal.toLocaleString('es-CO');
+  }
+}
+
+async function saveSaldoInicialAdmin() {
+  const opUid  = siAdminGetOp();
+  const mesKey = siAdminGetMes();
+  if (!opUid) { toast('Selecciona un operador primero', 'error'); return; }
+
+  // Convertir lista de filas a mapa { clienteId: { casa: monto } }
+  const saldos = {};
+  siRows.forEach(row => {
+    const m = parseFloat(row.monto) || 0;
+    if (!m) return;
+    if (!saldos[row.clienteId]) saldos[row.clienteId] = {};
+    saldos[row.clienteId][row.casa] = (saldos[row.clienteId][row.casa] || 0) + m;
+  });
+
+  // ── Protección: no permitir guardar tabla vacía si ya hay datos en Firestore ──
+  if (Object.keys(saldos).length === 0) {
+    // Verificar si ya hay datos guardados
+    try {
+      const existing = await db.collection('patriarca_saldo_inicial').doc(`${opUid}_${mesKey}`).get({ source: 'server' });
+      if (existing.exists && Object.keys(existing.data().saldos || {}).length > 0) {
+        const ok = confirm(
+          '⚠️ La tabla está vacía pero ya hay saldos guardados para este operador y mes.\n\n' +
+          'Si guardas ahora, SE BORRARÁN todos los saldos existentes.\n\n' +
+          '¿Estás seguro de que quieres borrar todos los saldos?'
+        );
+        if (!ok) { toast('Guardado cancelado — los saldos existentes se conservaron', 'info'); return; }
+      }
+    } catch(e) { console.warn('SI check existing:', e); }
+  }
+
+  try {
+    await db.collection('patriarca_saldo_inicial').doc(`${opUid}_${mesKey}`).set({
+      opId: opUid,
+      mes: mesKey,
+      saldos,
+      updatedBy: 'admin',
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+    toast('✅ Saldos iniciales guardados', 'success');
+  } catch(e) {
+    console.error(e);
+    toast('Error al guardar: ' + e.message, 'error');
+  }
+}
+
+async function exportarSaldoInicialAdmin() {
+  const opUid  = siAdminGetOp();
+  const mesKey = siAdminGetMes();
+  if (!opUid) { toast('Selecciona un operador primero', 'error'); return; }
+  try {
+    const snap = await db.collection('patriarca_saldo_inicial').doc(`${opUid}_${mesKey}`).get({ source: 'server' });
+    const opNombre = document.getElementById('si-sel-op').selectedOptions[0]?.text || opUid;
+    const data = snap.exists ? snap.data() : { saldos: {}, mes: mesKey, opId: opUid };
+    const json = JSON.stringify({ exportadoEn: new Date().toISOString(), operador: opNombre, ...data }, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `saldo_inicial_${opNombre.replace(/\s+/g,'_')}_${mesKey}.json`;
+    a.click();
+    toast('✅ Backup descargado', 'success');
+  } catch(e) { toast('Error al exportar: ' + e.message, 'error'); }
+}
+
+// ────────────────────── CORRECCIONES ──────────────────────
+let corrMovs = [];
+let corrInitDone = false;
+
+function initCorreccionesAdmin() {
+  if (corrInitDone) return;
+  corrInitDone = true;
+  const sel = document.getElementById('corr-sel-op');
+  // allUsers ya está cargado por loadUsuarios() al iniciar
+  const ops = allUsers.filter(u => u.uid && (u.rol === 'operador' || !u.rol));
+  ops.forEach(u => {
+    const opt = document.createElement('option');
+    opt.value = u.uid;
+    opt.textContent = u.nombre || u.email || u.uid;
+    sel.appendChild(opt);
+  });
+  if (!ops.length) {
+    // Fallback si allUsers aún no cargó
+    db.collection('admin_usuarios').get().then(snap => {
+      snap.docs.forEach(d => {
+        const data = d.data();
+        if (!data.uid || data.rol === 'admin') return;
+        const opt = document.createElement('option');
+        opt.value = data.uid;
+        opt.textContent = data.nombre || data.email || data.uid;
+        sel.appendChild(opt);
+      });
+    }).catch(e => console.warn('correcciones init fallback:', e));
+  }
+}
+
+async function cargarMovsCorreccion() {
+  const opUid  = document.getElementById('corr-sel-op').value;
+  const canal  = document.getElementById('corr-sel-canal').value;
+  if (!opUid) { toast('Selecciona un operador', 'error'); return; }
+
+  try {
+    const snap = await db.collection('patriarca_movimientos')
+      .where('opId', '==', opUid)
+      .get();
+
+    corrMovs = snap.docs
+      .map(d => ({ docId: d.id, ...d.data() }))
+      .filter(mv => (mv.canal || 'C-OP') === canal);
+
+    // Orden correcto: fecha ASC, luego por número de op_id actual
+    corrMovs.sort((a, b) => {
+      const fa = a.fecha || '', fb = b.fecha || '';
+      if (fa !== fb) return fa.localeCompare(fb);
+      const na = parseInt((a.op_id || '').match(/\d+/)?.[0] || 0);
+      const nb = parseInt((b.op_id || '').match(/\d+/)?.[0] || 0);
+      return na - nb;
+    });
+
+    let cambios = 0;
+    const tbody = document.getElementById('corr-tbody');
+    tbody.innerHTML = corrMovs.map((mv, i) => {
+      const nuevoId = `${i + 1} - ${canal}`;
+      const cambia  = mv.op_id !== nuevoId;
+      if (cambia) cambios++;
+      return `<tr style="${cambia ? 'background:rgba(224,80,80,.08)' : ''}">
+        <td style="color:${cambia ? 'var(--red)' : 'var(--text2)'};font-weight:${cambia ? 600 : 400}">${mv.op_id || '—'}</td>
+        <td style="color:${cambia ? 'var(--green)' : 'var(--text2)'};font-weight:${cambia ? 600 : 400}">${nuevoId}</td>
+        <td>${mv.fecha || '—'}</td>
+        <td style="text-align:right">${ciPesos(mv.monto || 0)}</td>
+        <td>${mv.tipo || '—'}</td>
+        <td>${mv.metodo || '—'}</td>
+      </tr>`;
+    }).join('');
+
+    document.getElementById('corr-cambios-msg').textContent =
+      `${corrMovs.length} operaciones cargadas · ${cambios} requieren corrección`;
+    document.getElementById('corr-preview').style.display = 'block';
+  } catch(e) {
+    console.error('cargarMovsCorreccion:', e);
+    toast('Error cargando operaciones', 'error');
+  }
+}
+
+async function aplicarRenumeracion() {
+  if (!corrMovs.length) return;
+  const canal = document.getElementById('corr-sel-canal').value;
+
+  const aCorregir = corrMovs.filter((mv, i) => mv.op_id !== `${i + 1} - ${canal}`);
+  if (!aCorregir.length) { toast('Todo ya está correctamente numerado', 'info'); return; }
+
+  if (!confirm(`¿Aplicar renumeración a ${aCorregir.length} operaciones?\nEsta acción no se puede deshacer.`)) return;
+
+  try {
+    const batch = db.batch();
+    corrMovs.forEach((mv, i) => {
+      const nuevoId = `${i + 1} - ${canal}`;
+      if (mv.op_id !== nuevoId) {
+        batch.update(db.collection('patriarca_movimientos').doc(mv.docId), { op_id: nuevoId });
+      }
+    });
+    await batch.commit();
+    toast(`✅ ${aCorregir.length} operaciones renumeradas`, 'success');
+    await cargarMovsCorreccion(); // recargar para reflejar cambios
+  } catch(e) {
+    console.error('aplicarRenumeracion:', e);
+    toast('Error aplicando renumeración', 'error');
+  }
+}
+
+// ── AUDITOR ─────────────────────────────────────────────────────────────────
+
+const _AUD_ALIAS = {
+  'SUPERGIROS UNITY':'SUPER GIROS UNITY','SUPER GIROS UNITY ':'SUPER GIROS UNITY',
+  'BEMOVIL':'BE MOVIL CAJA','BE MOVIL':'BE MOVIL CAJA',
+  'WPLAY POS':'WPLAY UNITY','EFECTIVO':'EFECTIVO OPERADOR',
+};
+function audNorm(m) {
+  const u = (m||'').trim().toUpperCase();
+  return _AUD_ALIAS[u] || u;
+}
+function audPesos(v) {
+  if (v===null||v===undefined||(typeof v==='number'&&isNaN(v))) return '—';
+  const n = Math.round(+v);
+  return (n<0?'-':'')+'$'+Math.abs(n).toLocaleString('es-CO');
+}
+function _audParseCOP(str) {
+  if (!str) return 0;
+  return parseFloat(String(str).replace(/\./g,'').replace(',','.')) || 0;
+}
+
+// Conceptos manuales: el admin escribe ambos lados (OP y CAJERO)
+const AUD_MANUAL = [
+  { key:'COMISIONES_BEMOVIL', label:'Comisiones Be Movil' },
+  { key:'BE_MOVIL_CAJA_ADM',  label:'Be Movil Caja (Admin)' },
+];
+
+let _audMovs   = [];
+let _audInvs   = []; // inversiones del mes con historial
+let _audData   = {};
+let _audMesKey = '';
+let _audOps    = [];
+let _audMets   = [];
+let _audCupos  = {}; // { opUid: { metodoNorm: cupoInicial } }
+let _audIxNet  = {}; // { opUid: { metodoNorm: netIntercambios } }
+let _audView   = 'estado';
+let _audEdView = 'movimientos'; // sub-vista dentro de Ediciones
+
+function _audMovMesKey(mv) {
+  if (mv.fecha && /^\d{4}-\d{2}/.test(mv.fecha)) return mv.fecha.slice(0,7);
+  const ts = mv.ts;
+  if (ts?.toDate)  { const d=ts.toDate();              return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; }
+  if (ts?.seconds) { const d=new Date(ts.seconds*1000); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; }
+  return '';
+}
+
+async function initAuditor() {
+  const sel = document.getElementById('aud-sel-mes');
+  if (!sel.options.length) {
+    const now = new Date();
+    for (let i=0; i<12; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
+      const val = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+      const lbl = d.toLocaleDateString('es-CO',{month:'long',year:'numeric'});
+      const o = document.createElement('option');
+      o.value=val; o.textContent=lbl.charAt(0).toUpperCase()+lbl.slice(1);
+      if (i===0) o.selected=true;
+      sel.appendChild(o);
+    }
+  }
+  await loadAuditorData();
+}
+
+async function loadAuditorData() {
+  const mesKey = document.getElementById('aud-sel-mes')?.value;
+  if (!mesKey) return;
+  const wrap = document.getElementById('aud-wrap');
+  wrap.innerHTML = '<div style="padding:32px;text-align:center;color:var(--text2)">⏳ Cargando...</div>';
+
+  // ── Operadores: query fresca (no depende de allUsers que puede no estar listo) ──
+  const opsSnap = await db.collection('admin_usuarios').where('rol','==','operador').get();
+  _audOps = opsSnap.docs
+    .map(d => ({ uid: d.data().uid || d.id, nombre: d.data().nombre || d.data().email || d.id, estado: d.data().estado }))
+    .filter(u => u.uid && u.estado !== 'inactivo')
+    .sort((a,b) => (a.nombre||'').localeCompare(b.nombre||''));
+
+  // ── Métodos cajero ──
+  _audMets = metodos.filter(m => m.tipo==='cajero').map(m => m.nombre);
+
+  // ── Movimientos del mes ──
+  // Un movimiento eliminado (solicitud de borrado aprobada) queda con
+  // eliminado:true pero SIN tocar estado_cajero — si no se descarta aquí,
+  // la columna OP lo sigue sumando aunque ya no exista para nadie más
+  // (la columna CAJ lo excluye solo porque nunca llegó a "Realizada", no
+  // porque el código sepa que está eliminado).
+  const snap = await db.collection('patriarca_movimientos').get();
+  _audMovs = snap.docs.map(d=>({id:d.id,...d.data()}))
+    .filter(mv => !mv.eliminado && _audMovMesKey(mv)===mesKey);
+
+  // ── Inversiones del mes ──
+  const invSnap = await db.collection('patriarca_inversiones').get();
+  _audInvs = invSnap.docs.map(d=>({id:d.id,...d.data()})).filter(inv => {
+    const f = inv.fecha || inv.ts?.toDate?.()?.toISOString?.()?.slice(0,7) || '';
+    return f.startsWith(mesKey);
+  });
+
+  // Si metodos no cargó aún, derivar de movimientos
+  if (!_audMets.length) {
+    _audMets = [...new Set(_audMovs.map(mv=>audNorm(mv.metodo||'')).filter(n=>n&&n!=='BONIFICACION'&&n!=='SALDO CLIENTES'))].sort();
+  }
+
+  // ── Cupo inicial de cada operador (patriarca_config/{uid}.cupos_cajero) ──
+  _audCupos = {};
+  const NO_SON_METODOS = new Set(['CUPO TOTAL', 'CUPO TOTAL ASIGNADO', 'CUPO_RESIDUAL', 'COM_MES_ANT', 'LIQ_POR_PAGAR', 'CLI_MES_ANT']);
+  await Promise.all(_audOps.map(async op => {
+    const s = await db.collection('patriarca_config').doc(op.uid).get();
+    if (s.exists) {
+      const raw = s.data().cupos_cajero || {};
+      _audCupos[op.uid] = {};
+      for (const [k, v] of Object.entries(raw)) {
+        if (NO_SON_METODOS.has(k)) continue; // Filtrar CUPO TOTAL
+        _audCupos[op.uid][audNorm(k)] = v || 0;
+      }
+    }
+  }));
+
+  // ── Intercambios completados del mes ──
+  _audIxNet = {};
+  const ixSnap = await db.collection('patriarca_ix_global')
+    .where('estado', '==', 'completado').get();
+  ixSnap.docs.forEach(d => {
+    const ix = d.data();
+    if (_audMovMesKey(ix) !== mesKey) return;
+    const m = ix.monto || 0;
+    const addIx = (uid, met, delta) => {
+      if (!uid || !met) return;
+      const k = audNorm(met);
+      if (!_audIxNet[uid]) _audIxNet[uid] = {};
+      _audIxNet[uid][k] = (_audIxNet[uid][k] || 0) + delta;
+    };
+    addIx(ix.op1_uid, ix.op1_egresa,  -m);
+    addIx(ix.op1_uid, ix.op1_ingresa, +m);
+    if (ix.tipo === 'C' && ix.op2_uid) {
+      addIx(ix.op2_uid, ix.op2_egresa,  -m);
+      addIx(ix.op2_uid, ix.op2_ingresa, +m);
+    }
+  });
+
+  // ── Datos manuales ──
+  const ds = await db.collection('admin_auditoria').doc(mesKey).get();
+  _audData  = ds.exists ? (ds.data()||{}) : {};
+  _audMesKey = mesKey;
+
+  renderAuditor();
+  _refreshEdBadge();
+}
+
+// Estado real del movimiento del lado de la cajera.
+// Los internos del operador (I-OP) no pasan por ella: nacen realizados.
+function _audEstadoCaj(mv) {
+  return mv.estado_cajero || (mv.canal === 'I-OP' ? 'Realizada' : 'Pendiente');
+}
+
+function _audNet(opUid, metName, useConfirmed) {
+  const normMet = audNorm(metName);
+  return _audMovs
+    .filter(mv => mv.opId===opUid && audNorm(mv.metodo)===normMet)
+    .reduce((s,mv) => {
+      let m;
+      if (useConfirmed) {
+        // La columna CAJ solo cuenta lo que la cajera ya confirmó
+        if (_audEstadoCaj(mv) !== 'Realizada') return s;
+        m = mv.monto_cajero ?? mv.monto ?? 0;
+      } else {
+        m = mv.monto || 0;
+      }
+      if (mv.tipo==='PAGOS')    return s+m;
+      if (mv.tipo==='RECARGAS') return s-m;
+      return s;
+    }, 0);
+}
+
+// ── Sub-vista activa ────────────────────────────────────────────────────────
+function setAudView(v) {
+  _audView = v;
+  document.querySelectorAll('.aud-stab').forEach(b => b.classList.remove('active'));
+  const btn = document.getElementById('aud-stab-' + v);
+  if (btn) btn.classList.add('active');
+  const wrap = document.getElementById('aud-wrap');
+  if (wrap && _audOps.length) renderAuditor();
+}
+
+function renderAuditor() {
+  if (_audView === 'estado') renderAuditorEstado();
+  else if (_audView === 'ediciones') renderAuditorEdiciones();
+  else renderAuditorConciliacion();
+}
+
+// ── 📊 ESTADO FINANCIERO ─────────────────────────────────────────────────────
+// Cupo Actual = Cupo Inicial + Intercambios + PAGOS − RECARGAS  (valores cajero)
+function renderAuditorEstado() {
+  const wrap = document.getElementById('aud-wrap');
+  if (!wrap) return;
+  if (!_audOps.length) { wrap.innerHTML = '<div class="empty">Sin operadores activos.</div>'; return; }
+
+  // Calcular cupo actual por op × método (cajero-confirmed)
+  const cupoActual = {}; // { opUid: { metNorm: valor } }
+  _audOps.forEach(op => {
+    cupoActual[op.uid] = {};
+    _audMets.forEach(met => {
+      const norm    = audNorm(met);
+      const cupoIni = _audCupos[op.uid]?.[norm] || 0;
+      const ixNet   = _audIxNet[op.uid]?.[norm]  || 0;
+      const movNet  = _audNet(op.uid, met, true); // monto_cajero
+      cupoActual[op.uid][norm] = cupoIni + ixNet + movNet;
+    });
+  });
+
+  // Totales por operador
+  const totPorOp = {};
+  _audOps.forEach(op => {
+    totPorOp[op.uid] = Object.values(cupoActual[op.uid]).reduce((s,v)=>s+v,0);
+  });
+  const totalGlobal = _audOps.reduce((s,op)=>s+totPorOp[op.uid],0);
+
+  // ── Encabezados ──
+  const opThs = _audOps.map(op => {
+    const short = (op.nombre||'').split(' ').slice(0,2).join(' ');
+    return `<th style="text-align:right;border-left:1px solid var(--border);min-width:120px">${short}</th>`;
+  }).join('');
+
+  // ── Filas por método ──
+  let rows = '';
+  _audMets.forEach((met, idx) => {
+    const norm = audNorm(met);
+    let hasAny = false;
+    let cells = '';
+    let rowTotal = 0;
+    _audOps.forEach(op => {
+      const v = cupoActual[op.uid][norm] || 0;
+      if (v !== 0) hasAny = true;
+      rowTotal += v;
+      const color = v > 0 ? 'color:var(--green)' : v < 0 ? 'color:var(--red)' : 'color:var(--text2)';
+      const disp  = v === 0 ? '—' : audPesos(v);
+      cells += `<td class="aud-td" style="border-left:1px solid var(--border);${color}">${disp}</td>`;
+    });
+    // Total row
+    const tc = rowTotal > 0 ? 'color:var(--green)' : rowTotal < 0 ? 'color:var(--red)' : 'color:var(--text2)';
+    cells += `<td class="aud-td" style="font-weight:700;border-left:2px solid var(--border);${tc}">${rowTotal===0?'—':audPesos(rowTotal)}</td>`;
+    const bt = idx > 0 ? 'border-top:1px solid var(--border)' : '';
+    const rowStyle = hasAny ? bt : `${bt};opacity:.45`;
+    rows += `<tr style="${rowStyle}"><td class="aud-td-name">${met}</td>${cells}</tr>`;
+  });
+
+  // ── Fila TOTAL ──
+  const totCells = _audOps.map(op => {
+    const v = totPorOp[op.uid];
+    const c = v>0?'color:var(--green)':v<0?'color:var(--red)':'color:var(--text2)';
+    return `<td class="aud-td" style="font-weight:700;border-left:1px solid var(--border);${c}">${audPesos(v)}</td>`;
+  }).join('');
+  const gc = totalGlobal>0?'color:var(--green)':totalGlobal<0?'color:var(--red)':'color:var(--text2)';
+  const totRow = `<tr class="aud-sum-row">
+    <td class="aud-td-name" style="font-weight:800;font-size:13px;color:var(--purple)">POSICIÓN NETA</td>
+    ${totCells}
+    <td class="aud-td" style="font-weight:800;border-left:2px solid var(--border);${gc}">${audPesos(totalGlobal)}</td>
+  </tr>`;
+
+  wrap.innerHTML = `
+    <div style="overflow-x:auto;padding-top:12px">
+    <table>
+      <thead class="aud-thead">
+        <tr>
+          <th class="aud-th-name">MÉTODO</th>
+          ${opThs}
+          <th style="text-align:right;border-left:2px solid var(--border);min-width:120px">TOTAL AJ1.6</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${totRow}
+        <tr><td colspan="${_audOps.length+2}" style="border:none;height:6px"></td></tr>
+        ${rows}
+      </tbody>
+    </table>
+    </div>`;
+}
+
+// ── 🔍 CONCILIACIÓN ──────────────────────────────────────────────────────────
+// Muestra SOLO movimientos netos: OP (monto) vs CAJ (monto_cajero)
+// NO incluye cupo inicial ni intercambios — detecta errores de confirmación reales
+function renderAuditorConciliacion() {
+  const wrap = document.getElementById('aud-wrap');
+  if (!wrap) return;
+  if (!_audOps.length) { wrap.innerHTML = '<div class="empty">Sin operadores activos.</div>'; return; }
+
+  // Aviso: lo que la cajera todavía no confirma explica parte del descuadre
+  const pend = _audMovs.filter(mv => _audEstadoCaj(mv) === 'Pendiente');
+  const rech = _audMovs.filter(mv => _audEstadoCaj(mv) === 'Rechazada');
+  const avisoWrap = (pend.length || rech.length)
+    ? `<div style="margin:0 20px 12px;padding:10px 14px;border-radius:8px;background:rgba(251,146,60,.1);border:1px solid rgba(251,146,60,.3);font-size:12px;color:var(--orange)">
+         ⏳ La columna <strong>CAJ</strong> solo cuenta lo que la cajera ya confirmó.
+         ${pend.length ? `Hay <strong>${pend.length}</strong> movimiento(s) pendientes de aceptar` : ''}
+         ${pend.length && rech.length ? ' y ' : ''}
+         ${rech.length ? `<strong>${rech.length}</strong> rechazado(s)` : ''}.
+       </div>`
+    : '';
+
+  const manual    = _audData.manual    || {};
+
+  const concepts = [
+    ...AUD_MANUAL.map(c=>({...c, tipo:'manual'})),
+    ..._audMets.map(m=>({key:m, label:m, tipo:'auto'})),
+  ];
+
+  // Diferencia acumulada por operador
+  const diffPerOp = {};
+  _audOps.forEach(op => diffPerOp[op.uid] = 0);
+
+  let detailRows = '';
+  concepts.forEach((c, idx) => {
+    let cells = '';
+    let totOp=0, totCaj=0, anyData=false;
+
+    _audOps.forEach(op => {
+      let opVal, cajVal;
+      if (c.tipo==='manual') {
+        opVal  = manual[c.key]?.[op.uid]?.op  ?? null;
+        cajVal = manual[c.key]?.[op.uid]?.caj ?? null;
+      } else {
+        // Solo movimientos netos: PAGOS − RECARGAS
+        opVal  = _audNet(op.uid, c.key, false); // monto
+        cajVal = _audNet(op.uid, c.key, true);  // monto_cajero
+      }
+
+      const hasThis = c.tipo==='manual' ? (opVal!==null||cajVal!==null) : (opVal!==0||cajVal!==0);
+      if (hasThis) anyData = true;
+      const ov  = opVal  ?? 0;
+      const cjv = cajVal ?? 0;
+      const diff = cjv - ov;
+      if (hasThis) diffPerOp[op.uid] += diff;
+      totOp  += ov;
+      totCaj += cjv;
+
+      const isOk = Math.abs(diff) < 1;
+      const esc = s => String(s).replace(/'/g,"\\'");
+      const editOpBtn  = c.tipo==='manual'
+        ? `<span class="aud-edit" onclick="editAuditManual('${esc(c.key)}','${op.uid}','op',${ov})">✏</span>` : '';
+      const editCajBtn = c.tipo==='manual'
+        ? `<span class="aud-edit" onclick="editAuditManual('${esc(c.key)}','${op.uid}','caj',${cjv})">✏</span>` : '';
+
+      const opDisplay  = (c.tipo==='manual' && opVal===null)  ? '—' : audPesos(ov);
+      const cajDisplay = (c.tipo==='manual' && cajVal===null) ? '—' : audPesos(cjv);
+
+      if (!hasThis && c.tipo==='auto') {
+        cells += `<td class="aud-td" style="border-left:1px solid var(--border);color:var(--text2)">—</td>`;
+        cells += `<td class="aud-td" style="color:var(--text2)">—</td>`;
+      } else {
+        cells += `<td class="aud-td" style="border-left:1px solid var(--border)">${opDisplay}${editOpBtn}</td>`;
+        if (isOk) {
+          cells += `<td class="aud-td" style="background:rgba(36,191,98,.1);color:var(--green)">${cajDisplay}${editCajBtn}</td>`;
+        } else {
+          const dc = diff>0 ? 'var(--green)' : 'var(--red)';
+          cells += `<td class="aud-td" style="background:rgba(224,80,80,.12);color:var(--red)">${cajDisplay}<br><span style="font-size:10px;color:${dc};font-weight:700">Δ ${audPesos(diff)}</span>${editCajBtn}</td>`;
+        }
+      }
+    });
+
+    // Columna TOTAL
+    const totDiff = totCaj - totOp;
+    const totOk   = Math.abs(totDiff) < 1;
+    const showTot = anyData || c.tipo==='manual';
+    cells += `<td class="aud-td" style="font-weight:700;border-left:2px solid var(--border)">${showTot ? audPesos(totOp) : '—'}</td>`;
+    if (!showTot) {
+      cells += `<td class="aud-td" style="color:var(--text2)">—</td>`;
+    } else if (totOk) {
+      cells += `<td class="aud-td" style="background:rgba(36,191,98,.1);color:var(--green);font-weight:700">${audPesos(totCaj)}</td>`;
+    } else {
+      const dc = totDiff>0 ? 'var(--green)' : 'var(--red)';
+      cells += `<td class="aud-td" style="background:rgba(224,80,80,.12);color:var(--red);font-weight:700">${audPesos(totCaj)}<br><span style="font-size:10px;color:${dc}">Δ ${audPesos(totDiff)}</span></td>`;
+    }
+
+    const borderTop = idx>0 ? 'border-top:1px solid var(--border)' : '';
+    detailRows += `<tr style="${borderTop}"><td class="aud-td-name">${c.label}</td>${cells}</tr>`;
+  });
+
+  // ── Filas de resumen ──
+  let sumDiffCells='', sumEstCells='';
+  let totalDiff = 0;
+  _audOps.forEach(op => {
+    const d = diffPerOp[op.uid];
+    totalDiff += d;
+    const isOk = Math.abs(d) < 1;
+    const dc = isOk ? 'var(--green)' : d>0 ? 'var(--blue)' : 'var(--red)';
+    sumDiffCells += `<td colspan="2" class="aud-td" style="text-align:center;border-left:1px solid var(--border);color:${dc};font-weight:700">${isOk?'—':audPesos(d)}</td>`;
+    sumEstCells  += `<td colspan="2" class="aud-td-est" style="border-left:1px solid var(--border)">${isOk?'<span class="aud-ok">✓ OK</span>':'<span class="aud-err">✗ ERROR</span>'}</td>`;
+  });
+  const totGlobOk = Math.abs(totalDiff)<1;
+  const totGlobDc = totGlobOk?'var(--green)':totalDiff>0?'var(--blue)':'var(--red)';
+  sumDiffCells += `<td colspan="2" class="aud-td" style="text-align:center;border-left:2px solid var(--border);color:${totGlobDc};font-weight:700">${totGlobOk?'—':audPesos(totalDiff)}</td>`;
+  sumEstCells  += `<td colspan="2" class="aud-td-est" style="border-left:2px solid var(--border)">${totGlobOk?'<span class="aud-ok">✓ CORRECTO</span>':'<span class="aud-err">✗ ERROR</span>'}</td>`;
+
+  // ── Encabezados: 2 columnas por operador (OP | CAJ) ──
+  const opNameThs = _audOps.map(op => {
+    const short = (op.nombre||'').split(' ').slice(0,2).join(' ');
+    return `<th colspan="2" style="text-align:center;border-left:1px solid var(--border)">${short}</th>`;
+  }).join('');
+  const subThs = _audOps.map(() =>
+    `<th style="border-left:1px solid var(--border);color:var(--text2)">OP</th><th style="color:var(--blue)">CAJ</th>`
+  ).join('');
+
+  const totalColspan = _audOps.length*2 + 3;
+
+  wrap.innerHTML = avisoWrap + `
+    <div style="overflow-x:auto;padding-top:12px">
+    <table>
+      <thead class="aud-thead">
+        <tr>
+          <th class="aud-th-name" rowspan="2">CONCEPTO</th>
+          ${opNameThs}
+          <th colspan="2" style="text-align:center;border-left:2px solid var(--border)">TOTAL AJ1.6</th>
+        </tr>
+        <tr>
+          ${subThs}
+          <th style="border-left:2px solid var(--border);color:var(--text2)">OP</th>
+          <th style="color:var(--blue)">CAJ</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="aud-sum-row">
+          <td rowspan="2" class="aud-td-name" style="font-weight:800;font-size:13px;color:var(--purple)">📊 RESUMEN</td>
+          ${sumDiffCells}
+        </tr>
+        <tr class="aud-sum-row">
+          ${sumEstCells}
+        </tr>
+        <tr><td colspan="${totalColspan}" style="border:none;height:8px"></td></tr>
+        ${detailRows}
+      </tbody>
+    </table>
+    </div>`;
+}
+
+// ── ✏️ EDICIONES POR OPERADOR ───────────────────────────────────────────────────
+const fmtMAud = v => {
+  if (!v && v !== 0) return '—';
+  const abs = Math.abs(v);
+  return (v < 0 ? '−' : '') + '$' + abs.toLocaleString('es-CO', { minimumFractionDigits: 0 });
+};
+const fmtFechaAud = s => {
+  if (!s) return '—';
+  if (s?.toDate) return s.toDate().toLocaleString('es-CO', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' });
+  return String(s).slice(0, 16).replace('T', ' ');
+};
+
+function _audEdRevisadas() {
+  return _audData.ediciones_revisadas || {};
+}
+function _audEdPendCount() {
+  const rev = _audEdRevisadas();
+  let cnt = 0;
+  _audMovs.filter(m => m.historial?.length).forEach(m =>
+    m.historial.forEach((h, i) => { if (!rev[`mov_${m.id}_${i}`]) cnt++; })
+  );
+  _audInvs.filter(inv => inv.historial?.length).forEach(inv =>
+    inv.historial.forEach((h, i) => { if (!rev[`inv_${inv.id}_${i}`]) cnt++; })
+  );
+  return cnt;
+}
+function _refreshEdBadge() {
+  const cnt = _audEdPendCount();
+  const btn = document.getElementById('aud-stab-ediciones');
+  if (btn) btn.textContent = cnt > 0 ? `✏️ Ediciones 🔴${cnt}` : '✏️ Ediciones';
+}
+
+async function marcarTodoOp(quien) {
+  if (!confirm('¿Marcar todas las ediciones de este operador como revisadas?')) return;
+  const rev  = _audEdRevisadas();
+  const keys = {};
+  const recolectar = (docs, prefix) => {
+    docs.filter(d => d.historial?.length).forEach(doc => {
+      doc.historial.forEach((h, i) => {
+        const q = h.editadoPor || doc.editadoPor || '(desconocido)';
+        if (q !== quien) return;
+        const k = `${prefix}_${doc.id}_${i}`;
+        if (!rev[k]) keys[k] = true;
+      });
+    });
+  };
+  recolectar(_audMovs, 'mov');
+  recolectar(_audInvs, 'inv');
+  if (!Object.keys(keys).length) { toast('Ya todo está revisado', 'info'); return; }
+  const docRef = db.collection('admin_auditoria').doc(_audMesKey);
+  await docRef.set({ ediciones_revisadas: keys }, { merge: true });
+  _audData.ediciones_revisadas = { ..._audEdRevisadas(), ...keys };
+  _refreshEdBadge();
+  renderEdiciones();
+  toast(`✅ ${Object.keys(keys).length} ediciones marcadas como revisadas`, 'success');
+}
+
+async function marcarRevisadoEdicion(key) {
+  const docRef = db.collection('admin_auditoria').doc(_audMesKey);
+  await docRef.set({ ediciones_revisadas: { [key]: true } }, { merge: true });
+  _audData.ediciones_revisadas = { ..._audEdRevisadas(), [key]: true };
+  _refreshEdBadge();
+  // Re-render solo la fila (toggle visual)
+  const el = document.getElementById('edrow-' + key);
+  if (el) {
+    el.style.opacity = '0.5';
+    const btn = el.querySelector('.btn-revisar');
+    if (btn) { btn.textContent = '✅ Revisado'; btn.disabled = true; btn.style.background = 'var(--green)'; }
+  }
+}
+
+function setAudEdView(v) {
+  _audEdView = v;
+  document.querySelectorAll('.aud-ed-stab').forEach(b => b.classList.remove('active'));
+  const btn = document.getElementById('aud-ed-stab-' + v);
+  if (btn) btn.classList.add('active');
+  renderAuditorEdicionesContent();
+}
+
+function renderAuditorEdiciones() {
+  const wrap = document.getElementById('aud-wrap');
+  if (!wrap) return;
+
+  const movEdit = _audMovs.filter(m => m.historial?.length > 0);
+  const invEdit = _audInvs.filter(i => i.historial?.length > 0);
+  const totalPend = _audEdPendCount();
+
+  wrap.innerHTML = `<div style="padding:16px 20px 0">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <span style="font-size:15px;font-weight:700;color:var(--text)">✏️ Historial de Ediciones — ${_audMesKey}</span>
+      ${totalPend > 0
+        ? `<span style="background:#e53935;color:#fff;font-size:11px;font-weight:700;padding:3px 9px;border-radius:99px">🔴 ${totalPend} sin revisar</span>`
+        : `<span style="background:var(--green);color:#000;font-size:11px;font-weight:700;padding:3px 9px;border-radius:99px">✅ Todo revisado</span>`}
+    </div>
+    <div style="display:flex;gap:6px;margin-bottom:14px">
+      <button class="aud-ed-stab${_audEdView==='movimientos'?' active':''}" id="aud-ed-stab-movimientos" onclick="setAudEdView('movimientos')" style="font-size:12px;padding:5px 14px;border-radius:6px;border:1px solid var(--border);background:${_audEdView==='movimientos'?'var(--gold)':'var(--bg3)'};color:${_audEdView==='movimientos'?'#000':'var(--text)'};cursor:pointer;font-weight:600">
+        💸 Movimientos <span style="font-size:11px;opacity:0.8">(${movEdit.length})</span>
+      </button>
+      <button class="aud-ed-stab${_audEdView==='inversiones'?' active':''}" id="aud-ed-stab-inversiones" onclick="setAudEdView('inversiones')" style="font-size:12px;padding:5px 14px;border-radius:6px;border:1px solid var(--border);background:${_audEdView==='inversiones'?'var(--gold)':'var(--bg3)'};color:${_audEdView==='inversiones'?'#000':'var(--text)'};cursor:pointer;font-weight:600">
+        🎯 Inversiones <span style="font-size:11px;opacity:0.8">(${invEdit.length})</span>
+      </button>
+    </div>
+    <div id="aud-ed-content"></div>
+  </div>`;
+
+  renderAuditorEdicionesContent();
+}
+
+function renderAuditorEdicionesContent() {
+  const container = document.getElementById('aud-ed-content');
+  if (!container) return;
+  const rev = _audEdRevisadas();
+
+  // Actualizar estilos de sub-tabs
+  ['movimientos','inversiones'].forEach(v => {
+    const b = document.getElementById('aud-ed-stab-' + v);
+    if (!b) return;
+    const active = _audEdView === v;
+    b.style.background = active ? 'var(--gold)' : 'var(--bg3)';
+    b.style.color = active ? '#000' : 'var(--text)';
+  });
+
+  if (_audEdView === 'movimientos') {
+    const editados = _audMovs.filter(m => m.historial?.length > 0);
+    if (!editados.length) { container.innerHTML = '<div class="empty" style="padding:32px">Sin movimientos editados este mes</div>'; return; }
+    _renderEdList(container, editados, 'mov', rev, (doc, h, ant) => `
+      <div style="font-size:13px;font-weight:600;color:var(--gold)">${doc.op_id || doc.id}</div>
+      <div style="font-size:12px;color:var(--text2)">${doc.cliente||'—'} · ${doc.tipo||'—'} · ${doc.casa||'—'}/${doc.metodo||'—'}</div>
+      ${ant.monto !== undefined ? `<div style="font-size:11px;margin-top:2px">Monto: <span style="color:var(--red)">${fmtMAud(ant.monto)}</span> → <span style="color:var(--green)">${fmtMAud(doc.monto)}</span></div>` : `<div style="font-size:11px;color:var(--text2)">Monto actual: ${fmtMAud(doc.monto)}</div>`}
+      ${ant.metodo && ant.metodo !== doc.metodo ? `<div style="font-size:11px;color:var(--text2)">Método: ${ant.metodo} → ${doc.metodo}</div>` : ''}
+      ${ant.cliente && ant.cliente !== doc.cliente ? `<div style="font-size:11px;color:var(--text2)">Cliente: ${ant.cliente} → ${doc.cliente}</div>` : ''}
+    `);
+  } else {
+    const editados = _audInvs.filter(i => i.historial?.length > 0);
+    if (!editados.length) { container.innerHTML = '<div class="empty" style="padding:32px">Sin apuestas editadas este mes</div>'; return; }
+    _renderEdList(container, editados, 'inv', rev, (doc, h, ant) => `
+      <div style="font-size:13px;font-weight:600;color:var(--gold)">Ap#${doc.id_apuesta||'?'} — ${doc.evento||doc.id}</div>
+      <div style="font-size:12px;color:var(--text2)">${doc.cliente||'—'} · Opción ${doc.opcion_elegida||'—'} · ${doc.casa||'—'}</div>
+      ${ant.monto !== undefined ? `<div style="font-size:11px;margin-top:2px">Monto: <span style="color:var(--red)">${fmtMAud(ant.monto)}</span> → <span style="color:var(--green)">${fmtMAud(doc.monto)}</span></div>` : `<div style="font-size:11px;color:var(--text2)">Monto: ${fmtMAud(doc.monto)}</div>`}
+      ${ant.cuota !== undefined && ant.cuota !== doc.cuota ? `<div style="font-size:11px;color:var(--text2)">Cuota: ${ant.cuota} → ${doc.cuota}</div>` : ''}
+    `);
+  }
+}
+
+function _renderEdList(container, docs, prefix, rev, renderDoc) {
+  // Agrupar por operador (editadoPor del historial)
+  const porOp = {};
+  docs.forEach(doc => {
+    doc.historial.forEach((h, i) => {
+      const quien = h.editadoPor || doc.editadoPor || '(desconocido)';
+      if (!porOp[quien]) porOp[quien] = [];
+      porOp[quien].push({ doc, h, i });
+    });
+  });
+
+  let html = '';
+  Object.entries(porOp)
+    .sort((a, b) => b[1].length - a[1].length)
+    .forEach(([quien, items]) => {
+      const opNombre = _audOps.find(o => o.uid === quien || o.nombre === quien || o.uid.includes(quien))?.nombre || quien;
+      const pendOp = items.filter(({ doc, i }) => !rev[`${prefix}_${doc.id}_${i}`]).length;
+      html += `<details open style="margin-bottom:12px;border:1px solid var(--border);border-radius:10px;overflow:hidden">
+        <summary style="cursor:pointer;padding:10px 16px;background:var(--bg3);display:flex;align-items:center;gap:10px;list-style:none;user-select:none">
+          <span style="font-size:14px;font-weight:600;color:var(--text)">👤 ${opNombre}</span>
+          <span style="background:var(--orange);color:#000;font-size:11px;font-weight:700;padding:2px 7px;border-radius:99px">${items.length} edición${items.length!==1?'es':''}</span>
+          ${pendOp > 0 ? `<span style="background:#e53935;color:#fff;font-size:10px;font-weight:700;padding:2px 6px;border-radius:99px">🔴 ${pendOp} sin revisar</span>` : `<span style="background:var(--green);color:#000;font-size:10px;font-weight:700;padding:2px 6px;border-radius:99px">✅ revisado</span>`}
+          ${pendOp > 0 ? `<button onclick="event.preventDefault();event.stopPropagation();marcarTodoOp('${quien.replace(/'/g,"\\'")}')" style="font-size:11px;padding:3px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg2);color:var(--text);cursor:pointer;font-weight:600">👁 Marcar todo</button>` : ''}
+          <span style="font-size:10px;color:var(--text2);margin-left:auto">${quien !== opNombre ? quien : ''}</span>
+        </summary>
+        <div>`;
+
+      items.forEach(({ doc, h, i }) => {
+        const key = `${prefix}_${doc.id}_${i}`;
+        const revisado = !!rev[key];
+        const ant = h.anterior || {};
+        html += `<div id="edrow-${key}" style="padding:12px 16px;border-bottom:1px solid var(--border);display:grid;grid-template-columns:1fr auto;gap:12px;align-items:start;opacity:${revisado?'0.5':'1'}">
+          <div>
+            <div style="margin-bottom:6px">${renderDoc(doc, h, ant)}</div>
+            <div style="font-size:11px;color:var(--text2)">🕐 ${fmtFechaAud(h.fecha)}</div>
+            ${h.motivo ? `<div style="margin-top:6px;background:rgba(255,160,0,0.1);border-left:3px solid var(--orange);padding:5px 8px;border-radius:0 6px 6px 0;font-size:12px;color:var(--text)">💬 ${h.motivo}</div>` : ''}
+          </div>
+          <div>
+            <button class="btn-revisar" onclick="marcarRevisadoEdicion('${key}')"
+              ${revisado ? 'disabled' : ''}
+              style="font-size:11px;padding:5px 10px;border-radius:6px;border:none;cursor:${revisado?'default':'pointer'};background:${revisado?'var(--green)':'var(--bg3)'};color:${revisado?'#000':'var(--text)'};border:1px solid var(--border);white-space:nowrap;font-weight:600">
+              ${revisado ? '✅ Revisado' : '👁 Marcar revisado'}
+            </button>
+          </div>
+        </div>`;
+      });
+
+      html += `</div></details>`;
+    });
+
+  container.innerHTML = html;
+}
+
+async function editAuditManual(conceptKey, opUid, field, current) {
+  const opNombre = _audOps.find(o=>o.uid===opUid)?.nombre || opUid;
+  const label = field==='op' ? 'OPERADOR' : 'CAJERO';
+  const raw = prompt(`Valor ${label} — ${conceptKey}\nOperador: ${opNombre}`, current||'');
+  if (raw===null) return;
+  const num = _audParseCOP(raw);
+  const docRef = db.collection('admin_auditoria').doc(_audMesKey);
+  await docRef.set({ manual:{ [conceptKey]:{ [opUid]:{ [field]:num } } } }, {merge:true});
+  const snap = await docRef.get();
+  _audData = snap.exists ? snap.data() : {};
+  renderAuditor();
+}
+
+async function editAuditOverride(metName, opUid, current) {
+  const opNombre = _audOps.find(o=>o.uid===opUid)?.nombre || opUid;
+  const raw = prompt(`Cupo actual CAJERO — ${metName}\nOperador: ${opNombre}\n\n(Vacío = usar valor automático)`, current||'');
+  if (raw===null) return;
+  const docRef = db.collection('admin_auditoria').doc(_audMesKey);
+  if (!raw.trim()) {
+    try { await docRef.update({ [`overrides.${opUid}.${metName}`]: firebase.firestore.FieldValue.delete() }); } catch(e){}
+  } else {
+    await docRef.set({ overrides:{ [opUid]:{ [metName]:_audParseCOP(raw) } } }, {merge:true});
+  }
+  const snap = await docRef.get();
+  _audData = snap.exists ? snap.data() : {};
+  renderAuditor();
+}
+
+// ── TEMA CLARO / OSCURO ──────────────────────────────────────────────────────
+function _themeStored() { return localStorage.getItem('aj16-theme') || 'auto'; }
+function _isLight() {
+  const t = _themeStored();
+  if (t === 'light') return true;
+  if (t === 'dark')  return false;
+  return window.matchMedia('(prefers-color-scheme: light)').matches;
+}
+function toggleTheme() {
+  const t = _themeStored();
+  const next = t === 'auto' ? 'light' : t === 'light' ? 'dark' : 'auto';
+  if (next === 'auto') {
+    document.documentElement.removeAttribute('data-theme');
+    localStorage.removeItem('aj16-theme');
+  } else {
+    document.documentElement.setAttribute('data-theme', next);
+    localStorage.setItem('aj16-theme', next);
+  }
+  _updateThemeBtn();
+}
+function _updateThemeBtn() {
+  const btn = document.getElementById('btn-theme');
+  if (!btn) return;
+  const t = _themeStored();
+  if (t === 'auto')       { btn.textContent = '🌗'; btn.title = 'Automático (según sistema) — clic para modo claro'; }
+  else if (t === 'light') { btn.textContent = '🌙'; btn.title = 'Modo claro — clic para modo oscuro'; }
+  else                    { btn.textContent = '☀️'; btn.title = 'Modo oscuro — clic para automático'; }
+}
+window.addEventListener('DOMContentLoaded', _updateThemeBtn);
+window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', _updateThemeBtn);
+
+// ═══════════════════════════════════════════════════════════════
+// GANANCIA DIARIA POR OPERADOR
+// Comisiones (movimientos) + Utilidad (inversiones CERRADAS) − Gastos
+// ═══════════════════════════════════════════════════════════════
+let _diVista   = 'dia';   // 'dia' | 'op'
+let _diMesKey  = null;
+let _diData    = {};      // uid → { fecha → {com, util, gas} }
+let _diOps     = {};      // uid → nombre
+let _diGastos  = [];      // detalle de gastos del mes
+let _diApuestas = [];     // detalle de apuestas cerradas del mes
+
+const _diPeso = n => '$' + Math.round(n||0).toLocaleString('es-CO');
+
+function initDiario() {
+  const inMes = document.getElementById('di-mes');
+  const inFec = document.getElementById('di-fecha');
+  if (inMes && !inMes.value) {
+    const hoy = new Date();
+    inMes.value = `${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}`;
+    if (inFec) inFec.value = hoy.toISOString().slice(0,10);
+    cargarDiario();
+  }
+}
+
+function setDiarioVista(v) {
+  _diVista = v;
+  ['dia','op','mes'].forEach(k=>{
+    const b=document.getElementById('di-tab-'+k);
+    if(b) b.classList.toggle('active', v===k);
+  });
+  document.getElementById('di-wrap-fecha').style.display   = v==='dia' ? 'flex' : 'none';
+  document.getElementById('di-wrap-op').style.display      = v==='op'  ? 'flex' : 'none';
+  document.getElementById('di-wrap-oficina').style.display = (v==='dia'||v==='mes') ? 'flex' : 'none';
+  document.getElementById('di-th1').textContent = v==='dia' ? 'Operador' : 'Fecha';
+  // La matriz reemplaza a la tabla normal
+  const mat = document.getElementById('di-matriz-wrap');
+  const tabla = document.getElementById('di-tbody')?.closest('.panel') || document.getElementById('di-tbody')?.closest('div');
+  if (mat)  mat.style.display   = v==='mes' ? '' : 'none';
+  if (tabla) tabla.style.display = v==='mes' ? 'none' : '';
+  renderDiario();
+}
+
+async function cargarDiario() {
+  const mesKey = document.getElementById('di-mes')?.value;
+  if (!mesKey) return;
+  _diMesKey = mesKey;
+  const status = document.getElementById('di-status');
+  if (status) status.textContent = 'Cargando…';
+
+  // Operadores activos
+  _diOps = {};
+  allUsers.filter(u => u.rol==='operador' && u.uid && (u.estado||'activo')==='activo')
+    .forEach(u => { _diOps[u.uid] = u.nombre || u.email || u.uid; });
+
+  const desde = mesKey + '-01';
+  const hasta = mesKey + '-31';
+  const acc   = {};
+  const bump  = (uid, fecha, campo, val) => {
+    if (!uid || !fecha) return;
+    if (!acc[uid])        acc[uid] = {};
+    if (!acc[uid][fecha]) acc[uid][fecha] = { com:0, util:0, gas:0 };
+    acc[uid][fecha][campo] += val;
+  };
+
+  try {
+    const [movSnap, invSnap, gasSnap] = await Promise.all([
+      db.collection('patriarca_movimientos').where('fecha','>=',desde).where('fecha','<=',hasta).get(),
+      db.collection('patriarca_inversiones').where('fecha','>=',desde).where('fecha','<=',hasta).get(),
+      db.collection('patriarca_gastos').where('fecha','>=',desde).where('fecha','<=',hasta).get()
+    ]);
+
+    // 1. Comisiones — de movimientos
+    movSnap.docs.forEach(d => {
+      const m = d.data();
+      const com = parseFloat(m.comision) || 0;
+      if (com) bump(m.opId, m.fecha, 'com', com);
+    });
+
+    // 2. Utilidad — agrupar inversiones por apuesta, solo CERRADO: retorno − invertido
+    //    (excluye fondos BONIFICACION del invertido, igual que el ESF)
+    const apMap = {};
+    invSnap.docs.forEach(d => {
+      const inv = d.data();
+      const k = inv.id_apuesta;
+      if (!k) return;
+      const key = inv.opId + '||' + k;
+      if (!apMap[key]) apMap[key] = {
+        opId:inv.opId, fecha:inv.fecha, ret:0, inv:0, cerrado:false,
+        apuesta:k, evento:inv.evento||'', cliente:inv.cliente||'', casa:inv.casa||''
+      };
+      apMap[key].ret += parseFloat(inv.retorno_cliente) || 0;
+      if ((inv.fondos||'').toUpperCase() !== 'BONIFICACION') apMap[key].inv += parseFloat(inv.monto) || 0;
+      if (inv.estado_evento === 'CERRADO') apMap[key].cerrado = true;
+      if (!apMap[key].evento  && inv.evento)  apMap[key].evento  = inv.evento;
+      if (!apMap[key].cliente && inv.cliente) apMap[key].cliente = inv.cliente;
+      // usar la fecha más temprana de la apuesta
+      if (inv.fecha && inv.fecha < apMap[key].fecha) apMap[key].fecha = inv.fecha;
+    });
+    // Guardar detalle de apuestas cerradas para poder consultarlas
+    _diApuestas = [];
+    Object.values(apMap).forEach(a => {
+      if (!a.cerrado) return;
+      const util = a.ret - a.inv;
+      bump(a.opId, a.fecha, 'util', util);
+      _diApuestas.push({
+        opId:a.opId, fecha:a.fecha, apuesta:a.apuesta, evento:a.evento,
+        cliente:a.cliente, casa:a.casa, invertido:a.inv, retorno:a.ret, utilidad:util
+      });
+    });
+
+    // 3. Gastos — guardar también el detalle para poder consultarlo
+    _diGastos = [];
+    gasSnap.docs.forEach(d => {
+      const g = d.data();
+      const v = parseFloat(g.valor) || 0;
+      if (!v) return;
+      bump(g.opId, g.fecha, 'gas', v);
+      _diGastos.push({
+        opId: g.opId, fecha: g.fecha, valor: v,
+        metodo: g.metodo || '', descripcion: g.descripcion || ''
+      });
+    });
+
+    _diData = acc;
+
+    // Poblar selector de operadores
+    const selOp = document.getElementById('di-operador');
+    if (selOp) {
+      const prev = selOp.value;
+      const lista = Object.entries(_diOps).sort((a,b)=>a[1].localeCompare(b[1]));
+      selOp.innerHTML = lista.map(([uid,n]) =>
+        `<option value="${uid}"${uid===prev?' selected':''}>${n}</option>`).join('');
+    }
+    // Poblar oficinas
+    const selOf = document.getElementById('di-oficina');
+    if (selOf) {
+      const prev = selOf.value;
+      const ofs = [...new Set(allUsers.filter(u=>u.rol==='operador'&&u.oficinaNombre).map(u=>u.oficinaNombre))].sort();
+      selOf.innerHTML = '<option value="">Todas</option>' +
+        ofs.map(o=>`<option value="${o}"${o===prev?' selected':''}>${o}</option>`).join('');
+    }
+
+    if (status) status.textContent = _adminMesLabel(mesKey);
+    renderDiario();
+  } catch(e) {
+    console.warn('cargarDiario:', e);
+    if (status) status.textContent = '⚠ Error al cargar';
+    toast('Error cargando datos diarios', 'error');
+  }
+}
+
+// Matriz de días × operadores: la cuarta combinación del reporte.
+// Sirve para ver qué días rinden más y quién viene cayendo.
+function renderDiarioMatriz() {
+  const cont = document.getElementById('di-matriz-wrap');
+  if (!cont) return;
+
+  const ofic = document.getElementById('di-oficina')?.value || '';
+  let uids = Object.keys(_diOps);
+  if (ofic) {
+    const ofUids = new Set(allUsers.filter(u=>u.oficinaNombre===ofic && u.rol==='operador').map(u=>u.uid));
+    uids = uids.filter(u => ofUids.has(u));
+  }
+
+  // Días con movimiento en el mes
+  const dias = [...new Set(uids.flatMap(u => Object.keys(_diData[u] || {})))].sort();
+  const tot = (uid,f) => { const d=(_diData[uid]||{})[f]; return d ? (d.com + d.util - d.gas) : 0; };
+
+  // Ordenar operadores por lo que aportan en el mes
+  const porOp = {};
+  uids.forEach(u => { porOp[u] = dias.reduce((s,f)=>s+tot(u,f), 0); });
+  uids.sort((a,b)=>porOp[b]-porOp[a]);
+
+  let gCom=0, gUtil=0, gGas=0;
+  uids.forEach(u => dias.forEach(f => {
+    const d=(_diData[u]||{})[f]; if(!d) return;
+    gCom+=d.com; gUtil+=d.util; gGas+=d.gas;
+  }));
+  document.getElementById('di-kpi-com').textContent  = _diPeso(gCom);
+  document.getElementById('di-kpi-util').textContent = _diPeso(gUtil);
+  document.getElementById('di-kpi-gas').textContent  = gGas ? '-'+_diPeso(gGas) : '$0';
+  const _tot = gCom + gUtil - gGas;
+  const _elTot = document.getElementById('di-kpi-tot');
+  _elTot.textContent = _diPeso(_tot);
+  _elTot.style.color = _tot < 0 ? 'var(--red)' : 'var(--green)';
+
+  if (!dias.length || !uids.length) {
+    cont.innerHTML = '<div class="panel"><div class="empty"><div class="empty-icon">📆</div>Sin movimientos este mes</div></div>';
+    return;
+  }
+
+  const TH = 'padding:9px 10px;background:var(--bg3);font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--text2);white-space:nowrap;border-bottom:1px solid var(--border)';
+  const TD = 'padding:8px 10px;border-bottom:1px solid var(--border);text-align:right;white-space:nowrap';
+  const nom = u => (_diOps[u]||'').split('@')[0];
+
+  const cab = `<tr>
+    <th style="${TH};text-align:left;position:sticky;left:0;z-index:2">Día</th>
+    ${uids.map(u=>`<th style="${TH};text-align:right">${nom(u)}</th>`).join('')}
+    <th style="${TH};text-align:right;color:var(--gold)">Total día</th></tr>`;
+
+  const cuerpo = dias.map(f => {
+    const totDia = uids.reduce((s,u)=>s+tot(u,f), 0);
+    const dow = ['dom','lun','mar','mié','jue','vie','sáb'][new Date(f+'T12:00:00').getDay()];
+    return `<tr>
+      <td style="${TD};text-align:left;font-weight:600;position:sticky;left:0;background:var(--bg2);z-index:1">
+        ${f.slice(8)}/${f.slice(5,7)} <span style="color:var(--text2);font-size:10px">${dow}</span></td>
+      ${uids.map(u=>{
+        const v = tot(u,f);
+        if (!v) return `<td style="${TD};color:var(--text2)">—</td>`;
+        return `<td style="${TD};color:${v>=0?'var(--green)':'var(--red)'}">${_diPeso(v)}</td>`;
+      }).join('')}
+      <td style="${TD};font-weight:700;color:${totDia>=0?'var(--green)':'var(--red)'}">${_diPeso(totDia)}</td>
+    </tr>`;
+  }).join('');
+
+  const pie = `<tr style="background:var(--bg3);font-weight:800">
+    <td style="${TD};text-align:left;position:sticky;left:0;background:var(--bg3);z-index:1">TOTAL</td>
+    ${uids.map(u=>`<td style="${TD};color:${porOp[u]>=0?'var(--green)':'var(--red)'}">${_diPeso(porOp[u])}</td>`).join('')}
+    <td style="${TD};color:var(--gold)">${_diPeso(gCom+gUtil-gGas)}</td></tr>`;
+
+  cont.innerHTML = `<div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">📊 ${_adminMesLabel(_diMesKey)} — ${uids.length} operador(es) · ${dias.length} día(s)</span>
+      <button class="btn btn-ghost btn-sm" onclick="exportarMatrizDiaria()">⬇ CSV</button>
+    </div>
+    <div style="overflow:auto;max-height:70vh">
+      <table style="width:100%;border-collapse:separate;border-spacing:0;font-size:12px">
+        <thead>${cab}</thead><tbody>${cuerpo}${pie}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+function exportarMatrizDiaria() {
+  const ofic = document.getElementById('di-oficina')?.value || '';
+  let uids = Object.keys(_diOps);
+  if (ofic) {
+    const ofUids = new Set(allUsers.filter(u=>u.oficinaNombre===ofic && u.rol==='operador').map(u=>u.uid));
+    uids = uids.filter(u => ofUids.has(u));
+  }
+  const dias = [...new Set(uids.flatMap(u => Object.keys(_diData[u] || {})))].sort();
+  const tot = (uid,f) => { const d=(_diData[uid]||{})[f]; return d ? (d.com + d.util - d.gas) : 0; };
+  const filas = [['Dia', ...uids.map(u=>_diOps[u]), 'Total dia']];
+  dias.forEach(f => filas.push([f, ...uids.map(u=>tot(u,f)), uids.reduce((s,u)=>s+tot(u,f),0)]));
+  filas.push(['TOTAL', ...uids.map(u=>dias.reduce((s,f)=>s+tot(u,f),0)),
+              uids.reduce((s,u)=>s+dias.reduce((a,f)=>a+tot(u,f),0),0)]);
+  const csv = filas.map(r=>r.join(';')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'}));
+  a.download = `ganancia-diaria-${_diMesKey}.csv`;
+  a.click();
+}
+
+function renderDiario() {
+  if (_diVista === 'mes') return renderDiarioMatriz();
+
+  const tbody = document.getElementById('di-tbody');
+  const titulo = document.getElementById('di-tabla-titulo');
+  if (!tbody) return;
+
+  let filas = [];   // {label, com, util, gas}
+  let tCom=0, tUtil=0, tGas=0;
+
+  if (_diVista === 'dia') {
+    const fecha = document.getElementById('di-fecha')?.value;
+    const ofic  = document.getElementById('di-oficina')?.value || '';
+    if (titulo) titulo.textContent = fecha ? `Operadores — ${fecha}` : 'Operadores';
+
+    let uids = Object.keys(_diOps);
+    if (ofic) {
+      const ofUids = new Set(allUsers.filter(u=>u.oficinaNombre===ofic&&u.rol==='operador').map(u=>u.uid));
+      uids = uids.filter(u => ofUids.has(u));
+    }
+    uids.forEach(uid => {
+      const d = (_diData[uid]||{})[fecha] || { com:0, util:0, gas:0 };
+      if (!d.com && !d.util && !d.gas) return;   // ocultar operadores sin movimiento ese día
+      filas.push({ label:_diOps[uid], com:d.com, util:d.util, gas:d.gas, uid, fecha });
+      tCom+=d.com; tUtil+=d.util; tGas+=d.gas;
+    });
+    filas.sort((a,b)=>(b.com+b.util-b.gas)-(a.com+a.util-a.gas));
+
+  } else {
+    const uid = document.getElementById('di-operador')?.value;
+    if (titulo) titulo.textContent = uid ? `${_diOps[uid]} — ${_adminMesLabel(_diMesKey)}` : 'Operador';
+    const dias = _diData[uid] || {};
+    Object.keys(dias).sort().forEach(f => {
+      const d = dias[f];
+      filas.push({ label:f, com:d.com, util:d.util, gas:d.gas, uid, fecha:f });
+      tCom+=d.com; tUtil+=d.util; tGas+=d.gas;
+    });
+  }
+
+  // KPIs
+  document.getElementById('di-kpi-com').textContent  = _diPeso(tCom);
+  document.getElementById('di-kpi-util').textContent = _diPeso(tUtil);
+  document.getElementById('di-kpi-gas').textContent  = tGas ? '-'+_diPeso(tGas) : '$0';
+  const _tot = tCom + tUtil - tGas;
+  const _elTot = document.getElementById('di-kpi-tot');
+  _elTot.textContent = _diPeso(_tot);
+  _elTot.style.color = _tot < 0 ? 'var(--red)' : 'var(--green)';
+
+  if (!filas.length) {
+    tbody.innerHTML = '<tr><td colspan="5"><div class="empty"><div class="empty-icon">📆</div>Sin movimientos</div></td></tr>';
+    return;
+  }
+
+  const R = 'text-align:right';
+  tbody.innerHTML = filas.map(f => {
+    const tot = f.com + f.util - f.gas;
+    const celdaGas = f.gas
+      ? `<td style="${R}"><span onclick="verGastosDia('${f.uid}','${f.fecha}')" title="Ver detalle de los gastos"
+           style="color:var(--red);cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px">-${_diPeso(f.gas)} 🔍</span></td>`
+      : `<td style="${R};color:var(--red)">$—</td>`;
+    const colU = f.util >= 0 ? 'var(--green)' : 'var(--red)';
+    const celdaUtil = f.util
+      ? `<td style="${R}"><span onclick="verApuestasDia('${f.uid}','${f.fecha}')" title="Ver las apuestas cerradas"
+           style="color:${colU};cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px">${_diPeso(f.util)} 🔍</span></td>`
+      : `<td style="${R};color:${colU}">${_diPeso(f.util)}</td>`;
+    return `<tr>
+      <td style="font-weight:600">${f.label}</td>
+      <td style="${R};color:var(--blue)">${_diPeso(f.com)}</td>
+      ${celdaUtil}
+      ${celdaGas}
+      <td style="${R};font-weight:700;color:${tot>=0?'var(--green)':'var(--red)'}">${_diPeso(tot)}</td>
+    </tr>`;
+  }).join('') + `<tr style="background:var(--bg3);font-weight:700">
+      <td>TOTAL</td>
+      <td style="${R}">${_diPeso(tCom)}</td>
+      <td style="${R}">${_diPeso(tUtil)}</td>
+      <td style="${R}">${tGas?'-'+_diPeso(tGas):'$—'}</td>
+      <td style="${R};color:${(tCom+tUtil-tGas)>=0?'var(--green)':'var(--red)'}">${_diPeso(tCom+tUtil-tGas)}</td>
+    </tr>`;
+}
+
+// Detalle de los gastos de un operador en un día
+function verGastosDia(uid, fecha) {
+  const lista = _diGastos
+    .filter(g => g.opId === uid && g.fecha === fecha)
+    .sort((a,b) => b.valor - a.valor);
+
+  document.getElementById('gd-titulo').textContent = _diOps[uid] || uid;
+  document.getElementById('gd-fecha').textContent  = fecha;
+
+  const total = lista.reduce((s,g) => s + g.valor, 0);
+  document.getElementById('gd-total').textContent = _diPeso(total);
+
+  document.getElementById('gd-tbody').innerHTML = lista.length
+    ? lista.map(g => `<tr>
+        <td style="font-weight:600">${g.descripcion || '—'}</td>
+        <td style="color:var(--text2);font-size:11px">${g.metodo || '—'}</td>
+        <td style="text-align:right;font-weight:700;color:var(--red)">${_diPeso(g.valor)}</td>
+      </tr>`).join('')
+    : '<tr><td colspan="3" style="text-align:center;color:var(--text2);padding:20px">Sin gastos</td></tr>';
+
+  openModal('modal-gastos-dia');
+}
+
+// Detalle de las apuestas cerradas de un operador en un día
+function verApuestasDia(uid, fecha) {
+  const lista = _diApuestas
+    .filter(a => a.opId === uid && a.fecha === fecha)
+    .sort((a,b) => a.utilidad - b.utilidad);   // pérdidas primero
+
+  document.getElementById('ad-titulo').textContent = _diOps[uid] || uid;
+  document.getElementById('ad-fecha').textContent  = fecha;
+
+  let tInv=0, tRet=0, tUtil=0;
+  lista.forEach(a => { tInv+=a.invertido; tRet+=a.retorno; tUtil+=a.utilidad; });
+
+  document.getElementById('ad-tbody').innerHTML = lista.length
+    ? lista.map(a => `<tr>
+        <td>
+          <div style="font-weight:600">${a.evento || a.apuesta || '—'}</div>
+          <div style="font-size:10px;color:var(--text2)">${[a.cliente, a.casa].filter(Boolean).join(' · ') || ''}</div>
+        </td>
+        <td style="text-align:right;color:var(--text2)">${_diPeso(a.invertido)}</td>
+        <td style="text-align:right;color:var(--text2)">${_diPeso(a.retorno)}</td>
+        <td style="text-align:right;font-weight:700;color:${a.utilidad>=0?'var(--green)':'var(--red)'}">${_diPeso(a.utilidad)}</td>
+      </tr>`).join('')
+    : '<tr><td colspan="4" style="text-align:center;color:var(--text2);padding:20px">Sin apuestas cerradas</td></tr>';
+
+  document.getElementById('ad-tot-inv').textContent  = _diPeso(tInv);
+  document.getElementById('ad-tot-ret').textContent  = _diPeso(tRet);
+  const totEl = document.getElementById('ad-tot-util');
+  totEl.textContent = _diPeso(tUtil);
+  totEl.style.color = tUtil >= 0 ? 'var(--green)' : 'var(--red)';
+
+  openModal('modal-apuestas-dia');
+}
+
+function exportDiarioCSV() {
+  const rows = [...document.querySelectorAll('#di-tbody tr')].map(tr =>
+    [...tr.querySelectorAll('td')].map(td => `"${td.textContent.trim()}"`).join(',')
+  );
+  if (!rows.length) { toast('Nada que exportar', 'error'); return; }
+  const head = _diVista==='dia' ? 'Operador,Comisiones,Utilidad,Gastos,Total' : 'Fecha,Comisiones,Utilidad,Gastos,Total';
+  const csv  = head + '\n' + rows.join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'}));
+  a.download = `diario_${_diMesKey||'export'}.csv`;
+  a.click();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ESF POR OPERADOR — Estado de Situación Financiera consolidado
+// ═══════════════════════════════════════════════════════════════
+let _esfOpsInited = false;
+let _esfOpsListener    = null;   // onSnapshot activo
+let _esfOpsAllOps      = {};     // uid → nombre de todos los operadores
+let _esfOpsMesKey      = null;   // mes actualmente visible
+let _esfProdMap        = {};     // uid → productividad calculada directamente
+let _esfInicialMap     = {};     // uid → patriarca_esf_inicial snapshot data
+let _esfCuposActuales  = {};     // uid → cupos_por_mes[mesKey] desde patriarca_config
+let _esfVista          = 'cards'; // 'cards' | 'tabla'
+let _esfLastSnap       = null;   // último snapshot de patriarca_esf_resumen
+let _esfLastMes        = '';     // texto del mes para renderizado
+
+function initESFOps() {
+  const sel = document.getElementById('esf-ops-mes');
+  if (sel && !sel.options.length) {
+    const now = new Date();
+    const opts = [];
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const val = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+      const label = d.toLocaleDateString('es-CO', { month: 'long', year: 'numeric' });
+      opts.push(`<option value="${val}"${i===0?' selected':''}>${label.charAt(0).toUpperCase()+label.slice(1)}</option>`);
+    }
+    sel.innerHTML = opts.join('');
+  }
+}
+
+async function adminESFAll() {
+  const mesKey = document.getElementById('esf-ops-mes')?.value;
+  if (!mesKey) { toast('Selecciona un mes', 'error'); return; }
+  const container = document.getElementById('esf-ops-container');
+
+  // Si el mes cambió, cancelar listener anterior y limpiar caches
+  if (_esfOpsMesKey !== mesKey) {
+    if (_esfOpsListener) { _esfOpsListener(); _esfOpsListener = null; }
+    _esfInicialMap    = {};
+    _esfCuposActuales = {};
+    _esfProdMap       = {};
+    _esfLastSnap      = null;
+  }
+  _esfOpsMesKey = mesKey;
+
+  container.innerHTML = '<div style="padding:32px;text-align:center;color:var(--text2)">⏳ Cargando ESF de operadores…</div>';
+
+  // ── 1. Cargar lista de operadores (una sola vez por sesión) ──
+  if (!Object.keys(_esfOpsAllOps).length) {
+    try {
+      const opsSnap = await db.collection('admin_usuarios').where('rol','==','operador').get();
+      opsSnap.docs.forEach(d => {
+        const uid = d.data().uid || d.id;
+        _esfOpsAllOps[uid] = d.data().nombre || d.data().email || uid;
+      });
+    } catch(e) { console.warn('esf ops load:', e); }
+  }
+
+  // ── 2. Listener inmediato — muestra tarjetas SIN esperar productividad ──
+  if (!_esfOpsListener) {
+    _esfOpsListener = db.collection('patriarca_esf_resumen')
+      .where('mesKey', '==', mesKey)
+      .onSnapshot(
+        snap => {
+          _esfLastSnap = snap;
+          _esfLastMes  = document.getElementById('esf-ops-mes')?.selectedOptions[0]?.text || mesKey;
+          _esfRenderVista();
+        },
+        err => { console.error(err); toast('Error ESF: ' + err.message, 'error'); }
+      );
+  }
+
+  // ── 3. Snapshots ESF inicial + cupos (pequeños, rápidos) en paralelo ──
+  try {
+    const [iniSnap, cfgSnaps] = await Promise.all([
+      db.collection('patriarca_esf_inicial').where('mesKey', '==', mesKey).get(),
+      Object.keys(_esfOpsAllOps).length
+        ? Promise.all(Object.keys(_esfOpsAllOps).map(uid => db.collection('patriarca_config').doc(uid).get()))
+        : Promise.resolve([])
+    ]);
+    iniSnap.docs.forEach(d => { const data = d.data(); if (data.uid) _esfInicialMap[data.uid] = data; });
+    cfgSnaps.forEach(s => {
+      if (!s.exists) return;
+      _esfCuposActuales[s.id] = s.data().cupos_por_mes?.[mesKey] || {};
+    });
+  } catch(e) { console.warn('ESF inicial load:', e); }
+
+  // ── 4. Productividad en SEGUNDO PLANO — no bloquea UI ──
+  _cargarProductividadESF(mesKey);
+}
+
+// Carga movimientos e inversiones en background; actualiza la vista al terminar
+async function _cargarProductividadESF(mesKey) {
+  try {
+    const [movSnap, invSnap] = await Promise.all([
+      db.collection('patriarca_movimientos')
+        .where('fecha', '>=', mesKey + '-01')
+        .where('fecha', '<=', mesKey + '-31')
+        .get(),
+      db.collection('patriarca_inversiones')
+        .where('fecha', '>=', mesKey + '-01')
+        .where('fecha', '<=', mesKey + '-31')
+        .get(),
+    ]);
+
+    const prod = {}, apMap = {};
+    movSnap.docs.forEach(d => {
+      const m = d.data(); const uid = m.opId; if (!uid) return;
+      if (!prod[uid]) prod[uid] = { numRecargas:0,montoRecargas:0,numPagos:0,montoPagos:0,numInversiones:0,_cliSet:new Set() };
+      const t = (m.tipo||'').toUpperCase();
+      if (t==='RECARGAS'||t==='RECARGA') {
+        prod[uid].numRecargas++; prod[uid].montoRecargas += parseFloat(m.monto)||0;
+        if (m.cliente_id||m.cliente) prod[uid]._cliSet.add(m.cliente_id||m.cliente);
+      }
+      if (t==='PAGOS'||t==='PAGO') { prod[uid].numPagos++; prod[uid].montoPagos += parseFloat(m.monto)||0; }
+    });
+    invSnap.docs.forEach(d => {
+      const i = d.data(); const uid = i.opId; if (!uid) return;
+      if (!prod[uid]) prod[uid] = { numRecargas:0,montoRecargas:0,numPagos:0,montoPagos:0,numInversiones:0,_cliSet:new Set() };
+      prod[uid].numInversiones++;
+      if (i.cliente_id||i.cliente) prod[uid]._cliSet.add(i.cliente_id||i.cliente);
+      if (!apMap[uid]) apMap[uid] = {};
+      const apId = i.id_apuesta || d.id;
+      if (!apMap[uid][apId]) apMap[uid][apId] = { inv:0, ret:0, estado:'ABIERTO' };
+      const fondos = (i.fondos||'').toUpperCase();
+      if (fondos !== 'BONIFICACION') apMap[uid][apId].inv += parseFloat(i.monto)||0;
+      apMap[uid][apId].ret += parseFloat(i.retorno_cliente)||0;
+      if ((i.estado_evento||'ABIERTO')==='CERRADO') apMap[uid][apId].estado = 'CERRADO';
+    });
+    Object.entries(prod).forEach(([uid, p]) => {
+      p.clientesUnicos = p._cliSet.size; p.montoRecargas = Math.round(p.montoRecargas); p.montoPagos = Math.round(p.montoPagos); delete p._cliSet;
+      let inv = 0, util = 0;
+      Object.values(apMap[uid]||{}).forEach(ap => { if (ap.estado!=='CERRADO') inv+=ap.inv; else util+=ap.ret-ap.inv; });
+      p.invertido_live = Math.round(inv); p.utilidad_live = Math.round(util);
+    });
+    _esfProdMap = prod;
+    if (_esfLastSnap) _esfRenderVista(); // re-render con productividad
+  } catch(e) { console.warn('esf prod:', e); }
+}
+
+// Render ESF — accesible globalmente para el toggle Tarjetas/Tabla
+function _esfRenderVista() {
+  const container = document.getElementById('esf-ops-container');
+  if (!container || !_esfLastSnap) return;
+  const mesKey = _esfOpsMesKey;
+  const mes    = _esfLastMes;
+  const esfMap = {};
+  _esfLastSnap.docs.forEach(d => {
+    const data = d.data();
+    if (data.mesKey !== mesKey) return;
+    const opUid = data.uid || d.id.replace(/_\d{4}-\d{2}$/, '');
+    if (!_esfOpsAllOps[opUid]) return;
+    const tsNuevo = data.actualizadoEn?.seconds || 0;
+    const tsExist = esfMap[opUid]?.actualizadoEn?.seconds || 0;
+    if (!esfMap[opUid] || tsNuevo > tsExist) esfMap[opUid] = { ...data, uid: opUid };
+  });
+
+  // Enriquecer con productividad y snapshots
+  Object.values(esfMap).forEach(r => {
+    r.mes = r.mes || mes;
+    if (_esfProdMap[r.uid]) {
+      r.productividad = _esfProdMap[r.uid];
+      if (_esfProdMap[r.uid].invertido_live != null) r.invertido = _esfProdMap[r.uid].invertido_live;
+      if (_esfProdMap[r.uid].utilidad_live  != null) r.utilidad  = _esfProdMap[r.uid].utilidad_live;
+    }
+    r._snapshot      = _esfInicialMap[r.uid]    || null;
+    r._cuposActuales = _esfCuposActuales[r.uid] || null;
+  });
+
+  const cards = [];
+  Object.values(esfMap).sort((a,b) => (a.nombre||'').localeCompare(b.nombre||'')).forEach(r => cards.push(_esfRenderCard(r)));
+  Object.entries(_esfOpsAllOps).forEach(([uid, nombre]) => {
+    if (!esfMap[uid]) cards.push(`
+      <div class="esf-op-card" style="opacity:.55">
+        <h4>👤 ${nombre} <span style="font-size:10px;color:var(--text2);font-weight:400">· ${mes} · sin datos</span></h4>
+        <div style="padding:20px;text-align:center;color:var(--text2);font-size:13px">
+          ⚠ Sin ESF guardado para <strong>${mes}</strong>.<br>
+          <span style="font-size:11px">El operador debe abrir su portal → pestaña ESF.</span>
+        </div>
+      </div>`);
+  });
+
+  if (!cards.length && !Object.keys(esfMap).length) {
+    container.innerHTML = `<div class="empty"><div class="empty-icon">📋</div><p>No hay ESF para <strong>${mes}</strong>.</p></div>`;
+    return;
+  }
+
+  // Resumen consolidado
+  let totRec=0,totMtoRec=0,totPag=0,totMtoPag=0,totInv=0,totCom=0;
+  Object.entries(_esfProdMap).forEach(([uid,p]) => {
+    if (!_esfOpsAllOps[uid]) return;
+    totRec+=p.numRecargas||0; totMtoRec+=p.montoRecargas||0;
+    totPag+=p.numPagos||0;    totMtoPag+=p.montoPagos||0;
+    totInv+=p.numInversiones||0;
+  });
+  let totUtilNeta = 0;
+  Object.values(esfMap).forEach(r => {
+    totCom      += (r.totalComisiones||0);
+    totUtilNeta += Math.round((r.utilidad||0) - (r.totalGastos||0));
+  });
+  const totGanancia = totUtilNeta + Math.round(totCom);
+  const pC = n => '$'+Math.round(n).toLocaleString('es-CO');
+  const colUN = totUtilNeta >= 0 ? 'var(--green)' : 'var(--red)';
+  const colGT = totGanancia >= 0 ? 'var(--green)' : 'var(--red)';
+  const consolidado = `
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px 20px;margin-bottom:20px">
+    <div style="font-size:12px;color:var(--text2);font-weight:700;letter-spacing:.06em;margin-bottom:12px">RESUMEN CONSOLIDADO — ${mes}</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px">
+      <div style="background:var(--bg3);border-radius:8px;padding:10px 14px">
+        <div style="font-size:10px;color:var(--text2)">Recargas totales</div>
+        <div style="font-size:17px;font-weight:800;color:var(--blue)">${totRec.toLocaleString('es-CO')}</div>
+        <div style="font-size:11px;color:var(--text)">${pC(totMtoRec)}</div>
+      </div>
+      <div style="background:var(--bg3);border-radius:8px;padding:10px 14px">
+        <div style="font-size:10px;color:var(--text2)">Pagos totales</div>
+        <div style="font-size:17px;font-weight:800;color:var(--green)">${totPag.toLocaleString('es-CO')}</div>
+        <div style="font-size:11px;color:var(--text)">${pC(totMtoPag)}</div>
+      </div>
+      <div style="background:var(--bg3);border-radius:8px;padding:10px 14px">
+        <div style="font-size:10px;color:var(--text2)">Apuestas registradas</div>
+        <div style="font-size:17px;font-weight:800;color:var(--orange)">${totInv.toLocaleString('es-CO')}</div>
+      </div>
+      <div style="background:rgba(255,160,0,0.08);border:1px solid rgba(255,160,0,0.35);border-radius:8px;padding:10px 14px">
+        <div style="font-size:10px;color:var(--orange)">💰 Comisiones por Cobrar</div>
+        <div style="font-size:17px;font-weight:800;color:var(--orange)">${pC(totCom)}</div>
+        <div style="font-size:10px;color:var(--text2)">Total a pagar a operadores</div>
+      </div>
+      <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.3);border-radius:8px;padding:10px 14px">
+        <div style="font-size:10px;color:var(--text2)">📈 Utilidad Neta</div>
+        <div style="font-size:17px;font-weight:800;color:${colUN}">${pC(totUtilNeta)}</div>
+        <div style="font-size:10px;color:var(--text2)">Utilidad − Gastos</div>
+      </div>
+      <div style="background:rgba(16,185,129,0.14);border:1px solid rgba(16,185,129,0.45);border-radius:8px;padding:10px 14px">
+        <div style="font-size:10px;color:var(--text2)">🏆 Ganancia Total</div>
+        <div style="font-size:17px;font-weight:800;color:${colGT}">${pC(totGanancia)}</div>
+        <div style="font-size:10px;color:var(--text2)">Util. Neta + Comisiones</div>
+      </div>
+    </div>
+  </div>`;
+  if (_esfVista === 'tabla') {
+    container.innerHTML = consolidado + _esfRenderTabla(esfMap, mes);
+  } else {
+    container.innerHTML = consolidado + `<div class="esf-op-grid">${cards.join('')}</div>`;
+  }
+}
+
+async function recalcularTodosESF() {
+  const mesKey = document.getElementById('esf-ops-mes')?.value;
+  if (!mesKey) { toast('Selecciona un mes primero', 'error'); return; }
+  const mes = document.getElementById('esf-ops-mes')?.selectedOptions[0]?.text || mesKey;
+
+  // Cargar operadores si aún no están en memoria
+  if (!Object.keys(_esfOpsAllOps).length) {
+    const opsSnap = await db.collection('admin_usuarios').where('rol','==','operador').get();
+    opsSnap.docs.forEach(d => {
+      const uid = d.data().uid || d.id;
+      _esfOpsAllOps[uid] = d.data().nombre || d.data().email || uid;
+    });
+  }
+
+  const ops = Object.entries(_esfOpsAllOps).filter(([uid]) => uid);
+  toast(`⏳ Recalculando ESF de ${ops.length} operadores…`, 'info');
+
+  let ok = 0, err = 0;
+  for (const [uid, nombre] of ops) {
+    const r = await _esfCalcOp(uid, nombre, mesKey);
+    if (r.error) { err++; console.warn(`ESF ${nombre}:`, r.error); continue; }
+    // Guardar en patriarca_esf_resumen igual que lo haría el portal del operador
+    try {
+      await db.collection('patriarca_esf_resumen').doc(`${uid}_${mesKey}`).set({
+        uid, nombre, mes, mesKey,
+        cuadre:            r.cuadre,
+        totalActivos:      r.totalActivos,
+        totalPasivos:      r.totalPasivos,
+        totalPatrimonio:   r.totalPatrimonio,
+        totalClientes:     r.totalClientes,
+        invertido:         r.invertido,
+        totalComisiones:   r.totalComisiones,
+        comisionesMesAnt:  r.comisionesMesAnt,
+        gananciaMesAnt:    r.gananciaMesAnt,
+        comByMetodo:       r.comByMetodo,
+        clientesMesAnt:    r.clientesMesAnt,
+        cupoEnCajas:       r.cupoEnCajas,
+        cupo:              r.cupo,
+        utilidad:          r.utilidad,
+        totalGastos:       r.totalGastos,
+        cajas:             r.cajasResult || [],
+        actualizadoEn:     firebase.firestore.FieldValue.serverTimestamp(),
+        recalcByAdmin:     true,
+      }, { merge: true });
+      ok++;
+    } catch(e) { err++; console.warn(`ESF save ${nombre}:`, e); }
+  }
+  toast(`✅ ESF actualizado: ${ok} operadores${err ? ` · ${err} errores` : ''}`, ok ? 'success' : 'error');
+}
+
+async function _esfCalcOp(uid, nombre, mesKey) {
+  try {
+    const [cfgSnap, siSnap, movSnap, invSnap, ixSnap, gasSnap, cliSnap] = await Promise.all([
+      db.collection('patriarca_config').doc(uid).get(),
+      db.collection('patriarca_saldo_inicial').doc(`${uid}_${mesKey}`).get(),
+      db.collection('patriarca_movimientos').where('opId','==',uid).get(),
+      db.collection('patriarca_inversiones').where('opId','==',uid).get(),
+      db.collection('patriarca_intercambios').where('opId','==',uid).get(),
+      db.collection('patriarca_gastos').where('opId','==',uid).get(),
+      db.collection('patriarca_clientes').where('opId','==',uid).get(),
+    ]);
+
+    const cfg               = cfgSnap.exists ? cfgSnap.data() : {};
+    const siData            = siSnap.exists  ? siSnap.data() : {};
+    const saldoInicial      = siData.saldos || {};
+    let   comisionesMesAnt  = Math.round(siData.comisionesMesAnterior || 0);
+    let   gananciaMesAnt    = Math.round(siData.gananciaMesAnterior   || 0);
+    // Un movimiento eliminado (duplicado, error, etc.) queda con eliminado:true
+    // pero el documento nunca se borra — si no se descarta aquí, el ESF le sigue
+    // sumando plata a la caja del método aunque ese pago ya no exista para nadie.
+    const movs              = movSnap.docs.map(d => d.data()).filter(m => !m.eliminado);
+
+    // ── Reducir gananciaMesAnt y comisionesMesAnt por pagos de liquidación aprobados ──
+    // (igual que renderESF en patriarca.html — para que admin y portal coincidan)
+    let _liqPrevAdminDocs = [];
+    try {
+      const [yk0, mk0] = mesKey.split('-').map(Number);
+      const prevKey0 = (mk0===1 ? (yk0-1)+'-12' : yk0+'-'+String(mk0-1).padStart(2,'0'));
+      if (prevKey0) {
+        const liqS0 = await db.collection('patriarca_liquidacion_txs')
+          .where('operadorId', '==', uid)
+          .where('mesKey',     '==', prevKey0)
+          .where('estado',     '==', 'aprobado')
+          .get({ source: 'server' });
+        _liqPrevAdminDocs = liqS0.docs;
+        liqS0.docs.forEach(d => {
+          const tx    = d.data();
+          const monto = Math.round(tx.monto || 0);
+          if (tx.tipo === 'comision') comisionesMesAnt = Math.max(0, comisionesMesAnt - monto);
+          gananciaMesAnt = Math.max(0, gananciaMesAnt - monto);
+        });
+      }
+    } catch(e) { console.warn('_esfCalcOp: liq_prev:', e); }
+    const invs         = invSnap.docs.map(d => d.data());
+    const ixs          = ixSnap.docs.map(d => d.data());
+    const gastos       = gasSnap.docs.map(d => d.data());
+    const clientes     = cliSnap.docs.map(d => ({id:d.id,...d.data()}));
+
+    // ── Lista de métodos cajero (físicos) — usar el array global 'metodos' de admin ──
+    // Esto evita incluir campos especiales como "SALDO CLIENTES ANTERIOR"
+    const metCajeroList = (typeof metodos !== 'undefined' ? metodos : [])
+      .filter(m => m.tipo === 'cajero' && (m.nombre||'').trim().toUpperCase() !== 'SALDO CLIENTES ANTERIOR')
+      .map(m => (m.nombre||'').trim().toUpperCase());
+    const metCajeroSet = new Set(metCajeroList);
+
+    // idToNombre
+    const idToNombre = {};
+    clientes.forEach(c => idToNombre[c.id] = c.nombre_completo || c.nombre || c.id);
+    idToNombre['_externo_'] = 'Externo';
+
+    // ── 1. Clientes mes anterior ──
+    let clientesMesAnt = 0;
+    Object.values(saldoInicial).forEach(casaMap => {
+      Object.values(casaMap||{}).forEach(v => { clientesMesAnt += parseFloat(v)||0; });
+    });
+
+    // ── 2. Clientes actual ──
+    const siMap={}, movMap={}, invMap={};
+    Object.entries(saldoInicial).forEach(([cid, casaMap]) => {
+      const n = idToNombre[cid] || cid;
+      Object.entries(casaMap||{}).forEach(([casa, monto]) => {
+        siMap[`${n}||${casa}`] = (siMap[`${n}||${casa}`] || 0) + (parseFloat(monto)||0);
+      });
+    });
+    movs.forEach(m => {
+      if (!m.cliente||!m.casa) return;
+      const n = (m.cliente_id && idToNombre[m.cliente_id]) || m.cliente;
+      const k = `${n}||${m.casa}`;
+      if (!movMap[k]) movMap[k]={recargas:0,pagos:0};
+      if (m.tipo==='RECARGAS') movMap[k].recargas += parseFloat(m.monto)||0;
+      if (m.tipo==='PAGOS')    movMap[k].pagos    += parseFloat(m.monto)||0;
+    });
+    invs.forEach(inv => {
+      if (!inv.cliente||!inv.casa) return;
+      const n = (inv.cliente_id && idToNombre[inv.cliente_id]) || inv.cliente;
+      const k = `${n}||${inv.casa}`;
+      if (!invMap[k]) invMap[k]={invertido:0,retornado:0};
+      invMap[k].invertido += parseFloat(inv.monto)||0;
+      const ret = parseFloat(inv.retorno_cliente)||0;
+      if (ret>0) invMap[k].retornado += ret;
+    });
+    let totalClientes = 0;
+    new Set([...Object.keys(siMap),...Object.keys(movMap),...Object.keys(invMap)]).forEach(k => {
+      totalClientes += (siMap[k]||0) + ((movMap[k]||{}).recargas||0) - ((movMap[k]||{}).pagos||0)
+                     - ((invMap[k]||{}).invertido||0) + ((invMap[k]||{}).retornado||0);
+    });
+
+    // ── 3. Invertido (apuestas abiertas) ──
+    let invertido = 0;
+    invs.forEach(inv => { if ((inv.estado_evento||'ABIERTO')!=='CERRADO') invertido+=parseFloat(inv.monto)||0; });
+
+    // ── 4. Comisiones por método ──
+    const comByMetodo = {};
+    movs.forEach(m => {
+      const com = parseFloat(m.comision)||0;
+      if (com<=0) return;
+      const met = m.metodo||'SIN MÉTODO';
+      comByMetodo[met] = (comByMetodo[met]||0)+com;
+    });
+    const totalComisiones = Object.values(comByMetodo).reduce((s,v)=>s+v,0);
+
+    // ── 5. Gastos ──
+    const totalGastos = gastos.reduce((s,g)=>s+(parseFloat(g.valor)||0),0);
+
+    // ── 6. Utilidad (inversiones CERRADAS) ──
+    let utilidad = 0;
+    const apMap = {};
+    invs.forEach(inv => {
+      const k = inv.id_apuesta; if (!k) return;
+      if (!apMap[k]) apMap[k]={ret:0,inv:0,estado:inv.estado_evento||'ABIERTO'};
+      apMap[k].ret += parseFloat(inv.retorno_cliente)||0;
+      if ((inv.fondos||'').toUpperCase()!=='BONIFICACION') apMap[k].inv+=parseFloat(inv.monto)||0;
+      if (inv.estado_evento==='CERRADO') apMap[k].estado='CERRADO';
+    });
+    Object.values(apMap).forEach(a => { if (a.estado==='CERRADO') utilidad+=a.ret-a.inv; });
+
+    // ── 7. Cajas por método ──
+    // Usar TODOS los métodos cajero (no solo los que tienen cupo > 0)
+    // para capturar actividad aunque el cupo inicial sea 0 o no esté configurado.
+    // La clave del cupo en cupos_cajero se compara en mayúsculas para tolerancia.
+    const cuposCaj = cfg.cupos_cajero || {};
+    const cuposCajNorm = {}; // { UPPER_KEY: valor }
+    Object.entries(cuposCaj).forEach(([k,v]) => { cuposCajNorm[k.trim().toUpperCase()] = parseFloat(v)||0; });
+
+    // Solo incluir métodos cajero reales Y que tengan cupo > 0 o actividad
+    // Para detectar actividad, hacemos el mapaD con TODOS los cajeros y al final filtramos los vacíos
+    const mapaD = {};
+    metCajeroList.forEach(mu => {
+      mapaD[mu] = { ini: Math.round(cuposCajNorm[mu]||cuposCajNorm[audNorm(mu)]||0), ix:0, rec:0, pag:0, gas:0 };
+    });
+
+    // normM: mapear nombre de método → clave en mapaD (mayúsculas)
+    const normM = s => {
+      if (!s) return null;
+      const u = audNorm((s||'').trim().toUpperCase());
+      if (mapaD[u]) return u;
+      return metCajeroList.find(m => audNorm(m) === u) || null;
+    };
+
+    movs.forEach(mv => {
+      const met=normM(mv.metodo); if (!met) return;
+      if (mv.tipo==='RECARGA'||mv.tipo==='RECARGAS') mapaD[met].rec+=parseFloat(mv.monto)||0;
+      else if (mv.tipo==='PAGO'||mv.tipo==='PAGOS')  mapaD[met].pag+=parseFloat(mv.monto)||0;
+    });
+    ixs.filter(ix=>ix.estado!=='pendiente_aceptar'&&ix.estado!=='cancelado').forEach(ix => {
+      const egr=normM(ix.caja_egresa), ing=normM(ix.caja_ingresa);
+      if (egr&&mapaD[egr]) mapaD[egr].ix-=parseFloat(ix.monto)||0;
+      if (ing&&mapaD[ing]) mapaD[ing].ix+=parseFloat(ix.monto)||0;
+    });
+    gastos.forEach(g => { const met=normM(g.metodo); if (met&&mapaD[met]) mapaD[met].gas+=parseFloat(g.valor)||0; });
+
+    // ── Pagos de liquidación del mes anterior (saldo) — reducen saldo del método ──
+    // Reusar _liqPrevAdminDocs ya cargado arriba (evita segunda query)
+    _liqPrevAdminDocs.filter(d => d.data().tipo === 'saldo').forEach(d => {
+      const tx  = d.data();
+      const met = normM(tx.metodo);
+      if (met && mapaD[met]) mapaD[met].liq = (mapaD[met].liq || 0) + (parseFloat(tx.monto) || 0);
+    });
+
+    let totalCajas = 0;
+    const cajasResult = metCajeroList
+      .map(m => { const d=mapaD[m]; const v=d.ini+d.ix-d.rec+d.pag-d.gas-(d.liq||0); return {metodo:m,valor:v,d}; })
+      .filter(({valor,d}) => valor!==0 || d.ini||d.rec||d.pag||d.ix||d.gas||d.liq) // solo mostrar activos
+      .map(({metodo,valor}) => { totalCajas+=valor; return {metodo,valor}; });
+
+    // ── 8. Cupo: igual que el portal — suma de cupos_cajero de métodos cajero válidos ──
+    // Si hay cupos_cajero configurados → usar esa suma; si no → usar config.cupo
+    const totalCuposCajeroValidos = metCajeroList.reduce((s,mu) => s+(cuposCajNorm[mu]||cuposCajNorm[audNorm(mu)]||0), 0);
+    const hayCuposCajero = totalCuposCajeroValidos > 0;
+    const cupo = Math.round(hayCuposCajero ? totalCuposCajeroValidos : (cfg.cupo||0));
+
+    // ── 9. Totales ──
+    const totalActivos = Math.round(totalClientes + invertido + totalComisiones + comisionesMesAnt + totalCajas);
+    const totalPasivos = gananciaMesAnt;
+
+    // Patrimonio: para mes 2+ derivarlo de Activos-Pasivos para garantizar cuadre
+    let totalPatrimonio, cupoEnCajas;
+    if (clientesMesAnt > 0) {
+      totalPatrimonio = totalActivos - totalPasivos;
+      cupoEnCajas     = totalPatrimonio - Math.round(clientesMesAnt) - Math.round(utilidad) + Math.round(totalGastos) - Math.round(totalComisiones);
+    } else {
+      totalPatrimonio = cupo + Math.round(utilidad) - Math.round(totalGastos) + Math.round(totalComisiones);
+      cupoEnCajas     = cupo;
+    }
+    const cuadre = Math.abs(totalActivos - totalPasivos - totalPatrimonio) <= 1;
+
+    return { nombre, uid, cuadre, totalActivos, totalPasivos, totalPatrimonio,
+             totalClientes:Math.round(totalClientes), invertido:Math.round(invertido),
+             totalComisiones:Math.round(totalComisiones), comByMetodo,
+             clientesMesAnt:Math.round(clientesMesAnt), cupoEnCajas,
+             comisionesMesAnt, gananciaMesAnt,
+             cupo, utilidad:Math.round(utilidad), totalGastos:Math.round(totalGastos),
+             cajasResult, error:null };
+  } catch(e) {
+    return { nombre, uid, error: e.message };
+  }
+}
+
+function _esfRenderCard(r) {
+  const p = v => '$'+Math.round(v||0).toLocaleString('es-CO');
+  const col = v => v>0?'var(--green)':v<0?'var(--red)':'var(--text2)';
+  if (r.error) return `
+    <div class="esf-op-card">
+      <h4>👤 ${r.nombre}</h4>
+      <div style="color:var(--red);font-size:12px">⚠ ${r.error}</div>
+    </div>`;
+
+  const cajasArr = r.cajas || r.cajasResult || [];
+  const cajasHtml = cajasArr.length
+    ? cajasArr.map(({metodo,valor})=>`
+        <div class="esf-op-row sub"><span>${metodo}</span><span style="color:${col(valor)};font-weight:600">${valor?p(valor):'$—'}</span></div>`).join('')
+    : `<div class="esf-op-row sub" style="color:var(--text2)">—</div>`;
+
+  const comHtml = Object.entries(r.comByMetodo).sort((a,b)=>b[1]-a[1]).map(([met,val])=>`
+      <div class="esf-op-row sub"><span>Com. ${met}</span><span style="color:var(--orange)">${p(val)}</span></div>`).join('');
+
+  const updAt = r.actualizadoEn?.seconds
+    ? new Date(r.actualizadoEn.seconds*1000).toLocaleString('es-CO',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})
+    : '—';
+  // ── Comparación con snapshot ESF inicial ───────────────────────────────────
+  const alertasESF = [];
+  if (r._snapshot) {
+    const snap = r._snapshot;
+    // 1) ¿Clientes Mes Anterior cambió?
+    const cmaSnap    = snap.clientesMesAnterior || 0;
+    const cmaActual  = r.clientesMesAnt || 0;
+    const p2 = v => '$'+Math.round(v||0).toLocaleString('es-CO');
+    if (Math.abs(cmaSnap - cmaActual) > 1) {
+      alertasESF.push(
+        `⚠ <strong>Clientes Mes Anterior cambió</strong>: era ${p2(cmaSnap)}, ahora ${p2(cmaActual)}`
+      );
+    }
+    // 2) ¿Cambió algún cupo inicial desde que se guardó el snapshot?
+    if (r._cuposActuales) {
+      const cuposSnap = snap.cuposIniciales || {};
+      const cuposAct  = r._cuposActuales;
+      const allKeys   = new Set([...Object.keys(cuposSnap), ...Object.keys(cuposAct)]);
+      const diffs = [];
+      allKeys.forEach(k => {
+        const vSnap = parseFloat(cuposSnap[k]) || 0;
+        const vAct  = parseFloat(cuposAct[k])  || 0;
+        if (Math.abs(vSnap - vAct) > 1) {
+          diffs.push(`${k}: ${p2(vSnap)} → ${p2(vAct)}`);
+        }
+      });
+      if (diffs.length) {
+        alertasESF.push(
+          `⚠ <strong>Cupos modificados desde el snapshot</strong>: ${diffs.join(' | ')}`
+        );
+      }
+    }
+  }
+  const alertaBanner = alertasESF.length
+    ? `<div style="background:rgba(240,80,80,.12);border:1px solid rgba(240,80,80,.4);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px;line-height:1.7;color:var(--red)">
+        ${alertasESF.map(a=>`<div>${a}</div>`).join('')}
+        <div style="font-size:10px;color:var(--text2);margin-top:4px">Guardado por ${r._snapshot.savedBy||'admin'} el ${r._snapshot.savedAt?.seconds?new Date(r._snapshot.savedAt.seconds*1000).toLocaleDateString('es-CO'):'—'}</div>
+       </div>`
+    : (r._snapshot
+        ? `<div style="font-size:10px;color:var(--text2);margin-bottom:6px">✓ Sin cambios vs. snapshot ESF inicial</div>`
+        : `<div style="font-size:10px;color:var(--text2);opacity:.6;margin-bottom:6px">Sin snapshot ESF inicial guardado para este mes</div>`
+      );
+
+  return `
+  <div class="esf-op-card">
+    <h4>👤 ${r.nombre} <span style="font-size:10px;color:var(--text2);font-weight:400">· ${r.mes||r.mesKey||''} · act. ${updAt}</span></h4>
+    ${alertaBanner}
+    <div class="esf-op-cuadre ${r.cuadre?'ok':'err'}">
+      ${r.cuadre?'✓ CUADRE':'✗ DESCUADRE'} — ${r.cuadre?p(r.totalActivos):'Activos '+p(r.totalActivos)+' / Patrimonio '+p(r.totalPatrimonio)}
+    </div>
+    <div class="esf-op-cols">
+      <!-- ACTIVOS -->
+      <div>
+        <div class="esf-op-sec">Activos</div>
+        <div class="esf-op-row"><span>Clientes</span><span style="font-weight:700">${p(r.totalClientes)}</span></div>
+        <div class="esf-op-row"><span>Invertido</span><span>${(r.invertido!=null&&r.invertido!==undefined)?p(r.invertido):'$—'}</span></div>
+        <div class="esf-op-row"><span>Comisiones</span><span style="color:var(--orange)">${p(r.totalComisiones)}</span></div>
+        ${r.comisionesMesAnt>0?`<div class="esf-op-row"><span style="color:var(--orange)">Com. Mes Ant.</span><span style="color:var(--orange)">${p(r.comisionesMesAnt)}</span></div>`:''}
+        <div style="margin-top:6px;padding-top:4px;border-top:1px solid var(--border)">${cajasHtml}</div>
+        <div class="esf-op-row total"><span>Total Activos</span><span style="color:var(--green)">${p(r.totalActivos)}</span></div>
+      </div>
+      <!-- PATRIMONIO -->
+      <div>
+        <div class="esf-op-sec">Patrimonio</div>
+        <div class="esf-op-row"><span style="font-weight:700">Clientes Mes Anterior</span><span style="font-weight:700">${p(r.clientesMesAnt)}</span></div>
+        <div class="esf-op-row"><span>Cupo</span><span style="color:${col(r.cupoEnCajas)}">${p(r.cupoEnCajas)}</span></div>
+        <div class="esf-op-row"><span>Utilidad</span><span style="color:${r.utilidad>=0?'var(--green)':'var(--red)'}">${p(r.utilidad)}</span></div>
+        <div class="esf-op-row"><span>Costos/Gastos</span><span style="color:var(--red)">${(r.totalGastos!=null&&r.totalGastos!==undefined)?(r.totalGastos>0?'-'+p(r.totalGastos):'$0'):'$—'}</span></div>
+        ${comHtml}
+        <div class="esf-op-row total"><span>Total Patrimonio</span><span style="color:var(--green)">${p(r.totalPatrimonio)}</span></div>
+      </div>
+    </div>
+    <div style="border-top:1px solid var(--border);margin-top:10px;padding-top:8px">
+      <div class="esf-op-sec" style="margin-top:0">Pasivos</div>
+      ${r.gananciaMesAnt>0?`<div class="esf-op-row"><span>Liquidación por Pagar</span><span>${p(r.gananciaMesAnt)}</span></div>`:''}
+      <div class="esf-op-row total"><span>Total Pasivos</span><span>${p(r.totalPasivos)}</span></div>
+    </div>
+    ${(() => {
+      const prod = r.productividad || {};
+      const hasData = prod.numRecargas || prod.numPagos || prod.numInversiones;
+      if (!hasData) return '';
+      const pNum = n => (n||0).toLocaleString('es-CO');
+      return `
+    <div style="border-top:2px solid var(--purple);margin-top:10px;padding-top:10px">
+      <div class="esf-op-sec" style="margin-top:0;color:var(--purple)">📊 Productividad del Mes</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:4px">
+        <div style="background:var(--bg2);border-radius:8px;padding:8px 10px;text-align:center">
+          <div style="font-size:18px;font-weight:700;color:var(--blue)">${pNum(prod.numRecargas)}</div>
+          <div style="font-size:10px;color:var(--text2)">Recargas</div>
+          <div style="font-size:11px;color:var(--text);margin-top:2px;font-weight:600">${p(prod.montoRecargas)}</div>
+        </div>
+        <div style="background:var(--bg2);border-radius:8px;padding:8px 10px;text-align:center">
+          <div style="font-size:18px;font-weight:700;color:var(--green)">${pNum(prod.numPagos)}</div>
+          <div style="font-size:10px;color:var(--text2)">Pagos</div>
+          <div style="font-size:11px;color:var(--text);margin-top:2px;font-weight:600">${p(prod.montoPagos)}</div>
+        </div>
+        <div style="background:var(--bg2);border-radius:8px;padding:8px 10px;text-align:center">
+          <div style="font-size:18px;font-weight:700;color:var(--orange)">${pNum(prod.numInversiones)}</div>
+          <div style="font-size:10px;color:var(--text2)">Apuestas</div>
+        </div>
+        <div style="background:var(--bg2);border-radius:8px;padding:8px 10px;text-align:center">
+          <div style="font-size:18px;font-weight:700;color:var(--purple)">${pNum(prod.clientesUnicos)}</div>
+          <div style="font-size:10px;color:var(--text2)">Clientes</div>
+        </div>
+      </div>
+      <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px">
+        <div style="background:rgba(255,160,0,0.08);border:1px solid rgba(255,160,0,0.35);border-radius:8px;padding:8px 12px;display:flex;justify-content:space-between;align-items:center">
+          <span style="font-size:12px;color:var(--orange);font-weight:700">💰 Comisiones por Cobrar</span>
+          <span style="font-size:15px;font-weight:800;color:var(--orange)">${p(r.totalComisiones||0)}</span>
+        </div>
+        ${(()=>{
+          const utilNeta = Math.round((r.utilidad||0) - (r.totalGastos||0));
+          const ganancia = utilNeta + Math.round(r.totalComisiones||0);
+          const colUtil  = utilNeta  >= 0 ? 'var(--green)' : 'var(--red)';
+          const colGan   = ganancia  >= 0 ? 'var(--green)' : 'var(--red)';
+          return `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+          <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.3);border-radius:8px;padding:8px 12px">
+            <div style="font-size:10px;color:var(--text2);font-weight:600">📈 Utilidad Neta</div>
+            <div style="font-size:14px;font-weight:800;color:${colUtil}">${p(utilNeta)}</div>
+            <div style="font-size:9px;color:var(--text2)">Utilidad − Gastos</div>
+          </div>
+          <div style="background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.4);border-radius:8px;padding:8px 12px">
+            <div style="font-size:10px;color:var(--text2);font-weight:600">🏆 Ganancia Total</div>
+            <div style="font-size:14px;font-weight:800;color:${colGan}">${p(ganancia)}</div>
+            <div style="font-size:9px;color:var(--text2)">Util. Neta + Comisiones</div>
+          </div>
+        </div>`;
+        })()}
+      </div>
+    </div>`;
+    })()}
+  </div>`;
+}
+
+// ── ESF TABLA (vista tipo Mapa de Capital) ───────────────────────────────────
+function _esfRenderTabla(esfMap, mes) {
+  const p  = v => v ? '$'+Math.round(v||0).toLocaleString('es-CO') : '—';
+  const pc = (v, clr) => v ? `<span style="color:${clr};font-weight:600">${'$'+Math.round(v||0).toLocaleString('es-CO')}</span>` : '<span style="color:var(--text2)">—</span>';
+  const col = v => v > 0 ? 'var(--green)' : v < 0 ? 'var(--red)' : 'var(--text2)';
+
+  const ops = Object.values(esfMap).sort((a,b) => (a.nombre||'').localeCompare(b.nombre||''));
+  if (!ops.length) return `<div class="empty"><div class="empty-icon">📋</div><p>No hay ESF para <strong>${mes}</strong>.</p></div>`;
+
+  // Primer nombre de cada operador para el header
+  const firstName = n => (n||'').split(' ')[0];
+
+  // Recolectar todos los métodos de cajas únicos
+  const allMets = [];
+  const metSet  = new Set();
+  ops.forEach(r => (r.cajas||r.cajasResult||[]).forEach(c => {
+    if (c.metodo && !metSet.has(c.metodo)) { metSet.add(c.metodo); allMets.push(c.metodo); }
+  }));
+
+  // Recolectar todos los métodos de comisión únicos
+  const allComMets = [];
+  const comMetSet  = new Set();
+  ops.forEach(r => Object.keys(r.comByMetodo||{}).forEach(m => {
+    if (!comMetSet.has(m)) { comMetSet.add(m); allComMets.push(m); }
+  }));
+
+  // Totales por columna
+  const totActivos  = ops.reduce((s,r) => s+(r.totalActivos||0), 0);
+  const totPatrim   = ops.reduce((s,r) => s+(r.totalPatrimonio||0), 0);
+  const totPasivos  = ops.reduce((s,r) => s+(r.totalPasivos||0), 0);
+  const totClientes = ops.reduce((s,r) => s+(r.totalClientes||0), 0);
+  const totCupo     = ops.reduce((s,r) => s+(r.cupoEnCajas||0), 0);
+  const totUtil     = ops.reduce((s,r) => s+(r.utilidad||0), 0);
+  const totGastos   = ops.reduce((s,r) => s+(r.totalGastos||0), 0);
+  const totCom      = ops.reduce((s,r) => s+(r.totalComisiones||0), 0);
+  const totInv      = ops.reduce((s,r) => s+(r.invertido||0), 0);
+  const totCmaAnt   = ops.reduce((s,r) => s+(r.clientesMesAnt||0), 0);
+
+  const thStyle = 'border-left:1px solid var(--border)';
+
+  // Generar header
+  const headerCols = ops.map(r => `<th style="${thStyle}">${firstName(r.nombre)}</th>`).join('');
+  const header = `<tr><th>Concepto</th>${headerCols}<th style="${thStyle};color:var(--text2)">TOTAL</th></tr>`;
+
+  const row = (label, vals, totalVal, colorFn, indent=false) => {
+    const cells = ops.map((r,i) => {
+      const v = vals[i];
+      return `<td style="${thStyle}">${colorFn ? pc(v, colorFn(v)) : p(v)}</td>`;
+    }).join('');
+    const tot = totalVal !== undefined ? (colorFn ? pc(totalVal, colorFn(totalVal)) : p(totalVal)) : '';
+    const lbl = indent ? `<span style="padding-left:10px;font-size:11px">${label}</span>` : label;
+    return `<tr><td>${lbl}</td>${cells}<td style="${thStyle};font-weight:600">${tot}</td></tr>`;
+  };
+
+  const secRow = label => `<tr class="row-section"><td colspan="${ops.length+2}">${label}</td></tr>`;
+
+  const totRow = (label, vals, totalVal, colorFn) => {
+    const cells = ops.map((r,i) => {
+      const v = vals[i];
+      return `<td style="${thStyle};font-weight:700">${colorFn ? pc(v, colorFn(v)) : `<span style="font-weight:700">${p(v)}</span>`}</td>`;
+    }).join('');
+    const tot = totalVal !== undefined ? (colorFn ? pc(totalVal, colorFn(totalVal)) : `<span style="font-weight:700">${p(totalVal)}</span>`) : '';
+    return `<tr class="row-total"><td><strong>${label}</strong></td>${cells}<td style="${thStyle}">${tot}</td></tr>`;
+  };
+
+  // Filas de cajas por método
+  const cajasRows = allMets.map(met => {
+    const vals = ops.map(r => {
+      const c = (r.cajas||r.cajasResult||[]).find(x => x.metodo === met);
+      return c ? (c.valor||0) : 0;
+    });
+    const tot = vals.reduce((s,v) => s+v, 0);
+    return row(met, vals, tot, col, true);
+  }).join('');
+
+  // Filas de comisión por método
+  const comRows = allComMets.map(met => {
+    const vals = ops.map(r => (r.comByMetodo||{})[met] || 0);
+    const tot  = vals.reduce((s,v) => s+v, 0);
+    return row(`Com. ${met}`, vals, tot, () => 'var(--orange)', true);
+  }).join('');
+
+  // Filas de productividad
+  const pNum = (n,arr) => arr.map(r => {
+    const v = (r.productividad||{})[n] || 0;
+    return `<td style="${thStyle};font-weight:600">${v ? v.toLocaleString('es-CO') : '—'}</td>`;
+  }).join('');
+  const pMto = (n,arr) => arr.map(r => {
+    const v = (r.productividad||{})[n] || 0;
+    return `<td style="${thStyle}">${v ? '$'+Math.round(v).toLocaleString('es-CO') : '—'}</td>`;
+  }).join('');
+  const totProd = (n) => ops.reduce((s,r) => s+((r.productividad||{})[n]||0), 0);
+
+  const prodRows = `
+    <tr><td><span style="padding-left:10px">Recargas (cant.)</span></td>${pNum('numRecargas',ops)}<td style="${thStyle};font-weight:600">${totProd('numRecargas').toLocaleString('es-CO')}</td></tr>
+    <tr><td><span style="padding-left:10px">Recargas (monto)</span></td>${pMto('montoRecargas',ops)}<td style="${thStyle}">$${Math.round(totProd('montoRecargas')).toLocaleString('es-CO')}</td></tr>
+    <tr><td><span style="padding-left:10px">Pagos (cant.)</span></td>${pNum('numPagos',ops)}<td style="${thStyle};font-weight:600">${totProd('numPagos').toLocaleString('es-CO')}</td></tr>
+    <tr><td><span style="padding-left:10px">Pagos (monto)</span></td>${pMto('montoPagos',ops)}<td style="${thStyle}">$${Math.round(totProd('montoPagos')).toLocaleString('es-CO')}</td></tr>
+    <tr><td><span style="padding-left:10px">Apuestas</span></td>${pNum('numInversiones',ops)}<td style="${thStyle};font-weight:600">${totProd('numInversiones').toLocaleString('es-CO')}</td></tr>
+    <tr><td><span style="padding-left:10px">Clientes únicos</span></td>${pNum('clientesUnicos',ops)}<td style="${thStyle};font-weight:600">${totProd('clientesUnicos').toLocaleString('es-CO')}</td></tr>`;
+
+  // Fila cuadre
+  const cuadreRow = `<tr class="${ops.every(r=>r.cuadre)?'row-cuadre-ok':'row-cuadre-err'}">
+    <td><strong>CUADRE</strong></td>
+    ${ops.map(r => `<td style="${thStyle};text-align:center">${r.cuadre?'✓':'✗'}</td>`).join('')}
+    <td style="${thStyle};text-align:center">${ops.every(r=>r.cuadre)?'✓ todos':'⚠ revisar'}</td>
+  </tr>`;
+
+  // Fila comisiones por cobrar + utilidad + ganancia
+  const comVals    = ops.map(r => (r.totalComisiones||0));
+  const utilVals   = ops.map(r => Math.round((r.utilidad||0)-(r.totalGastos||0)));
+  const ganVals    = ops.map((r,i) => utilVals[i] + comVals[i]);
+  const totUtilNet = utilVals.reduce((s,v)=>s+v,0);
+  const totGanTot  = totUtilNet + totCom;
+
+  return `<div class="esf-tabla-wrap"><table class="esf-tabla">
+    <thead>${header}</thead>
+    <tbody>
+      ${secRow('ACTIVOS')}
+      ${row('Clientes', ops.map(r=>r.totalClientes||0), totClientes, col)}
+      ${row('Invertido', ops.map(r=>r.invertido||0), totInv, col)}
+      ${row('Comisiones', ops.map(r=>r.totalComisiones||0), ops.reduce((s,r)=>s+(r.totalComisiones||0),0), ()=>'var(--orange)')}
+      ${row('Com. Mes Ant.', ops.map(r=>r.comisionesMesAnt||0), ops.reduce((s,r)=>s+(r.comisionesMesAnt||0),0), ()=>'var(--orange)')}
+      ${cajasRows}
+      ${totRow('Total Activos', ops.map(r=>r.totalActivos||0), totActivos, v=>v>=0?'var(--green)':'var(--red)')}
+
+      ${secRow('PATRIMONIO')}
+      ${row('Clientes Mes Anterior', ops.map(r=>r.clientesMesAnt||0), totCmaAnt, col)}
+      ${row('Cupo', ops.map(r=>r.cupoEnCajas||0), totCupo, col)}
+      ${row('Utilidad', ops.map(r=>r.utilidad||0), totUtil, col)}
+      ${row('Costos/Gastos', ops.map(r=>-(r.totalGastos||0)), -totGastos, col)}
+      ${comRows}
+      ${totRow('Total Patrimonio', ops.map(r=>r.totalPatrimonio||0), totPatrim, v=>v>=0?'var(--green)':'var(--red)')}
+
+      ${secRow('PASIVOS')}
+      ${totRow('Total Pasivos', ops.map(r=>r.totalPasivos||0), totPasivos, col)}
+
+      ${cuadreRow}
+
+      ${secRow('PRODUCTIVIDAD DEL MES')}
+      ${prodRows}
+
+      ${secRow('FINANZAS')}
+      ${row('💰 Comisiones por Cobrar', comVals, totCom, ()=>'var(--orange)')}
+      ${row('📈 Utilidad Neta', utilVals, totUtilNet, col)}
+      ${totRow('🏆 Ganancia Total', ganVals, totGanTot, v=>v>=0?'var(--green)':'var(--red)')}
+    </tbody>
+  </table></div>`;
+}
+
+// ── COMBINADAS PROPUESTAS ───────────────────────────────────────────────────
+// El boletín del bot. No es el registro de lo que el operador jugó — es de todo
+// lo que el bot propuso, se haya jugado o no. Esa es la única forma honesta de
+// medirlo: contar también los cupones que nadie quiso.
+let _cbCupones = [];
+let _cbOrden = { campo: 'cuando', desc: true };
+
+function cbOrdenar(campo){
+  // Mismo campo, se invierte; campo nuevo, arranca descendente
+  if (_cbOrden.campo === campo) _cbOrden.desc = !_cbOrden.desc;
+  else _cbOrden = { campo, desc: true };
+  cbPintar();
+}
+
+// El valor por el que se compara cada columna
+function cbValor(c, campo, importe){
+  switch (campo){
+    case 'cuando':  return c.propuesto?.toDate ? c.propuesto.toDate().getTime()
+                         : (Date.parse(c.fecha) || 0);
+    case 'operador':return cbOperador(c.uid).toLowerCase();
+    case 'casa':    return String(c.casa || '').toLowerCase();
+    case 'opc':     return (c.opciones || []).length;
+    case 'cuota':   return c.cuotaTotal || 0;
+    case 'prob':    return c.probEstimada || 0;
+    case 'aciertos':return c.aciertos != null ? c.aciertos : -1;
+    case 'estado':  return !c.resuelto ? 2 : c.estado === 'ganado' ? 0 : 1;
+    case 'result':  return !c.resuelto ? 0
+                         : c.estado === 'ganado' ? importe*(c.cuotaTotal||0) - importe : -importe;
+    default:        return 0;
+  }
+}
+
+async function initCombinadas(forzar){
+  const caja = document.getElementById('cb-cuerpo');
+  if (!caja) return;
+  if (_cbCupones.length && !forzar) { cbPintar(); return; }
+  caja.innerHTML = 'Cargando…';
+  try{
+    const dias = parseInt(document.getElementById('cb-dias')?.value || '30', 10);
+    const desde = new Date(Date.now() - dias*864e5).toISOString().slice(0,10);
+    const snap = await db.collection('combinadas_cupones').where('fecha','>=',desde).get();
+    _cbCupones = snap.docs.map(d => ({ id:d.id, ...d.data() }));
+    cbPintar();
+  }catch(e){
+    caja.innerHTML = `<span style="color:var(--red)">No se pudo leer: ${e.message}</span>`;
+  }
+}
+
+// El cupón guarda el uid; el nombre sale de la lista de usuarios que el
+// administrador ya tiene cargada.
+function cbOperador(uid){
+  if (!uid) return '—';
+  const u = (typeof allUsers !== 'undefined' ? allUsers : []).find(x => (x.uid || x.id) === uid);
+  if (!u) return uid.slice(0,6);
+  const n = u.nombre || u.email || uid;
+  // Solo el primer nombre, que la columna no se estire
+  return String(n).split(/[\s@]/)[0];
+}
+
+function cbNum(id){ return parseFloat(String(document.getElementById(id)?.value||'').replace(/\./g,'').replace(',','.'))||0; }
+function cbPeso(n){ return '$' + Math.round(n||0).toLocaleString('es-CO'); }
+
+function cbPintar(){
+  const caja = document.getElementById('cb-cuerpo'); if (!caja) return;
+  const filtro = document.getElementById('cb-estado')?.value || '';
+  const importe = cbNum('cb-importe') || 10000;
+  const todos = _cbCupones;
+  if (!todos.length){ caja.innerHTML = '<div class="empty"><div class="empty-icon">🎰</div><p>Sin cupones en ese periodo.</p></div>'; return; }
+
+  const resueltos = todos.filter(c => c.resuelto);
+  const ganados   = resueltos.filter(c => c.estado === 'ganado');
+  const perdidos  = resueltos.filter(c => c.estado === 'perdido');
+  const pend      = todos.filter(c => !c.resuelto);
+
+  // Rendimiento con apuesta plana: es como se mide a un pronosticador de
+  // verdad. Acertar poco a cuota alta puede dejar más que acertar mucho a
+  // cuota baja, y el porcentaje de acierto solo no lo dice.
+  const invertido = resueltos.length * importe;
+  const cobrado   = ganados.reduce((s,c) => s + importe * (c.cuotaTotal||0), 0);
+  const rend      = invertido ? ((cobrado - invertido) / invertido * 100) : null;
+
+  // Reparto: perder por una opción no es lo mismo que perder por todas
+  const reparto = {};
+  resueltos.forEach(c => {
+    if (c.aciertos == null) return;          // sin desglose, no se puede contar
+    const k = c.aciertos + ' de ' + (c.opciones||[]).length;
+    reparto[k] = (reparto[k]||0)+1;
+  });
+
+  // Acierto por mercado, sobre opciones sueltas
+  const merc = {};
+  resueltos.forEach(c => (c.opciones||[]).forEach(o => {
+    if (o.acerto == null) return;
+    const m = merc[o.mercado] = merc[o.mercado] || {n:0, ok:0};
+    m.n++; if (o.acerto) m.ok++;
+  }));
+  const opsTot = Object.values(merc).reduce((s,m)=>s+m.n,0);
+  const opsOK  = Object.values(merc).reduce((s,m)=>s+m.ok,0);
+
+  const tarjeta = (t,v,sub,col) => `<div style="background:var(--bg3);border-radius:8px;padding:11px 13px">
+    <div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">${t}</div>
+    <div style="font-size:20px;font-weight:700;color:${col||'var(--text)'};margin-top:2px">${v}</div>
+    ${sub?`<div style="font-size:10px;color:var(--text2);margin-top:1px">${sub}</div>`:''}</div>`;
+
+  const NOMBRE = {'1X2':'1X2','GOL_OU':'Goles +/−','BTTS':'Ambos anotan','DC':'Doble oport.'};
+  const VIA = {'1':'Gana local','X':'Empate','2':'Gana visitante','OVER':'Más de','UNDER':'Menos de',
+               'SI':'Ambos anotan','NO':'No ambos','1X':'Local o empate','12':'Local o visitante','X2':'Empate o visitante'};
+
+  const lista = todos.filter(c => !filtro || (filtro==='pendiente' ? !c.resuelto : c.estado===filtro))
+    .slice().sort((a,b) => {
+      const x = cbValor(a, _cbOrden.campo, importe), y = cbValor(b, _cbOrden.campo, importe);
+      const cmp = typeof x === 'string' ? x.localeCompare(y) : (x - y);
+      return _cbOrden.desc ? -cmp : cmp;
+    });
+  // Los ganados no necesitan completarse: ya se sabe que todas acertaron
+  const incompletos = resueltos.filter(c => c.aciertos == null && c.estado === 'perdido').length;
+
+  const filas = lista.map((c,i) => {
+    const n = (c.opciones||[]).length;
+    // Un cupón ganado tiene todas acertadas por definición: si le falta el
+    // desglose es porque se resolvió antes de que se guardara, no porque
+    // fallaran. Mostrar "0 de 3" en un ganado sería mentir.
+    const sinDesglose = c.resuelto && c.aciertos == null;
+    const ok = sinDesglose ? (c.estado === 'ganado' ? n : null) : (c.aciertos || 0);
+    const col = !c.resuelto ? 'var(--text2)' : c.estado==='ganado' ? 'var(--green)' : 'var(--red)';
+    const etq = !c.resuelto ? 'pendiente' : c.estado==='ganado' ? 'GANADO' : 'perdido';
+    const detalle = (c.opciones||[]).map(o => {
+      // En un cupón ganado todas acertaron, aunque no se haya guardado el
+      // desglose: no hace falta recalcular nada para saberlo.
+      const ac = o.acerto != null ? o.acerto : (c.estado === 'ganado' ? true : null);
+      const m = ac===true ? '✓' : ac===false ? '✗' : '?';
+      const c2 = ac===true ? 'var(--green)' : ac===false ? 'var(--red)' : 'var(--text2)';
+      const marc = (o.golesLocal!=null) ? `${o.golesLocal}-${o.golesVisita}`
+                 : ac===true ? 'ganó' : 'falta completar';
+      return `<tr>
+        <td style="width:22px;color:${c2};font-weight:700">${m}</td>
+        <td style="padding:3px 0">${o.local} vs ${o.visitante}</td>
+        <td style="color:var(--text2)">${NOMBRE[o.mercado]||o.mercado} · ${VIA[o.via]||o.via}${o.linea?' '+String(o.linea).replace('_','.'):''}</td>
+        <td style="text-align:right">${(o.cuota||0).toFixed(2)}</td>
+        <td style="text-align:right;color:var(--text2)">${marc}</td></tr>`;
+    }).join('');
+
+    // Hora de cuándo lo propuso el bot, no solo el día: sirve para saber si un
+    // cupón salió antes o después de que se movieran las cuotas.
+    const cuando = c.propuesto && c.propuesto.toDate
+      ? new Intl.DateTimeFormat('es-CO',{timeZone:'America/Bogota',
+          day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit', hour12:false})
+          .format(c.propuesto.toDate())
+      : c.fecha;
+    return `<tr onclick="cbToggle(${i})" style="cursor:pointer">
+        <td style="font-size:11px;color:var(--text2);white-space:nowrap">${cuando}</td>
+        <td style="font-size:11px">${cbOperador(c.uid)}</td>
+        <td style="font-size:12px">${c.casa}</td>
+        <td style="text-align:center;font-size:12px">${n}</td>
+        <td style="text-align:right;font-weight:700">${(c.cuotaTotal||0).toFixed(2)}</td>
+        <td style="text-align:right;font-size:11px;color:var(--text2)">${((c.probEstimada||0)*100).toFixed(1)}%</td>
+        <td style="text-align:center;font-size:12px;color:${col}">${!c.resuelto ? '—' : ok==null ? '<span style="color:var(--orange)">falta completar</span>' : ok+' de '+n}</td>
+        <td style="text-align:right;font-weight:700;font-size:11px;color:${col}">${etq}</td>
+        <td style="text-align:right;font-size:11px;color:${c.estado==='ganado'?'var(--green)':'var(--text2)'}">
+          ${c.resuelto ? (c.estado==='ganado' ? '+'+cbPeso(importe*(c.cuotaTotal||0)-importe) : '−'+cbPeso(importe)) : ''}</td>
+      </tr>
+      <tr id="cb-det-${i}" style="display:none"><td colspan="9" style="background:var(--bg3);padding:8px 12px">
+        <table style="width:100%;font-size:12px">${detalle}</table></td></tr>`;
+  }).join('');
+
+  caja.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:9px;margin-bottom:14px">
+      ${tarjeta('Propuestos', todos.length, pend.length+' sin resolver')}
+      ${tarjeta('Ganados', ganados.length, resueltos.length? (ganados.length/resueltos.length*100).toFixed(1)+'% de acierto':'', 'var(--green)')}
+      ${tarjeta('Perdidos', perdidos.length, '', 'var(--red)')}
+      ${tarjeta('Opciones acertadas', opsTot? opsOK+' de '+opsTot : '—', opsTot? (opsOK/opsTot*100).toFixed(1)+'%':'')}
+      ${tarjeta('Rendimiento', rend==null?'—':(rend>=0?'+':'')+rend.toFixed(1)+'%',
+                invertido? cbPeso(cobrado)+' de '+cbPeso(invertido) : '', rend==null?null:(rend>=0?'var(--green)':'var(--red)'))}
+    </div>
+
+    <div style="display:flex;gap:22px;flex-wrap:wrap;margin-bottom:14px;font-size:12px">
+      <div>
+        <div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Por estrategia</div>
+        ${(()=>{ const E={};
+          resueltos.forEach(c=>{ const k=c.estrategia||'libre';
+            const e=E[k]=E[k]||{n:0,g:0,inv:0,cob:0};
+            e.n++; e.inv+=importe; if(c.estado==='ganado'){e.g++; e.cob+=importe*(c.cuotaTotal||0);} });
+          const N={bonos:'Liberar bono',acierto:'Favoritos claros',libre:'A mi medida'};
+          const filas=Object.entries(E).map(([k,e])=>{
+            const r=e.inv?((e.cob-e.inv)/e.inv*100):null;
+            return `<div style="padding:1px 0">${N[k]||k} — <b>${e.g}/${e.n}</b>
+              <span style="color:${r==null?'var(--text2)':r>=0?'var(--green)':'var(--red)'}">${r==null?'':(r>=0?'+':'')+r.toFixed(1)+'%'}</span></div>`;});
+          return filas.join('') || '<div style="color:var(--text2)">sin resueltos</div>'; })()}
+      </div>
+      <div>
+        <div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Cómo terminaron</div>
+        ${Object.entries(reparto).sort((a,b)=>b[0].localeCompare(a[0]))
+          .map(([k,v])=>`<div style="padding:1px 0">${k} opciones — <b>${v}</b></div>`).join('') || '<div style="color:var(--text2)">sin resueltos</div>'}
+      </div>
+      <div>
+        <div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Acierto por mercado</div>
+        ${Object.entries(merc).map(([m,x])=>`<div style="padding:1px 0">${NOMBRE[m]||m} — <b>${x.ok}/${x.n}</b> <span style="color:var(--text2)">(${(x.ok/x.n*100).toFixed(0)}%)</span></div>`).join('') || '<div style="color:var(--text2)">sin datos</div>'}
+      </div>
+    </div>
+
+    <div style="overflow:auto"><table class="tbl" style="font-size:12px">
+      <thead><tr>
+        ${[['cuando','Cuándo','left'],['operador','Operador','left'],['casa','Casa','left'],
+           ['opc','Opc.','center'],['cuota','Cuota','right'],['prob','Prob.','right'],
+           ['aciertos','Aciertos','center'],['estado','Estado','right'],['result','Resultado','right']]
+          .map(([k,t,al]) => `<th onclick="cbOrdenar('${k}')" style="cursor:pointer;user-select:none;text-align:${al}"
+            title="Ordenar por ${t.toLowerCase()}">${t}${_cbOrden.campo===k ? (_cbOrden.desc?' ▾':' ▴') : ''}</th>`).join('')}
+      </tr></thead><tbody>${filas}</tbody></table></div>
+    <div style="font-size:11px;color:var(--text2);margin-top:8px">
+      Clic en una fila para ver sus opciones · clic en una cabecera para ordenar por esa columna ·
+      el rendimiento supone ${cbPeso(importe)} en cada cupón resuelto.</div>
+    ${incompletos ? `<div style="background:rgba(240,160,80,.08);border:1px solid rgba(240,160,80,.3);border-radius:8px;padding:10px 13px;margin-top:10px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+      <span style="font-size:12px">Hay <b>${incompletos}</b> cupón${incompletos>1?'es':''} sin el detalle de cada opción — se resolvieron antes de que se guardara.</span>
+      <button class="btn btn-gold" id="cb-btn-comp" onclick="cbCompletar(this)" style="font-size:12px">Completar</button>
+    </div>` : ''}`;
+}
+
+async function cbCompletar(btn){
+  btn.disabled = true; btn.textContent = '⏳ Completando…';
+  try{
+    const r = await fetch('https://recalcularahora-2nssqccaxq-uc.a.run.app').then(x=>x.json());
+    toast('✅ ' + (r.recalculados||0) + ' cupones completados', 'success');
+    await initCombinadas(true);
+  }catch(e){
+    toast('No se pudo completar: ' + e.message, 'error');
+    btn.disabled = false; btn.textContent = 'Completar';
+  }
+}
+
+function cbToggle(i){
+  const f = document.getElementById('cb-det-'+i);
+  if (f) f.style.display = f.style.display === 'none' ? '' : 'none';
+}
+
+// ── ESTADO DEL APRENDIZAJE ──────────────────────────────────────────────────
+// Todo esto sale de tres documentos que escribe el cierre diario, no de
+// recorrer colecciones: abrir esta pantalla cuesta tres lecturas.
+const AP_META = 150;      // equipos con 8 partidos o más para arrancar el motor
+
+async function apRefrescar(){
+  const caja = document.getElementById('ap-panel');
+  if (!caja) return;
+  caja.innerHTML = 'Cargando…';
+  try{
+    // Los cupones se cuentan en vivo, no desde el último cierre: si no, lo que
+    // se propone hoy no aparecería hasta mañana de madrugada.
+    //
+    // Se leen los documentos en vez de usar count(): esta versión del SDK no
+    // trae esa función. Se acota a 60 días para que la consulta no crezca sin
+    // límite con los meses.
+    const desde = new Date(Date.now() - 60*864e5).toISOString().slice(0,10);
+    const [ap, cal, cap, cupSnap] = await Promise.all([
+      db.collection('trixibot_estado').doc('aprendizaje').get(),
+      db.collection('trixibot_estado').doc('calibracion').get(),
+      db.collection('trixibot_estado').doc('captador').get(),
+      db.collection('combinadas_cupones').where('fecha', '>=', desde).get()
+    ]);
+    const cupones = cupSnap.docs.map(d => d.data());
+    const nTotal    = cupones.length;
+    const nGanados  = cupones.filter(c => c.estado === 'ganado').length;
+    const nPerdidos = cupones.filter(c => c.estado === 'perdido').length;
+    const nPend     = cupones.filter(c => !c.resuelto).length;
+    const A = ap.exists ? ap.data() : null;
+    const C = cal.exists ? cal.data() : null;
+    const K = cap.exists ? cap.data() : null;
+    const hora = t => t ? new Intl.DateTimeFormat('es-CO',{timeZone:'America/Bogota',
+      dateStyle:'short', timeStyle:'short'}).format(new Date(t)) : '—';
+
+    const listos = A ? (A.equiposListos || 0) : 0;
+    const pct = Math.min(100, Math.round(listos / AP_META * 100));
+    const ok = listos >= AP_META;
+    const resueltos = nGanados + nPerdidos;
+    const cu = { propuestos: nTotal, ganados: nGanados, perdidos: nPerdidos,
+                 pendientes: nPend, acierto: resueltos ? nGanados / resueltos : null };
+
+    const tarjeta = (t, v, sub) => `<div style="background:var(--bg3);border-radius:8px;padding:11px 13px">
+      <div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">${t}</div>
+      <div style="font-size:19px;font-weight:700;color:var(--text1);margin-top:2px">${v}</div>
+      ${sub?`<div style="font-size:10px;color:var(--text2);margin-top:1px">${sub}</div>`:''}</div>`;
+
+    // Calibración: solo se muestra lo que ya tiene muestra suficiente
+    const filas = (C && C.lectura || []).map(x => `<tr>
+      <td style="padding:5px 0">${x.franja}</td>
+      <td style="text-align:right">${x.cupones}</td>
+      <td style="text-align:right">${x.esperado}%</td>
+      <td style="text-align:right;font-weight:700;color:${x.fiable?(x.real>x.esperado*1.25?'var(--green)':x.real<x.esperado*0.75?'var(--red)':'var(--text1)'):'var(--text2)'}">${x.real}%</td>
+      <td style="text-align:right;font-size:11px;color:var(--text2)">${x.sesgo}</td></tr>`).join('');
+
+    caja.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:9px;margin-bottom:14px">
+        ${tarjeta('Partidos aprendidos', ((A&&A.partidosAprendidos)||0).toLocaleString('es-CO'))}
+        ${tarjeta('Equipos con ficha', ((A&&A.equiposConFicha)||0).toLocaleString('es-CO'), ((A&&A.equiposMaduros)||0)+' con 15 o más')}
+        ${tarjeta('Cupones propuestos', cu.propuestos.toLocaleString('es-CO'), cu.pendientes+' esperando resultado')}
+        ${tarjeta('Acierto del bot', cu.acierto!=null ? (cu.acierto*100).toFixed(1)+'%' : 'sin resolver', resueltos ? cu.ganados+' de '+resueltos : 'se resuelven de madrugada')}
+      </div>
+
+      <div style="margin-bottom:6px;display:flex;justify-content:space-between;align-items:baseline">
+        <span>Avance hacia el motor</span>
+        <span style="color:${ok?'var(--green)':'var(--text2)'};font-weight:${ok?'700':'400'}">${listos} de ${AP_META} equipos con 8 partidos o más</span>
+      </div>
+      <div style="height:7px;background:var(--bg3);border-radius:4px;overflow:hidden;margin-bottom:6px">
+        <div style="height:100%;width:${pct}%;background:${ok?'var(--green)':'var(--purple)'};transition:width .4s"></div>
+      </div>
+      <div style="color:${ok?'var(--green)':'var(--text2)'};margin-bottom:16px">
+        ${ok ? '✅ Ya hay datos suficientes para que el bot use las fichas.'
+             : 'Los cupones se arman solo con las cuotas. Cuando se llene, entran las fichas de los equipos.'}
+      </div>
+
+      <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">
+        Calibración — ¿lo que el bot predijo se pareció a lo que pasó?</div>
+      ${filas ? `<table class="tbl" style="font-size:12px"><thead><tr>
+          <th>Franja</th><th style="text-align:right">Cupones</th>
+          <th style="text-align:right">Esperado</th><th style="text-align:right">Real</th><th style="text-align:right">Lectura</th>
+        </tr></thead><tbody>${filas}</tbody></table>
+        <div style="font-size:11px;color:var(--text2);margin-top:6px">
+          Hacen falta 30 cupones por franja para que el número signifique algo.</div>`
+        : '<div style="padding:8px 0">Sin cupones resueltos todavía.</div>'}
+
+      <div style="font-size:11px;color:var(--text2);margin-top:14px;border-top:1px solid var(--border);padding-top:10px">
+        Último cierre ${hora(A && A.corridoEn)} · último captador ${hora(K && K.corridoEn)}
+        ${K ? ' · ' + (K.guardados||0) + ' partidos en seguimiento' : ''}
+      </div>`;
+  }catch(e){
+    // El error se muestra, no se disfraza de cero: un panel que dice 0 cuando
+    // en realidad falló es peor que uno que dice que falló.
+    caja.innerHTML = `<span style="color:var(--red)">No se pudo leer el estado: ${e.message}</span>`;
+    console.error('estado del aprendizaje:', e);
+  }
+}
+
+// ── AVISOS DE PENDIENTES ────────────────────────────────────────────────────
+// Cuentan lo que espera aprobación y lo pintan en el menú. Se enteran solos:
+// escuchan Firestore desde que abre el administrador, sin necesidad de entrar
+// a la sección. Antes un pago quedaba días pendiente sin que nadie lo viera.
+const _avisos = {};          // sección → cuántos pendientes
+
+function avPintar(){
+  // Punto por opción del menú
+  document.querySelectorAll('.navgrp-item[data-sec]').forEach(el => {
+    const n = _avisos[el.getAttribute('data-sec')] || 0;
+    let b = el.querySelector('.nav-aviso');
+    if (n > 0){
+      if (!b){ b = document.createElement('span'); b.className = 'nav-aviso'; el.appendChild(b); }
+      b.textContent = n > 99 ? '99+' : n;
+    } else if (b) b.remove();
+  });
+  // Suma en el grupo, para verlo con el menú cerrado
+  document.querySelectorAll('.navgrp').forEach(grp => {
+    const total = [...grp.querySelectorAll('.navgrp-item[data-sec]')]
+      .reduce((s, el) => s + (_avisos[el.getAttribute('data-sec')] || 0), 0);
+    // El encabezado es el .tab hijo directo. Se busca a mano en vez de con
+    // ':scope >' para no depender de soporte del navegador.
+    const tab = [...grp.children].find(x => x.classList.contains('tab'));
+    if (!tab) return;
+    let b = tab.querySelector('.nav-aviso');
+    if (total > 0){
+      if (!b){ b = document.createElement('span'); b.className = 'nav-aviso'; tab.appendChild(b); }
+      b.textContent = total > 99 ? '99+' : total;
+    } else if (b) b.remove();
+  });
+  // Y en el título de la pestaña del navegador, para verlo sin mirar el portal
+  const total = Object.values(_avisos).reduce((a, b) => a + b, 0);
+  document.title = (total ? '(' + total + ') ' : '') + 'Administrador — AJ1.6';
+}
+
+// Cada fuente reporta su cuenta bajo una clave propia, para que dos fuentes de
+// la misma sección no se pisen (liquidaciones tiene pagos y correcciones).
+const _avisoFuentes = {};
+function avReportar(seccion, fuente, n){
+  _avisoFuentes[fuente] = { seccion, n };
+  const suma = {};
+  Object.values(_avisoFuentes).forEach(f => { suma[f.seccion] = (suma[f.seccion] || 0) + f.n; });
+  Object.keys(_avisos).forEach(k => delete _avisos[k]);
+  Object.assign(_avisos, suma);
+  avPintar();
+}
+
+function avEscuchar(){
+  const cuenta = (col, filtro, seccion, fuente) =>
+    db.collection(col).onSnapshot(
+      snap => avReportar(seccion, fuente, snap.docs.filter(d => filtro(d.data())).length),
+      e => console.warn('aviso ' + fuente + ':', e.message));
+
+  const pend = d => d.estado === 'pendiente';
+
+  // Liquidaciones: pagos que el operador registró y correcciones que pidió
+  cuenta('patriarca_liquidacion_txs',  pend, 'liquidaciones', 'liq-pagos');
+  cuenta('patriarca_liq_correcciones', pend, 'liquidaciones', 'liq-corr');
+  // Cierres de mes
+  cuenta('patriarca_cierres',          pend, 'cierres',       'cierres');
+  // Solicitudes de eliminación
+  cuenta('patriarca_ix_delete_requests',  pend, 'solicitudes', 'sol-ix');
+  cuenta('patriarca_inv_delete_requests', pend, 'solicitudes', 'sol-inv');
+  // Movimientos con eliminación pedida y todavía sin resolver
+  db.collection('patriarca_movimientos').where('solicitud_eliminar', '==', true).onSnapshot(
+    snap => avReportar('solicitudes', 'sol-mov',
+      snap.docs.filter(d => { const x = d.data(); return !x.solicitud_aprobada && !x.solicitud_rechazada; }).length),
+    e => console.warn('aviso sol-mov:', e.message));
+  // Correcciones NO lleva aviso: esa pantalla es una herramienta de renumeración,
+  // no una bandeja de aprobaciones. patriarca_variaciones es la foto que se
+  // guarda al cerrar el mes para la hoja de liquidación — un documento por
+  // operador y mes, nada que aprobar.
+}
+
+// ── SOLICITUDES DE ELIMINACIÓN ──────────────────────────────────────────────
+let _solAdminListener = null;
+let _solMovListener   = null;
+let _solInvListener   = null;
+let _solMovPendCount  = 0;
+let _solIxPendCount   = 0;
+let _solInvPendCount  = 0;
+
+function _updateSolBadge() {
+  const total = _solMovPendCount + _solIxPendCount + _solInvPendCount;
+  const tabEl = document.getElementById('tab-solicitudes');
+  const badge = document.getElementById('sol-pending-badge');
+  if (total > 0) {
+    if (tabEl && !tabEl.querySelector('.nav-aviso')) tabEl.textContent = '🗑 Solicitudes';
+    if (badge) { badge.textContent = `${total} pendiente${total > 1 ? 's' : ''}`; badge.style.display = ''; }
+  } else {
+    if (tabEl && !tabEl.querySelector('.nav-aviso')) tabEl.textContent = '🗑 Solicitudes';
+    if (badge) badge.style.display = 'none';
+  }
+  // Actualizar badges individuales
+  const movBadge = document.getElementById('sol-mov-badge');
+  if (movBadge) {
+    if (_solMovPendCount > 0) {
+      movBadge.textContent = `${_solMovPendCount} pendiente${_solMovPendCount > 1 ? 's' : ''}`;
+      movBadge.style.display = '';
+    } else {
+      movBadge.style.display = 'none';
+    }
+  }
+  const ixBadge = document.getElementById('sol-ix-badge');
+  if (ixBadge) {
+    if (_solIxPendCount > 0) {
+      ixBadge.textContent = `${_solIxPendCount} pendiente${_solIxPendCount > 1 ? 's' : ''}`;
+      ixBadge.style.display = '';
+    } else {
+      ixBadge.style.display = 'none';
+    }
+  }
+  const invBadge = document.getElementById('sol-inv-badge');
+  if (invBadge) {
+    if (_solInvPendCount > 0) {
+      invBadge.textContent = `${_solInvPendCount} pendiente${_solInvPendCount > 1 ? 's' : ''}`;
+      invBadge.style.display = '';
+    } else {
+      invBadge.style.display = 'none';
+    }
+  }
+  _syncGrpBadge();
+}
+
+function initSolicitudes() {
+  // ── Listener movimientos con solicitud_eliminar = true ──
+  if (!_solMovListener) {
+    const movList = document.getElementById('sol-mov-list');
+    const fmtM  = n => '$' + Math.round(n||0).toLocaleString('es-CO');
+    const fmtTs = ts => ts?.toDate ? ts.toDate().toLocaleString('es-CO',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
+    _solMovListener = db.collection('patriarca_movimientos')
+      .where('solicitud_eliminar', '==', true)
+      .onSnapshot(snap => {
+        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+          .sort((a,b) => {
+            const ta = a.solicitud_eliminar_ts?.seconds || 0;
+            const tb = b.solicitud_eliminar_ts?.seconds || 0;
+            return tb - ta;
+          });
+        _solMovPendCount = docs.filter(d => !d.solicitud_aprobada && !d.solicitud_rechazada).length;
+        _updateSolBadge();
+        if (!docs.length) {
+          movList.innerHTML = '<div style="text-align:center;color:var(--text2);padding:20px;font-size:12px">Sin solicitudes de movimientos</div>';
+          return;
+        }
+        movList.innerHTML = docs.map(r => {
+          const pendiente = !r.solicitud_aprobada && !r.solicitud_rechazada;
+          const estadoHtml = r.solicitud_rechazada
+            ? '<span style="background:rgba(224,80,80,.12);color:#e05050;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">❌ RECHAZADO</span>'
+            : pendiente
+              ? '<span style="background:rgba(251,191,36,.15);color:#fbbf24;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">⏳ PENDIENTE</span>'
+              : '<span style="background:rgba(36,191,98,.12);color:#24BF62;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">✅ ELIMINADO</span>';
+          return `
+          <div style="border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px;background:var(--bg3);${pendiente?'border-color:rgba(220,38,38,.4)':'opacity:.6'}">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+              <div style="flex:1">
+                <div style="font-size:13px;font-weight:700;margin-bottom:6px">
+                  Movimiento <b>${r.op_id||r.id.slice(-6)}</b> &nbsp;${estadoHtml}
+                </div>
+                <div style="font-size:12px;color:var(--text2);margin-bottom:3px">
+                  📅 ${r.fecha||'—'} &nbsp;·&nbsp; 💰 ${fmtM(r.monto)}
+                  &nbsp;·&nbsp; <b>${r.cliente||'—'}</b>
+                  &nbsp;·&nbsp; ${r.casa||'—'} &nbsp;·&nbsp; ${r.metodo||'—'} &nbsp;·&nbsp; ${r.tipo||'—'}
+                </div>
+                <div style="font-size:12px;color:var(--text2)">
+                  👤 Solicitado por <b style="color:var(--text)">${r.solicitud_eliminar_op||'—'}</b>
+                  &nbsp;·&nbsp; ${fmtTs(r.solicitud_eliminar_ts)}
+                </div>
+                ${r.solicitud_eliminar_motivo ? `
+                <div style="margin-top:6px;font-size:12px;color:var(--text2)">
+                  <span style="color:var(--text);font-weight:600">Motivo:</span> ${r.solicitud_eliminar_motivo}
+                </div>` : ''}
+                ${r.eliminado && r.eliminado_por ? `
+                <div style="margin-top:4px;font-size:11px;color:var(--green)">
+                  ✅ Eliminado por <b>${r.eliminado_por}</b> · ${fmtTs(r.eliminado_ts)}
+                </div>` : ''}
+              </div>
+              ${pendiente ? `
+              <div style="display:flex;flex-direction:column;gap:8px;flex-shrink:0">
+                <button onclick="aprobarElimMovAdmin('${r.id}')"
+                  style="padding:8px 16px;border-radius:8px;border:none;background:#dc2626;color:#fff;font-size:12px;font-weight:700;cursor:pointer">
+                  ✅ Confirmar y Eliminar
+                </button>
+                <button onclick="rechazarElimMovAdmin('${r.id}')"
+                  style="padding:8px 16px;border-radius:8px;border:1px solid rgba(220,38,38,.4);background:transparent;color:#e05050;font-size:12px;font-weight:700;cursor:pointer">
+                  ❌ Rechazar
+                </button>
+              </div>` : ''}
+            </div>
+          </div>`;
+        }).join('');
+      }, err => {
+        movList.innerHTML = `<div style="color:#e05050;padding:16px">Error: ${err.message}</div>`;
+      });
+  }
+
+  if (_solAdminListener) return;
+  const list  = document.getElementById('sol-ix-list');
+  const tabEl = document.getElementById('tab-solicitudes');
+
+  _solAdminListener = db.collection('patriarca_ix_delete_requests')
+    .orderBy('ts', 'desc')
+    .onSnapshot(snap => {
+      const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const pending = docs.filter(d => d.estado === 'pendiente');
+      _solIxPendCount = pending.length;
+      _updateSolBadge();
+
+      if (!docs.length) {
+        list.innerHTML = '<div style="text-align:center;color:var(--text2);padding:32px">Sin solicitudes registradas</div>';
+        return;
+      }
+
+      const fmtM = n => '$' + Math.round(n||0).toLocaleString('es-CO');
+      const fmtTs = ts => ts?.toDate ? ts.toDate().toLocaleString('es-CO',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
+      const estadoBadge = e => ({
+        pendiente: '<span style="background:rgba(251,191,36,.15);color:#fbbf24;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">⏳ PENDIENTE</span>',
+        aprobado:  '<span style="background:rgba(36,191,98,.12);color:#24BF62;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">✅ APROBADO</span>',
+        rechazado: '<span style="background:rgba(224,80,80,.12);color:#e05050;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">❌ RECHAZADO</span>',
+      }[e] || e);
+
+      list.innerHTML = docs.map(r => {
+        // Soporte para solicitudes del cajero (op1_doc_id/op2_doc_id) y del operador (docId)
+        const quienSolicito = r.solicitante === 'cajero' ? '🔐 Cajero' : `👤 ${r.solicitante_nombre||'Operador'}`;
+        const op1Label = r.op1_nombre || '—';
+        const op2Label = r.op2_nombre || (r.operador2 || '—');
+        const egresa   = r.op1_egresa  || r.caja_egresa  || '—';
+        const ingresa  = r.op1_ingresa || r.caja_ingresa || '—';
+        return `
+        <div style="border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px;background:var(--bg3);${r.estado==='pendiente'?'border-color:rgba(220,38,38,.4)':'opacity:.6'}">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+            <div style="flex:1">
+              <div style="font-size:13px;font-weight:700;margin-bottom:6px">
+                Intercambio <b>${r.ix_id || r.docId || r.globalId?.slice(0,8)||'—'}</b> &nbsp;${estadoBadge(r.estado)}
+              </div>
+              <div style="font-size:12px;color:var(--text2);margin-bottom:3px">
+                📅 ${r.fecha||'—'} &nbsp;·&nbsp; 💰 ${fmtM(r.monto)}
+                &nbsp;·&nbsp; <span style="color:#e05050">${egresa}</span> → <span style="color:#24BF62">${ingresa}</span>
+              </div>
+              <div style="font-size:12px;color:var(--text2);margin-bottom:4px">
+                OP1: <b>${op1Label}</b> &nbsp;·&nbsp; OP2: <b>${op2Label}</b>
+              </div>
+              <div style="font-size:12px;color:var(--text2);margin-bottom:8px">
+                Solicitado por <b style="color:var(--text)">${quienSolicito}</b> · ${fmtTs(r.ts)}
+              </div>
+              <div style="background:var(--bg2);border-radius:6px;padding:8px 12px;font-size:12px">
+                <b style="color:var(--text2)">Motivo:</b> ${r.motivo||'—'}
+              </div>
+            </div>
+            ${r.estado === 'pendiente' ? `
+            <div style="display:flex;flex-direction:column;gap:8px;flex-shrink:0">
+              <button onclick="aprobarElimAdmin('${r.id}','${r.docId||''}','${r.globalId||''}','${r.op1_doc_id||''}','${r.op2_doc_id||''}')"
+                style="padding:8px 16px;border-radius:8px;border:none;background:#dc2626;color:#fff;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">
+                ✅ Confirmar y Eliminar
+              </button>
+              <button onclick="rechazarElimAdmin('${r.id}')"
+                style="padding:8px 16px;border-radius:8px;border:1px solid rgba(220,38,38,.4);background:transparent;color:#e05050;font-size:12px;font-weight:700;cursor:pointer">
+                ❌ Rechazar
+              </button>
+            </div>` : ''}
+          </div>
+        </div>`;
+      }).join('');
+    }, err => {
+      list.innerHTML = `<div style="color:#e05050;padding:16px">Error: ${err.message}</div>`;
+    });
+
+  // ── Listener inversiones ──
+  if (!_solInvListener) {
+    const invList = document.getElementById('sol-inv-list');
+    const fmtM   = n => '$' + Math.round(n||0).toLocaleString('es-CO');
+    const fmtTs2 = ts => ts?.toDate ? ts.toDate().toLocaleString('es-CO',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
+    const estadoBadge2 = e => ({
+      pendiente: '<span style="background:rgba(251,191,36,.15);color:#fbbf24;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">⏳ PENDIENTE</span>',
+      aprobado:  '<span style="background:rgba(36,191,98,.12);color:#24BF62;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">✅ APROBADO</span>',
+      rechazado: '<span style="background:rgba(224,80,80,.12);color:#e05050;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">❌ RECHAZADO</span>',
+    }[e] || e);
+
+    _solInvListener = db.collection('patriarca_inv_delete_requests')
+      .orderBy('ts', 'desc')
+      .onSnapshot(snap => {
+        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        _solInvPendCount = docs.filter(d => d.estado === 'pendiente').length;
+        _updateSolBadge();
+        if (!docs.length) {
+          invList.innerHTML = '<div style="text-align:center;color:var(--text2);padding:20px;font-size:12px">Sin solicitudes de apuestas</div>';
+          return;
+        }
+        invList.innerHTML = docs.map(r => `
+          <div style="border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px;background:var(--bg3);${r.estado==='pendiente'?'border-color:rgba(220,38,38,.4)':'opacity:.6'}">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+              <div style="flex:1">
+                <div style="font-size:13px;font-weight:700;margin-bottom:6px">
+                  Apuesta <b>Ap# ${r.ap_num||'—'}</b> &nbsp;${estadoBadge2(r.estado)}
+                </div>
+                <div style="font-size:12px;color:var(--text2);margin-bottom:3px">
+                  📅 ${r.fecha||'—'} &nbsp;·&nbsp; 💰 ${fmtM(r.monto)}
+                  &nbsp;·&nbsp; 👤 <b>${r.cliente||'—'}</b>
+                  &nbsp;·&nbsp; 🏠 ${r.casa||'—'}
+                </div>
+                <div style="font-size:12px;color:var(--text2);margin-bottom:3px">
+                  🎯 ${r.evento||'—'} &nbsp;·&nbsp; 📦 ${r.fondos||'—'} &nbsp;·&nbsp; Estado: <b>${r.estado_ap||'—'}</b>
+                </div>
+                <div style="font-size:12px;color:var(--text2);margin-bottom:8px">
+                  👤 Solicitado por <b style="color:var(--text)">${r.solicitante_nombre||'—'}</b> · ${fmtTs2(r.ts)}
+                </div>
+                <div style="background:var(--bg2);border-radius:6px;padding:8px 12px;font-size:12px">
+                  <b style="color:var(--text2)">Motivo:</b> ${r.motivo||'—'}
+                </div>
+                ${r.estado==='aprobado' ? `<div style="margin-top:6px;font-size:11px;color:var(--green)">✅ Aprobado y eliminado · ${fmtTs2(r.aprobado_ts)}</div>` : ''}
+                ${r.estado==='rechazado' ? `<div style="margin-top:6px;font-size:11px;color:var(--red)">❌ Rechazado · ${fmtTs2(r.rechazado_ts)}</div>` : ''}
+              </div>
+              ${r.estado === 'pendiente' ? `
+              <div style="display:flex;flex-direction:column;gap:8px;flex-shrink:0">
+                <button onclick="aprobarElimInvAdmin('${r.id}','${r.invId}')"
+                  style="padding:8px 16px;border-radius:8px;border:none;background:#dc2626;color:#fff;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">
+                  ✅ Confirmar y Eliminar
+                </button>
+                <button onclick="rechazarElimInvAdmin('${r.id}')"
+                  style="padding:8px 16px;border-radius:8px;border:1px solid rgba(220,38,38,.4);background:transparent;color:#e05050;font-size:12px;font-weight:700;cursor:pointer">
+                  ❌ Rechazar
+                </button>
+              </div>` : ''}
+            </div>
+          </div>`).join('');
+      }, err => {
+        invList.innerHTML = `<div style="color:#e05050;padding:16px">Error: ${err.message}</div>`;
+      });
+  }
+}
+
+async function aprobarElimAdmin(requestId, docId, globalId, op1DocId, op2DocId) {
+  if (!confirm('¿Confirmar eliminación?\n\nSe borrará el intercambio de ambos operadores y el registro global.')) return;
+  try {
+    const batch = db.batch();
+    // Intercambio del operador solicitante (solicitudes desde operador)
+    if (docId)     batch.delete(db.collection('patriarca_intercambios').doc(docId));
+    // Registros op1 y op2 (solicitudes desde cajero)
+    if (op1DocId)  batch.delete(db.collection('patriarca_intercambios').doc(op1DocId));
+    if (op2DocId)  batch.delete(db.collection('patriarca_intercambios').doc(op2DocId));
+    // Registro global
+    if (globalId)  batch.delete(db.collection('patriarca_ix_global').doc(globalId));
+    // Notificaciones entrantes pendientes
+    if (globalId) {
+      const incSnap = await db.collection('patriarca_ix_incoming')
+        .where('global_id', '==', globalId).get();
+      incSnap.docs.forEach(d => batch.delete(d.ref));
+    }
+    batch.update(db.collection('patriarca_ix_delete_requests').doc(requestId), {
+      estado: 'aprobado',
+      aprobado_ts: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    await batch.commit();
+    toast('✅ Intercambio eliminado correctamente', 'success');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+async function rechazarElimAdmin(requestId) {
+  if (!confirm('¿Rechazar esta solicitud?')) return;
+  try {
+    await db.collection('patriarca_ix_delete_requests').doc(requestId).update({
+      estado: 'rechazado',
+      rechazado_ts: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    toast('Solicitud rechazada', 'info');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+async function aprobarElimInvAdmin(requestId, invId) {
+  if (!confirm('¿Confirmar eliminación de la apuesta?\n\nEsta acción no se puede deshacer.')) return;
+  try {
+    const batch = db.batch();
+    // Inversiones están en patriarca_inversiones/{invId}
+    batch.delete(db.collection('patriarca_inversiones').doc(invId));
+    batch.update(db.collection('patriarca_inv_delete_requests').doc(requestId), {
+      estado: 'aprobado',
+      aprobado_por: auth.currentUser?.email || 'admin',
+      aprobado_ts: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    await batch.commit();
+    toast('✅ Apuesta eliminada correctamente', 'success');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+async function rechazarElimInvAdmin(requestId) {
+  if (!confirm('¿Rechazar esta solicitud? La apuesta permanecerá activa.')) return;
+  try {
+    await db.collection('patriarca_inv_delete_requests').doc(requestId).update({
+      estado: 'rechazado',
+      rechazado_por: auth.currentUser?.email || 'admin',
+      rechazado_ts: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    toast('Solicitud rechazada — la apuesta permanece', 'info');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+async function aprobarElimMovAdmin(movId) {
+  if (!confirm('¿Confirmar eliminación del movimiento?\n\nEl movimiento quedará marcado como eliminado (con registro de auditoría).')) return;
+  try {
+    await db.collection('patriarca_movimientos').doc(movId).update({
+      eliminado:           true,
+      solicitud_aprobada:  true,
+      eliminado_por:       auth.currentUser?.email || 'admin',
+      eliminado_ts:        firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    toast('✅ Movimiento eliminado — queda registro de auditoría', 'success');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+async function rechazarElimMovAdmin(movId) {
+  if (!confirm('¿Rechazar la solicitud? El movimiento quedará activo.')) return;
+  try {
+    await db.collection('patriarca_movimientos').doc(movId).update({
+      solicitud_eliminar: false,
+      solicitud_rechazada: true,
+      solicitud_rechazada_ts: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    toast('Solicitud rechazada — movimiento conservado', 'info');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+// ── CIERRES DE CAJERO ───────────────────────────────────────────────────────
+let _cierresCajListener = null;
+
+function initCierresCajero() {
+  if (_cierresCajListener) return;
+  const list = document.getElementById('cierres-caj-list');
+
+  _cierresCajListener = db.collection('cajero_cierres')
+    .orderBy('ts', 'desc')
+    .onSnapshot(snap => {
+      const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      if (!docs.length) {
+        list.innerHTML = '<div style="text-align:center;color:var(--text2);padding:20px">Sin cierres de cajero</div>';
+        return;
+      }
+      const pesoF = v => '$' + Math.round(v||0).toLocaleString('es-CO');
+
+      list.innerHTML = docs.map(c => {
+        const pend = c.estado === 'pendiente';
+        const badge = pend
+          ? '<span class="badge" style="background:rgba(251,191,36,.15);color:#fbbf24">⏳ Pendiente</span>'
+          : c.estado === 'aceptado'
+            ? '<span class="badge badge-green">✅ Aceptado</span>'
+            : '<span class="badge badge-red">❌ Rechazado</span>';
+
+        const difs = Object.entries(c.diferencias || {});
+        const difHtml = difs.length
+          ? `<div style="margin-top:8px;font-size:11px;color:var(--orange)">⚠ Descuadres: ${
+              difs.map(([m,v]) => `${m} ${v>0?'+':''}${pesoF(v)}`).join(' · ')}</div>`
+          : '';
+
+        const saldos = Object.entries(c.saldos || {}).filter(([,v]) => v);
+        const saldosHtml = saldos.map(([m,v]) =>
+          `<div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0">
+             <span style="color:var(--text2)">${m}</span><span style="font-weight:600">${pesoF(v)}</span>
+           </div>`).join('');
+
+        return `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+            <div>
+              <div style="font-weight:700">${c.oficina || '—'} · ${c.mes}</div>
+              <div style="font-size:11px;color:var(--text2)">${c.cajeroNombre || ''} → carga en <strong style="color:var(--gold)">${c.mesSiguiente}</strong></div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <span style="font-weight:800;color:var(--green)">${pesoF(c.totalSistema)}</span>
+              ${badge}
+            </div>
+          </div>
+          <details style="margin-top:6px">
+            <summary style="cursor:pointer;font-size:11px;color:var(--text2)">Ver saldos por método (${saldos.length})</summary>
+            <div style="margin-top:8px;padding:8px;background:var(--bg);border-radius:6px">${saldosHtml}</div>
+          </details>
+          ${difHtml}
+          ${pend ? `<div style="display:flex;gap:8px;margin-top:12px">
+            <button class="btn btn-purple btn-sm" onclick="aceptarCierreCajero('${c.id}')">✅ Aceptar</button>
+            <button class="btn btn-ghost btn-sm" onclick="rechazarCierreCajero('${c.id}')">❌ Rechazar</button>
+          </div>` : c.estado === 'aceptado' ? `<div style="margin-top:12px">
+            <button class="btn btn-ghost btn-sm" onclick="aceptarCierreCajero('${c.id}')" title="Vuelve a escribir los saldos en la Caja General">🔄 Volver a aplicar</button>
+          </div>` : ''}
+        </div>`;
+      }).join('');
+    }, e => {
+      console.warn('cierres cajero:', e);
+      list.innerHTML = '<div style="text-align:center;color:var(--red);padding:20px">⚠ Error al cargar</div>';
+    });
+}
+
+async function aceptarCierreCajero(id) {
+  const snap = await db.collection('cajero_cierres').doc(id).get();
+  if (!snap.exists) { toast('⚠ Cierre no encontrado', 'error'); return; }
+  const d = snap.data();
+  if (!d.mesSiguiente) { toast('⚠ Sin mes siguiente definido', 'error'); return; }
+
+  if (!confirm(
+    `¿Aceptar el cierre de ${d.oficina || 'la oficina'} para ${d.mes}?\n\n` +
+    `✦ Los saldos se cargarán como Caja General de ${d.mesSiguiente}\n` +
+    `✦ Podrás editarlos después en Cupo Inicial si algo quedó mal`
+  )) return;
+
+  try {
+    // Objeto anidado + merge → conserva los demás meses.
+    // (con set() una llave "cupo_por_mes.2026-08" se guardaría literal, no como ruta)
+    await db.collection('cajero_config').doc('main').set({
+      cupo_por_mes: { [d.mesSiguiente]: d.saldos || {} }
+    }, { merge: true });
+
+    // Limpiar el campo basura que dejó la versión anterior: un campo de primer nivel
+    // llamado literalmente "cupo_por_mes.2026-08". FieldPath evita interpretar el punto.
+    try {
+      await db.collection('cajero_config').doc('main').update(
+        new firebase.firestore.FieldPath(`cupo_por_mes.${d.mesSiguiente}`),
+        firebase.firestore.FieldValue.delete()
+      );
+    } catch(e) { /* no existía, todo bien */ }
+
+    await db.collection('cajero_cierres').doc(id).update({
+      estado:      'aceptado',
+      aceptadoPor: auth.currentUser?.email || 'admin',
+      aceptadoTs:  firebase.firestore.FieldValue.serverTimestamp()
+    });
+    toast(`✅ Caja General cargada en ${d.mesSiguiente}`, 'success');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+async function rechazarCierreCajero(id) {
+  const nota = prompt('Motivo del rechazo (opcional):') ?? null;
+  if (nota === null) return;
+  try {
+    await db.collection('cajero_cierres').doc(id).update({
+      estado:       'rechazado',
+      nota,
+      rechazadoPor: auth.currentUser?.email || 'admin',
+      rechazadoTs:  firebase.firestore.FieldValue.serverTimestamp()
+    });
+    toast('Cierre rechazado', 'info');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+// Cache de nombres de clientes por operador — para reconstruir el desglose del cierre
+const _cacheNomClientes = {};
+async function _nombresClientes(opId) {
+  if (!opId) return {};
+  if (_cacheNomClientes[opId]) return _cacheNomClientes[opId];
+  const map = { '_externo_': 'Externo' };
+  try {
+    const snap = await db.collection('patriarca_clientes').where('opId', '==', opId).get();
+    snap.docs.forEach(d => {
+      const c = d.data();
+      map[d.id] = c.nombre_completo || c.nombre || d.id;
+    });
+  } catch(e) { console.warn('nombres clientes:', e); }
+  _cacheNomClientes[opId] = map;
+  return map;
+}
+
+// ── CIERRES DE MES ──────────────────────────────────────────────────────────
+let _cierresListener = null;
+
+function initCierres() {
+  initCierresCajero();
+  if (_cierresListener) return;
+  const list  = document.getElementById('cierres-list');
+  const badge = document.getElementById('cierres-pending-badge');
+  const tabEl = document.getElementById('tab-cierres');
+
+  _cierresListener = db.collection('patriarca_cierres')
+    .orderBy('ts', 'desc')
+    .onSnapshot(async snap => {
+      const docs    = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const pending = docs.filter(d => d.estado === 'pendiente');
+
+      // Reconstruir el desglose de clientes desde saldosClientes (incluye negativos).
+      // No depende de capitalActivoClientes, que en versiones viejas filtraba los negativos.
+      for (const r of docs) {
+        if (!r.saldosClientes) continue;
+        const nombres = await _nombresClientes(r.operadorId);
+        const arr = [];
+        Object.entries(r.saldosClientes).forEach(([cid, casaMap]) => {
+          const nombre = nombres[cid] || (cid === '_externo_' ? 'Externo' : cid);
+          Object.entries(casaMap || {}).forEach(([casa, saldo]) => {
+            const s = Math.round(saldo || 0);
+            if (s !== 0) arr.push({ nombre, casa, saldo: s });
+          });
+        });
+        if (arr.length) { arr.sort((a,b) => b.saldo - a.saldo); r.capitalActivoClientes = arr; }
+      }
+
+      if (pending.length) {
+        if (!tabEl.querySelector('.nav-aviso')) tabEl.textContent = '📅 Cierres';
+        badge.textContent  = `${pending.length} pendiente${pending.length > 1 ? 's' : ''}`;
+        badge.style.display = '';
+      } else {
+        if (!tabEl.querySelector('.nav-aviso')) tabEl.textContent = '📅 Cierres';
+        badge.style.display = 'none';
+      }
+      _syncGrpBadge();
+
+      if (!docs.length) {
+        list.innerHTML = '<div style="text-align:center;color:var(--text2);padding:32px">Sin solicitudes de cierre registradas</div>';
+        return;
+      }
+
+      const fmtM  = n => '$' + Math.round(n || 0).toLocaleString('es-CO');
+      const fmtTs = ts => ts?.toDate
+        ? ts.toDate().toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+        : '—';
+      const estadoBadge = e => ({
+        pendiente: '<span style="background:rgba(251,191,36,.15);color:#fbbf24;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">⏳ PENDIENTE</span>',
+        aceptado:  '<span style="background:rgba(36,191,98,.12);color:#24BF62;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">✅ ACEPTADO</span>',
+        rechazado: '<span style="background:rgba(224,80,80,.12);color:#e05050;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">❌ RECHAZADO</span>',
+      }[e] || e);
+
+      list.innerHTML = docs.map(r => {
+        const gan = r.ganancia || {};
+        const totMet = Object.values(r.saldosMetodos || {}).reduce((s, v) => s + (v || 0), 0);
+
+        // Desglose métodos
+        const metRows = Object.entries(r.saldosMetodos || {})
+          .filter(([, v]) => v !== 0)
+          .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+          .map(([m, v]) =>
+            `<div style="display:flex;justify-content:space-between;padding:2px 0">
+              <span style="color:var(--text2)">${m}</span>
+              <span style="color:${v >= 0 ? '#24BF62' : '#e05050'};font-weight:600">${fmtM(v)}</span>
+            </div>`
+          ).join('');
+
+        // Capital activo de clientes: array pre-computado desde el operador con nombres reales
+        const capActivo = r.capitalActivoClientes || [];
+        // Agrupar por cliente para mostrar subtotal por cliente + desglose casas
+        const capByCliente = {};
+        capActivo.forEach(({ nombre, casa, saldo }) => {
+          if (!capByCliente[nombre]) capByCliente[nombre] = { total: 0, casas: [] };
+          capByCliente[nombre].total += saldo;
+          capByCliente[nombre].casas.push({ casa, saldo });
+        });
+        const capTotalClientes = Object.values(capByCliente).reduce((s, c) => s + c.total, 0);
+        const clientRows = Object.entries(capByCliente)
+          .sort((a, b) => b[1].total - a[1].total)
+          .map(([nombre, { total, casas }]) => {
+            const casaStr = casas
+              .filter(c => c.saldo !== 0)
+              .sort((a, b) => b.saldo - a.saldo)
+              .map(c => `<span style="color:${c.saldo < 0 ? '#e05050' : 'var(--text2)'};font-size:10px">${c.casa}: ${fmtM(c.saldo)}</span>`)
+              .join('&nbsp;·&nbsp;');
+            return `<div style="display:flex;justify-content:space-between;align-items:flex-start;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.05)">
+              <div>
+                <span style="font-weight:600;font-size:11px">${nombre}</span>
+                ${casaStr ? `<div style="margin-top:2px">${casaStr}</div>` : ''}
+              </div>
+              <span style="color:${total < 0 ? '#e05050' : '#24BF62'};font-weight:700;margin-left:12px;white-space:nowrap">${fmtM(total)}</span>
+            </div>`;
+          }).join('') + (capActivo.length ? `
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0 2px;margin-top:4px;border-top:1px solid rgba(255,255,255,.15)">
+            <span style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Total Clientes</span>
+            <span style="font-size:13px;font-weight:800;color:${capTotalClientes < 0 ? '#e05050' : '#24BF62'}">${fmtM(capTotalClientes)}</span>
+          </div>` : '');
+
+        return `
+        <div style="border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:14px;background:var(--bg3);${r.estado === 'pendiente' ? 'border-color:rgba(251,191,36,.4)' : 'opacity:.7'}">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
+            <div style="flex:1;min-width:260px">
+              <div style="font-size:13px;font-weight:700;margin-bottom:8px">
+                👤 ${r.operadorNombre || '—'} &nbsp;${estadoBadge(r.estado)}
+              </div>
+              <div style="font-size:12px;color:var(--text2);margin-bottom:10px">
+                📅 Mes: <b style="color:var(--text)">${r.mes || '—'}</b>
+                &nbsp;→&nbsp; <b style="color:var(--gold)">${r.mesSiguiente || '—'}</b>
+                &nbsp;·&nbsp; ${fmtTs(r.ts)}
+              </div>
+
+              <!-- Resumen financiero -->
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
+                <div style="background:var(--bg2);border-radius:6px;padding:8px 10px;text-align:center">
+                  <div style="font-size:10px;color:var(--text2);margin-bottom:2px">Saldo Clientes</div>
+                  <div style="font-size:13px;font-weight:700;color:var(--green)">${fmtM(r.totalClientes)}</div>
+                </div>
+                <div style="background:var(--bg2);border-radius:6px;padding:8px 10px;text-align:center">
+                  <div style="font-size:10px;color:var(--text2);margin-bottom:2px">Saldo Métodos</div>
+                  <div style="font-size:13px;font-weight:700;color:${totMet >= 0 ? 'var(--green)' : 'var(--red)'}">${fmtM(totMet)}</div>
+                </div>
+                <div style="background:var(--bg2);border-radius:6px;padding:8px 10px;text-align:center">
+                  <div style="font-size:10px;color:var(--text2);margin-bottom:2px">Ganancia Neta</div>
+                  <div style="font-size:13px;font-weight:700;color:var(--gold)">${fmtM(gan.total)}</div>
+                </div>
+              </div>
+
+              <!-- Detalle métodos -->
+              <details style="font-size:11px;margin-bottom:6px">
+                <summary style="cursor:pointer;color:var(--text2);margin-bottom:6px">Ver saldos por método →</summary>
+                <div style="background:var(--bg2);border-radius:6px;padding:8px 12px">${metRows || '<span style="color:var(--text2)">Sin datos</span>'}</div>
+              </details>
+              <!-- Capital activo de clientes -->
+              <details style="font-size:11px;margin-bottom:6px">
+                <summary style="cursor:pointer;color:#93c5fd;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center">
+                  <span>💰 Saldo de clientes por casa →</span>
+                  ${capActivo.length ? `<span style="color:${capTotalClientes < 0 ? '#e05050' : '#24BF62'};font-weight:700;font-size:12px">${fmtM(capTotalClientes)}</span>` : ''}
+                </summary>
+                <div style="background:var(--bg2);border-radius:6px;padding:8px 12px">
+                  ${clientRows || '<span style="color:var(--text2)">Sin clientes con saldo activo</span>'}
+                </div>
+              </details>
+              <details style="font-size:11px">
+                <summary style="cursor:pointer;color:var(--text2);margin-bottom:6px">Ver detalle ganancia →</summary>
+                <div style="background:var(--bg2);border-radius:6px;padding:8px 12px">
+                  <div style="display:flex;justify-content:space-between;padding:2px 0"><span style="color:var(--text2)">Utilidad inversiones</span><span>${fmtM(gan.utilidad)}</span></div>
+                  <div style="display:flex;justify-content:space-between;padding:2px 0"><span style="color:var(--text2)">Gastos</span><span style="color:var(--red)">−${fmtM(gan.gastos)}</span></div>
+                  <div style="display:flex;justify-content:space-between;padding:2px 0"><span style="color:var(--text2)">Comisiones</span><span style="color:var(--orange)">+${fmtM(gan.totalComisiones)}</span></div>
+                  <div style="display:flex;justify-content:space-between;padding:4px 0;border-top:1px solid var(--border);margin-top:4px;font-weight:700"><span>Total</span><span style="color:var(--gold)">${fmtM(gan.total)}</span></div>
+                </div>
+              </details>
+              ${r.estado === 'aceptado' ? `<div style="font-size:11px;color:var(--text2);margin-top:8px">✅ Aceptado por ${r.aceptadoPor || '—'}</div>` : ''}
+              ${r.estado === 'rechazado' ? `<div style="font-size:11px;color:var(--red);margin-top:8px">❌ Rechazado · ${r.motivoRechazo || ''}</div>` : ''}
+            </div>
+            ${r.estado === 'pendiente' ? `
+            <div style="display:flex;flex-direction:column;gap:8px;flex-shrink:0">
+              <button onclick="aceptarCierre('${r.id}')"
+                style="padding:10px 18px;border-radius:8px;border:none;background:#16a34a;color:#fff;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">
+                ✅ Aceptar Cierre
+              </button>
+              <button onclick="rechazarCierre('${r.id}')"
+                style="padding:10px 18px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text2);font-size:12px;font-weight:700;cursor:pointer">
+                ❌ Rechazar
+              </button>
+            </div>` : ''}
+          </div>
+        </div>`;
+      }).join('');
+    }, err => {
+      list.innerHTML = `<div style="color:#e05050;padding:16px">Error: ${err.message}</div>`;
+    });
+}
+
+// Entregas de liquidación del mes anterior, agrupadas por método.
+// El operador entrega efectivo de su caja y entra a la caja del corresponsal;
+// ese traslado ya tiene su propio asiento (patriarca_liquidacion_txs.opContable).
+// Aquí solo se usa para ajustar el cupo inicial del cierre y no duplicar la salida.
+async function _entregasLiquidacion(operadorId, mesKey) {
+  const out = {};
+  try {
+    const [y, m] = (mesKey || '').split('-').map(Number);
+    if (!y || !m) return out;
+    const prevKey = (m===1 ? (y-1)+'-12' : y+'-'+String(m-1).padStart(2,'0'));
+    const snap = await db.collection('patriarca_liquidacion_txs')
+      .where('operadorId','==',operadorId).where('mesKey','==',prevKey)
+      .where('tipo','==','saldo').where('estado','==','aprobado').get();
+    snap.docs.forEach(d => {
+      const t = d.data();
+      const met = (t.metodo || '').trim().toUpperCase();
+      if (!met) return;
+      out[met] = (out[met] || 0) + (parseFloat(t.monto) || 0);
+    });
+  } catch(e) { console.warn('_entregasLiquidacion:', e); }
+  return out;
+}
+
+// Mapeo nombre de método en el ESF → clave usada en cupos_por_mes
+const _ESF_A_CUPO = {
+  'EFECTIVO OPERADOR':'EFECTIVO OPERADOR','BE MOVIL CAJA':'BE MOVIL CAJA','CUENTA BANCARIA':'CUENTA BANCARIA',
+  'MEGA RED':'MEGA RED','WPLAY UNITY':'WPLAY UNITY','SUPER GIROS UNITY':'SUPER GIROS UNITY',
+  'EFECTY 1 DE MAYO':'EFECTY 1 DE MAYO','SUPER GIROS MAQUINA':'SUPER GIROS MAQUINA',
+  'CORRESPONSAL EL PARAMO':'CORRESPONSAL EL PARAMO','EASY CHANGER':'EASY CHANGER',
+  'PTM PROPIO':'PTM PROPIO','BE MOVIL MASTER':'BE MOVIL MASTER','PUNTO RED UNITY':'PUNTO RED UNITY','BET RED':'BET RED',
+};
+
+// Arma el saldo inicial del mes siguiente a partir del ESF del mes cerrado.
+// El ESF es la única fuente confiable: siempre descuenta la liquidación pagada.
+async function _saldosParaMesSiguiente(data) {
+  const M = {enero:1,febrero:2,marzo:3,abril:4,mayo:5,junio:6,julio:7,agosto:8,septiembre:9,octubre:10,noviembre:11,diciembre:12};
+  const p = (data.mes||'').trim().toLowerCase().split(/\s+/);
+  const mesKey = (M[p[0]] && parseInt(p[1])) ? `${parseInt(p[1])}-${String(M[p[0]]).padStart(2,'0')}` : null;
+
+  let cajas = [], totalClientes = null;
+  if (mesKey) {
+    let snap = await db.collection('patriarca_esf_resumen').doc(`${data.operadorId}_${mesKey}`).get();
+    if (!snap.exists) {
+      const alt = await db.collection('patriarca_esf_resumen').doc(data.operadorId).get();
+      if (alt.exists && alt.data().mesKey === mesKey) snap = alt;
+    }
+    if (snap.exists) {
+      cajas = snap.data().cajas || [];
+      totalClientes = snap.data().totalClientes;
+    }
+  }
+
+  const out = {};
+  if (cajas.length) {
+    cajas.forEach(c => {
+      const k = _ESF_A_CUPO[(c.metodo||'').toUpperCase()] || (c.metodo||'').toUpperCase();
+      if (k) out[k] = Math.round(c.valor || 0);
+    });
+  } else {
+    // Sin ESF disponible: caer a lo que guardó el cierre
+    Object.entries(data.saldosMetodos || {}).forEach(([k,v]) => out[k] = Math.round(v||0));
+  }
+
+  const cli = totalClientes !== null ? totalClientes : data.totalClientes;
+  if (cli !== undefined && cli !== null) out['SALDO CLIENTES ANTERIOR'] = Math.round(cli);
+  return out;
+}
+
+// Genera SOLO los asientos de variación de métodos de un cierre ya aceptado.
+// No toca saldos iniciales ni el mes del operador — seguro de correr con el mes siguiente en marcha.
+async function _asentarVariacionMetodos(operadorId, operadorNombre, mesKey, fechaCierre, desc, uid, forzar) {
+  // Localizar asientos existentes de este operador/mes
+  const todos = await db.collection('cont_movimientos').get();
+  const existentes = todos.docs.filter(d => {
+    const x = d.data();
+    return x.origen === 'cierre_metodo' && (x.fecha||'').startsWith(mesKey) &&
+           (x.descripcion||'').includes(operadorNombre);
+  });
+
+  if (existentes.length && !forzar) return 0;   // ya existen y no se pidió rehacer
+
+  // Rehacer: borrar los anteriores antes de recrear
+  if (existentes.length && forzar) {
+    for (let i = 0; i < existentes.length; i += 400) {
+      const b = db.batch();
+      existentes.slice(i, i+400).forEach(d => b.delete(d.ref));
+      await b.commit();
+    }
+  }
+
+  // ESF del operador
+  let cajasEsf = [], totalClientesEsf = 0;
+  const esfNew = await db.collection('patriarca_esf_resumen').doc(`${operadorId}_${mesKey}`).get();
+  if (esfNew.exists) {
+    cajasEsf = esfNew.data().cajas || [];
+    totalClientesEsf = esfNew.data().totalClientes || 0;
+  } else {
+    const esfOld = await db.collection('patriarca_esf_resumen').doc(operadorId).get();
+    if (esfOld.exists && esfOld.data().mesKey === mesKey) {
+      cajasEsf = esfOld.data().cajas || [];
+      totalClientesEsf = esfOld.data().totalClientes || 0;
+    }
+  }
+  if (!cajasEsf.length && !totalClientesEsf) throw new Error('Sin datos ESF para ' + operadorNombre);
+
+  const ESF_A_SF = {
+    'EFECTIVO OPERADOR':'Efectivo Operador','BE MOVIL CAJA':'Be Movil Caja','CUENTA BANCARIA':'Cuenta Bancaria',
+    'MEGA RED':'Mega Red','WPLAY UNITY':'Wplay Unity','SUPER GIROS UNITY':'Super Giros Unity',
+    'EFECTY 1 DE MAYO':'Efecty 1 De Mayo','SUPER GIROS MAQUINA':'Supergiros Maquina',
+    'CORRESPONSAL EL PARAMO':'Corresponsal El Paramo','EASY CHANGER':'Easy changer',
+    'PTM PROPIO':'Ptm Propio','BE MOVIL MASTER':'Be Movil Master','PUNTO RED UNITY':'Punto Red Unity','BET RED':'Bet Red',
+  };
+  const baseG5 = ['Efectivo Operador','Be Movil Caja','Cuenta Bancaria','Mega Red','Wplay Unity','Super Giros Unity','Efecty 1 De Mayo','Supergiros Maquina','Corresponsal El Paramo','Easy changer'];
+  const catG5 = (await db.collection('cont_catalogo').where('grupo','==','5 · Efectivo Operadores').get())
+    .docs.map(d => d.data().subcuenta).filter(Boolean);
+  const grupo5 = [...new Set([...baseG5, ...catG5, 'Saldo Clientes'])];
+
+  // Cupo inicial ajustado: descontar la entrega de liquidación hecha por cada método
+  const cfg = await db.collection('patriarca_config').doc(operadorId).get();
+  const cuposIniciales = { ...(cfg.exists ? (cfg.data().cupos_por_mes?.[mesKey] || {}) : {}) };
+  const entregas = await _entregasLiquidacion(operadorId, mesKey);
+  Object.entries(entregas).forEach(([met, monto]) => {
+    cuposIniciales[met] = Math.round(cuposIniciales[met] || 0) - Math.round(monto);
+  });
+
+  const saldoFinalPorSF = {};
+  cajasEsf.forEach(c => { saldoFinalPorSF[ESF_A_SF[c.metodo] || c.metodo] = Math.round(c.valor || 0); });
+  saldoFinalPorSF['Saldo Clientes'] = Math.round(totalClientesEsf);
+  // El nombre del catálogo no siempre coincide con la clave de cupos_por_mes
+  const SF_A_CUPO_KEY = {
+    'Saldo Clientes':     'SALDO CLIENTES ANTERIOR',
+    'Supergiros Maquina': 'SUPER GIROS MAQUINA',   // catálogo va junto, el cupo separado
+  };
+
+  const contSnap = await db.collection('cont_movimientos').orderBy('op','desc').limit(1).get();
+  const op = contSnap.empty ? 1 : ((Number(contSnap.docs[0].data().op) || 0) + 1);
+  const notas = 'Asiento automático de cierre — saldo método';
+  const batch = db.batch();
+  let n = 0;
+
+  grupo5.forEach(sfNombre => {
+    const cupoKey = SF_A_CUPO_KEY[sfNombre] || sfNombre.toUpperCase();
+    const inicial = Math.round(cuposIniciales[cupoKey] || 0);
+    const final_  = saldoFinalPorSF[sfNombre] !== undefined ? saldoFinalPorSF[sfNombre] : 0;
+    const val = final_ - inicial;
+    if (!val) return;
+    n++;
+    batch.set(db.collection('cont_movimientos').doc(), {
+      op, fecha: fechaCierre, cuenta: 'ACTIVOS', subcuenta: sfNombre,
+      debito: val > 0 ? val : 0, credito: val < 0 ? Math.abs(val) : 0,
+      descripcion: desc, notas, origen: 'cierre_metodo',
+      creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    batch.set(db.collection('cont_movimientos').doc(), {
+      op, fecha: fechaCierre, cuenta: 'PATRIMONIO', subcuenta: 'Ganancias Operadores',
+      debito: val < 0 ? Math.abs(val) : 0, credito: val > 0 ? val : 0,
+      descripcion: desc, notas, origen: 'cierre_metodo',
+      creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  });
+
+  if (n) await batch.commit();
+  return n;
+}
+
+// ── Revisar / regenerar asientos de cierres ya aceptados ────────────────────
+let _rgPendientes = [];
+
+function abrirRegenerarAsientos() {
+  const hoy = new Date();
+  const prev = new Date(hoy.getFullYear(), hoy.getMonth()-1, 1);
+  document.getElementById('rg-mes').value = `${prev.getFullYear()}-${String(prev.getMonth()+1).padStart(2,'0')}`;
+  document.getElementById('rg-resultado').innerHTML = '';
+  document.getElementById('rg-btn').disabled = true;
+  _rgPendientes = [];
+  openModal('modal-regen');
+}
+
+async function analizarAsientos() {
+  const mk = document.getElementById('rg-mes').value;
+  const cont = document.getElementById('rg-resultado');
+  if (!mk) { toast('Selecciona el mes', 'error'); return; }
+  cont.innerHTML = '<div style="padding:16px;color:var(--text2)">⏳ Analizando…</div>';
+
+  const fmtM = n => '$' + Math.round(n||0).toLocaleString('es-CO');
+  const [y, m] = mk.split('-').map(Number);
+  const prevKey = (m===1 ? (y-1)+'-12' : y+'-'+String(m-1).padStart(2,'0'));
+
+  try {
+    // Cierres aceptados de ese mes
+    const cierres = (await db.collection('patriarca_cierres').where('estado','==','aceptado').get())
+      .docs.map(d => ({id:d.id, ...d.data()}))
+      .filter(c => {
+        const M = {enero:1,febrero:2,marzo:3,abril:4,mayo:5,junio:6,julio:7,agosto:8,septiembre:9,octubre:10,noviembre:11,diciembre:12};
+        const p = (c.mes||'').trim().toLowerCase().split(/\s+/);
+        return M[p[0]] === m && parseInt(p[1]) === y;
+      });
+
+    // Asientos existentes del mes
+    const movs = (await db.collection('cont_movimientos').get()).docs.map(d => d.data())
+      .filter(x => (x.fecha||'').startsWith(mk));
+    const tieneMetodo = new Set(movs.filter(x => x.origen==='cierre_metodo')
+      .map(x => (x.descripcion||'').replace(/^Cierre [^—]*—\s*/,'')));
+
+    // Liquidaciones del mes anterior
+    const liq = (await db.collection('patriarca_liquidacion_txs')
+      .where('mesKey','==',prevKey).where('tipo','==','saldo').where('estado','==','aprobado').get())
+      .docs.map(d => d.data());
+    const liqPorOp = {};
+    liq.forEach(t => liqPorOp[t.operadorId] = (liqPorOp[t.operadorId]||0) + (parseFloat(t.monto)||0));
+
+    // Ganancia del ESF y lo ya asentado, por operador → detectar descuadres
+    const esfSnap = await db.collection('patriarca_esf_resumen').where('mesKey','==',mk).get();
+    const ganPorOp = {};
+    esfSnap.docs.map(d=>d.data()).forEach(r => {
+      const g = Math.round((r.totalActivos||0)-(r.totalPasivos||0)-(r.clientesMesAnt||0)-(r.cupoEnCajas||0));
+      if (g > 0 && r.uid) ganPorOp[r.uid] = g;
+    });
+    const asentado = {};
+    movs.filter(x => x.cuenta==='PATRIMONIO' && x.subcuenta==='Ganancias Operadores').forEach(x => {
+      const n = x.operadorNombre || (x.descripcion||'').replace(/^Cierre [^—]*—\s*/,'');
+      asentado[n] = (asentado[n]||0) + (x.credito||0) - (x.debito||0);
+    });
+
+    _rgPendientes = [];
+    cierres.forEach(c => {
+      const faltas = [];
+      const tieneMet = tieneMetodo.has(c.operadorNombre);
+      if (!tieneMet) faltas.push('variación de métodos');
+
+      // Descuadre: la ganancia del ESF no coincide con lo asentado
+      const g = ganPorOp[c.operadorId] || 0;
+      const d = g ? Math.round(g - (asentado[c.operadorNombre]||0)) : 0;
+      const desajustado = tieneMet && !faltas.length && Math.abs(d) > 100;
+      if (desajustado) faltas.push(`descuadre ${fmtM(d)} — rehacer métodos`);
+
+      if (faltas.length) _rgPendientes.push({ cierre: c, faltas, liq: L, descuadre: d, rehacer: desajustado });
+    });
+
+    if (!_rgPendientes.length) {
+      cont.innerHTML = `<div style="padding:16px;color:var(--green);text-align:center">✅ Todos los cierres de ${mk} tienen sus asientos completos</div>`;
+      document.getElementById('rg-btn').disabled = true;
+      return;
+    }
+
+    const totalLiq = _rgPendientes.reduce((s,p) => s + (p.faltas.some(f=>f.startsWith('liquidación')) ? p.liq : 0), 0);
+    cont.innerHTML = `
+      <div style="background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.3);border-radius:8px;padding:10px 12px;margin-bottom:10px">
+        <strong>${_rgPendientes.length}</strong> cierre(s) con asientos faltantes ·
+        liquidaciones por asentar <strong>${fmtM(totalLiq)}</strong>
+      </div>` +
+      _rgPendientes.map(p => {
+        const soloMet = p.faltas.length === 1 && p.faltas[0] === 'variación de métodos';
+        return `<div style="border-bottom:1px solid var(--border);padding:8px 4px">
+          <div style="font-weight:600">${p.cierre.operadorNombre}</div>
+          <div style="color:var(--orange);font-size:11px">Falta: ${p.faltas.join(' · ')}</div>
+          ${p.rehacer
+            ? '<div style="color:var(--red);font-size:10px;margin-top:2px">⚠ Se borrarán sus asientos de método actuales y se recrearán con el ESF de hoy</div>'
+            : p.faltas.includes('variación de métodos')
+            ? '<div style="color:var(--text2);font-size:10px;margin-top:2px">Se generarán solo los asientos contables — no se tocan los saldos iniciales del mes siguiente</div>' : ''}
+        </div>`;
+      }).join('');
+    document.getElementById('rg-btn').disabled = false;
+
+  } catch(e) {
+    cont.innerHTML = `<div style="padding:16px;color:var(--red)">⚠ ${e.message}</div>`;
+  }
+}
+
+async function ejecutarRegenerar() {
+  const btn = document.getElementById('rg-btn');
+  btn.disabled = true; btn.textContent = '⏳ Generando…';
+  const mk = document.getElementById('rg-mes').value;
+  const [y, m] = mk.split('-').map(Number);
+  const ultimoDia = new Date(y, m, 0).getDate();
+  const fechaCierre = `${mk}-${String(ultimoDia).padStart(2,'0')}`;
+  const uid = auth.currentUser?.uid || '';
+  let nMet = 0;
+
+  try {
+    for (const p of _rgPendientes) {
+      const c = p.cierre;
+      const desc = `Cierre ${c.mes} — ${c.operadorNombre}`;
+      if (p.faltas.includes('variación de métodos') || p.rehacer) {
+        const n = await _asentarVariacionMetodos(c.operadorId, c.operadorNombre, mk, fechaCierre, desc, uid, !!p.rehacer);
+        if (n) nMet++;
+      }
+    }
+    toast(`✅ ${nMet} asiento(s) de variación de métodos generados`, 'success');
+    await analizarAsientos();
+  } catch(e) {
+    toast('⚠ ' + e.message, 'error');
+  } finally {
+    btn.textContent = '✓ Generar faltantes';
+  }
+}
+
+async function aceptarCierre(cierreId) {
+  const docSnap = await db.collection('patriarca_cierres').doc(cierreId).get();
+  if (!docSnap.exists) { toast('⚠ Cierre no encontrado', 'error'); return; }
+  const data = docSnap.data();
+
+  // Calcular mesSiguiente si no fue guardado correctamente (bug versiones anteriores)
+  let mesSig = data.mesSiguiente || '';
+  if (!mesSig && data.mes) {
+    const _ME = {enero:1,febrero:2,marzo:3,abril:4,mayo:5,junio:6,julio:7,agosto:8,septiembre:9,octubre:10,noviembre:11,diciembre:12};
+    const p = data.mes.trim().toLowerCase().split(/\s+/);
+    const num = _ME[p[0]], año = parseInt(p[1]);
+    if (num && año) {
+      const mk = `${año}-${String(num).padStart(2,'0')}`;
+      const [y, m] = mk.split('-').map(Number);
+      mesSig = (m===12 ? (y+1)+'-01' : y+'-'+String(m+1).padStart(2,'0'));
+    }
+  }
+  if (!mesSig) { toast('❌ No se puede determinar el mes siguiente', 'error'); return; }
+
+  if (!confirm(
+    `¿Aceptar cierre de ${data.operadorNombre} para ${data.mes}?\n\n` +
+    `✦ Se cargará el saldo inicial de clientes en ${mesSig}\n` +
+    `✦ Se actualizarán los saldos iniciales de métodos\n` +
+    `✦ El mes del operador cambiará a ${mesSig}\n\n` +
+    `Esta acción no se puede deshacer.`
+  )) return;
+
+  try {
+    const batch = db.batch();
+
+    // 1. Crear saldo_inicial de clientes para el mes siguiente
+    const siRef = db.collection('patriarca_saldo_inicial').doc(`${data.operadorId}_${mesSig}`);
+    batch.set(siRef, {
+      opId:                data.operadorId,
+      mes:                 mesSig,
+      saldos:              data.saldosClientes || {},
+      // Valores del mes cerrado que el ESF del mes siguiente necesita para balancear
+      comisionesMesAnterior: Math.round(data.ganancia?.totalComisiones || 0),
+      gananciaMesAnterior:   Math.round(data.ganancia?.total           || 0)
+    });
+
+    // 2. Actualizar patriarca_config: mes + saldos de métodos del mes siguiente.
+    //    FUENTE: el ESF del mes cerrado, no data.saldosMetodos — ese campo quedó
+    //    inconsistente en cierres viejos (unos con la liquidación descontada y otros no).
+    const cfgRef = db.collection('patriarca_config').doc(data.operadorId);
+    const metodosConClientes = await _saldosParaMesSiguiente(data);
+    // set + merge (no update): funciona aunque el documento no exista todavía
+    batch.set(cfgRef, {
+      mes: mesSig,
+      cupos_por_mes: { [mesSig]: metodosConClientes }
+    }, { merge: true });
+
+    // 3. Marcar cierre como aceptado
+    batch.update(db.collection('patriarca_cierres').doc(cierreId), {
+      estado:       'aceptado',
+      aceptadoPor:  auth.currentUser?.email || 'admin',
+      aceptadoTs:   firebase.firestore.FieldValue.serverTimestamp()
+    });
+
+    await batch.commit();
+
+    // 4. Asientos contables automáticos: comisiones del mes → cont_movimientos
+    const MESES_ES = {enero:1,febrero:2,marzo:3,abril:4,mayo:5,junio:6,julio:7,agosto:8,septiembre:9,octubre:10,noviembre:11,diciembre:12};
+    const partes = (data.mes || '').trim().toLowerCase().split(/\s+/);
+    let mesKey = null;
+    if (partes.length >= 2) {
+      const num = MESES_ES[partes[0]];
+      const año = parseInt(partes[1]);
+      if (num && año) mesKey = `${año}-${String(num).padStart(2,'0')}`;
+    }
+
+    if (mesKey) {
+      // Leer ESF del operador (nuevo formato uid_mesKey, luego fallback a uid)
+      let comByMetodo = null;
+      let cajasEsf = [];
+      let totalClientesEsf = 0;
+      const esfNew = await db.collection('patriarca_esf_resumen').doc(`${data.operadorId}_${mesKey}`).get();
+      if (esfNew.exists) {
+        comByMetodo = esfNew.data().comByMetodo;
+        cajasEsf = esfNew.data().cajas || [];
+        totalClientesEsf = esfNew.data().totalClientes || 0;
+      }
+      if (!comByMetodo) {
+        const esfOld = await db.collection('patriarca_esf_resumen').doc(data.operadorId).get();
+        if (esfOld.exists && esfOld.data().mesKey === mesKey) {
+          comByMetodo = esfOld.data().comByMetodo;
+          cajasEsf = esfOld.data().cajas || [];
+          totalClientesEsf = esfOld.data().totalClientes || 0;
+        }
+      }
+
+      // 4b. Guardar patriarca_variaciones para hoja de liquidación
+      const _saldosM = data.saldosMetodos || {};
+      const _comByM  = comByMetodo || {};
+      await db.collection('patriarca_variaciones').doc(`${data.operadorId}_${mesKey}`).set({
+        operadorId:          data.operadorId,
+        operadorNombre:      data.operadorNombre,
+        mesKey,
+        mes:                 data.mes,
+        saldosPorMetodo:     _saldosM,
+        totalSaldos:         Math.round(Object.values(_saldosM).reduce((s,v)=>s+(v||0),0)),
+        comisionesPorMetodo: _comByM,
+        totalComisiones:     Math.round(Object.values(_comByM).reduce((s,v)=>s+(v||0),0)),
+        gananciaNeta:        Math.round(data.ganancia?.total || 0),
+        estado:              'pendiente',
+        creadoEn:            firebase.firestore.FieldValue.serverTimestamp(),
+        creadoPor:           auth.currentUser?.email || 'admin'
+      }, { merge: true });
+
+      if (!comByMetodo || !Object.keys(comByMetodo).length) {
+        console.warn('[Cierre] Sin comByMetodo para', data.operadorId, mesKey, '— no se crean asientos contables');
+        toast('⚠ Cierre aceptado pero sin datos ESF — asientos contables no generados. Abre ESF del operador y vuelve a aceptar el cierre.', 'error');
+      }
+      if (comByMetodo && Object.keys(comByMetodo).length) {
+        // Siguiente número de OP
+        const contSnap = await db.collection('cont_movimientos').orderBy('op','desc').limit(1).get();
+        const nextOp = contSnap.empty ? 1 : ((Number(contSnap.docs[0].data().op) || 0) + 1);
+
+        // Fecha = último día del mes cerrado
+        const [añoN, mesN] = mesKey.split('-').map(Number);
+        const ultimoDia = new Date(añoN, mesN, 0).getDate();
+        const fechaCierre = `${añoN}-${String(mesN).padStart(2,'0')}-${String(ultimoDia).padStart(2,'0')}`;
+        const uid = auth.currentUser?.uid || '';
+        const desc = `Cierre ${data.mes} — ${data.operadorNombre}`;
+
+        const batchCom = db.batch();
+        let hayAsientos = false;
+
+        Object.entries(comByMetodo).forEach(([metodo, monto]) => {
+          const m = Math.round(monto || 0);
+          if (m <= 0) return;
+          hayAsientos = true;
+          // DÉBITO: Cuenta Por Cobrar comisiones [METODO] (ACTIVOS)
+          batchCom.set(db.collection('cont_movimientos').doc(), {
+            op: nextOp, fecha: fechaCierre,
+            cuenta: 'ACTIVOS',
+            subcuenta: `Cuenta Por Cobrar comisiones ${metodo} Operadores`,
+            debito: m, credito: 0,
+            descripcion: desc, notas: 'Asiento automático de cierre',
+            creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+          });
+          // CRÉDITO: Utilidad Mes Anterior (PATRIMONIO)
+          batchCom.set(db.collection('cont_movimientos').doc(), {
+            op: nextOp, fecha: fechaCierre,
+            cuenta: 'PATRIMONIO',
+            subcuenta: 'Ganancias Operadores',
+            debito: 0, credito: m,
+            descripcion: desc, notas: 'Asiento automático de cierre',
+            creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+          });
+        });
+
+        if (hayAsientos) await batchCom.commit();
+
+        // ── Asientos Grupo 5: variación (saldo final − saldo inicial) por cuenta ──
+        // Mapeo ESF metodo (mayúsculas) → nombre catálogo SF
+        const ESF_A_SF = {
+          'EFECTIVO OPERADOR':      'Efectivo Operador',
+          'BE MOVIL CAJA':          'Be Movil Caja',
+          'CUENTA BANCARIA':        'Cuenta Bancaria',
+          'MEGA RED':               'Mega Red',
+          'WPLAY UNITY':            'Wplay Unity',
+          'SUPER GIROS UNITY':      'Super Giros Unity',
+          'EFECTY 1 DE MAYO':       'Efecty 1 De Mayo',
+          'SUPER GIROS MAQUINA':    'Supergiros Maquina',
+          'CORRESPONSAL EL PARAMO': 'Corresponsal El Paramo',
+          'EASY CHANGER':           'Easy changer',
+          'PTM PROPIO':             'Ptm Propio',
+          'BE MOVIL MASTER':        'Be Movil Master',
+          'PUNTO RED UNITY':        'Punto Red Unity',
+          'BET RED':                'Bet Red',
+        };
+
+        // Paso 1 — Cuentas Grupo 5: base + NUEVA de cont_catalogo (campo subcuenta)
+        const baseG5 = ['Efectivo Operador','Be Movil Caja','Cuenta Bancaria','Mega Red','Wplay Unity','Super Giros Unity','Efecty 1 De Mayo','Supergiros Maquina','Corresponsal El Paramo','Easy changer'];
+        const catG5Snap = await db.collection('cont_catalogo').where('grupo','==','5 · Efectivo Operadores').get();
+        const nuevasG5 = catG5Snap.docs.map(d => d.data().subcuenta).filter(Boolean);
+        const grupo5 = [...new Set([...baseG5, ...nuevasG5])];
+
+        // Paso 2 — Cupo inicial ajustado: cupos_por_mes[mesKey] menos la entrega
+        // de liquidación hecha por ese mismo método. La entrega ya tiene su propio
+        // asiento de traslado entre cajas; sin descontarla, el cierre la contaría dos veces.
+        const cfgSnap = await db.collection('patriarca_config').doc(data.operadorId).get();
+        const cuposIniciales = { ...(cfgSnap.exists ? (cfgSnap.data().cupos_por_mes?.[mesKey] || {}) : {}) };
+        const entregas = await _entregasLiquidacion(data.operadorId, mesKey);
+        Object.entries(entregas).forEach(([met, monto]) => {
+          cuposIniciales[met] = Math.round(cuposIniciales[met] || 0) - Math.round(monto);
+        });
+
+        // Paso 3 — Saldo final: cajas ESF (métodos físicos) + totalClientes (Saldo Clientes)
+        const saldoFinalPorSF = {};
+        cajasEsf.forEach(c => {
+          const sfNombre = ESF_A_SF[c.metodo] || c.metodo;
+          saldoFinalPorSF[sfNombre] = Math.round(c.valor || 0);
+        });
+        saldoFinalPorSF['Saldo Clientes'] = Math.round(totalClientesEsf);
+
+        // Casos especiales: nombre catálogo → clave en cupos_por_mes
+        const SF_A_CUPO_KEY = {
+          'Saldo Clientes':     'SALDO CLIENTES ANTERIOR',
+          'Supergiros Maquina': 'SUPER GIROS MAQUINA',   // catálogo va junto, el cupo separado
+        };
+
+        // Paso 4 — Para cada cuenta Grupo 5: variación y asientos
+        const batchCajas = db.batch();
+        let hayAsientosCajas = false;
+
+        grupo5.forEach(sfNombre => {
+          const cupoKey = SF_A_CUPO_KEY[sfNombre] || sfNombre.toUpperCase();
+          const inicial = Math.round(cuposIniciales[cupoKey] || 0);
+          const final_  = saldoFinalPorSF[sfNombre] !== undefined ? saldoFinalPorSF[sfNombre] : 0;
+          const val = final_ - inicial; // variación = saldo final − saldo inicial
+          if (!val) return;
+          hayAsientosCajas = true;
+          // DÉBITO: cuenta en ACTIVOS
+          batchCajas.set(db.collection('cont_movimientos').doc(), {
+            op: nextOp, fecha: fechaCierre,
+            cuenta: 'ACTIVOS', subcuenta: sfNombre,
+            debito: val > 0 ? val : 0,
+            credito: val < 0 ? Math.abs(val) : 0,
+            descripcion: desc, notas: 'Asiento automático de cierre — saldo método',
+            origen: 'cierre_metodo',
+            creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+          });
+          // CRÉDITO: Ganancias Operadores en PATRIMONIO
+          batchCajas.set(db.collection('cont_movimientos').doc(), {
+            op: nextOp, fecha: fechaCierre,
+            cuenta: 'PATRIMONIO', subcuenta: 'Ganancias Operadores',
+            debito: val < 0 ? Math.abs(val) : 0,
+            credito: val > 0 ? val : 0,
+            descripcion: desc, notas: 'Asiento automático de cierre — saldo método',
+            origen: 'cierre_metodo',
+            creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+          });
+        });
+
+        if (hayAsientosCajas) await batchCajas.commit();
+      }
+    }
+
+    toast(`✅ Cierre aceptado — ${data.operadorNombre} ahora trabaja en ${mesSig}`, 'success');
+  } catch(e) {
+    toast('❌ Error: ' + e.message, 'error');
+    console.error('aceptarCierre:', e);
+  }
+}
+
+async function rechazarCierre(cierreId) {
+  const motivo = prompt('Motivo del rechazo (opcional):');
+  if (motivo === null) return;
+  try {
+    await db.collection('patriarca_cierres').doc(cierreId).update({
+      estado:        'rechazado',
+      rechazadoPor:  auth.currentUser?.email || 'admin',
+      rechazadoTs:   firebase.firestore.FieldValue.serverTimestamp(),
+      motivoRechazo: motivo
+    });
+    toast('Cierre rechazado', 'info');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+// ══════════════════════════════════════════════════════════════
+// ── CUENTAS DESTINO LIQUIDACIÓN ──────────────────────────────
+const LIQ_DESTINOS_DISPONIBLES = {
+  '1 · Disponible': ['Efectivo de Apuestas', 'Be Movil Gej', 'PTM Propio en caja', 'Dinero por Cuadrar', 'Departamento de Dirección'],
+  '2 · Bancos':     ['Mega Red Aj1.6', 'Corresponsal', 'Corresponsal Efecty 1 de Mayo'],
+};
+let _liqDestinosActivos = new Set();
+let _liqDestinosLoaded  = false;
+
+async function loadDestinosLiq() {
+  try {
+    const snap = await db.collection('patriarca_config_global').doc('liq_destinos').get();
+    _liqDestinosActivos = new Set(snap.exists ? (snap.data().activos || []) : []);
+  } catch(e) { _liqDestinosActivos = new Set(); }
+  _liqDestinosLoaded = true;
+  _renderDestinosLiq();
+}
+
+function _renderDestinosLiq() {
+  const el = document.getElementById('destinos-liq-list');
+  if (!el) return;
+  let html = '';
+  Object.entries(LIQ_DESTINOS_DISPONIBLES).forEach(([grupo, cuentas]) => {
+    html += `<div style="width:100%;font-size:10px;font-weight:700;color:var(--text2);margin-top:4px;margin-bottom:2px;text-transform:uppercase;letter-spacing:.05em">${grupo}</div>`;
+    cuentas.forEach(cuenta => {
+      const on = _liqDestinosActivos.has(cuenta);
+      html += `<label style="display:flex;align-items:center;gap:7px;cursor:pointer;background:${on?'rgba(36,191,98,.1)':'var(--bg3)'};border:1px solid ${on?'rgba(36,191,98,.35)':'var(--border)'};border-radius:7px;padding:6px 12px;font-size:12px;font-weight:${on?'700':'400'};color:${on?'var(--green)':'var(--text2)'};transition:.15s" onclick="_toggleDestino('${cuenta}')">
+        <span style="font-size:16px">${on?'✅':'⬜'}</span> ${cuenta}
+      </label>`;
+    });
+  });
+  el.innerHTML = html;
+}
+
+function _toggleDestino(cuenta) {
+  if (_liqDestinosActivos.has(cuenta)) _liqDestinosActivos.delete(cuenta);
+  else _liqDestinosActivos.add(cuenta);
+  _renderDestinosLiq();
+  const btn = document.getElementById('btn-save-destinos');
+  if (btn) { btn.style.opacity='1'; btn.style.pointerEvents='auto'; }
+}
+
+async function guardarDestinosLiq() {
+  const btn = document.getElementById('btn-save-destinos');
+  if (btn) { btn.textContent='Guardando...'; btn.style.opacity='.7'; }
+  try {
+    await db.collection('patriarca_config_global').doc('liq_destinos').set({
+      activos: [..._liqDestinosActivos],
+      actualizadoEn: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    toast('✅ Cuentas destino guardadas');
+    if (btn) { btn.textContent='Guardar cambios'; btn.style.opacity='.5'; btn.style.pointerEvents='none'; }
+  } catch(e) {
+    toast('❌ Error: ' + e.message, 'error');
+    if (btn) { btn.textContent='Guardar cambios'; btn.style.opacity='1'; }
+  }
+}
+
+// LIQUIDACIONES — Aprobar / Rechazar pagos de operadores
+// ══════════════════════════════════════════════════════════════
+let _liqAdminListener = null;
+
+
+// ══════════════════════════════════════════════════════════════════
+// PAGOS AL CORRESPONSAL
+// El administrador ordena, la cajera aprueba y ahí se crean los dos
+// asientos: sale de una cuenta del corresponsal y entra a la del operador.
+// ══════════════════════════════════════════════════════════════════
+let _pcCuentas = [];     // cuentas del corresponsal
+let _pcPagos   = [];     // pagos del mes
+let _pcUnsub   = null;
+
+// La cuenta del operador en el libro se llama "Operador " + su nombre
+function _pcCuentaDe(nombre) { return 'Operador ' + (nombre || '').trim(); }
+
+async function _pcCargarCuentas(oficina) {
+  try {
+    const s = await db.collection('corresponsal_cuentas').where('oficina','==',oficina).get();
+    _pcCuentas = s.docs.map(d => ({ id:d.id, ...d.data() }))
+      .sort((a,b) => (a.orden||99) - (b.orden||99));
+  } catch(e) { _pcCuentas = []; console.warn('pc cuentas:', e); }
+}
+
+function cargarPagosCorr(mesKey) {
+  if (_pcUnsub) { _pcUnsub(); _pcUnsub = null; }
+  _pcUnsub = db.collection('corresponsal_pagos_op').where('mesKey','==',mesKey)
+    .onSnapshot(s => {
+      _pcPagos = s.docs.map(d => ({ id:d.id, ...d.data() }))
+        .sort((a,b) => (b.fecha||'').localeCompare(a.fecha||''));
+      renderPagosCorr();
+      if (typeof _cobFilas !== 'undefined' && _cobFilas.length) renderCobros(_cobFilas);
+    }, e => console.warn('pagos corr:', e));
+}
+
+function renderPagosCorr() {
+  const tb = document.getElementById('pcorr-tbody');
+  if (!tb) return;
+  const p = v => '$' + Math.round(v || 0).toLocaleString('es-CO');
+
+  if (!_pcPagos.length) {
+    tb.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text2)">Sin pagos enviados este mes</td></tr>';
+    return;
+  }
+
+  const badge = e => e === 'aprobado'  ? '<span style="color:var(--green);font-weight:700">✅ aprobado</span>'
+               : e === 'rechazado' ? '<span style="color:var(--red);font-weight:700">✕ rechazado</span>'
+               : '<span style="color:var(--orange);font-weight:700">⏳ pendiente</span>';
+
+  tb.innerHTML = _pcPagos.map(x => `<tr>
+    <td style="white-space:nowrap">${x.fecha || ''}</td>
+    <td style="font-weight:600">${x.operadorNombre || ''}</td>
+    <td style="color:var(--text2)">${x.cuentaOrigen || ''}</td>
+    <td style="text-align:right;font-weight:700">${p(x.monto)}</td>
+    <td style="color:var(--text2);font-size:11px;max-width:220px">${x.concepto || ''}${
+      x.motivoRechazo ? `<br><span style="color:var(--red)">Rechazado: ${x.motivoRechazo}</span>` : ''}</td>
+    <td style="text-align:center">${badge(x.estado)}</td>
+    <td style="text-align:right;white-space:nowrap">${x.estado === 'pendiente'
+      ? `<button class="btn-icon" title="Anular" onclick="anularPagoCorr('${x.id}')">🗑</button>` : ''}</td>
+  </tr>`).join('');
+}
+
+async function abrirModalPagoCorr() {
+  const mesKey = document.getElementById('liq-admin-mes')?.value;
+  if (!mesKey) { toast('⚠ Selecciona un mes', 'error'); return; }
+
+  // Operadores activos con su oficina
+  const ops = allUsers.filter(u => u.rol === 'operador' && u.estado === 'activo' && u.uid);
+  if (!ops.length) { toast('⚠ Sin operadores activos', 'error'); return; }
+  const oficina = ops[0].oficinaNombre || '';
+  await _pcCargarCuentas(oficina);
+
+  document.getElementById('pc-operador').innerHTML = ops
+    .sort((a,b) => (a.nombre||'').localeCompare(b.nombre||''))
+    .map(o => `<option value="${o.uid}" data-nombre="${(o.nombre||'').replace(/"/g,'&quot;')}" data-oficina="${o.oficinaNombre||''}">${o.nombre}</option>`).join('');
+
+  const destinos = new Set(ops.map(o => _pcCuentaDe(o.nombre).toUpperCase()));
+  document.getElementById('pc-origen').innerHTML = _pcCuentas
+    .filter(c => !destinos.has((c.nombre||'').toUpperCase()))
+    .map(c => `<option value="${(c.nombre||'').replace(/"/g,'&quot;')}">${c.nombre}</option>`).join('');
+
+  document.getElementById('pc-fecha').value    = new Date().toISOString().slice(0,10);
+  document.getElementById('pc-monto').value    = '';
+  document.getElementById('pc-concepto').value = '';
+  _pcHint();
+  openModal('modal-pago-corr');
+}
+
+function _pcHint() {
+  const sel = document.getElementById('pc-operador');
+  const o   = sel?.options[sel.selectedIndex];
+  const el  = document.getElementById('pc-origen-hint');
+  if (!o || !el) return;
+  const destino = _pcCuentaDe(o.dataset.nombre);
+  const existe  = _pcCuentas.some(c => (c.nombre||'').toUpperCase() === destino.toUpperCase());
+  el.innerHTML = existe
+    ? `Entra a <strong>${destino}</strong>`
+    : `<span style="color:var(--red)">No existe la cuenta "${destino}" en el corresponsal</span>`;
+}
+
+async function enviarPagoCorr() {
+  const mesKey = document.getElementById('liq-admin-mes')?.value;
+  const sel    = document.getElementById('pc-operador');
+  const o      = sel.options[sel.selectedIndex];
+  const fecha  = document.getElementById('pc-fecha').value;
+  const monto  = parseInt(document.getElementById('pc-monto').value) || 0;
+  const origen = document.getElementById('pc-origen').value;
+  const concepto = document.getElementById('pc-concepto').value.trim();
+
+  if (!fecha)    { toast('⚠ Selecciona la fecha', 'error'); return; }
+  if (!monto)    { toast('⚠ Escribe el monto', 'error'); return; }
+  if (!origen)   { toast('⚠ Escoge la cuenta de origen', 'error'); return; }
+  if (!concepto) { toast('⚠ Escribe el concepto', 'error'); return; }
+
+  const destino = _pcCuentaDe(o.dataset.nombre);
+  if (!_pcCuentas.some(c => (c.nombre||'').toUpperCase() === destino.toUpperCase())) {
+    toast(`⚠ Falta crear la cuenta "${destino}" en el corresponsal`, 'error'); return;
+  }
+
+  const btn = document.getElementById('pc-btn');
+  btn.disabled = true; btn.textContent = '⏳ Enviando…';
+  try {
+    await db.collection('corresponsal_pagos_op').add({
+      oficina: o.dataset.oficina || '', mesKey, fecha, monto, concepto,
+      cuentaOrigen: origen, cuentaDestino: destino,
+      operadorUid: o.value, operadorNombre: o.dataset.nombre,
+      estado: 'pendiente',
+      creadoPor: auth.currentUser?.email || '',
+      creadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    closeModal('modal-pago-corr');
+    toast('📤 Pago enviado — esperando a la cajera', 'success');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+  finally { btn.disabled = false; btn.textContent = '📤 Enviar'; }
+}
+
+async function anularPagoCorr(id) {
+  const x = _pcPagos.find(p => p.id === id);
+  if (!x) return;
+  if (x.estado !== 'pendiente') { toast('⚠ Solo se anulan los pendientes', 'error'); return; }
+  if (!confirm(`¿Anular el pago de ${'$' + Math.round(x.monto).toLocaleString('es-CO')} a ${x.operadorNombre}?`)) return;
+  try {
+    await db.collection('corresponsal_pagos_op').doc(id).delete();
+    toast('🗑 Pago anulado', 'success');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+// ── Quién ya puede cobrar su ganancia ────────────────────────────────────
+// La ganancia se libera en la misma proporción en que el operador paga su
+// liquidación, y solo se puede cobrar después de cruzar el umbral.
+const COB_UMBRAL = 80;
+let _cobFilas = [];
+
+async function cargarCobros(mesKey) {
+  const tb = document.getElementById('cob-tbody');
+  if (!tb || !mesKey) return;
+  tb.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:20px;color:var(--text2)">⏳ Cargando…</td></tr>';
+  document.getElementById('cob-umbral').textContent = COB_UMBRAL;
+
+  try {
+    // Lo que el CEO dejó guardado del mes
+    const parSnap = await db.collection('patriarca_participacion').where('mesKey','==',mesKey).get();
+    if (parSnap.empty) {
+      tb.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:20px;color:var(--text2)">'
+        + 'El CEO todavía no ha guardado la participación de este mes.</td></tr>';
+      document.getElementById('cob-resumen').textContent = '';
+      return;
+    }
+
+    // Pagos de liquidación aprobados del mes
+    const txSnap = await db.collection('patriarca_liquidacion_txs')
+      .where('mesKey','==',mesKey).where('estado','==','aprobado').get();
+    const pagadoPorOp = {};
+    txSnap.docs.forEach(d => {
+      const t = d.data();
+      pagadoPorOp[t.operadorId] = (pagadoPorOp[t.operadorId] || 0) + Math.round(t.monto || 0);
+    });
+
+    // El pasivo de cada operador vive en el saldo inicial del mes siguiente
+    const [y, m] = mesKey.split('-').map(Number);
+    const sigKey = (m===12 ? (y+1)+'-01' : y+'-'+String(m+1).padStart(2,'0'));
+
+    const filas = [];
+    for (const doc of parSnap.docs) {
+      const par = doc.data();
+      let pasivo = 0;
+      try {
+        const si = await db.collection('patriarca_saldo_inicial').doc(`${par.uid}_${sigKey}`).get();
+        if (si.exists) pasivo = Math.round(si.data().gananciaMesAnterior || 0);
+      } catch(e) {}
+
+      const pagado   = pagadoPorOp[par.uid] || 0;
+      const pct      = pasivo > 0 ? Math.min(100, (pagado / pasivo) * 100) : (pagado > 0 ? 100 : 0);
+      const ganancia = Math.round(par.gananciaOperador || 0);
+      const habil    = pct >= COB_UMBRAL;
+      const liberado = habil ? Math.round(ganancia * Math.min(1, pct / 100)) : 0;
+
+      filas.push({ uid: par.uid, nombre: par.nombre, ganancia, pasivo, pagado, pct, habil,
+                   liberado, retenido: ganancia - liberado });
+    }
+
+    filas.sort((a,b) => b.pct - a.pct);
+    _cobFilas = filas;
+    renderCobros(filas);
+  } catch(e) {
+    tb.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:20px;color:var(--red)">⚠ ${e.message}</td></tr>`;
+  }
+}
+
+function renderCobros(filas) {
+  const tb = document.getElementById('cob-tbody');
+  const p  = v => '$' + Math.round(v || 0).toLocaleString('es-CO');
+  const td = 'text-align:right';
+
+  // Lo que ya se le pasó a su cuenta del corresponsal
+  const enviadoPorOp = {};
+  (_pcPagos || []).filter(x => x.estado === 'aprobado').forEach(x => {
+    enviadoPorOp[x.operadorUid] = (enviadoPorOp[x.operadorUid] || 0) + Math.round(x.monto || 0);
+  });
+
+  if (!filas.length) {
+    tb.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:20px;color:var(--text2)">Sin datos</td></tr>';
+    return;
+  }
+
+  filas.forEach(f => {
+    f.enviado = enviadoPorOp[f.uid] || 0;
+    f.faltaEnviar = Math.max(0, f.liberado - f.enviado);
+  });
+
+  const t = filas.reduce((a,f) => ({
+    gan: a.gan + f.ganancia, pas: a.pas + f.pasivo, pag: a.pag + f.pagado,
+    lib: a.lib + f.liberado, ret: a.ret + f.retenido,
+    env: a.env + f.enviado, fal: a.fal + f.faltaEnviar,
+  }), { gan:0, pas:0, pag:0, lib:0, ret:0, env:0, fal:0 });
+
+  tb.innerHTML = filas.map(f => {
+    const barra = `<div style="height:6px;border-radius:10px;background:var(--bg3);overflow:hidden;margin-top:3px">
+        <div style="height:100%;width:${Math.round(f.pct)}%;background:${f.habil?'var(--green)':'var(--orange)'};border-radius:10px"></div>
+      </div>`;
+    return `<tr>
+      <td style="font-weight:600">${f.nombre}</td>
+      <td style="${td};color:var(--gold);font-weight:700">${p(f.ganancia)}</td>
+      <td style="${td};color:var(--text2)">${p(f.pasivo)}</td>
+      <td style="${td};color:var(--green)">${p(f.pagado)}</td>
+      <td style="${td};min-width:90px">${Math.round(f.pct)}%${barra}</td>
+      <td style="${td};font-weight:800;color:${f.liberado?'var(--green)':'var(--text2)'}">${f.liberado?p(f.liberado):'—'}</td>
+      <td style="${td};color:${f.enviado?'var(--purple)':'var(--text2)'}">${f.enviado?p(f.enviado):'—'}</td>
+      <td style="${td};font-weight:700;color:${f.faltaEnviar?'var(--orange)':'var(--green)'}">${
+        f.liberado ? (f.faltaEnviar ? p(f.faltaEnviar) : '✓') : '—'}</td>
+      <td style="${td};color:var(--text2)">${f.retenido?p(f.retenido):'—'}</td>
+      <td style="text-align:center">${f.habil
+        ? '<span style="color:var(--green);font-weight:700;font-size:11px">✅ Habilitado</span>'
+        : `<span style="color:var(--orange);font-weight:700;font-size:11px">🔒 Falta ${Math.max(0, Math.round(COB_UMBRAL - f.pct))}%</span>`}</td>
+    </tr>`;
+  }).join('') + `<tr style="background:var(--bg3);font-weight:800">
+      <td>TOTAL</td>
+      <td style="${td};color:var(--gold)">${p(t.gan)}</td>
+      <td style="${td}">${p(t.pas)}</td>
+      <td style="${td};color:var(--green)">${p(t.pag)}</td>
+      <td style="${td}">${t.pas ? Math.round(t.pag / t.pas * 100) : 0}%</td>
+      <td style="${td};color:var(--green)">${p(t.lib)}</td>
+      <td style="${td};color:var(--purple)">${p(t.env)}</td>
+      <td style="${td};color:${t.fal?'var(--orange)':'var(--green)'}">${t.fal?p(t.fal):'✓'}</td>
+      <td style="${td}">${p(t.ret)}</td>
+      <td></td>
+    </tr>`;
+
+  const habilitados = filas.filter(f => f.habil).length;
+  document.getElementById('cob-resumen').innerHTML =
+    `<span style="color:var(--green);font-weight:700">${habilitados}</span> de ${filas.length} habilitados · `
+    + `por pagar <strong style="color:var(--green)">${p(t.lib)}</strong>`
+    + (t.env ? ` · enviado <strong style="color:var(--purple)">${p(t.env)}</strong>` : '')
+    + (t.fal ? ` · falta <strong style="color:var(--orange)">${p(t.fal)}</strong>` : '');
+}
+
+function initLiquidaciones() {
+  // Cargar destinos solo la primera vez
+  if (!_liqDestinosLoaded) loadDestinosLiq();
+  // Poblar selector de meses si está vacío
+  const sel = document.getElementById('liq-admin-mes');
+  if (sel && !sel.options.length) {
+    const now = new Date();
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const val = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+      const lbl = d.toLocaleDateString('es-CO', { month: 'long', year: 'numeric' });
+      const opt = document.createElement('option');
+      opt.value = val; opt.textContent = lbl.charAt(0).toUpperCase() + lbl.slice(1);
+      sel.appendChild(opt);
+    }
+  }
+  const mesKey = sel?.value;
+  if (!mesKey) return;
+
+  cargarCobros(mesKey);
+  cargarPagosCorr(mesKey);
+
+  if (_liqAdminListener) { _liqAdminListener(); _liqAdminListener = null; }
+
+  const container = document.getElementById('liq-admin-container');
+  container.innerHTML = '<div class="empty" style="padding:32px">⏳ Cargando pagos...</div>';
+
+  _liqAdminListener = db.collection('patriarca_liquidacion_txs')
+    .where('mesKey', '==', mesKey)
+    .onSnapshot(snap => {
+      const txs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        .sort((a,b) => (b.creadoEn?.seconds||0) - (a.creadoEn?.seconds||0));
+      _renderLiqAdmin(txs, mesKey);
+    }, err => {
+      container.innerHTML = `<div class="empty">⚠ Error: ${err.message}</div>`;
+    });
+}
+
+async function _renderLiqAdmin(txs, mesKey) {
+  const container = document.getElementById('liq-admin-container');
+  const peso = n => '$' + Math.round(n||0).toLocaleString('es-CO');
+
+  // Cargar correcciones pendientes del mes
+  let correcciones = [];
+  try {
+    const corrSnap = await db.collection('patriarca_liq_correcciones')
+      .where('mesKey', '==', mesKey).get({ source: 'server' });
+    correcciones = corrSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch(e) {}
+
+  const corrPend = correcciones.filter(c => c.estado === 'pendiente');
+
+  if (!txs.length && !corrPend.length) {
+    container.innerHTML = '<div class="empty"><div class="empty-icon">💳</div><p>Sin pagos registrados para este mes</p></div>';
+    return;
+  }
+
+  // Agrupar por operador
+  const porOp = {};
+  txs.forEach(t => {
+    if (!porOp[t.operadorId]) porOp[t.operadorId] = { nombre: t.operadorNombre, txs: [] };
+    porOp[t.operadorId].txs.push(t);
+  });
+
+  const pendCount = txs.filter(t => t.estado === 'pendiente').length;
+  let html = `<div style="font-size:12px;color:var(--text2);margin-bottom:16px">
+    ${txs.length} pago(s) · <span style="color:var(--orange);font-weight:700">${pendCount} pendiente(s)</span>
+  </div>`;
+
+  Object.entries(porOp).forEach(([opId, { nombre, txs: opTxs }]) => {
+    const pendientes = opTxs.filter(t => t.estado === 'pendiente');
+    const totalPend  = pendientes.reduce((s,t) => s + (t.monto||0), 0);
+    const estadoLabel = pendientes.length
+      ? `<span style="font-size:11px;color:var(--orange);font-weight:600">${pendientes.length} pendiente(s) · ${peso(totalPend)}</span>`
+      : `<span style="font-size:11px;color:var(--green);font-weight:600">✅ Liquidación aprobada</span>`;
+
+    html += `<div class="panel" style="margin-bottom:16px">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+        <span style="font-size:13px;font-weight:700">${nombre || opId}</span>
+        ${estadoLabel}
+      </div>
+      <div class="tbl-wrap"><table>
+        <thead><tr>
+          <th>Fecha</th><th>Tipo</th><th>Método</th><th>Destino</th><th>Monto</th><th>Estado</th><th>Notas</th><th style="width:160px"></th>
+        </tr></thead>
+        <tbody>`;
+    opTxs.forEach(t => {
+      const eColor = t.estado==='aprobado' ? 'var(--green)' : t.estado==='rechazado' ? '#ef4444' : 'var(--orange)';
+      const eIcon  = t.estado==='aprobado' ? '✅' : t.estado==='rechazado' ? '❌' : '⏳';
+      const destinoBadge = t.tipo === 'saldo' && t.destino
+        ? `<span style="font-size:11px;font-weight:600;color:var(--blue)">${t.destino}</span>`
+        : `<span style="color:var(--text2);font-size:11px">—</span>`;
+      const acciones = t.estado === 'pendiente'
+        ? `<div style="display:flex;gap:6px;align-items:center">
+             <button onclick="aprobarPagoLiq('${t.id}')"
+               style="padding:4px 10px;border-radius:5px;border:none;background:var(--green);color:#fff;cursor:pointer;font-size:11px;font-weight:700;white-space:nowrap">
+               ✅ Aprobar
+             </button>
+             <button onclick="rechazarPagoLiq('${t.id}')"
+               style="padding:4px 10px;border-radius:5px;border:1px solid #ef4444;background:transparent;color:#ef4444;cursor:pointer;font-size:11px;font-weight:700;white-space:nowrap">
+               ✕ Rechazar
+             </button>
+           </div>`
+        : `<span style="font-size:10px;color:var(--text2)">${t.aprobadoPor || t.rechazadoPor || '—'}</span>`;
+      html += `<tr>
+        <td>${t.fecha||'—'}</td>
+        <td>${t.tipo==='saldo'?'💰 Saldo':'📑 Comisión'}</td>
+        <td style="font-weight:600">${t.metodo||'—'}</td>
+        <td>${destinoBadge}</td>
+        <td style="font-weight:700">${peso(t.monto)}</td>
+        <td style="color:${eColor};font-weight:700">${eIcon} ${t.estado}</td>
+        <td style="font-size:11px;color:var(--text2)">${t.notas||'—'}</td>
+        <td>${acciones}</td>
+      </tr>`;
+    });
+    html += `</tbody></table></div></div>`;
+  });
+
+  // ── CORRECCIONES PENDIENTES ──
+  if (corrPend.length) {
+    html += `<div style="margin-top:24px">
+      <div style="font-size:13px;font-weight:700;color:var(--orange);margin-bottom:12px">⚠️ Solicitudes de Corrección (${corrPend.length})</div>`;
+    corrPend.forEach(c => {
+      html += `<div class="panel" style="margin-bottom:12px;border-color:rgba(245,158,11,.3)">
+        <div style="padding:14px 18px">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">
+            <div>
+              <div style="font-size:12px;font-weight:700;margin-bottom:4px">${c.operadorNombre || c.operadorId}</div>
+              <div style="font-size:11px;color:var(--text2)">${c.tipo==='comision'?'Comisión':'Saldo'} · <strong>${c.metodo}</strong></div>
+              <div style="font-size:11px;margin-top:6px">
+                <span style="color:var(--text2)">Antes:</span> <strong>${peso(c.oldMonto)}</strong> (${c.oldFecha})
+                &nbsp;→&nbsp;
+                <span style="color:var(--orange)">Después:</span> <strong style="color:var(--orange)">${peso(c.newMonto)}</strong> (${c.newFecha})
+              </div>
+              <div style="font-size:11px;color:var(--text2);margin-top:4px">Motivo: ${c.motivo}</div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+              <button onclick="aprobarCorreccionLiq('${c.id}')" style="padding:5px 12px;border-radius:5px;border:none;background:var(--green);color:#fff;cursor:pointer;font-size:12px;font-weight:700">✅ Aprobar</button>
+              <button onclick="rechazarCorreccionLiq('${c.id}')" style="padding:5px 12px;border-radius:5px;border:none;background:#ef4444;color:#fff;cursor:pointer;font-size:12px;font-weight:700">❌ Rechazar</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
+  container.innerHTML = html;
+}
+
+// Aprobar UN solo pago — genera su propio OP contable
+async function aprobarPagoLiq(txId) {
+  const uid   = auth.currentUser?.uid || '';
+  const email = auth.currentUser?.email || 'admin';
+  try {
+    const doc = await db.collection('patriarca_liquidacion_txs').doc(txId).get();
+    if (!doc.exists) { toast('⚠ Pago no encontrado', 'error'); return; }
+    const tx = { id: doc.id, ...doc.data() };
+
+    const contSnap = await db.collection('cont_movimientos').orderBy('op','desc').limit(1).get();
+    const nextOp   = contSnap.empty ? 1 : ((Number(contSnap.docs[0].data().op) || 0) + 1);
+    const descOP   = `Liquidación ${tx.mesKey} — ${tx.operadorNombre}`;
+    const lineDesc = `${descOP} · ${tx.tipo==='saldo'?'Saldo':'Comisión'} ${tx.metodo}`;
+    const destino  = tx.destino || 'Corresponsal';
+
+    const batch = db.batch();
+
+    if (tx.tipo === 'comision') {
+      batch.set(db.collection('cont_movimientos').doc(), {
+        op: nextOp, fecha: tx.fecha,
+        cuenta: 'ACTIVOS', subcuenta: `Cuenta Por Cobrar comisiones ${tx.metodo}`,
+        debito: tx.monto, credito: 0,
+        descripcion: descOP, notas: lineDesc,
+        creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      batch.set(db.collection('cont_movimientos').doc(), {
+        op: nextOp, fecha: tx.fecha,
+        cuenta: 'ACTIVOS', subcuenta: `Cuenta Por Cobrar comisiones ${tx.metodo} Operadores`,
+        debito: 0, credito: tx.monto,
+        descripcion: descOP, notas: lineDesc,
+        creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    } else {
+      batch.set(db.collection('cont_movimientos').doc(), {
+        op: nextOp, fecha: tx.fecha,
+        cuenta: 'ACTIVOS', subcuenta: destino,
+        debito: tx.monto, credito: 0,
+        descripcion: descOP, notas: lineDesc,
+        creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      batch.set(db.collection('cont_movimientos').doc(), {
+        op: nextOp, fecha: tx.fecha,
+        cuenta: 'ACTIVOS', subcuenta: metodoToSFLiq(tx.metodo),
+        debito: 0, credito: tx.monto,
+        descripcion: descOP, notas: lineDesc,
+        creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    }
+    batch.update(db.collection('patriarca_liquidacion_txs').doc(txId), {
+      estado: 'aprobado', aprobadoPor: email,
+      aprobadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+      opContable: nextOp
+    });
+    await batch.commit();
+    toast(`✅ Pago aprobado — OP#${nextOp}`);
+  } catch(e) {
+    toast('❌ Error: ' + e.message, 'error');
+    console.error('aprobarPagoLiq:', e);
+  }
+}
+
+// Helper compartido: método (mayúsculas) → subcuenta SF Grupo 5
+function metodoToSFLiq(m) {
+  return ({
+    'EFECTIVO OPERADOR':'Efectivo Operador','BE MOVIL CAJA':'Be Movil Caja',
+    'CUENTA BANCARIA':'Cuenta Bancaria','MEGA RED':'Mega Red','WPLAY UNITY':'Wplay Unity',
+    'SUPER GIROS UNITY':'Super Giros Unity','EFECTY 1 DE MAYO':'Efecty 1 De Mayo',
+    'SUPER GIROS MAQUINA':'Supergiros Maquina','CORRESPONSAL EL PARAMO':'Corresponsal El Paramo',
+    'EASY CHANGER':'Easy changer','PTM PROPIO':'Ptm Propio',
+    'BE MOVIL MASTER':'Be Movil Master','PUNTO RED UNITY':'Punto Red Unity','BET RED':'Bet Red',
+  })[m] || m.split(' ').map(w=>w[0].toUpperCase()+w.slice(1).toLowerCase()).join(' ');
+}
+
+// Aprobar TODOS los pagos pendientes de un operador en UN solo asiento
+async function aprobarLiquidacionCompleta(operadorId, mesKey) {
+  if (!confirm('¿Aprobar toda la liquidación y crear un solo asiento contable con todos los pagos?')) return;
+  try {
+    // Traer todos los pagos pendientes del operador para este mes
+    const snap = await db.collection('patriarca_liquidacion_txs')
+      .where('operadorId', '==', operadorId)
+      .where('mesKey', '==', mesKey)
+      .where('estado', '==', 'pendiente')
+      .get();
+
+    if (snap.empty) { toast('⚠ No hay pagos pendientes', 'error'); return; }
+
+    const txs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const operadorNombre = txs[0].operadorNombre || operadorId;
+    const fecha = txs[0].fecha || new Date().toISOString().slice(0,10);
+    const uid   = auth.currentUser?.uid || '';
+    const email = auth.currentUser?.email || 'admin';
+
+    // Un solo OP para toda la liquidación
+    const contSnap = await db.collection('cont_movimientos').orderBy('op','desc').limit(1).get();
+    const nextOp = contSnap.empty ? 1 : ((Number(contSnap.docs[0].data().op) || 0) + 1);
+    const descOP = `Liquidación ${mesKey} — ${operadorNombre}`;
+
+    const batch = db.batch();
+
+
+    txs.forEach(tx => {
+      const lineDesc = `${descOP} · ${tx.tipo==='saldo'?'Saldo':'Comisión'} ${tx.metodo}`;
+      const destino  = tx.destino || 'Corresponsal'; // cuenta CEO que recibe el dinero
+      if (tx.tipo === 'comision') {
+        // DÉBITO: Cuenta Por Cobrar comisiones [METODO] — cuenta negra
+        batch.set(db.collection('cont_movimientos').doc(), {
+          op: nextOp, fecha: tx.fecha || fecha,
+          cuenta: 'ACTIVOS', subcuenta: `Cuenta Por Cobrar comisiones ${tx.metodo}`,
+          debito: tx.monto, credito: 0,
+          descripcion: descOP, notas: lineDesc,
+          creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        // CRÉDITO: Cuenta Por Cobrar comisiones [METODO] Operadores — cuenta naranja
+        batch.set(db.collection('cont_movimientos').doc(), {
+          op: nextOp, fecha: tx.fecha || fecha,
+          cuenta: 'ACTIVOS', subcuenta: `Cuenta Por Cobrar comisiones ${tx.metodo} Operadores`,
+          debito: 0, credito: tx.monto,
+          descripcion: descOP, notas: lineDesc,
+          creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+        });
+      } else {
+        // Pago de saldo — DÉBITO: cuenta destino CEO / CRÉDITO: método Grupo 5 del operador
+        batch.set(db.collection('cont_movimientos').doc(), {
+          op: nextOp, fecha: tx.fecha || fecha,
+          cuenta: 'ACTIVOS', subcuenta: destino,
+          debito: tx.monto, credito: 0,
+          descripcion: descOP, notas: lineDesc,
+          creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        batch.set(db.collection('cont_movimientos').doc(), {
+          op: nextOp, fecha: tx.fecha || fecha,
+          cuenta: 'ACTIVOS', subcuenta: metodoToSFLiq(tx.metodo),
+          debito: 0, credito: tx.monto,
+          descripcion: descOP, notas: lineDesc,
+          creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+        });
+      }
+      // Marcar cada tx como aprobada
+      batch.update(db.collection('patriarca_liquidacion_txs').doc(tx.id), {
+        estado: 'aprobado', aprobadoPor: email,
+        aprobadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+        opContable: nextOp
+      });
+    });
+
+    await batch.commit();
+    toast(`✅ Liquidación aprobada — OP#${nextOp} con ${txs.length} pago(s)`);
+  } catch(e) {
+    toast('❌ Error: ' + e.message, 'error');
+    console.error('aprobarLiquidacionCompleta:', e);
+  }
+}
+
+async function rechazarPagoLiq(txId) {
+  const motivo = prompt('Motivo del rechazo (opcional):');
+  if (motivo === null) return;
+  try {
+    await db.collection('patriarca_liquidacion_txs').doc(txId).update({
+      estado:       'rechazado',
+      rechazadoPor: auth.currentUser?.email || 'admin',
+      rechazadoEn:  firebase.firestore.FieldValue.serverTimestamp(),
+      motivoRechazo: motivo
+    });
+    toast('Pago rechazado', 'info');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+async function aprobarCorreccionLiq(corrId) {
+  if (!confirm('¿Aprobar corrección? Se anulará el asiento original y se creará uno nuevo con los valores corregidos.')) return;
+  try {
+    const corrSnap = await db.collection('patriarca_liq_correcciones').doc(corrId).get();
+    if (!corrSnap.exists) { toast('Corrección no encontrada', 'error'); return; }
+    const c = corrSnap.data();
+
+    const uid   = auth.currentUser?.uid || '';
+    const email = auth.currentUser?.email || 'admin';
+    const batch = db.batch();
+
+    // Obtener OP original y siguiente OP disponible
+    const contSnap = await db.collection('cont_movimientos').orderBy('op','desc').limit(1).get();
+    const nextOp = contSnap.empty ? 1 : ((Number(contSnap.docs[0].data().op) || 0) + 1);
+    const descBase = `Corrección Liq ${c.mesKey} — ${c.operadorNombre}`;
+
+    // 1. ANULAR asiento original (si tenemos el OP)
+    if (c.opContableOriginal) {
+      const opSnap = await db.collection('cont_movimientos')
+        .where('op', '==', c.opContableOriginal).get({ source: 'server' });
+      opSnap.docs.forEach(doc => {
+        const d = doc.data();
+        if ((d.subcuenta||'').includes(c.metodo)) {
+          // Invertir débito y crédito para anular
+          batch.set(db.collection('cont_movimientos').doc(), {
+            op: nextOp, fecha: c.newFecha,
+            cuenta: d.cuenta, subcuenta: d.subcuenta,
+            debito:  d.credito || 0,  // invertido
+            credito: d.debito  || 0,  // invertido
+            descripcion: `${descBase} · ANULACIÓN OP#${c.opContableOriginal}`,
+            notas: `Anulación por corrección. Motivo: ${c.motivo}`,
+            creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+          });
+        }
+      });
+    }
+
+    // 2. NUEVO asiento con monto correcto
+    const opNuevo = nextOp + 1;
+    const descNuevo = `${descBase} · ${c.tipo==='comision'?'Comisión':'Saldo'} ${c.metodo} (corregido)`;
+    if (c.tipo === 'comision') {
+      batch.set(db.collection('cont_movimientos').doc(), {
+        op: opNuevo, fecha: c.newFecha,
+        cuenta: 'ACTIVOS', subcuenta: `Cuenta Por Cobrar comisiones ${c.metodo}`,
+        debito: c.newMonto, credito: 0,
+        descripcion: descNuevo, notas: `Corrección: ${c.motivo}`,
+        creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      batch.set(db.collection('cont_movimientos').doc(), {
+        op: opNuevo, fecha: c.newFecha,
+        cuenta: 'ACTIVOS', subcuenta: `Cuenta Por Cobrar comisiones ${c.metodo} Operadores`,
+        debito: 0, credito: c.newMonto,
+        descripcion: descNuevo, notas: `Corrección: ${c.motivo}`,
+        creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    } else {
+      batch.set(db.collection('cont_movimientos').doc(), {
+        op: opNuevo, fecha: c.newFecha,
+        cuenta: 'ACTIVOS', subcuenta: `Efectivo Recibido — ${c.metodo}`,
+        debito: c.newMonto, credito: 0,
+        descripcion: descNuevo, notas: `Corrección: ${c.motivo}`,
+        creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      batch.set(db.collection('cont_movimientos').doc(), {
+        op: opNuevo, fecha: c.newFecha,
+        cuenta: 'ACTIVOS', subcuenta: `Cupo — ${c.metodo}`,
+        debito: 0, credito: c.newMonto,
+        descripcion: descNuevo, notas: `Corrección: ${c.motivo}`,
+        creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    }
+
+    // 3. Actualizar tx original con nuevo monto
+    batch.update(db.collection('patriarca_liquidacion_txs').doc(c.txId), {
+      monto: c.newMonto, fecha: c.newFecha,
+      opContable: opNuevo,
+      notas: `[Corregido] ${c.motivo}`
+    });
+
+    // 4. Marcar corrección como aprobada
+    batch.update(db.collection('patriarca_liq_correcciones').doc(corrId), {
+      estado: 'aprobada', aprobadoPor: email,
+      aprobadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+      opAnulacion: nextOp, opCorreccion: opNuevo
+    });
+
+    await batch.commit();
+    toast(`✅ Corrección aprobada — OP#${nextOp} anulación · OP#${opNuevo} corrección`);
+    initLiquidaciones();
+  } catch(e) {
+    toast('❌ Error: ' + e.message, 'error');
+    console.error('aprobarCorreccionLiq:', e);
+  }
+}
+
+async function rechazarCorreccionLiq(corrId) {
+  const motivo = prompt('Motivo del rechazo (opcional):');
+  if (motivo === null) return;
+  try {
+    await db.collection('patriarca_liq_correcciones').doc(corrId).update({
+      estado: 'rechazada', rechazadoPor: auth.currentUser?.email || 'admin',
+      rechazadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+      motivoRechazo: motivo
+    });
+    toast('Corrección rechazada');
+    initLiquidaciones();
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+// ──────────────────────────────────────────────────────────────
+// CORRECCIÓN PUNTUAL — solo para cierres ya aceptados antes de
+// que se implementara el guardado de comisionesMesAnterior y
+// gananciaMesAnterior en patriarca_saldo_inicial.
+//
+// Uso desde consola del navegador (admin logueado):
+//   await fixSaldoInicialDesdesCierre('OPERADOR_ID', 'Junio 2026', '2026-07')
+// ──────────────────────────────────────────────────────────────
+async function fixSaldoInicialDesdesCierre(operadorId, mesLabel, mesSigKey) {
+  console.log(`[fix] Buscando cierre aceptado de ${operadorId} — ${mesLabel}...`);
+  // Filtrar estado en JS para evitar query compuesta sin índice
+  const snap = await db.collection('patriarca_cierres')
+    .where('operadorId', '==', operadorId)
+    .where('mes',        '==', mesLabel)
+    .get();
+  const aceptados = snap.docs.filter(d => d.data().estado === 'aceptado');
+  if (!aceptados.length) { console.error('[fix] No se encontró cierre aceptado.'); return; }
+  const sorted = aceptados.map(d => d.data())
+    .sort((a,b) => (b.ts?.toMillis?.() || 0) - (a.ts?.toMillis?.() || 0));
+  const c = sorted[0];
+  const comAnt = Math.round(c.ganancia?.totalComisiones || 0);
+  const ganAnt = Math.round(c.ganancia?.total           || 0);
+  console.log(`[fix] ganancia.totalComisiones = ${comAnt} | ganancia.total = ${ganAnt}`);
+  await db.collection('patriarca_saldo_inicial').doc(`${operadorId}_${mesSigKey}`).update({
+    comisionesMesAnterior: comAnt,
+    gananciaMesAnterior:   ganAnt
+  });
+  console.log(`[fix] ✅ patriarca_saldo_inicial/${operadorId}_${mesSigKey} actualizado.`);
+}
+
+// ──────────────────────────────────────────────────────────────
+// BACKFILL — Crear patriarca_variaciones para cierres ya aceptados
+//
+// Uso desde consola del admin:
+//   await backfillVariaciones('Junio 2026')
+//
+// Crea el doc de variaciones para TODOS los operadores que
+// cerraron ese mes, leyendo saldosMetodos del cierre y
+// comByMetodo del patriarca_esf_resumen.
+// ──────────────────────────────────────────────────────────────
+async function backfillVariaciones(mesLabel) {
+  const MESES = {enero:1,febrero:2,marzo:3,abril:4,mayo:5,junio:6,julio:7,agosto:8,septiembre:9,octubre:10,noviembre:11,diciembre:12};
+  const partes = mesLabel.trim().toLowerCase().split(/\s+/);
+  const num = MESES[partes[0]], año = parseInt(partes[1]);
+  if (!num || !año) { console.error('[backfill] Formato inválido. Usa: "Junio 2026"'); return; }
+  const mesKey = `${año}-${String(num).padStart(2,'0')}`;
+  console.log(`[backfill] Procesando cierres de ${mesLabel} (mesKey: ${mesKey})...`);
+
+  // Traer todos los cierres de ese mes
+  const snap = await db.collection('patriarca_cierres').where('mes', '==', mesLabel).get();
+  const cierres = snap.docs.map(d => d.data()).filter(d => d.estado === 'aceptado');
+  console.log(`[backfill] ${cierres.length} cierre(s) aceptado(s) encontrados`);
+
+  let ok = 0, err = 0;
+  for (const c of cierres) {
+    try {
+      // Leer comByMetodo del ESF resumen (nuevo formato primero, fallback a viejo)
+      let comByMetodo = {};
+      const esfNew = await db.collection('patriarca_esf_resumen').doc(`${c.operadorId}_${mesKey}`).get();
+      if (esfNew.exists && esfNew.data().comByMetodo) {
+        comByMetodo = esfNew.data().comByMetodo;
+      } else {
+        const esfOld = await db.collection('patriarca_esf_resumen').doc(c.operadorId).get();
+        if (esfOld.exists && esfOld.data().mesKey === mesKey && esfOld.data().comByMetodo) {
+          comByMetodo = esfOld.data().comByMetodo;
+        }
+      }
+
+      const saldosM = c.saldosMetodos || {};
+      const docData = {
+        operadorId:          c.operadorId,
+        operadorNombre:      c.operadorNombre,
+        mesKey,
+        mes:                 mesLabel,
+        saldosPorMetodo:     saldosM,
+        totalSaldos:         Math.round(Object.values(saldosM).reduce((s,v)=>s+(v||0),0)),
+        comisionesPorMetodo: comByMetodo,
+        totalComisiones:     Math.round(Object.values(comByMetodo).reduce((s,v)=>s+(v||0),0)),
+        gananciaNeta:        Math.round(c.ganancia?.total || 0),
+        estado:              'pendiente',
+        creadoEn:            firebase.firestore.FieldValue.serverTimestamp(),
+        creadoPor:           'backfill'
+      };
+
+      await db.collection('patriarca_variaciones').doc(`${c.operadorId}_${mesKey}`).set(docData, { merge: true });
+      console.log(`  ✅ ${c.operadorNombre} — saldos: $${docData.totalSaldos.toLocaleString('es-CO')} | comisiones: $${docData.totalComisiones.toLocaleString('es-CO')}`);
+      ok++;
+    } catch(e) {
+      console.error(`  ❌ ${c.operadorNombre || c.operadorId}:`, e.message);
+      err++;
+    }
+  }
+  console.log(`[backfill] ✅ ${ok} creados · ❌ ${err} errores`);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// TRIXI BOT — administración
+// ════════════════════════════════════════════════════════════════════════════
+let _tbAdminOps  = [];
+let _tbAdminUrls = {};
+
+function tbHoyBogotaAdmin(){
+  return new Intl.DateTimeFormat('en-CA', { timeZone:'America/Bogota',
+    year:'numeric', month:'2-digit', day:'2-digit' }).format(new Date());
+}
+
+// Mercados que el administrador puede habilitar por operador. Por defecto solo
+// 1X2: es el único verificado a fondo. Los demás se abren uno por uno.
+const TBA_MERCADOS = [
+  { id:'1X2',     nombre:'1X2' },
+  { id:'GOL_OU',  nombre:'Goles +/−' },
+  { id:'BTTS',    nombre:'Ambos anotan' },
+  { id:'DC',      nombre:'Doble oport.' }
+];
+const TBA_MERCADOS_DEF = ['1X2'];
+
+// Texto del desplegable cerrado. Con todos marcados no tiene sentido listarlos.
+function tbaResumen(ids){
+  if (!ids.length) return '1X2';
+  if (ids.length === TBA_MERCADOS.length) return 'Todos (' + ids.length + ')';
+  const nombres = TBA_MERCADOS.filter(m => ids.includes(m.id)).map(m => m.nombre);
+  return nombres.length <= 2 ? nombres.join(', ') : nombres[0] + ' +' + (nombres.length - 1);
+}
+
+// Al marcar o desmarcar, refrescar el resumen sin cerrar el panel
+function tbaMktCambio(uid, inp){
+  inp.closest('label').classList.toggle('on', inp.checked);
+  const ids = [...document.querySelectorAll('.tba-mkt-' + uid)].filter(x => x.checked).map(x => x.value);
+  const res = document.getElementById('tba-res-' + uid);
+  if (res) res.textContent = tbaResumen(ids);
+}
+
+// Un solo desplegable abierto a la vez, o la tabla se vuelve un desorden
+function tbaCerrarOtros(uid){
+  const abierto = document.getElementById('tba-dd-' + uid);
+  if (!abierto || !abierto.open) return;
+  document.querySelectorAll('.tba-dd[open]').forEach(d => { if (d !== abierto) d.open = false; });
+}
+
+function tbaMercadosDe(cfg){
+  const m = cfg && cfg.mercados;
+  return Array.isArray(m) && m.length ? m : TBA_MERCADOS_DEF.slice();
+}
+
+async function initTrixiBot(){
+  const body = document.getElementById('tb-admin-body');
+  if (!body) return;
+  body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text2);padding:20px">Cargando…</td></tr>';
+
+  try {
+    const us = await db.collection('admin_usuarios').where('rol','==','operador').get();
+    _tbAdminOps = us.docs
+      .map(d => ({ uid: d.data().uid || d.id, nombre: d.data().nombre || d.data().email, email: d.data().email }))
+      .filter(o => o.uid)
+      .sort((a,b) => (a.nombre||'').localeCompare(b.nombre||''));
+
+    const hoy = tbHoyBogotaAdmin();
+    await Promise.all(_tbAdminOps.map(async op => {
+      try {
+        const c = await db.collection('patriarca_config').doc(op.uid).get();
+        op.cfg  = (c.exists && c.data().trixibot)   || { activo:false, plan:'basico', limiteDiario:1 };
+        op.comb = (c.exists && c.data().combinadas) || { activo:false, detalle:false, compartir:false };
+        op.chat = (c.exists && c.data().chat)       || { transmitir:false };
+      } catch(_) {
+        op.cfg = { activo:false, plan:'basico', limiteDiario:1 };
+        op.comb = { activo:false, detalle:false, compartir:false };
+        op.chat = { transmitir:false };
+      }
+      try {
+        const u = await db.collection('trixibot_uso').doc(op.uid + '_' + hoy).get();
+        op.usoHoy = u.exists ? (u.data().busquedas || 0) : 0;
+      } catch(_) { op.usoHoy = 0; }
+    }));
+
+    body.innerHTML = _tbAdminOps.map(op => `
+      <tr>
+        <td style="font-size:13px">${op.nombre}<div style="font-size:10px;color:var(--text2)">${op.email||''}</div></td>
+        <td style="text-align:center">
+          <input type="checkbox" id="tba-on-${op.uid}" ${op.cfg.activo?'checked':''} style="width:16px;height:16px;cursor:pointer">
+        </td>
+        <td>
+          <select id="tba-plan-${op.uid}" onchange="tbAdminPlanCambio('${op.uid}')"
+            style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:5px 8px;font-size:12px">
+            <option value="basico" ${op.cfg.plan==='basico'?'selected':''}>Básico</option>
+            <option value="full"   ${op.cfg.plan==='full'  ?'selected':''}>Full</option>
+          </select>
+        </td>
+        <td style="text-align:right">
+          <input type="number" min="1" id="tba-lim-${op.uid}" value="${op.cfg.limiteDiario||1}"
+            ${op.cfg.plan==='full'?'disabled':''}
+            style="width:70px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:5px;font-size:12px;text-align:right">
+        </td>
+        <td>
+          <details class="tba-dd" id="tba-dd-${op.uid}" ontoggle="tbaCerrarOtros('${op.uid}')">
+            <summary id="tba-res-${op.uid}">${tbaResumen(tbaMercadosDe(op.cfg))}</summary>
+            <div class="tba-dd-panel">
+              ${TBA_MERCADOS.map(m => {
+                const on = tbaMercadosDe(op.cfg).includes(m.id);
+                return `<label class="${on?'on':''}">
+                  <input type="checkbox" class="tba-mkt-${op.uid}" value="${m.id}" ${on?'checked':''}
+                    onchange="tbaMktCambio('${op.uid}',this)">${m.nombre}</label>`;
+              }).join('')}
+            </div>
+          </details>
+        </td>
+        <td style="text-align:center">
+          <select id="tba-comb-${op.uid}" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:5px 7px;font-size:11px">
+            <option value=""        ${!op.comb?.activo?'selected':''}>— sin acceso</option>
+            <option value="si"      ${op.comb?.activo && !op.comb?.detalle?'selected':''}>Sí</option>
+            <option value="detalle" ${op.comb?.detalle?'selected':''}>Sí + detalle</option>
+          </select>
+          <label style="display:flex;align-items:center;justify-content:center;gap:4px;margin-top:4px;font-size:10px;color:${op.comb?.compartir?'var(--gold)':'var(--text2)'};cursor:pointer;user-select:none">
+            <input type="checkbox" id="tba-comp-${op.uid}" ${op.comb?.compartir?'checked':''} style="width:13px;height:13px;cursor:pointer">
+            compartir
+          </label>
+        </td>
+        <td style="text-align:center">
+          <input type="checkbox" id="tba-transmitir-${op.uid}" ${op.chat?.transmitir?'checked':''}
+            style="width:16px;height:16px;cursor:pointer">
+        </td>
+        <td style="text-align:right;font-size:12px;color:${op.usoHoy?'var(--gold)':'var(--text2)'}">${op.usoHoy}</td>
+      </tr>`).join('');
+
+    // Enlaces de las casas
+    const casasSnap = await db.collection('admin_config').doc('casas').get();
+    const casas = (casasSnap.exists && casasSnap.data().lista) || [];
+    const cfgSnap = await db.collection('admin_config').doc('trixibot').get();
+    _tbAdminUrls = (cfgSnap.exists && cfgSnap.data().urls) || {};
+
+    document.getElementById('tb-admin-urls').innerHTML = casas.map(c => `
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:11px;min-width:110px;color:var(--text2)">${c}</span>
+        <input type="text" id="tba-url-${c.replace(/[^A-Za-z0-9]/g,'_')}" value="${_tbAdminUrls[c]||''}"
+          placeholder="https://…" style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:6px 9px;font-size:11px">
+      </div>`).join('');
+
+    apRefrescar();          // estado del aprendizaje, al pie de esta misma pantalla
+  } catch(e){
+    body.innerHTML = `<tr><td colspan="8" style="color:var(--red);padding:20px">Error: ${e.message}</td></tr>`;
+  }
+}
+
+function tbAdminPlanCambio(uid){
+  const plan = document.getElementById('tba-plan-'+uid)?.value;
+  const lim  = document.getElementById('tba-lim-'+uid);
+  if (!lim) return;
+  lim.disabled = (plan === 'full');
+  if (plan === 'full') lim.value = '';
+  else if (!lim.value) lim.value = 1;
+}
+
+async function tbAdminGuardar(){
+  try {
+    await Promise.all(_tbAdminOps.map(op => {
+      const activo = document.getElementById('tba-on-'+op.uid)?.checked || false;
+      const plan   = document.getElementById('tba-plan-'+op.uid)?.value || 'basico';
+      const limRaw = parseInt(document.getElementById('tba-lim-'+op.uid)?.value || '1', 10);
+      const limite = plan === 'full' ? 999999 : (limRaw > 0 ? limRaw : 1);
+      // Sin ningún mercado marcado el bot no serviría de nada, así que 1X2
+      // queda siempre como piso.
+      let mercados = [...document.querySelectorAll('.tba-mkt-' + op.uid)]
+        .filter(x => x.checked).map(x => x.value);
+      if (!mercados.length) mercados = TBA_MERCADOS_DEF.slice();
+      // "detalle" muestra probabilidades y porcentajes; sin él solo etiquetas
+      const combVal = document.getElementById('tba-comb-'+op.uid)?.value || '';
+      return db.collection('patriarca_config').doc(op.uid).set({
+        trixibot: {
+          activo, plan, limiteDiario: limite, mercados,
+          activadoPor: auth.currentUser?.email || 'admin',
+          activadoEn:  firebase.firestore.FieldValue.serverTimestamp()
+        },
+        combinadas: {
+          activo:  combVal !== '',
+          detalle: combVal === 'detalle',
+          // Sin este permiso el operador ve los cupones pero no puede mandarlos
+          // por fuera: la información es del ecosistema, no suya.
+          compartir: document.getElementById('tba-comp-'+op.uid)?.checked || false,
+          activadoPor: auth.currentUser?.email || 'admin',
+          activadoEn:  firebase.firestore.FieldValue.serverTimestamp()
+        },
+        chat: {
+          // Enviar un anuncio a todos los operadores a la vez. Apagado por
+          // defecto — solo para quien de verdad deba poder hacerlo.
+          transmitir: document.getElementById('tba-transmitir-'+op.uid)?.checked || false,
+          activadoPor: auth.currentUser?.email || 'admin',
+          activadoEn:  firebase.firestore.FieldValue.serverTimestamp()
+        }
+      }, { merge:true });
+    }));
+
+    const urls = {};
+    document.querySelectorAll('[id^="tba-url-"]').forEach(inp => {
+      const casa = Object.keys(_tbAdminUrls).concat(
+        Array.from(document.querySelectorAll('#tb-admin-urls > div')).map(d => d.querySelector('span')?.textContent?.trim())
+      ).find(c => c && 'tba-url-' + c.replace(/[^A-Za-z0-9]/g,'_') === inp.id);
+      if (casa && inp.value.trim()) urls[casa] = inp.value.trim();
+    });
+    await db.collection('admin_config').doc('trixibot').set({ urls }, { merge:true });
+
+    toast('✅ Trixi Bot guardado', 'success');
+  } catch(e){
+    toast('❌ ' + e.message, 'error');
+  }
+}
+

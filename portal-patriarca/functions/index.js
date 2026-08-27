@@ -15,13 +15,21 @@ const { leerEnVivo, esFirme } = require('./resultados');
 const { esPrincipal } = require('./ligas');
 const { descargar } = require('./historico');
 const { resolverCupon, acerto, sumarCalibracion, leerCalibracion } = require('./aprendizaje');
+const { tablaDeAlias } = require('./aprendizaje');
 const { normEquipo, lineaDe, actualizarFicha,
         sumarAlHistorico, DIAS_DETALLE } = require('./aprendizaje');
 const { agrupar } = require('./emparejar');
+const { archivar } = require('./chat');
+const { analizarCombinadas, calcularTablaRendimiento } = require('./analisis');
 
 admin.initializeApp();
 const db = admin.firestore();
-setGlobalOptions({ region: 'us-central1', memory: '512MiB', timeoutSeconds: 300 });
+// En Cloud Run la memoria también decide cuánta CPU recibe el contenedor, y
+// con poca CPU el arranque se alarga. Con 512 MB los despliegues empezaron a
+// fallar con "failed to start and listen on the port within the allocated
+// timeout" — sin una sola línea de registro de la aplicación, o sea que ni
+// llegaba a ejecutarse. Con 1 GB arranca con holgura.
+setGlobalOptions({ region: 'us-central1', memory: '1GiB', timeoutSeconds: 300 });
 
 // Fecha en Colombia, sin importar dónde corra el servidor
 function hoyBogota(d) {
@@ -185,13 +193,30 @@ async function capturar() {
 
   // Escribir. Un documento por partido, con id estable para que se actualice
   // en vez de duplicarse. Se borra lo que ya no aparece.
+  //
+  // Solo se escribe lo que cambió. El captador corre cada 3 minutos —480 veces
+  // al día— y la mayoría de los partidos tienen las mismas cuotas de una
+  // corrida a la siguiente. Reescribirlos todos costaba unas 240.000
+  // escrituras diarias; con esta comprobación bajan a las que de verdad se
+  // movieron. Los datos previos ya están en memoria (se leyeron arriba), así
+  // que comparar no cuesta ni una lectura extra.
+  // mercadosTs entra en la comparación a propósito: cuando los mercados se
+  // reutilizan conserva el valor guardado, así que no estorba; y cuando se
+  // vuelven a pedir cambia, y ahí sí hay que escribir para que la marca de
+  // tiempo avance. Si no, el captador creería que están viejos y los pediría
+  // otra vez en cada corrida.
+  const firmaDe = d => JSON.stringify([d.cuotas, d.casas, d.liga, d.pais, d.hora,
+                                       d.fecha, d.principal, d.local, d.visitante,
+                                       d.mercadosTs || null]);
+
   const lote = db.batch();
   const vivos = new Set();
+  let sinCambio = 0;
   utiles.forEach(e => {
     const cuotas = armarCuotas(e);
     const id = e._id;
     vivos.add(id);
-    lote.set(db.collection('trixibot_eventos').doc(id), {
+    const doc = {
       fecha: e.inicio ? hoyBogota(new Date(e.inicio)) : hoyBogota(),
       hora: horaBogota(e.inicio),
       inicioUTC: e.inicio || null,
@@ -208,9 +233,13 @@ async function capturar() {
       casas: Object.keys(e.cuotas),
       mercados: Object.keys(cuotas),
       mercadosTs: e._mercadosTs || null,   // cuándo se pidieron por última vez
-      fuente: 'captador',
-      actualizado: admin.firestore.FieldValue.serverTimestamp()
-    }, { merge: false });
+      fuente: 'captador'
+    };
+    const antes = guardado.get(id);
+    if (antes && firmaDe(antes) === firmaDe(doc)) { sinCambio++; return; }
+    lote.set(db.collection('trixibot_eventos').doc(id),
+      { ...doc, actualizado: admin.firestore.FieldValue.serverTimestamp() },
+      { merge: false });
   });
 
   // Limpiar los que dejaron de estar
@@ -234,6 +263,8 @@ async function capturar() {
     lecturas: lecturas.length,
     eventosUnicos: eventos.length,
     guardados: utiles.length,
+    escritos: utiles.length - sinCambio,
+    sinCambio,
     mercadosKambi: { pedidos: cola.length, ok: okMercados, fallos: fallosMercados,
                      reusados, principales: utiles.filter(e => esPrincipal(e.liga, e.pais)).length },
     resultados: vigilancia,
@@ -380,6 +411,37 @@ async function recalcularCupones() {
   }
   return { recalculados: viejos.length, sinResultado: cache.size === 0 };
 }
+
+// Solo lectura: compara aciertos reales contra lo que la cuota implicaba, por
+// mercado, rango de cuota, estrategia, casa y país. No toca ningún dato.
+exports.analizarCombinadasAhora = onRequest(async (req, res) => {
+  res.set('Access-Control-Allow-Origin', '*');
+  if (req.method === 'OPTIONS') { res.set('Access-Control-Allow-Methods', 'GET'); return res.status(204).send(''); }
+  try { res.json(await analizarCombinadas(db)); }
+  catch (e) { res.status(500).json({ ok:false, error:String(e && e.message || e) }); }
+});
+
+// Calcula la tabla de rendimiento por mercado y por vía (antes solo distinguía
+// el mercado: "Más de" y "Menos de" compartían la misma curva). Sin el parámetro
+// aplicar=si solo la devuelve, para revisarla antes de tocar lo que usa el
+// motor de Combinadas en vivo. Con aplicar=si la escribe en trixibot_estado/
+// rendimiento, que es exactamente donde ya la lee patriarca.html.
+exports.actualizarRendimientoAhora = onRequest(async (req, res) => {
+  res.set('Access-Control-Allow-Origin', '*');
+  if (req.method === 'OPTIONS') { res.set('Access-Control-Allow-Methods', 'GET'); return res.status(204).send(''); }
+  try {
+    const r = await calcularTablaRendimiento(db);
+    if (req.query.aplicar === 'si') {
+      await db.collection('trixibot_estado').doc('rendimiento').set({
+        tabla: r.tabla,
+        actualizadoEn: admin.firestore.FieldValue.serverTimestamp(),
+        legsUsados: r.legsUsados
+      });
+      return res.json({ ...r, aplicado: true });
+    }
+    res.json({ ...r, aplicado: false, nota: 'Vista previa. Agrega ?aplicar=si para guardarla.' });
+  } catch (e) { res.status(500).json({ ok:false, error:String(e && e.message || e) }); }
+});
 
 // Se llama desde el administrador, así que necesita permiso de origen cruzado
 exports.recalcularAhora = onRequest(async (req, res) => {
@@ -603,7 +665,17 @@ async function cargarHistorico(anios) {
     await lote.commit();
   }
 
+  // El diccionario de nombres. La fuente escribe "Norwich" y la casa
+  // "Norwich City"; sin esto el equipo se queda sin ficha. Se guarda en un solo
+  // documento que el portal lee una vez.
+  const alias = tablaDeAlias([...new Set(partidos.map(x => x.equipo))]);
+  await db.collection('trixibot_estado').doc('alias_equipos').set({
+    tabla: alias, entradas: Object.keys(alias).length,
+    actualizado: admin.firestore.FieldValue.serverTimestamp()
+  });
+
   const resumen = { ok: true, corridoEn: new Date().toISOString(),
+                    alias: Object.keys(alias).length,
                     lecturas: partidos.length / 2, equipos: claves.length,
                     actualizados: escritos, porArchivo: informe,
                     duracionMs: Date.now() - t0 };
@@ -688,10 +760,48 @@ exports.compactarAhora = onRequest(async (req, res) => {
   catch (e) { res.status(500).json({ ok:false, error:String(e && e.message || e) }); }
 });
 
+// ── Mensajería: archivar lo de más de 30 días ───────────────────────────────
+// Domingos a las 5:20, justo después de la compactación.
+exports.archivarChat = onSchedule(
+  { schedule: '20 5 * * 0', timeZone: 'America/Bogota' },
+  async () => { console.log('archivarChat', JSON.stringify(await archivar(db))); }
+);
+
+exports.archivarChatAhora = onRequest(async (req, res) => {
+  res.set('Access-Control-Allow-Origin', '*');
+  try { res.json(await archivar(db)); }
+  catch (e) { res.status(500).json({ ok:false, error:String(e && e.message || e) }); }
+});
+
 // Cada 3 minutos
+// ── Cada cuánto mira el captador ────────────────────────────────────────────
+// La frecuencia no la mandan las cuotas, la manda el vigilante de resultados:
+// Kambi borra el partido cuando termina y no hay ningún sitio donde volver a
+// buscarlo. Si no lo agarramos entre el minuto 90 y que desaparezca, ese
+// resultado se pierde y con él lo que el sistema aprende.
+//
+// Medido sobre el catálogo real, contando tanto los que empiezan como los que
+// terminan (un partido acaba unas dos horas después de empezar):
+//
+//     00:00  terminan 4      05:00  empiezan 6, termina 1
+//     01:00  nada            06:00  terminan 2
+//     02:00  nada            07:00  terminan 6
+//
+// O sea que de verdad muertas solo hay dos horas. La primera idea era mirar
+// cada 15 minutos de 23:00 a 08:00, pero eso arriesgaba unos 13 resultados de
+// madrugada — cerca del 4% de lo que aprendemos. Cinco minutos deja margen de
+// sobra para agarrar un partido en el minuto 90 y ahorra igual.
+const DIA   = '*/3 8-22 * * *';    // 300 corridas
+const NOCHE = '*/5 23,0-7 * * *';  // 108 corridas · antes eran 180
+
 exports.captador = onSchedule(
-  { schedule: 'every 3 minutes', timeZone: 'America/Bogota' },
+  { schedule: DIA, timeZone: 'America/Bogota' },
   async () => { const r = await capturar(); console.log('captador', JSON.stringify(r)); }
+);
+
+exports.captadorNoche = onSchedule(
+  { schedule: NOCHE, timeZone: 'America/Bogota' },
+  async () => { const r = await capturar(); console.log('captador noche', JSON.stringify(r)); }
 );
 
 // Para dispararlo a mano y ver el resultado

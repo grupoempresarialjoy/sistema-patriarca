@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<title>App AJ1.6</title>
+<style>
+  :root{
+    --bg:#0f1420; --card:#171e2e; --border:#242c40; --text:#eef1f7; --muted:#8b93a7;
+    --accent:#35CC2F; --accent2:#24BF62; --danger:#e5484d;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+    padding-top:env(safe-area-inset-top); padding-bottom:env(safe-area-inset-bottom);
+  }
+  #auth{
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    min-height:100vh; padding:24px;
+  }
+  #auth svg{width:64px;height:auto;margin-bottom:14px}
+  #auth h1{font-size:19px; margin:0 0 4px; font-weight:600}
+  #auth p.sub{color:var(--muted); font-size:13px; margin:0 0 24px}
+  #auth input{
+    width:100%; max-width:320px; padding:13px 14px; margin-bottom:12px;
+    background:#1d2438; border:1px solid var(--border); border-radius:10px;
+    color:var(--text); font-size:15px;
+  }
+  #auth input::placeholder{color:#5b6478}
+  #auth button{
+    width:100%; max-width:320px; padding:13px; margin-top:6px;
+    background:var(--accent2); border:none; border-radius:10px;
+    color:#06210f; font-weight:700; font-size:15px; cursor:pointer;
+  }
+  #auth button:active{opacity:.85}
+  #auth-err{color:var(--danger); font-size:13px; margin-top:12px; text-align:center; display:none; max-width:320px}
+
+  #app{display:none; flex-direction:column; min-height:100vh}
+  header{
+    padding:16px 18px; border-bottom:1px solid var(--border);
+    display:flex; align-items:center; justify-content:space-between;
+    position:sticky; top:0; background:var(--bg); z-index:5;
+  }
+  header .who{font-size:14px; font-weight:600}
+  header .who span{display:block; font-size:11px; color:var(--muted); font-weight:400; margin-top:2px}
+  header button{background:none; border:none; color:var(--muted); font-size:13px; cursor:pointer}
+
+  main{flex:1; padding:14px 14px 90px}
+  .card{
+    background:var(--card); border:1px solid var(--border); border-radius:14px;
+    padding:16px; margin-bottom:12px;
+  }
+  .card h3{margin:0 0 4px; font-size:15px; display:flex; align-items:center; gap:8px}
+  .card p{margin:0; font-size:13px; color:var(--muted); line-height:1.5}
+  .badge{
+    font-size:10px; font-weight:700; padding:2px 8px; border-radius:20px;
+    background:#2a3448; color:var(--muted); text-transform:uppercase; letter-spacing:.03em;
+  }
+  .badge.live{background:rgba(53,204,47,.18); color:var(--accent)}
+  .dot{width:8px;height:8px;border-radius:50%; background:var(--danger); display:inline-block}
+
+  nav.tabbar{
+    position:fixed; bottom:0; left:0; right:0;
+    display:flex; overflow-x:auto; border-top:1px solid var(--border); background:var(--card);
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+  nav.tabbar button{
+    flex:0 0 auto; min-width:66px; background:none; border:none; color:var(--muted);
+    padding:10px 6px 8px; font-size:10px; display:flex; flex-direction:column;
+    align-items:center; gap:3px; cursor:pointer; white-space:nowrap;
+  }
+  nav.tabbar button.active{color:var(--accent)}
+  nav.tabbar .ic{font-size:19px}
+
+  .welcome-overlay{
+    position:fixed; inset:0; background:rgba(6,9,16,.88); z-index:50;
+    display:none; align-items:center; justify-content:center; padding:24px;
+  }
+  .welcome-card{
+    background:var(--card); border:1px solid var(--border); border-radius:18px;
+    padding:28px 24px; max-width:360px; text-align:center;
+  }
+  .welcome-card svg{width:52px; height:auto; margin-bottom:14px}
+  .welcome-card h2{margin:0 0 10px; font-size:18px}
+  .welcome-card p{margin:0 0 20px; font-size:13px; color:var(--muted); line-height:1.5}
+  .welcome-card button{
+    width:100%; padding:13px; background:var(--accent2); border:none; border-radius:10px;
+    color:#06210f; font-weight:700; font-size:14px; cursor:pointer;
+  }
+</style>
+</head>
+<body>
+
+<div id="auth">
+  <svg viewBox="0 0 129.80 136.60" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="AJ1.6"><g transform="translate(-243.70,-323.90)"><path fill="#35CC2F" d="M 372.328125 358.785156 L 345.929688 358.785156 C 345.929688 358.785156 345.535156 386.398438 345.03125 395.6875 C 344.316406 408.824219 334.230469 427.484375 307.53125 431.984375 C 295.847656 433.953125 271.835938 430.109375 260.132812 431.984375 C 251.121094 433.425781 245.753906 440.683594 243.953125 458.683594 C 243.953125 458.683594 293.769531 459.3125 313.230469 458.082031 C 334.511719 456.738281 365.375 451.882812 372.328125 396.585938 C 373.507812 387.210938 372.328125 358.785156 372.328125 358.785156"/><path fill="#24BF62" d="M 354.34375 324.949219 C 354.34375 324.949219 315.582031 323.929688 295.03125 324.949219 C 274.796875 325.953125 247.359375 336.648438 243.695312 387.644531 L 243.695312 419.808594 L 310.484375 419.808594 C 310.484375 419.808594 330.128906 419.445312 331.175781 394.246094 L 330.679688 378.347656 L 309.171875 378.046875 L 309.171875 398.445312 L 266.742188 398.445312 C 266.742188 398.445312 260.460938 379.042969 274.78125 361.667969 C 278.523438 357.132812 286.003906 348.40625 300.28125 345.347656 L 345.164062 345.347656 C 345.164062 345.347656 353.558594 346.246094 354.34375 324.949219"/></g></svg>
+  <h1>App AJ1.6</h1>
+  <p class="sub">Acceso solo para administradores</p>
+  <input id="in-email" type="text" placeholder="Correo o usuario" autocomplete="username">
+  <input id="in-pass" type="password" placeholder="Contraseña" autocomplete="current-password">
+  <button id="btn-login" onclick="hacerLogin()">Ingresar</button>
+  <div id="auth-err"></div>
+</div>
+
+<div id="app">
+  <header>
+    <div class="who">
+      <span id="hdr-nombre">—</span>
+      <span>Sesión administrador</span>
+    </div>
+    <button onclick="hacerLogout()">Salir</button>
+  </header>
+
+  <main>
+    <div class="card" id="page-notificaciones">
+      <h3>🔔 Notificaciones <span class="badge">Próximamente</span></h3>
+      <p>Aquí llegarán los avisos de pendientes por aprobar, alertas de auditoría y resumen de actividad — en cuanto conectemos el envío de notificaciones push.</p>
+    </div>
+
+    <div class="card" id="page-mensajes">
+      <h3>💬 Mensajes <span class="badge">Próximamente</span></h3>
+      <p>Chat con operadores y cajeros, igual que en el portal de escritorio.</p>
+    </div>
+
+    <div class="card" id="page-pendientes">
+      <h3>✅ Pendientes <span class="badge">Próximamente</span></h3>
+      <p>Solicitudes y aprobaciones que hoy revisas desde el computador.</p>
+    </div>
+
+    <div class="card" id="page-trixi">
+      <h3>🎯 Bot Trixi <span class="badge">Próximamente</span></h3>
+      <p>Vista rápida de las cuotas que el bot va detectando — la misma información que revisas hoy en el portal, en formato de lectura para el celular.</p>
+    </div>
+
+    <div class="card" id="page-combinadas">
+      <h3>🧩 Bot de Combinadas <span class="badge">Próximamente</span></h3>
+      <p>Combinadas detectadas por el bot, para revisarlas sin tener que estar frente al computador.</p>
+    </div>
+  </main>
+
+  <nav class="tabbar">
+    <button class="active"><span class="ic">🏠</span>Inicio</button>
+    <button><span class="ic">🔔</span>Alertas</button>
+    <button><span class="ic">💬</span>Mensajes</button>
+    <button><span class="ic">✅</span>Pendientes</button>
+    <button><span class="ic">🎯</span>Trixi</button>
+    <button><span class="ic">🧩</span>Combinadas</button>
+  </nav>
+</div>
+
+<div class="welcome-overlay" id="welcome-overlay">
+  <div class="welcome-card">
+    <svg viewBox="0 0 129.80 136.60" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="AJ1.6"><g transform="translate(-243.70,-323.90)"><path fill="#35CC2F" d="M 372.328125 358.785156 L 345.929688 358.785156 C 345.929688 358.785156 345.535156 386.398438 345.03125 395.6875 C 344.316406 408.824219 334.230469 427.484375 307.53125 431.984375 C 295.847656 433.953125 271.835938 430.109375 260.132812 431.984375 C 251.121094 433.425781 245.753906 440.683594 243.953125 458.683594 C 243.953125 458.683594 293.769531 459.3125 313.230469 458.082031 C 334.511719 456.738281 365.375 451.882812 372.328125 396.585938 C 373.507812 387.210938 372.328125 358.785156 372.328125 358.785156"/><path fill="#24BF62" d="M 354.34375 324.949219 C 354.34375 324.949219 315.582031 323.929688 295.03125 324.949219 C 274.796875 325.953125 247.359375 336.648438 243.695312 387.644531 L 243.695312 419.808594 L 310.484375 419.808594 C 310.484375 419.808594 330.128906 419.445312 331.175781 394.246094 L 330.679688 378.347656 L 309.171875 378.046875 L 309.171875 398.445312 L 266.742188 398.445312 C 266.742188 398.445312 260.460938 379.042969 274.78125 361.667969 C 278.523438 357.132812 286.003906 348.40625 300.28125 345.347656 L 345.164062 345.347656 C 345.164062 345.347656 353.558594 346.246094 354.34375 324.949219"/></g></svg>
+    <h2>¡Bienvenido a Patriarca Admin!</h2>
+    <p>Esta es la primera versión de la app. Iremos activando cada sección — Alertas, Mensajes, Pendientes, Trixi y Combinadas — poco a poco.</p>
+    <button onclick="cerrarBienvenida()">Entendido, comenzar</button>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script>
+  const firebaseConfig = {
+    apiKey: "AIzaSyBQ42PzffxkEUEJVaPIVxHPKDqA_wk6IS0",
+    authDomain: "portal-patriarca-aj16.firebaseapp.com",
+    projectId: "portal-patriarca-aj16",
+    storageBucket: "portal-patriarca-aj16.firebasestorage.app",
+    messagingSenderId: "1073575698338",
+    appId: "1:1073575698338:web:f014083b3092c6dc245cfb"
+  };
+  firebase.initializeApp(firebaseConfig);
+  const auth = firebase.auth();
+  const db = firebase.firestore();
+  const ADMIN_DOMAIN = '@admin.aj16.com'; // mismo sufijo que usa admin.html para login por usuario
+
+  function mostrarError(msg) {
+    const el = document.getElementById('auth-err');
+    el.textContent = msg;
+    el.style.display = 'block';
+  }
+
+  async function hacerLogin() {
+    let entrada = document.getElementById('in-email').value.trim().toLowerCase();
+    const pass  = document.getElementById('in-pass').value;
+    if (!entrada || !pass) { mostrarError('Completa correo/usuario y contraseña'); return; }
+    document.getElementById('auth-err').style.display = 'none';
+    const email = entrada.includes('@') ? entrada : entrada + ADMIN_DOMAIN;
+    try {
+      await auth.signInWithEmailAndPassword(email, pass);
+    } catch (e) {
+      mostrarError('Credenciales inválidas o error de red');
+    }
+  }
+
+  function hacerLogout() { auth.signOut(); }
+
+  function cerrarBienvenida() {
+    localStorage.setItem('patriarca_admin_welcome_seen', '1');
+    document.getElementById('welcome-overlay').style.display = 'none';
+  }
+
+  auth.onAuthStateChanged(async user => {
+    if (!user) {
+      document.getElementById('auth').style.display = 'flex';
+      document.getElementById('app').style.display = 'none';
+      return;
+    }
+    try {
+      const doc = await db.collection('admin_accesos').doc(user.uid).get();
+      if (!doc.exists || doc.data().rol !== 'admin') {
+        mostrarError('Este correo no tiene acceso de administrador');
+        auth.signOut();
+        return;
+      }
+      document.getElementById('hdr-nombre').textContent = doc.data().nombre || user.email;
+      document.getElementById('auth').style.display = 'none';
+      document.getElementById('app').style.display = 'flex';
+      if (!localStorage.getItem('patriarca_admin_welcome_seen')) {
+        document.getElementById('welcome-overlay').style.display = 'flex';
+      }
+    } catch (e) {
+      mostrarError('No se pudo verificar el acceso. Revisa tu conexión.');
+      auth.signOut();
+    }
+  });
+
+  (function () {
+    function wirePasswordToggles() {
+      document.querySelectorAll('input[type="password"]').forEach(inp => {
+        if (inp.dataset.pwWired) return;
+        inp.dataset.pwWired = '1';
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'position:relative;width:100%';
+        inp.parentNode.insertBefore(wrap, inp);
+        wrap.appendChild(inp);
+        const cs = getComputedStyle(inp);
+        wrap.style.marginTop = cs.marginTop;
+        wrap.style.marginBottom = cs.marginBottom;
+        inp.style.marginTop = '0';
+        inp.style.marginBottom = '0';
+        inp.style.paddingRight = '34px';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = '👁';
+        btn.title = 'Mostrar/ocultar contraseña';
+        btn.style.cssText = 'position:absolute;right:4px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:14px;opacity:.55;padding:0;margin:0;line-height:1;width:24px;height:24px;min-width:0;box-sizing:border-box;display:flex;align-items:center;justify-content:center';
+        btn.onclick = () => {
+          const mostrar = inp.type === 'password';
+          inp.type = mostrar ? 'text' : 'password';
+          btn.textContent = mostrar ? '🙈' : '👁';
+        };
+        wrap.appendChild(btn);
+      });
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wirePasswordToggles);
+    else wirePasswordToggles();
+  })();
+</script>
+</body>
+</html>

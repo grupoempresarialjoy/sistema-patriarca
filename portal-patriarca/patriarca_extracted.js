@@ -1,0 +1,9348 @@
+(function(){var t=localStorage.getItem('aj16-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)})();
+;
+
+// ──────────────────── CONFIG ────────────────────
+const firebaseConfig = {
+  apiKey: "AIzaSyBQ42PzffxkEUEJVaPIVxHPKDqA_wk6IS0",
+  authDomain: "portal-patriarca-aj16.firebaseapp.com",
+  projectId: "portal-patriarca-aj16",
+  storageBucket: "portal-patriarca-aj16.firebasestorage.app",
+  messagingSenderId: "1073575698338",
+  appId: "1:1073575698338:web:f014083b3092c6dc245cfb"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+
+// ──────────────────── STATIC DATA (fallback mientras carga Firestore) ────────────────────
+let CASAS = ['AQUI JUEGOS','BET ALFA','BET PLAY','BETFAIR','BETSSON','BWIN','CODERE','FULL RETO','LUCKIA','MEGA APUESTAS','MOZZARTBET','RIVALO','RUSHBET','SPORTIUM','STAKE','WILLIAM HILL','WPLAY','YA JUEGOS','ZAMBA','BETANO'];
+let OPERADORES = []; // se carga desde admin_usuarios
+
+// Métodos internos (nunca van al cajero)
+const METODOS_INTERNOS_NOMBRES = ['EFECTIVO OPERADOR','BE MOVIL CAJA','CUENTA BANCARIA','BONIFICACION','SIN COMISION','FREE','BIENVENIDA','REJUEGO','DESCUENTO IVA','BONO IVA'];
+
+// Métodos virtuales — aparecen en movimientos pero NO tienen saldo de caja real
+const METODOS_VIRTUALES = new Set(['BONIFICACION','SIN COMISION','FREE','BIENVENIDA','REJUEGO','DESCUENTO IVA','BONO IVA','T PAGA','COSTO DE SERVICIOS','SALDO CLIENTES ANTERIOR']);
+
+// Estas variables se llenan desde Firestore al iniciar
+let METODOS_CAJA = ['SALDO CLIENTES ANTERIOR','EFECTIVO OPERADOR','BE MOVIL CAJA','PTM PROPIO','BE MOVIL MASTER','MEGA RED','PUNTO RED UNITY','BET RED','WPLAY UNITY','SUPER GIROS UNITY','EFECTY 1 DE MAYO','SUPER GIROS MAQUINA','CORRESPONSAL EL PARAMO','EASY CHANGER'];
+
+// Alias de nombres alternativos → nombre canónico en METODOS_CAJA
+const METODO_ALIAS = {
+  'SUPERGIROS UNITY'  : 'SUPER GIROS UNITY',
+  'SUPER GIROS UNITY ': 'SUPER GIROS UNITY',
+  'BEMOVIL'           : 'BE MOVIL CAJA',
+  'BE MOVIL'          : 'BE MOVIL CAJA',
+  'WPLAY POS'         : 'WPLAY UNITY',
+  'EFECTIVO'          : 'EFECTIVO OPERADOR',
+  'EFECTY'            : 'EFECTY 1 DE MAYO',
+  'CORRESPONSAL'      : 'CORRESPONSAL EL PARAMO',
+  'EASYCHANGER'       : 'EASY CHANGER',
+  'EASY CHANGER'      : 'EASY CHANGER',
+};
+function normMetodo(m) { return METODO_ALIAS[(m||'').trim().toUpperCase()] || (m||'').trim().toUpperCase(); }
+let METODOS_MV   = [...METODOS_CAJA, 'BONIFICACION','SIN COMISION','FREE','BIENVENIDA','REJUEGO','DESCUENTO IVA','BONO IVA','CUENTA BANCARIA','T PAGA','COSTO DE SERVICIOS'];
+let COMISIONES   = {};  // {casa_metodo: [tasaRecarga, tasaPago]} — se carga desde Firestore por oficina
+let COMISIONES_LISTA = []; // lista raw para mostrar en la pestaña
+let COMISIONES_OFICINA = ''; // nombre del grupo para mostrar en encabezado
+
+// ──────────────────── STATE ────────────────────
+let currentUser = null;
+let opId = null;
+let operadorNombre  = '';
+let operadorOficina = '';
+let operadorRol     = 'operador'; // se lee de admin_usuarios al login
+let activeOperators = [];   // operadores activos de la misma oficina
+let allIncoming     = [];   // intercambios entrantes pendientes de aceptar
+let config = { cupo: 8000000, meta: 5000000, mes: 'Junio 2026', vinc: 'Oficina', interes_capital: 5, interes_diario: 0.2 };
+
+// Rangos de escalera — se cargan desde Firestore, estos son el fallback
+// Config del bono — se carga desde Firestore con la escalera
+let bono_config = {
+  meta:          40000000,
+  pct_solo:      5,
+  pct_combo:     3,
+  canal_wplay:   'WPLAY UNITY',
+  canal_bemovil: 'BE MOVIL CAJA',
+  casas: [
+    { casa:'YA JUEGOS', factor:100 },
+    { casa:'BETSSON',   factor:75  },
+    { casa:'LUCKIA',    factor:75  },
+    { casa:'BWIN',      factor:60  },
+    { casa:'RUSHBET',   factor:55  },
+    { casa:'SPORTIUM',  factor:40  },
+  ],
+};
+
+let escalera_rangos = [
+  { desde:0,       hasta:2799999, rojo:600000, participacion:50, interesCapital:true,  interesDiario:true  },
+  { desde:2800000, hasta:2999999, rojo:300000, participacion:50, interesCapital:true,  interesDiario:true  },
+  { desde:3000000, hasta:3999999, rojo:0,      participacion:45, interesCapital:true,  interesDiario:true  },
+  { desde:4000000, hasta:4999999, rojo:0,      participacion:50, interesCapital:true,  interesDiario:true  },
+  { desde:5000000, hasta:5999999, rojo:0,      participacion:50, interesCapital:true,  interesDiario:false },
+  { desde:6000000, hasta:null,    rojo:0,      participacion:50, interesCapital:false, interesDiario:false },
+];
+let escalera_interes_capital = 5;
+let escalera_interes_diario  = 0.2;
+// Variables para que _calcBono() pueda actualizar la Ganancia Operador con el bono
+let _lastBaseNeta   = 0;
+let _lastIntCapMes  = 0;
+let _lastEscalera   = null;
+let allEventos = [];
+let allMovimientos = [];
+let allInversiones = [];
+let allIntercambios = [];
+let allClientes = [];
+let allCuentas = [];
+let allGastos = [];
+let movCnt = 0, intCnt = 0;
+
+// ── Control de mes cerrado ──
+let _mesCerrado = false;      // true si el mes activo fue cerrado por el CEO
+let _mesAutorizado = false;   // true si el admin autorizó edición temporal
+let _mesCerradoUnsub = null;  // listener activo
+
+function _isMesLocked() { return _mesCerrado && !_mesAutorizado; }
+
+function _actualizarBannerMesCerrado() {
+  const banner   = document.getElementById('banner-mes-cerrado');
+  const autSpan  = document.getElementById('banner-mes-autorizado');
+  if (!banner) return;
+  if (_mesCerrado) {
+    banner.style.display = '';
+    if (autSpan) autSpan.style.display = _mesAutorizado ? '' : 'none';
+  } else {
+    banner.style.display = 'none';
+  }
+}
+
+function _suscribirMesCerrado() {
+  const mk = _mesKey(config?.mes);
+  if (_mesCerradoUnsub) { _mesCerradoUnsub(); _mesCerradoUnsub = null; }
+  _mesCerrado = false; _mesAutorizado = false;
+  _actualizarBannerMesCerrado();
+  if (!opId || !mk) return;
+  const docId = `${opId}_${mk}`;
+  _mesCerradoUnsub = db.collection('patriarca_meses_cerrados').doc(docId)
+    .onSnapshot(snap => {
+      _mesCerrado    = snap.exists;
+      _mesAutorizado = snap.exists ? (snap.data().autorizado === true) : false;
+      _actualizarBannerMesCerrado();
+    }, () => { _mesCerrado = false; _actualizarBannerMesCerrado(); });
+}
+
+// Para modales que se abren directo con openModal(id) desde el botón: revisa
+// el candado ANTES de abrir, así el operador no llega a llenar un formulario
+// completo para toparse con el error hasta el final.
+function abrirRegistro(modalId, accion) {
+  if (_checkLock(accion)) return;
+  openModal(modalId);
+}
+
+function _checkLock(accion) {
+  if (chBloqueadoPorAuditoria()) {
+    toast(`🔒 Sistema en auditoría. No se puede ${accion} — contacta al administrador si es urgente.`, 'error');
+    return true; // bloqueado
+  }
+  if (!_isMesLocked()) return false; // no bloqueado
+  toast(`🔒 Este mes está cerrado. Pide al administrador que autorice la edición para ${accion}.`, 'error');
+  return true; // bloqueado
+}
+
+// ──────────────────── HELPERS ────────────────────
+const peso = v => v == null ? '$0' : '$' + Math.round(v).toLocaleString('es-CO');
+const pct  = v => (v * 100).toFixed(1) + '%';
+const fmtDate = ts => {
+  if (!ts) return '—';
+  let d;
+  if (typeof ts === 'number') d = excelDateToJS(ts);
+  else if (ts.toDate) d = ts.toDate();
+  else d = new Date(ts.includes('T') ? ts : ts + 'T00:00:00');
+  return d.toLocaleDateString('es-CO', {day:'2-digit', month:'2-digit', year:'numeric'});
+};
+function excelDateToJS(serial) {
+  const d = new Date((serial - 25569) * 86400000);
+  d.setMinutes(d.getMinutes() + d.getTimezoneOffset());
+  return d;
+}
+function today() {
+  const d = new Date();
+  return d.getFullYear() + '-' +
+    String(d.getMonth()+1).padStart(2,'0') + '-' +
+    String(d.getDate()).padStart(2,'0');
+}
+function getComision(casa, metodo, tipo) {
+  // Busca directo en la lista de comisiones (misma data que pestaña Comisiones)
+  const row = COMISIONES_LISTA.find(c => c.casa === casa && c.metodo === metodo);
+  if (!row) return 0;
+  return tipo === 'PAGOS' ? (row.tasaPago || 0) / 100 : (row.tasaRecarga || 0) / 100;
+}
+function coll(name) { return db.collection('patriarca_' + name); }
+function userColl(name) { return coll(name).where('opId','==',opId); }
+
+// ──────────────────── TOAST ────────────────────
+function toast(msg, type='info') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'show ' + type;
+  setTimeout(() => t.className = '', 3000);
+}
+
+// ──────────────────── MODO AUDITORÍA ────────────────────
+// El candado real lo hacen cumplir las reglas de Firestore — esto solo avisa
+// en pantalla por qué algo no se va a poder guardar. Dos escuchas en vivo:
+// el candado general y la excepción propia, para que si el administrador te
+// desbloquea mientras arreglas algo, la franja desaparezca sin recargar.
+let _audActiva = false;
+let _audPermitido = false;
+function chBloqueadoPorAuditoria(){ return _audActiva && !_audPermitido; }
+
+function auditoriaEscucharOperador(){
+  db.collection('patriarca_config_global').doc('auditoria').onSnapshot(doc => {
+    _audActiva = !!(doc.exists && doc.data().activo);
+    auditoriaPintarBanner();
+  }, () => {});
+  db.collection('patriarca_config').doc(opId).onSnapshot(doc => {
+    _audPermitido = !!(doc.exists && doc.data().auditoria && doc.data().auditoria.permitido);
+    auditoriaPintarBanner();
+  }, () => {});
+}
+
+function auditoriaPintarBanner(){
+  let f = document.getElementById('aud-franja');
+  if (!chBloqueadoPorAuditoria()) { if (f) f.remove(); return; }
+  if (f) return;
+  f = document.createElement('div');
+  f.id = 'aud-franja';
+  f.style.cssText = 'position:sticky;top:0;z-index:850;background:#c0392b;color:#fff;'
+    + 'padding:10px 16px;font-size:13px;font-weight:700;text-align:center';
+  f.textContent = '🔒 Sistema en auditoría — solo puedes ver. Si necesitas hacer un cambio, contacta al administrador.';
+  const app = document.getElementById('app') || document.body;
+  app.insertBefore(f, app.firstChild);
+}
+
+// ──────────────────── AUTH ────────────────────
+// Correos que NO pueden entrar al portal de operador (son solo cajeros)
+const CAJERO_ONLY_EMAILS = ['paola@aj16.com'];
+
+auth.onAuthStateChanged(async user => {
+  if (user) {
+    if (CAJERO_ONLY_EMAILS.includes(user.email.toLowerCase())) {
+      auth.signOut();
+      const err = document.getElementById('auth-err');
+      if (err) { err.style.display = 'block'; err.textContent = 'Este correo es de Cajero — ingresa a cajero.html'; }
+      return;
+    }
+    // Verificar estado y cargar datos desde admin_usuarios
+    // Busca primero por uid (más confiable), luego por email en minúsculas
+    let auSnap = await db.collection('admin_usuarios').where('uid','==', user.uid).limit(1).get();
+    if (auSnap.empty) {
+      auSnap = await db.collection('admin_usuarios')
+        .where('email','==', user.email.toLowerCase()).limit(1).get();
+    }
+    if (auSnap.empty) {
+      auSnap = await db.collection('admin_usuarios')
+        .where('email','==', user.email).limit(1).get();
+    }
+
+    if (!auSnap.empty) {
+      const ud = auSnap.docs[0].data();
+      if ((ud.estado || '').toLowerCase() === 'inactivo') {
+        auth.signOut();
+        const err = document.getElementById('auth-err');
+        if (err) {
+          err.style.display = 'block';
+          err.textContent   = '⛔ Tu cuenta está inactiva. Contacta al administrador.';
+        }
+        return;
+      }
+      operadorNombre  = ud.nombre || user.displayName || user.email;
+      operadorOficina = ud.oficinaNombre || ud.oficina || '';
+      operadorRol     = ud.rol || 'operador';
+      const oficina   = ud.oficinaNombre || '';
+      document.getElementById('user-name').textContent = operadorNombre + (oficina ? ' · ' + oficina : '');
+    } else {
+      // No encontrado — usa email como fallback pero deja pasar
+      operadorNombre = user.displayName || user.email;
+      document.getElementById('user-name').textContent = operadorNombre;
+    }
+
+    currentUser = user;
+    opId = user.uid;
+    document.getElementById('auth-overlay').style.display = 'none';
+    document.getElementById('app').style.display = 'flex';
+    populateStaticSelects(); // poblar inmediatamente con datos hardcoded
+    await loadConfig();
+    loadActiveOperators();
+    subscribeIncoming();
+    _suscribirMesCerrado(); // verificar si el mes activo está cerrado
+    tbInit(); // Trixi Bot — muestra la pestaña solo si el admin la habilitó
+    auditoriaEscucharOperador();
+    if (window.AJChat) AJChat.iniciarUsuario({
+      db, auth, uid: user.uid,
+      nombre: operadorNombre, rol: operadorRol || 'operador',
+      oficina: operadorOficina, montarEn: '#ch-montar'
+    });
+    reloadDash(); // Render inmediato con nombre y config — los datos llenarán cuando lleguen los listeners
+    // Cargar escalera desde Firestore según metodo_participacion del operador
+    const metodoNombre = config.metodo_participacion || 'Escalera de Ganancia';
+    db.collection('patriarca_escalera').where('nombre','==',metodoNombre).limit(1).get().then(snap => {
+      if (!snap.empty) {
+        const d = snap.docs[0].data();
+        if (d.rangos && d.rangos.length) escalera_rangos = d.rangos;
+        if (d.interes_capital != null) escalera_interes_capital = d.interes_capital;
+        if (d.interes_diario  != null) escalera_interes_diario  = d.interes_diario;
+        if (d.bono)                    bono_config = { ...bono_config, ...d.bono };
+        reloadDash();
+      }
+    }).catch(() => {});
+    loadAllData();
+    // Auto-registro para que el Cajero pueda ver este operador
+    db.collection('patriarca_operadores').doc(opId).set({
+      uid: opId,
+      nombre: user.displayName || user.email,
+      email: user.email,
+      lastSeen: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+  }
+});
+
+async function doLogin() {
+  const email = document.getElementById('email-in').value.trim();
+  const pass  = document.getElementById('pass-in').value;
+  const errEl = document.getElementById('auth-err');
+  errEl.style.display = 'none';
+  try {
+    await auth.signInWithEmailAndPassword(email, pass);
+  } catch(e) {
+    errEl.textContent = 'Credenciales incorrectas';
+    errEl.style.display = 'block';
+  }
+}
+document.getElementById('pass-in').addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
+
+function doLogout() { auth.signOut().then(() => location.reload()); }
+
+// ──────────────────── CONFIG ────────────────────
+
+async function loadConfig() {
+  // Escucha en tiempo real — si el cajero cambia el cupo, el operador lo ve al instante
+  // Devuelve promesa que resuelve tras el PRIMER snapshot, para que config.metodo_participacion
+  // ya esté cargado antes de que el código siguiente consulte la escalera en Firestore.
+  return new Promise((resolve) => {
+  let _cfgLoaded = false;
+  db.collection('patriarca_config').doc(opId).onSnapshot(doc => {
+    if (doc.exists) {
+      const d = doc.data();
+      // Normalizar cupos_cajero con normMetodo para deduplicar aliases (ej "Saldo Clientes" → "SALDO CLIENTES ANTERIOR")
+      // NO filtrar por METODOS_CAJA para no descartar métodos válidos que aún no hayan cargado (ej CUENTA BANCARIA)
+      const cuposCajeroRaw = d.cupos_cajero || {};
+      const NO_SON_METODOS = new Set(['CUPO TOTAL', 'CUPO TOTAL ASIGNADO', 'CUPO_RESIDUAL', 'COM_MES_ANT', 'LIQ_POR_PAGAR', 'CLI_MES_ANT']);
+      const cuposCajero = {};
+      Object.entries(cuposCajeroRaw).forEach(([k, v]) => {
+        if (NO_SON_METODOS.has(k)) return; // Filtrar CUPO TOTAL ANTES de normalizar
+        const norm = normMetodo(k);
+        if (!norm) return;
+        // Deduplicar: si la misma clave normalizada aparece dos veces, conservar el mayor valor
+        if (!(norm in cuposCajero) || v > cuposCajero[norm]) cuposCajero[norm] = v;
+      });
+      const totalCajero = Object.entries(cuposCajero)
+        .reduce((a, [, v]) => a + v, 0);
+
+      // Si cajero asignó cupos, usar esa suma (incluso si es 0); si no hay cupos de cajero, usar config.cupo
+      const hayCuposCajero = Object.keys(cuposCajero).length > 0;
+      config = {
+        cupo:                 hayCuposCajero ? totalCajero : (d.cupo || 8000000),
+        capital_propio:       d.capital_propio    || 0,
+        capital_asignado:     d.capital_asignado  || 0,
+        meta:                 d.meta              || 5000000,
+        mes:                  d.mes               || 'Junio 2026',
+        vinc:                 d.vinc              || 'Oficina',
+        metodo_participacion: d.metodo_participacion || 'Escalera de Ganancia',
+        participacion:        d.participacion     || null,
+        interes_capital:      d.interes_capital   ?? 5,
+        interes_diario:       d.interes_diario    ?? 0.2,
+        cupos_iniciales: (()=>{
+          // Calcular mesKey del mes activo
+          const mesKey = (()=>{
+            const parts = (d.mes||'').trim().toLowerCase().split(/\s+/);
+            if (parts.length < 2) return null;
+            const num = {enero:1,febrero:2,marzo:3,abril:4,mayo:5,junio:6,julio:7,agosto:8,septiembre:9,octubre:10,noviembre:11,diciembre:12}[parts[0]];
+            const año = parseInt(parts[1]);
+            return (num && año) ? `${año}-${String(num).padStart(2,'0')}` : null;
+          })();
+          // Prioridad 1: cupos_por_mes[mesKey] si existe (guardado por admin/cajero o cierre)
+          if (mesKey && d.cupos_por_mes && d.cupos_por_mes[mesKey]) {
+            const merged = {};
+            Object.entries(d.cupos_por_mes[mesKey]).forEach(([k,v]) => {
+              if (NO_SON_METODOS.has(k)) return; // Filtrar CUPO TOTAL (NO_SON_METODOS ya se definió arriba)
+              const norm = normMetodo(k) || k;
+              if (v != null) merged[norm] = v;
+            });
+            return merged;
+          }
+          // Prioridad 2: si cupos_por_mes YA existe como campo (sistema migrado)
+          // pero no tiene datos para este mes → mes nuevo = $0
+          if (mesKey && d.cupos_por_mes) return {};
+          // Prioridad 3: legacy — cupos_por_mes no existe aún (antes del primer guardado post-deploy)
+          // Usar cupos_cajero + cupos_iniciales como antes
+          const merged = {};
+          Object.entries(d.cupos_iniciales||{}).forEach(([k,v]) => { merged[k] = v; });
+          Object.entries(cuposCajero).forEach(([k,v])=>{
+            if(v == null) return;
+            merged[k] = v;
+          });
+          return merged;
+        })(),
+        cupos_cajero: cuposCajero,
+        permisos: d.permisos || {}
+      };
+      aplicarPermisos();
+      document.getElementById('mes-badge').textContent = config.mes;
+      _asegurarEventosBase();   // crear los eventos base del mes si faltan
+      // Actualiza KPIs
+      const kpiCupo = document.getElementById('kpi-cupo');
+      if (kpiCupo) kpiCupo.textContent = peso(config.cupo);
+      const esfCupo = document.getElementById('esf-cupo');
+      if (esfCupo) esfCupo.textContent = peso(config.cupo);
+      // Re-renderiza el Mapa de Capital con los nuevos valores
+      if (typeof renderESF === 'function') renderESF();
+    } else {
+      openModal('modal-config');
+    }
+    // Primer snapshot → resolver promesa (código siguiente ya tiene config correcto)
+    // Snapshots siguientes → refrescar dashboard con nuevos valores en tiempo real
+    if (!_cfgLoaded) { _cfgLoaded = true; resolve(); }
+    else {
+      reloadDash();
+      // Re-renderizar TODO lo filtrado por mes activo
+      if (typeof renderEventos       === 'function') renderEventos();
+      if (typeof populateEventSelects=== 'function') populateEventSelects();
+      if (typeof renderMovimientos   === 'function') renderMovimientos();
+      if (typeof renderInversiones   === 'function') renderInversiones();
+      if (typeof renderIntercambios  === 'function') renderIntercambios();
+      if (typeof renderComisionesTab === 'function') renderComisionesTab();
+      if (typeof renderSaldosActivo  === 'function') renderSaldosActivo();
+      if (typeof renderProductividad === 'function') renderProductividad();
+      if (typeof renderGastos        === 'function') renderGastos();
+    }
+  });
+  }); // end Promise
+}
+
+async function cambiarMesSolo() {
+  const nuevoMes = document.getElementById('mes-select').value;
+  if (!nuevoMes) return;
+  try {
+    await db.collection('patriarca_config').doc(opId).set({ mes: nuevoMes }, { merge: true });
+    config.mes = nuevoMes;
+    closeModal('modal-mes');
+    const badge = document.getElementById('mes-badge');
+    if (badge) badge.textContent = nuevoMes;
+    _suscribirMesCerrado(); // verificar si el nuevo mes está cerrado
+    reloadDash();
+    toast('✅ Mes cambiado a ' + nuevoMes, 'success');
+  } catch(e) {
+    console.error('cambiarMesSolo error:', e);
+    toast('⚠ Error al cambiar mes: ' + (e.message || e), 'error');
+  }
+}
+
+async function saveConfig() {
+  config = {
+    cupo:    parseFloat(document.getElementById('cfg-cupo').value)||8000000,
+    meta:    parseFloat(document.getElementById('cfg-meta').value)||5000000,
+    mes:     document.getElementById('cfg-mes').value,
+    vinc:    document.getElementById('cfg-vinc').value,
+    rojo:    parseFloat(document.getElementById('cfg-rojo').value)||600000,
+    interes: parseFloat(document.getElementById('cfg-interes').value)||5,
+  };
+  await db.collection('patriarca_config').doc(opId).set(config);
+  closeModal('modal-config');
+  document.getElementById('mes-badge').textContent = config.mes;
+  reloadDash();
+  toast('✅ Configuración guardada', 'success');
+}
+
+// ──────────────────── LOAD ALL DATA ────────────────────
+// NOTE: No .orderBy() on Firestore queries to avoid requiring composite indexes.
+// Sorting is done client-side after fetching.
+const sortByTs = arr => arr.sort((a,b) => {
+  const ta = a.ts?.seconds || a.ts || 0;
+  const tb = b.ts?.seconds || b.ts || 0;
+  return ta - tb;
+});
+
+// Helper que reconecta el listener si el token de Firebase expira (cada hora)
+function safeSnapshot(query, onData, collName) {
+  let unsub;
+  function attach() {
+    if (unsub) unsub();
+    unsub = query.onSnapshot(onData, err => {
+      if (err.code === 'permission-denied' || (err.message || '').includes('permissions')) {
+        // Token expirado/renovándose — reintenta en 4 segundos silenciosamente
+        setTimeout(attach, 4000);
+      } else {
+        toast('⚠ Error ' + collName + ': ' + err.message, 'error');
+      }
+    });
+  }
+  attach();
+}
+
+async function loadAllData() {
+  safeSnapshot(userColl('eventos'), snap => {
+    allEventos = snap.docs.map(d => ({id:d.id,...d.data()})).sort((a,b) => (parseInt(a.num)||0) - (parseInt(b.num)||0));
+    renderEventos();
+    populateEventSelects();
+    _asegurarEventosBase();
+  }, 'eventos');
+
+  safeSnapshot(userColl('movimientos'), snap => {
+    allMovimientos = snap.docs.map(d => ({id:d.id,...d.data()}))
+      .filter(m => !m.eliminado)  // excluir movimientos eliminados (soft delete)
+      .sort((a,b) => {
+        // 1. Fecha YYYY-MM-DD (orden cronológico)
+        const fa = a.fecha || '', fb = b.fecha || '';
+        if (fa !== fb) return fa.localeCompare(fb);
+        // 2. Número de op_id dentro de la fecha
+        const na = parseInt((a.op_id||'').match(/\d+/)?.[0]||0);
+        const nb = parseInt((b.op_id||'').match(/\d+/)?.[0]||0);
+        return na - nb;
+      });
+    movCnt = allMovimientos.length;
+    renderMovimientos();
+    reloadDash();
+  }, 'movimientos');
+
+  safeSnapshot(userColl('inversiones'), snap => {
+    allInversiones = sortByTs(snap.docs.map(d => ({id:d.id,...d.data()})));
+    renderInversiones();
+    reloadDash();
+  }, 'inversiones');
+
+  safeSnapshot(userColl('intercambios'), snap => {
+    allIntercambios = snap.docs.map(d => ({id:d.id,...d.data()}))
+      .sort((a,b) => {
+        // Ordenar por fecha ascendente, luego por número ix_id ascendente
+        const fa = a.fecha || '', fb = b.fecha || '';
+        if (fa !== fb) return fa.localeCompare(fb);
+        const na = parseInt((a.ix_id||'').match(/^(\d+)/)?.[1] || 0);
+        const nb = parseInt((b.ix_id||'').match(/^(\d+)/)?.[1] || 0);
+        return na - nb;
+      });
+    intCnt = allIntercambios.length;
+    renderIntercambios();
+  }, 'intercambios');
+
+  safeSnapshot(userColl('clientes'), snap => {
+    allClientes = sortByTs(snap.docs.map(d => ({id:d.id,...d.data()})));
+    renderClientes();
+    populateClienteSelects();
+  }, 'clientes');
+
+  safeSnapshot(userColl('cuentas'), snap => {
+    allCuentas = sortByTs(snap.docs.map(d => ({id:d.id,...d.data()})));
+    renderCuentas();
+  }, 'cuentas');
+
+  safeSnapshot(userColl('gastos'), snap => {
+    allGastos = sortByTs(snap.docs.map(d => ({id:d.id,...d.data()})));
+    _gastosLoaded = true; // marcar que gastos ya cargaron antes de animar
+    renderGastos();
+    reloadDash();
+  }, 'gastos');
+
+  // Cargar métodos y comisiones desde Firestore (admin)
+  await loadAdminConfig();
+  populateStaticSelects();
+
+  // Auto-guardar ESF en Firestore al cargar el portal
+  // Así admin/CEO siempre tienen datos frescos sin que el operador haga nada
+  setTimeout(() => { renderESF().catch(() => {}); }, 5000);
+}
+
+// ──────────────────── CONFIG DESDE ADMIN (Firestore) ────────────────────
+async function loadAdminConfig() {
+  try {
+    // 1. Cargar métodos desde admin_config/metodos
+    const metSnap = await db.collection('admin_config').doc('metodos').get();
+    if (metSnap.exists) {
+      const lista = metSnap.data().lista || [];
+      if (lista.length) {
+        // Usar exactamente los métodos que el admin tiene definidos
+        METODOS_CAJA = lista.map(m => m.nombre);
+        METODOS_MV   = lista.map(m => m.nombre);
+      }
+    }
+
+    // 2. Cargar casas de apuestas desde admin_config/casas
+    const casasSnap = await db.collection('admin_config').doc('casas').get();
+    if (casasSnap.exists && (casasSnap.data().lista || []).length) {
+      CASAS = casasSnap.data().lista;
+    }
+    // Listener en tiempo real para casas
+    db.collection('admin_config').doc('casas').onSnapshot(snap => {
+      if (!snap.exists || !(snap.data().lista || []).length) return;
+      CASAS = snap.data().lista;
+      populateStaticSelects();
+    });
+
+    // 3. Cargar comisiones según la oficina del operador
+    const opSnap = await db.collection('patriarca_operadores').doc(opId).get();
+    let oficina = opSnap.exists ? opSnap.data().oficina : null;
+
+    // Fallback 1: buscar en admin_usuarios por uid
+    if (!oficina) {
+      const auSnap = await db.collection('admin_usuarios')
+        .where('uid', '==', opId).get();
+      if (!auSnap.empty) oficina = auSnap.docs[0].data().oficina || null;
+    }
+    // Fallback 2: buscar en admin_usuarios por email
+    if (!oficina && currentUser?.email) {
+      const auEmailSnap = await db.collection('admin_usuarios')
+        .where('email', '==', currentUser.email).get();
+      if (!auEmailSnap.empty) oficina = auEmailSnap.docs[0].data().oficina || null;
+    }
+    // Fallback 3: cargar el primer documento disponible en admin_comisiones
+    if (!oficina) {
+      const allComSnap = await db.collection('admin_comisiones').limit(1).get();
+      if (!allComSnap.empty) oficina = allComSnap.docs[0].id;
+    }
+    // Guardar oficina encontrada para próximas cargas
+    if (oficina) {
+      db.collection('patriarca_operadores').doc(opId)
+        .set({ oficina }, { merge: true });
+    }
+
+    if (oficina) {
+      COMISIONES_OFICINA = oficina;
+      const comSnap = await db.collection('admin_comisiones').doc(oficina).get();
+      if (comSnap.exists) {
+        const lista = comSnap.data().lista || [];
+        COMISIONES_LISTA = lista;
+        COMISIONES = {};
+        lista.forEach(c => {
+          if (c.casa && c.metodo) {
+            COMISIONES[`${c.casa}_${c.metodo}`] = [
+              (c.tasaRecarga || 0) / 100,
+              (c.tasaPago    || 0) / 100,
+            ];
+          }
+        });
+        renderComisionesTab();
+      }
+    }
+
+    // Escuchar cambios en tiempo real para que si admin actualiza, se refleje
+    db.collection('admin_config').doc('metodos').onSnapshot(snap => {
+      if (!snap.exists) return;
+      const lista = snap.data().lista || [];
+      if (!lista.length) return;
+      METODOS_CAJA = lista.map(m => m.nombre);
+      METODOS_MV   = lista.map(m => m.nombre);
+      populateStaticSelects();
+    });
+
+    if (oficina) {
+      db.collection('admin_comisiones').doc(oficina).onSnapshot(snap => {
+        if (!snap.exists) return;
+        const lista = snap.data().lista || [];
+        COMISIONES_LISTA = lista;
+        COMISIONES = {};
+        lista.forEach(c => {
+          if (c.casa && c.metodo) {
+            COMISIONES[`${c.casa}_${c.metodo}`] = [
+              (c.tasaRecarga || 0) / 100,
+              (c.tasaPago    || 0) / 100,
+            ];
+          }
+        });
+        renderComisionesTab();
+      });
+    }
+
+    // 4. Cargar lista de operadores desde admin_usuarios
+    db.collection('admin_usuarios')
+      .where('rol','==','operador').get().then(snap => {
+        const nombres = snap.docs
+          .filter(d => d.data().estado !== 'inactivo')
+          .map(d => d.data().nombre || d.data().email || '');
+        if (nombres.length) {
+          OPERADORES = nombres;
+          populateStaticSelects();
+        }
+      });
+
+    // Listener en tiempo real para operadores
+    db.collection('admin_usuarios').where('rol','==','operador')
+      .onSnapshot(snap => {
+        const nombres = snap.docs
+          .filter(d => d.data().estado !== 'inactivo')
+          .map(d => d.data().nombre || d.data().email || '');
+        if (nombres.length) {
+          OPERADORES = nombres;
+          populateStaticSelects();
+        }
+      });
+
+  } catch(e) {
+    console.warn('loadAdminConfig error:', e);
+  }
+}
+
+// ──────────────────── TRIXI VENTANA INTERNA ────────────────────
+function abrirTrixi() {
+  const win = document.getElementById('trixi-window');
+  const ovl = document.getElementById('trixi-overlay');
+  win.style.display = 'flex';
+  ovl.style.display = 'block';
+}
+function cerrarTrixi() {
+  document.getElementById('trixi-window').style.display = 'none';
+  document.getElementById('trixi-overlay').style.display = 'none';
+}
+
+// Drag para mover la ventana
+(function() {
+  let drag = false, ox = 0, oy = 0, startX = 0, startY = 0;
+  document.addEventListener('DOMContentLoaded', () => {
+    const bar = document.getElementById('trixi-titlebar');
+    const win = document.getElementById('trixi-window');
+    if (!bar || !win) return;
+    bar.addEventListener('mousedown', e => {
+      drag = true;
+      const r = win.getBoundingClientRect();
+      ox = r.left; oy = r.top;
+      startX = e.clientX; startY = e.clientY;
+      win.style.transform = 'none';
+      win.style.left = ox + 'px'; win.style.top = oy + 'px';
+    });
+    document.addEventListener('mousemove', e => {
+      if (!drag) return;
+      win.style.left = (ox + e.clientX - startX) + 'px';
+      win.style.top  = (oy + e.clientY - startY) + 'px';
+    });
+    document.addEventListener('mouseup', () => { drag = false; });
+  });
+})();
+
+// ──────────────────── TABS ────────────────────
+function showTab(name) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('sec-'+name).classList.add('active');
+  event.currentTarget.classList.add('active');
+  if (name==='saldos') renderSaldosActivo();
+  if (name==='saldo-inicial') { showTab('saldos'); showSaldosSubtab('si'); return; }
+  if (name==='productividad') renderProductividad();
+  if (name==='esf') renderESF();
+  if (name==='trixi') { calcTrixi(); calcTrixi2(); }
+  if (name==='equipo') loadEquipoTab();
+  if (name==='comisiones') renderComisionesTab();
+  if (name==='liquidacion') renderLiquidacion();
+  if (name==='trixibot') showTrixiSubtab(_tbCfg.activo ? 'bot' : 'calc');
+  if (name==='combinadas'){ cpVista('armar'); cpPintarMercados(); cpEstrategiaCambio(); cpCatalogoLigas(); }
+  if (name==='inversiones') showInvSubtab('historial');
+  if (window.AJChat) AJChat.visible(name === 'mensajes');
+}
+
+// Para que el botón «Reportar» de cualquier pantalla lleve a Mensajes
+window.AJChatIrAMensajes = function () {
+  document.querySelectorAll('.section').forEach(x => x.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('sec-mensajes').classList.add('active');
+  const t = document.getElementById('tab-mensajes'); if (t) t.classList.add('active');
+  if (window.AJChat) AJChat.visible(true);
+};
+
+// ──────────────────── SELECTS POPULATION ────────────────────
+function populateStaticSelects() {
+  const casaOpts  = CASAS.map(c=>`<option>${c}</option>`).join('');
+  const metOpts   = METODOS_CAJA.map(m=>`<option>${m}</option>`).join('');
+  const metMvOpts = METODOS_MV.map(m=>`<option>${m}</option>`).join('');
+  const opOpts    = OPERADORES.map(o=>`<option>${o}</option>`).join('');
+  ['mv-casa','cc-casa'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.innerHTML = '<option value="">Seleccione</option>' + casaOpts;
+  });
+  ['tx-casa1','tx-casaX','tx-casa2','filtro-mov-casa'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.innerHTML = '<option value="">—</option>' + casaOpts;
+  });
+  // mv-metodo usa nombres de cajero para que coincidan en la hoja de Cajas
+  const mvMetEl = document.getElementById('mv-metodo');
+  if(mvMetEl) mvMetEl.innerHTML = '<option value="">Seleccione</option>' + metMvOpts;
+  ['int-egresa','int-ingresa','gs-metodo'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.innerHTML = '<option value="">Seleccione</option>' + metMvOpts;
+  });
+  ['tx-met1','tx-metX','tx-met2'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.innerHTML = '<option value="">—</option>' + metOpts;
+  });
+  // int-op2 se llena correctamente en loadActiveOperators() con UIDs reales — no sobreescribir aquí
+}
+
+function populateClienteSelects() {
+  const opts = allClientes.map(c=>`<option value="${c.id}">${c.nombre_completo}</option>`).join('');
+  ['mv-cliente','cc-cliente'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.innerHTML = '<option value="">Seleccione</option>' + opts;
+  });
+  // Filtro inversiones por nombre_completo (el campo cliente guarda el nombre)
+  const fCli = document.getElementById('filtro-inv-cliente');
+  if (fCli) fCli.innerHTML = '<option value="">Todos los clientes</option>' +
+    allClientes.map(c=>`<option value="${c.nombre_completo}">${c.nombre_completo}</option>`).join('');
+}
+
+function populateEventSelects() {
+  const mk = _mesKey(config.mes);
+  const eventosMes = mk
+    ? allEventos.filter(ev => ev.mesKey ? ev.mesKey === mk : (ev.fecha_evento||'').startsWith(mk))
+    : allEventos;
+  const abiertos = eventosMes.filter(e=>e.estado==='ABIERTO');
+  const opts1 = abiertos.map(e=>`<option value="${e.id}" data-num="${e.num||''}">${e.num||e.id.slice(-4)} — ${e.nombre}</option>`).join('');
+  const opts2 = eventosMes.map(e=>`<option value="${e.id}">${e.num||''} — ${e.nombre}</option>`).join('');
+  // inv-evento es ahora input hidden — no requiere innerHTML
+  const mvAp = document.getElementById('mv-apuesta');
+  if (mvAp) mvAp.innerHTML = '<option value="">Sin asignar</option>' + opts2;
+}
+
+// ──────────────────── DASHBOARD ────────────────────
+// ── PARTICIPACIÓN OPERADOR ────────────────────────────────────────────────────
+function calcularEscalera(productividad, vinc, metodo, participacionManual) {
+  // SOCIO → % manual, sin costos
+  if (vinc === 'Socio') {
+    return { rango:'Socio', rojo:0, participacion:participacionManual||50, interesCapital:false, interesDiario:false, esSocio:true };
+  }
+  // OFICINA → Escalera de Ganancia (rangos desde Firestore)
+  const p = productividad || 0;
+  // Buscar el rango que aplica (rangos ordenados de menor a mayor)
+  const rangosOrden = [...escalera_rangos].sort((a,b) => (a.desde||0) - (b.desde||0));
+  for (let i = 0; i < rangosOrden.length; i++) {
+    const r = rangosOrden[i];
+    const enRango = p >= (r.desde||0) && (r.hasta == null || p <= r.hasta);
+    if (enRango) {
+      return {
+        rango:         i + 1,
+        rojo:          r.rojo          || 0,
+        participacion: r.participacion || 50,
+        interesCapital:!!r.interesCapital,
+        interesDiario: !!r.interesDiario,
+      };
+    }
+  }
+  // Fallback al último rango
+  const ultimo = rangosOrden[rangosOrden.length - 1];
+  return { rango: rangosOrden.length, rojo:0, participacion: ultimo?.participacion||50, interesCapital:false, interesDiario:false };
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
+let _dashChart = null;
+
+function reloadDash() {
+  // ── Barra operador ──
+  const nombre = operadorNombre || currentUser?.displayName || 'Cargando...';
+  document.getElementById('dash-nombre').textContent = nombre;
+  document.getElementById('dash-vinc').textContent   = config.vinc || 'Propio';
+  document.getElementById('kpi-cupo').textContent    = peso(config.cupo);
+  document.getElementById('kpi-mes').textContent     = config.mes;
+  document.getElementById('dash-operador').textContent = nombre + ' · ' + (config.vinc||'') + ' · ' + config.mes;
+  // Actualizar estado del botón Cerrar Mes
+  actualizarBotonCierre();
+
+  // ── Filtrar datos por mes activo ──
+  const mesKeyDash = _mesKey(config.mes);
+  const movMes    = mesKeyDash ? allMovimientos.filter(m   => (m.fecha||'').startsWith(mesKeyDash))  : allMovimientos;
+  const invMes    = _filtrarInvMes(mesKeyDash);
+  const ixMes     = mesKeyDash ? allIntercambios.filter(ix => (ix.fecha||'').startsWith(mesKeyDash))  : allIntercambios;
+  const gastosMes = mesKeyDash ? allGastos.filter(g        => (g.fecha||'').startsWith(mesKeyDash))   : allGastos;
+
+  // ── Fecha de hoy ──
+  const hoy    = new Date();
+  const hoyStr = hoy.getFullYear()+'-'+String(hoy.getMonth()+1).padStart(2,'0')+'-'+String(hoy.getDate()).padStart(2,'0');
+
+  // ── Mes configurado (puede ser pasado) ──
+  const mesPartes  = (config.mes||'').split(' ');
+  const mesNombre  = mesPartes[0]?.toLowerCase();
+  const mesAnio    = parseInt(mesPartes[1]) || hoy.getFullYear();
+  const mesNum     = _MESES_ES[mesNombre] || (hoy.getMonth()+1);
+  const diasEnMes  = new Date(mesAnio, mesNum, 0).getDate(); // días reales del mes configurado
+  const esMesActual= mesNum === (hoy.getMonth()+1) && mesAnio === hoy.getFullYear();
+  const mesPasado  = (mesAnio < hoy.getFullYear()) || (mesAnio === hoy.getFullYear() && mesNum < hoy.getMonth()+1);
+  // Si el mes ya pasó mostramos el último día; si es el actual, el día de hoy
+  const diaActual  = mesPasado ? diasEnMes : (esMesActual ? hoy.getDate() : 1);
+
+  // ── Ganancia acumulada — misma lógica que Productividad ──
+  // Usa comisiones recalculadas (buildInvComMap) y excluye BONIFICACION de invertido
+  const invComMapDash = buildInvComMap();
+  const apuestasMap = {};
+  invMes.forEach(inv => {
+    const k = inv.id_apuesta; if (!k) return;
+    if (!apuestasMap[k]) apuestasMap[k] = { inversion:0, retorno:0, comision:0, estado: inv.estado_evento, fondos: inv.fondos, fecha: inv.fecha };
+    apuestasMap[k].retorno  += parseFloat(inv.retorno_cliente)||0;
+    apuestasMap[k].comision += invComMapDash[inv.id]||0;
+    const f = (inv.fondos||'').toUpperCase();
+    if (f !== 'BONIFICACION') apuestasMap[k].inversion += parseFloat(inv.monto)||0;
+    if (inv.estado_evento === 'CERRADO') apuestasMap[k].estado = 'CERRADO';
+  });
+
+  let ganancia = 0, apuestasAbiertas = 0, invertido = 0;
+  const gananciaByFecha = {};
+
+  invMes.forEach(inv => {
+    if ((inv.estado_evento||'ABIERTO') !== 'CERRADO') {
+      const f = (inv.fondos||'').toUpperCase();
+      if (f !== 'BONIFICACION') invertido += parseFloat(inv.monto)||0;
+    }
+  });
+
+  Object.values(apuestasMap).forEach(a => {
+    if (a.estado === 'CERRADO') {
+      const g = a.retorno - a.inversion + a.comision;
+      ganancia += g;
+      if (a.fecha) gananciaByFecha[a.fecha] = (gananciaByFecha[a.fecha]||0) + g;
+    } else {
+      apuestasAbiertas++;
+    }
+  });
+
+  // Total comisiones del mes (desde movimientos RECARGAS)
+  const totalComisionesDash = movMes.reduce((s,m) => {
+    const t = (m.tipo||'').toUpperCase();
+    return (t === 'RECARGAS' || t === 'RECARGA') ? s + (parseFloat(m.comision)||0) : s;
+  }, 0);
+
+  // Comisiones ya asignadas en inversiones (via invComMapDash, ya incluidas en ganancia del loop)
+  const totalComisionesAsignadasDash = invMes.reduce((s,inv) => s + (invComMapDash[inv.id]||0), 0);
+
+  // Agregar solo comisiones NO asignadas (evita doble conteo) y restar gastos
+  const totalGastosDash = gastosMes.reduce((s,g) => s + (parseFloat(g.valor)||0), 0);
+  ganancia += (totalComisionesDash - totalComisionesAsignadasDash) - totalGastosDash;
+
+  // Ganancia hoy
+  let gananciaHoy = 0;
+  Object.values(apuestasMap).forEach(a => {
+    if (a.estado === 'CERRADO' && a.fecha === hoyStr)
+      gananciaHoy += a.retorno - a.inversion + a.comision;
+  });
+
+  const metaHoy   = config.meta * (diaActual / diasEnMes);
+  const progreso  = metaHoy > 0 ? ganancia / metaHoy : 0;
+  const faltaMeta = config.meta - ganancia;
+
+  // ── KPIs Métricas del Mes ──
+  document.getElementById('kpi-meta').textContent        = peso(config.meta);
+  document.getElementById('kpi-ganancia').textContent    = peso(ganancia);
+  document.getElementById('kpi-progress').style.width    = Math.min(progreso*100, 100) + '%';
+  document.getElementById('kpi-progress').style.background = progreso >= 1 ? 'var(--green)' : progreso >= 0.7 ? 'var(--gold)' : 'var(--orange)';
+  document.getElementById('kpi-progreso').textContent    = (progreso*100).toFixed(1) + '%';
+  document.getElementById('kpi-sub-progreso').textContent= 'vs meta a hoy (' + diaActual + '/' + diasEnMes + ')';
+  document.getElementById('kpi-ganancia-hoy').textContent= gananciaHoy !== 0 ? peso(gananciaHoy) : '$—';
+  document.getElementById('kpi-ganancia-ope').textContent= peso(totalComisionesDash);
+
+  // ── KPIs Posición Financiera ──
+  document.getElementById('kpi-meta-hoy').textContent    = peso(metaHoy);
+  document.getElementById('kpi-meta-hoy-sub').textContent= 'día ' + diaActual + '/' + diasEnMes;
+  const faltaEl = document.getElementById('kpi-falta');
+  faltaEl.textContent = peso(faltaMeta);
+  faltaEl.closest('.kpi').className = 'kpi ' + (faltaMeta <= 0 ? 'green' : 'red');
+  document.getElementById('kpi-invertido').textContent   = peso(invertido);
+  document.getElementById('kpi-apuestas').textContent    = apuestasAbiertas;
+  document.getElementById('kpi-eventos').textContent     = allEventos.filter(e=>e.estado==='ABIERTO').length;
+
+  // ── Saldo clientes — misma fórmula que pestaña Saldos: rec - pag - inv + ret ──
+  const _cliMovMap = {};
+  movMes.forEach(m => {
+    if (!m.cliente || !m.casa) return;
+    const k = `${m.cliente}||${m.casa}`;
+    if (!_cliMovMap[k]) _cliMovMap[k] = 0;
+    if (m.tipo === 'RECARGAS') _cliMovMap[k] += parseFloat(m.monto) || 0;
+    if (m.tipo === 'PAGOS')    _cliMovMap[k] -= parseFloat(m.monto) || 0;
+  });
+  invMes.forEach(inv => {
+    if (!inv.cliente || !inv.casa) return;
+    const k = `${inv.cliente}||${inv.casa}`;
+    if (!_cliMovMap[k]) _cliMovMap[k] = 0;
+    _cliMovMap[k] -= parseFloat(inv.monto) || 0;
+    const ret = parseFloat(inv.retorno_cliente) || 0;
+    if (ret > 0) _cliMovMap[k] += ret;
+  });
+  const totalClientes = Object.values(_cliMovMap).reduce((s,v) => s + v, 0);
+  document.getElementById('kpi-clientes').textContent = peso(totalClientes);
+
+  // ── Cajas — fórmula idéntica al ESF: inicial + pagos - recargas + ix - gastos ──
+  const _ciDash = config.cupos_iniciales || {};
+  const _cajasD = {};
+  const _metFisicosDash = METODOS_CAJA.filter(m => !METODOS_VIRTUALES.has(m));
+  _metFisicosDash.forEach(m => _cajasD[m] = { v: Math.round(parseFloat(_ciDash[m])||0) });
+  movMes.forEach(mv => {
+    const met = normMetodo ? normMetodo(mv.metodo) : mv.metodo;
+    if (!met || !_cajasD[met]) return;
+    const tipo = (mv.tipo||'').toUpperCase();
+    if (tipo==='RECARGA'||tipo==='RECARGAS') _cajasD[met].v -= parseFloat(mv.monto)||0;
+    else if (tipo==='PAGO'||tipo==='PAGOS')  _cajasD[met].v += parseFloat(mv.monto)||0;
+  });
+  ixMes.filter(ix => ix.estado !== 'pendiente_aceptar' && ix.estado !== 'cancelado').forEach(ix => {
+    const egr = normMetodo ? normMetodo(ix.caja_egresa)  : ix.caja_egresa;
+    const ing = normMetodo ? normMetodo(ix.caja_ingresa) : ix.caja_ingresa;
+    if (egr && _cajasD[egr]) _cajasD[egr].v -= parseFloat(ix.monto)||0;
+    if (ing && _cajasD[ing]) _cajasD[ing].v += parseFloat(ix.monto)||0;
+  });
+  gastosMes.forEach(g => {
+    const met = normMetodo ? normMetodo(g.metodo) : g.metodo;
+    if (met && _cajasD[met]) _cajasD[met].v -= parseFloat(g.valor)||0;
+  });
+  const totalCajas = Object.values(_cajasD).reduce((s,d)=>s+d.v, 0);
+  document.getElementById('kpi-cajas').textContent = peso(totalCajas);
+
+  // ── Participación Operador (Escalera de Ganancia) ──
+  const escalera   = calcularEscalera(ganancia, config.vinc, config.metodo_participacion, config.participacion);
+  const baseNeta   = Math.max(0, ganancia - escalera.rojo);
+  const ganOpeBruta= baseNeta * (escalera.participacion / 100);
+  const capAsig    = config.capital_asignado || 0;
+  const tasaCapMes = (escalera_interes_capital || 5) / 100;
+  const intCapMes  = escalera.interesCapital ? capAsig * tasaCapMes : 0;
+  const ganOpeNeta = ganOpeBruta - intCapMes;
+  // Guardar para que _calcBono() actualice la ganancia con el bono
+  _lastBaseNeta  = baseNeta;
+  _lastIntCapMes = intCapMes;
+  _lastEscalera  = escalera;
+
+  // Rojo — cambiar color según aplica o no
+  const rojoWrap = document.getElementById('kpi-rojo-wrap');
+  if (rojoWrap) {
+    rojoWrap.className = escalera.rojo > 0 ? 'kpi red' : 'kpi';
+  }
+  document.getElementById('p-rango-label').textContent   = escalera.esSocio ? '50% Directo' : `Rango ${escalera.rango}`;
+  document.getElementById('p-participacion').textContent = `${escalera.participacion}%`;
+  document.getElementById('p-rojo').textContent          = escalera.rojo > 0 ? peso(escalera.rojo) : 'Exento ✓';
+  document.getElementById('p-bono').textContent          = peso(ganOpeNeta);
+  document.getElementById('p-interes-pct').textContent   = escalera.interesCapital ? '5' : '0';
+  document.getElementById('p-mensual').textContent       = escalera.interesCapital ? peso(intCapMes) : 'Exento ✓';
+  document.getElementById('p-cap-asig-sub').textContent  = escalera.interesCapital
+    ? `${capAsig > 0 ? peso(capAsig) : 'Sin cap. asignado'}`
+    : 'Rango 6 — sin cargo';
+  document.getElementById('p-interes-diario').textContent= escalera.interesDiario ? `${escalera_interes_diario || 0.2}% / día` : 'Exento ✓';
+
+  // ── Alert ──
+  const alertEl = document.getElementById('dash-alert');
+  if (ganancia < 0) {
+    alertEl.textContent = '🔴 CRÍTICO — Ganancia negativa. Revisar inversiones.';
+    alertEl.style.display = 'block'; alertEl.className = 'alert alert-error';
+  } else if (progreso < 0.5 && diaActual > 5) {
+    alertEl.textContent = '⚠ Rendimiento bajo — Ganancia acumulada por debajo del 50% de la meta diaria.';
+    alertEl.style.display = 'block'; alertEl.className = 'alert alert-warning';
+  } else {
+    alertEl.style.display = 'none';
+  }
+
+  // ── Celebración meta ──
+  _checkFelizMeta(ganancia);
+
+  // ── Bono de Productividad ──
+  _calcBono();
+
+  // ── Gráfico productividad ──
+  _dashRenderChart(gananciaByFecha, diaActual, diasEnMes, mesAnio, mesNum);
+}
+
+const _MESES_ES = {enero:1,febrero:2,marzo:3,abril:4,mayo:5,junio:6,julio:7,agosto:8,septiembre:9,octubre:10,noviembre:11,diciembre:12};
+const _MESES_ES_INV = {1:'Enero',2:'Febrero',3:'Marzo',4:'Abril',5:'Mayo',6:'Junio',7:'Julio',8:'Agosto',9:'Septiembre',10:'Octubre',11:'Noviembre',12:'Diciembre'};
+function _mesKeyToLabel(mk) {
+  // "2026-06" → "Junio 2026"
+  if (!mk) return '';
+  const [y, m] = mk.split('-').map(Number);
+  return (_MESES_ES_INV[m] || '') + ' ' + y;
+}
+function _mesKey(mesStr) {
+  // "Junio 2026" → "2026-06"
+  if (!mesStr) return null;
+  const parts = mesStr.trim().toLowerCase().split(/\s+/);
+  if (parts.length < 2) return null;
+  const num = _MESES_ES[parts[0]];
+  const año = parseInt(parts[1]);
+  if (!num || !año) return null;
+  return año + '-' + String(num).padStart(2,'0');
+}
+// Filtrar inversiones por mes: usa mesKey explícito si existe, si no cae a fecha (datos legacy)
+function _filtrarInvMes(mk) {
+  if (!mk) return allInversiones;
+  return allInversiones.filter(inv =>
+    inv.mesKey ? inv.mesKey === mk : (inv.fecha||'').startsWith(mk)
+  );
+}
+
+function _calcBono() {
+  const b       = bono_config;
+  const meta    = b.meta || 40000000;
+  const cWplay  = (b.canal_wplay   || 'WPLAY UNITY').toUpperCase();
+  const cBemov  = (b.canal_bemovil || 'BE MOVIL CAJA').toUpperCase();
+
+  // Construir mapa factor por casa (uppercase para comparación)
+  const factorMap = {};
+  (b.casas || []).forEach(c => {
+    factorMap[c.casa.toUpperCase()] = (parseFloat(c.factor) || 100) / 100;
+  });
+
+  // Filtrar solo RECARGAS del mes configurado
+  const mesKey = _mesKey(config.mes);  // "2026-06"
+  const recargasMes = allMovimientos.filter(mv => {
+    if ((mv.tipo||'').toUpperCase() !== 'RECARGAS') return false;
+    if (!mesKey) return true;
+    // fecha es string "YYYY-MM-DD"
+    const f = mv.fecha || '';
+    const mvKey = f.length >= 7 ? f.substring(0,7) : null;
+    return !mvKey || mvKey === mesKey;
+  });
+
+  // Canal A — Wplay Unity (1:1)
+  const totalWplay = recargasMes
+    .filter(mv => (mv.metodo||'').toUpperCase() === cWplay)
+    .reduce((s, mv) => s + (parseFloat(mv.monto)||0), 0);
+
+  // Canal B — BeMovil ponderado por casa
+  const beMovilMov = recargasMes.filter(mv => (mv.metodo||'').toUpperCase() === cBemov);
+  let totalBemovil = 0;
+  const detalleMap = {};
+  beMovilMov.forEach(mv => {
+    const casa   = (mv.casa||'SIN CASA').toUpperCase();
+    const factor = factorMap[casa] ?? 1;
+    const equiv  = (parseFloat(mv.monto)||0) * factor;
+    totalBemovil += equiv;
+    detalleMap[casa] = (detalleMap[casa]||0) + equiv;
+  });
+
+  const totalCombo = totalWplay + totalBemovil;
+
+  // Determinar bono
+  let bonoStatus = 'sin';
+  let bonoPct    = 0;
+  if (totalWplay >= meta || totalBemovil >= meta) {
+    bonoStatus = 'solo'; bonoPct = b.pct_solo || 5;
+  } else if (totalCombo >= meta) {
+    bonoStatus = 'combo'; bonoPct = b.pct_combo || 3;
+  }
+
+  // Celebración bono — pasar ganancia operador con bono incluido
+  const _ganOpeConBono = _lastEscalera
+    ? (_lastBaseNeta * ((_lastEscalera.participacion + bonoPct) / 100)) - _lastIntCapMes
+    : 0;
+  _checkFelizBono(bonoStatus, bonoPct, _ganOpeConBono);
+
+  // Actualizar Ganancia Operador sumando el bono a la participación
+  if (_lastEscalera) {
+    const partConBono   = _lastEscalera.participacion + bonoPct;
+    const ganNetaConBono = (_lastBaseNeta * (partConBono / 100)) - _lastIntCapMes;
+    const partLabel = bonoPct > 0
+      ? `${_lastEscalera.participacion}%+${bonoPct}%`
+      : `${_lastEscalera.participacion}%`;
+    document.getElementById('p-participacion').textContent = partLabel;
+    document.getElementById('p-bono').textContent          = peso(ganNetaConBono);
+  }
+
+  // ── Render UI ──
+  const pct = v => Math.min(100, (v / meta) * 100).toFixed(1);
+
+  document.getElementById('bono-label-wplay').textContent   = cWplay;
+  document.getElementById('bono-label-bemovil').textContent = cBemov;
+  document.querySelectorAll('.bono-meta-ref, #bono-meta-label').forEach(el => {
+    el.textContent = peso(meta);
+  });
+
+  document.getElementById('bono-wplay-val').textContent  = peso(totalWplay);
+  document.getElementById('bono-bemovil-val').textContent = peso(totalBemovil);
+  document.getElementById('bono-combo-val').textContent   = peso(totalCombo);
+
+  document.getElementById('bono-wplay-bar').style.width   = pct(totalWplay)  + '%';
+  document.getElementById('bono-bemovil-bar').style.width = pct(totalBemovil) + '%';
+  document.getElementById('bono-combo-bar').style.width   = pct(totalCombo)  + '%';
+
+  // Badge estado
+  const badge = document.getElementById('bono-badge');
+  if (bonoStatus === 'solo') {
+    badge.textContent = `🎯 Bono ${bonoPct}% — ALCANZADO`;
+    badge.style.background = 'rgba(36,191,98,.2)'; badge.style.color = 'var(--green)';
+  } else if (bonoStatus === 'combo') {
+    badge.textContent = `🎯 Bono ${bonoPct}% combinado — ALCANZADO`;
+    badge.style.background = 'rgba(240,160,80,.2)'; badge.style.color = 'var(--orange)';
+  } else {
+    const falta = meta - totalCombo;
+    badge.textContent = `Faltan ${peso(falta)} para bono`;
+    badge.style.background = 'var(--bg3)'; badge.style.color = 'var(--text2)';
+  }
+
+  // Detalle BeMovil por casa
+  const detEl = document.getElementById('bono-casas-detalle');
+  if (detEl) {
+    detEl.innerHTML = Object.entries(detalleMap).map(([casa, equiv]) => {
+      const factor = factorMap[casa] ?? 1;
+      return `<span style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:3px 8px">
+        ${casa}: ${peso(equiv)} <span style="color:var(--text2)">(${(factor*100).toFixed(0)}%)</span>
+      </span>`;
+    }).join('') || '<span style="color:var(--text2)">Sin movimientos BeMovil este mes</span>';
+  }
+}
+
+function _dashRenderChart(gananciaByFecha, diaActual, diasEnMes, mesAnio, mesNum) {
+  const canvas = document.getElementById('dash-chart');
+  if (!canvas) return;
+
+  // Usar mes/año configurado (no today) para construir fechas correctas
+  const _año = mesAnio || new Date().getFullYear();
+  const _mes = mesNum  || (new Date().getMonth()+1);
+
+  // Arrays para los 30 días del mes
+  const labels = [], metaAcum = [], ganDiaria = [], ganAcum = [];
+  let acum = 0;
+  for (let d = 1; d <= diasEnMes; d++) {
+    const ds = _año + '-' + String(_mes).padStart(2,'0') + '-' + String(d).padStart(2,'0');
+    labels.push(d);
+    metaAcum.push(Math.round(config.meta * d / diasEnMes));
+    if (d <= diaActual) {
+      const val = gananciaByFecha[ds] || 0;
+      acum += val;
+      ganDiaria.push(Math.round(val));
+      ganAcum.push(Math.round(acum));
+    } else {
+      ganDiaria.push(null);  // días futuros sin barra
+      ganAcum.push(null);
+    }
+  }
+
+  // Colores de barras: verde si ganó, rojo si perdió, gris si es futuro
+  const barColors  = ganDiaria.map(v => v === null ? 'transparent' : v >= 0 ? 'rgba(36,191,98,0.75)' : 'rgba(255,80,80,0.75)');
+  const barBorders = ganDiaria.map(v => v === null ? 'transparent' : v >= 0 ? '#24BF62' : '#ff5555');
+
+  const data = {
+    labels,
+    datasets: [
+      {
+        type: 'bar',
+        label: 'Ganancia Diaria',
+        data: ganDiaria,
+        backgroundColor: barColors,
+        borderColor: barBorders,
+        borderWidth: 1,
+        borderRadius: 3,
+        order: 3
+      },
+      {
+        type: 'line',
+        label: 'Acumulada',
+        data: ganAcum,
+        borderColor: '#4db6f7',
+        backgroundColor: ctx => {
+          const chart = ctx.chart;
+          const {ctx: c, chartArea} = chart;
+          if (!chartArea) return 'rgba(77,182,247,0.06)';
+          const grad = c.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+          grad.addColorStop(0, 'rgba(77,182,247,0.18)');
+          grad.addColorStop(1, 'rgba(77,182,247,0.01)');
+          return grad;
+        },
+        fill: true,
+        tension: 0.35,
+        pointRadius: 0,
+        pointHoverRadius: 5,
+        pointHoverBackgroundColor: '#4db6f7',
+        borderWidth: 2.5,
+        order: 2
+      },
+      {
+        type: 'line',
+        label: 'Meta',
+        data: metaAcum,
+        borderColor: 'rgba(240,160,80,0.85)',
+        backgroundColor: 'transparent',
+        borderWidth: 1.5,
+        borderDash: [6, 4],
+        pointRadius: 0,
+        tension: 0,
+        order: 1
+      }
+    ]
+  };
+
+  const opts = {
+    responsive: true,
+    maintainAspectRatio: true,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: {
+        labels: {
+          color: '#8890a8',
+          font: { size: 11 },
+          usePointStyle: true,
+          pointStyleWidth: 10
+        }
+      },
+      tooltip: {
+        backgroundColor: 'rgba(18,22,34,0.92)',
+        borderColor: 'rgba(255,255,255,0.08)',
+        borderWidth: 1,
+        titleColor: '#c8d0e8',
+        bodyColor: '#8890a8',
+        padding: 10,
+        callbacks: {
+          title: items => 'Día ' + items[0].label,
+          label: ctx => {
+            if (ctx.parsed.y === null) return null;
+            return '  ' + ctx.dataset.label + ': ' + peso(ctx.parsed.y);
+          }
+        }
+      }
+    },
+    scales: {
+      x: {
+        ticks: { color:'#8890a8', font:{size:10}, maxTicksLimit: 15 },
+        grid: { color:'rgba(255,255,255,0.03)' }
+      },
+      y: {
+        ticks: {
+          color:'#8890a8', font:{size:10},
+          callback: v => v >= 1e6 ? '$'+(v/1e6).toFixed(1)+'M' : v >= 1000 ? '$'+(v/1000).toFixed(0)+'K' : '$'+v
+        },
+        grid: { color:'rgba(255,255,255,0.04)' }
+      }
+    }
+  };
+
+  if (_dashChart) {
+    _dashChart.data    = data;
+    _dashChart.options = opts;
+    _dashChart.update('none');
+  } else {
+    _dashChart = new Chart(canvas, { type: 'bar', data, options: opts });
+  }
+}
+
+// ──────────────────── EVENTOS ────────────────────
+let eventoNum = 1;
+function renderEventos() {
+  const tbody = document.getElementById('eventos-tbody');
+  // Filtrar por mes activo: usar mesKey guardado, o inferir de fecha_evento (YYYY-MM-DD)
+  const mk = _mesKey(config.mes);
+  const eventosMes = mk
+    ? allEventos.filter(ev => ev.mesKey ? ev.mesKey === mk : (ev.fecha_evento||'').startsWith(mk))
+    : allEventos;
+  if (!eventosMes.length) {
+    tbody.innerHTML = '<tr><td colspan="8"><div class="empty"><div class="empty-icon">📅</div>Sin eventos registrados</div></td></tr>';
+    return;
+  }
+  tbody.innerHTML = eventosMes.map((e,i) => `
+    <tr>
+      <td>${e.num||i+1}</td>
+      <td style="font-weight:600">${e.nombre}</td>
+      <td>${fmtDate(e.fecha_evento)}</td>
+      <td>
+        <select class="inline-sel" onchange="updateEvento('${e.id}','deporte',this.value,this)">
+          <option value="FUTBOL"   ${e.deporte==='FUTBOL'?'selected':''}>FUTBOL</option>
+          <option value="BASQUET"  ${e.deporte==='BASQUET'?'selected':''}>BASQUET</option>
+          <option value="TENIS"    ${e.deporte==='TENIS'?'selected':''}>TENIS</option>
+          <option value="BEISBOL"  ${e.deporte==='BEISBOL'?'selected':''}>BEISBOL</option>
+          <option value="OTRO"     ${e.deporte==='OTRO'?'selected':''}>OTRO</option>
+        </select>
+      </td>
+      <td>
+        <select class="inline-sel" onchange="updateEvento('${e.id}','opciones',this.value,this)">
+          <option value="3 Opciones" ${e.opciones==='3 Opciones'?'selected':''}>3 Opciones</option>
+          <option value="2 Opciones" ${e.opciones==='2 Opciones'?'selected':''}>2 Opciones</option>
+        </select>
+      </td>
+      <td>
+        <select class="inline-sel ${e.estado==='ABIERTO'?'sel-green':'sel-gray'}" onchange="updateEvento('${e.id}','estado',this.value,this)">
+          <option value="ABIERTO" ${e.estado==='ABIERTO'?'selected':''}>ABIERTO</option>
+          <option value="CERRADO" ${e.estado==='CERRADO'?'selected':''}>CERRADO</option>
+        </select>
+      </td>
+      <td>
+        <select class="inline-sel sel-gold" onchange="updateEvento('${e.id}','opcion_ganadora',this.value,this)">
+          <option value="" ${!e.opcion_ganadora?'selected':''}>—</option>
+          <option value="1" ${e.opcion_ganadora==='1'?'selected':''}>1</option>
+          <option value="X" ${e.opcion_ganadora==='X'?'selected':''}>X</option>
+          <option value="2" ${e.opcion_ganadora==='2'?'selected':''}>2</option>
+        </select>
+      </td>
+      <td style="display:flex;gap:6px;align-items:center">
+        <button class="btn-ghost btn-sm" onclick="abrirEditEvento('${e.id}')" style="padding:3px 8px;font-size:13px;border-radius:5px;border:1px solid var(--border);background:transparent;cursor:pointer" title="Editar evento">✏️</button>
+        <button class="btn-del" onclick="deleteDoc('eventos','${e.id}')">🗑</button>
+      </td>
+    </tr>`).join('');
+}
+
+// ── Eventos base: se crean solos cada mes, como si el operador los registrara ──
+const EVENTOS_BASE = ['RETIRO MES ANTERIOR', 'FALTA POR REGISTRAR', 'BONOS'];
+let _evBaseMesHecho = null;   // mesKey ya procesado en esta sesión
+
+async function _asegurarEventosBase() {
+  const mk = _mesKey(config.mes);
+  if (!mk || !opId) return;
+  if (_evBaseMesHecho === mk) return;          // ya se revisó este mes
+  if (_isMesLocked()) return;                  // mes cerrado sin autorización
+
+  const delMes    = allEventos.filter(ev => ev.mesKey === mk);
+  const nombres   = new Set(delMes.map(ev => (ev.nombre || '').toUpperCase()));
+  const faltantes = EVENTOS_BASE.filter(n => !nombres.has(n));
+
+  _evBaseMesHecho = mk;                        // marcar antes de escribir (evita reentradas)
+  if (!faltantes.length) return;
+
+  const dia1 = mk + '-01';
+  let num = delMes.length;
+
+  try {
+    for (const nombre of faltantes) {
+      num++;
+      // ID determinístico → si dos pestañas corren a la vez no se duplica
+      const docId = `${opId}_${mk}_${nombre.replace(/\s+/g, '_')}`;
+      await coll('eventos').doc(docId).set({
+        opId,
+        num,
+        mesKey:          mk,
+        nombre,
+        fecha_registro:  dia1,
+        fecha_evento:    dia1,
+        deporte:         'FUTBOL',
+        opciones:        '3 Opciones',
+        estado:          'CERRADO',
+        opcion_ganadora: '1',
+        auto_base:       true,
+        ts: firebase.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+    }
+    toast(`✅ ${faltantes.length} evento(s) base creados para el mes`, 'success');
+  } catch(e) {
+    console.warn('eventos base:', e);
+    _evBaseMesHecho = null;   // permitir reintentar
+  }
+}
+
+async function saveEvento() {
+  if (_checkLock('registrar eventos')) return;
+  const nombre = document.getElementById('ev-nombre').value.trim();
+  if(!nombre) { toast('⚠ Ingresa el nombre del evento','error'); return; }
+  const mk = _mesKey(config.mes);
+  // Contar SOLO por mesKey (campo explícito) — ignora eventos de meses anteriores sin ese campo
+  const eventosMesActual = mk ? allEventos.filter(ev => ev.mesKey === mk) : allEventos;
+  const num = eventosMesActual.length + 1;
+  // ── Prevenir duplicados: mismo nombre en el mismo mes ────────────────────
+  const nombreUpper = nombre.toUpperCase();
+  const yaExiste = eventosMesActual.some(ev => (ev.nombre||'').toUpperCase() === nombreUpper);
+  if (yaExiste) {
+    toast(`⚠ Ya existe un evento "${nombreUpper}" en este mes`, 'error');
+    return;
+  }
+  try {
+    await coll('eventos').add({
+      opId,
+      num,
+      mesKey: mk || null,
+      nombre: nombre.toUpperCase(),
+      fecha_registro: document.getElementById('ev-fecha-reg').value || today(),
+      fecha_evento:   document.getElementById('ev-fecha-ev').value  || today(),
+      deporte:    document.getElementById('ev-deporte').value,
+      opciones:   document.getElementById('ev-opciones').value,
+      estado:     document.getElementById('ev-estado').value,
+      opcion_ganadora: document.getElementById('ev-ganadora').value || null,
+      ts: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    // No cerrar el modal — limpiar solo el nombre para el siguiente evento
+    document.getElementById('ev-nombre').value = '';
+    document.getElementById('ev-nombre').focus();
+    document.getElementById('ev-estado').value = 'ABIERTO';
+    document.getElementById('ev-ganadora').value = '';
+    toast('✅ Evento #' + num + ' registrado','success');
+  } catch(e) { toast('⚠ Error al guardar: ' + e.message, 'error'); }
+}
+
+function abrirEditEvento(id) {
+  if (_checkLock('editar eventos')) return;
+  const ev = allEventos.find(e => e.id === id);
+  if (!ev) return;
+  document.getElementById('edit-ev-id').value          = id;
+  document.getElementById('edit-ev-nombre').value      = ev.nombre || '';
+  document.getElementById('edit-ev-fecha-reg').value   = ev.fecha_registro || '';
+  document.getElementById('edit-ev-fecha-ev').value    = ev.fecha_evento   || '';
+  document.getElementById('edit-ev-deporte').value     = ev.deporte  || 'FUTBOL';
+  document.getElementById('edit-ev-opciones').value    = ev.opciones || '3 Opciones';
+  document.getElementById('edit-ev-estado').value      = ev.estado   || 'ABIERTO';
+  document.getElementById('edit-ev-ganadora').value    = ev.opcion_ganadora || '';
+  openModal('modal-edit-evento');
+}
+
+async function guardarEdicionEvento() {
+  const id     = document.getElementById('edit-ev-id').value;
+  const nombre = document.getElementById('edit-ev-nombre').value.trim();
+  if (!id || !nombre) { toast('⚠ El nombre es requerido', 'error'); return; }
+  try {
+    await coll('eventos').doc(id).update({
+      nombre:          nombre.toUpperCase(),
+      fecha_registro:  document.getElementById('edit-ev-fecha-reg').value || today(),
+      fecha_evento:    document.getElementById('edit-ev-fecha-ev').value  || today(),
+      deporte:         document.getElementById('edit-ev-deporte').value,
+      opciones:        document.getElementById('edit-ev-opciones').value,
+      estado:          document.getElementById('edit-ev-estado').value,
+      opcion_ganadora: document.getElementById('edit-ev-ganadora').value || null,
+    });
+    closeModal('modal-edit-evento');
+    toast('✅ Evento actualizado', 'success');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+async function updateEvento(id, field, value, sel) {
+  try {
+    const ev = allEventos.find(e => e.id === id);
+    const batch = db.batch();
+    const evRef = coll('eventos').doc(id);
+
+    // Determine new ganadora and estado for cascading to inversiones
+    const newGanadora = field === 'opcion_ganadora' ? value : (ev?.opcion_ganadora || '');
+    const newEstado   = field === 'estado' ? value : (ev?.estado || 'ABIERTO');
+
+    batch.update(evRef, { [field]: value });
+
+    // Update related inversiones if ganadora or estado changes
+    if (field === 'opcion_ganadora' || field === 'estado') {
+      const invSnap = await userColl('inversiones').where('id_evento_ref','==',id).get();
+      invSnap.docs.forEach(d => {
+        const inv = d.data();
+        if (newEstado === 'CERRADO' && newGanadora) {
+          const gano = String(inv.opcion_elegida) === String(newGanadora);
+          const retorno_cliente    = gano ? parseFloat(inv.potencial_retorno)||0 : 0;
+          const retorno_plataforma = gano ? 0 : parseFloat(inv.monto)||0;
+          const impacto = gano ? retorno_cliente - (parseFloat(inv.monto)||0) : -(parseFloat(inv.monto)||0);
+          batch.update(d.ref, { estado_evento:'CERRADO', retorno_cliente, retorno_plataforma, impacto_apuesta: impacto });
+        } else if (newEstado === 'ABIERTO') {
+          batch.update(d.ref, { estado_evento:'ABIERTO', retorno_cliente:0, retorno_plataforma:0, impacto_apuesta:0 });
+        }
+      });
+    }
+
+    await batch.commit();
+    // Update select color class
+    if (sel && field === 'estado') {
+      sel.className = 'inline-sel ' + (value === 'ABIERTO' ? 'sel-green' : 'sel-gray');
+    }
+    toast('✅ Evento actualizado','success');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+// ──────────────────── INVERSIONES FILTROS ────────────────────
+function limpiarFiltrosInv() {
+  ['filtro-inv-buscar','filtro-inv-cliente','filtro-inv-fondos','filtro-inv-estado','filtro-inv-desde','filtro-inv-hasta','filtro-inv-monto-min','filtro-inv-monto-max']
+    .forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
+  renderInversiones();
+}
+
+// ──────────────────── MOVIMIENTOS ────────────────────
+function limpiarFiltrosMov() {
+  document.getElementById('filtro-mov-tipo').value = '';
+  document.getElementById('filtro-mov-casa').value = '';
+  document.getElementById('filtro-mov-fecha-desde').value = '';
+  document.getElementById('filtro-mov-fecha-hasta').value = '';
+  document.getElementById('filtro-mov-buscar').value = '';
+  renderMovimientos();
+}
+
+function renderMovimientos() {
+  const tbody = document.getElementById('movimientos-tbody');
+  const filtroTipo = document.getElementById('filtro-mov-tipo').value;
+  const filtroCasa = document.getElementById('filtro-mov-casa').value;
+  const fechaDesde = document.getElementById('filtro-mov-fecha-desde')?.value || '';
+  const fechaHasta = document.getElementById('filtro-mov-fecha-hasta')?.value || '';
+  const buscar = (document.getElementById('filtro-mov-buscar')?.value || '').toLowerCase().trim();
+  // Filtrar por mes activo
+  const _mkMov = _mesKey(config?.mes);
+  let data = _mkMov ? allMovimientos.filter(m => (m.fecha||'').startsWith(_mkMov)) : allMovimientos;
+  if (filtroTipo) data = data.filter(m => m.tipo === filtroTipo);
+  if (filtroCasa) data = data.filter(m => m.casa === filtroCasa);
+  if (fechaDesde) data = data.filter(m => (m.fecha || '') >= fechaDesde);
+  if (fechaHasta) data = data.filter(m => (m.fecha || '') <= fechaHasta);
+  if (buscar) data = data.filter(m => [
+    m.op_id, m.fecha, m.cliente, m.casa, m.tipo, m.metodo,
+    String(m.monto), String(m.comision)
+  ].some(v => (v||'').toLowerCase().includes(buscar)));
+  if (!data.length) {
+    tbody.innerHTML = '<tr><td colspan="10"><div class="empty"><div class="empty-icon">💸</div>Sin movimientos</div></td></tr>';
+    return;
+  }
+  tbody.innerHTML = data.map(m => {
+    const est = m.canal === 'I-OP' ? 'Realizada' : (m.estado_cajero || 'Pendiente');
+    const estColor = est === 'Realizada' ? 'var(--green)' : est === 'Rechazada' ? 'var(--red)' : 'var(--orange)';
+    const estIcon  = est === 'Realizada' ? '✅' : est === 'Rechazada' ? '❌' : '⏳';
+    const solElim  = m.solicitud_eliminar;
+    return `<tr${solElim ? ' style="opacity:.55"' : ''}>
+      <td style="color:var(--text2);font-size:11px">${m.op_id||'—'}</td>
+      <td>${fmtDate(m.fecha)}</td>
+      <td>${m.cliente||'—'}</td>
+      <td style="font-weight:600">${peso(m.monto)}</td>
+      <td>${m.casa||'—'}</td>
+      <td><span class="badge ${m.tipo==='RECARGAS'?'badge-green':'badge-red'}">${m.tipo||'—'}</span></td>
+      <td>${m.metodo||'—'}</td>
+      <td style="color:var(--orange)">${peso(m.comision)}</td>
+      <td style="color:${(m.impacto||0)>=0?'var(--green)':'var(--red)'}; font-weight:600">${peso(m.impacto)}</td>
+      <td style="font-size:11px;font-weight:600;color:${estColor}">${estIcon} ${est}</td>
+      <td style="display:flex;gap:4px;align-items:center">
+        <button class="btn-del" title="Editar" onclick="abrirEditarMovimiento('${m.id}')">✏️</button>
+        ${solElim
+          ? `<span style="font-size:10px;color:var(--orange)" title="Eliminación pendiente de aprobación del administrador">⏳ Solicitado</span>`
+          : `<button class="btn-del" onclick="solicitarEliminarMovimiento('${m.id}')" title="Solicitar eliminación al administrador">🗑</button>`
+        }
+        ${m.editadoEn ? '<span title="Editado" style="color:var(--orange);font-size:10px">✎</span>' : ''}
+      </td>
+    </tr>`;
+  }).join('');
+
+  // ── Totales del filtro ──
+  const tfoot = document.getElementById('movimientos-tfoot');
+  if (tfoot) {
+    const totMonto   = data.reduce((s, m) => s + (parseFloat(m.monto)   || 0), 0);
+    const totComis   = data.reduce((s, m) => s + (parseFloat(m.comision)|| 0), 0);
+    const totImpacto = data.reduce((s, m) => s + (parseFloat(m.impacto) || 0), 0);
+    const nRec       = data.filter(m => m.tipo === 'RECARGAS').length;
+    const nPag       = data.filter(m => m.tipo === 'PAGOS').length;
+    const impClr     = totImpacto >= 0 ? 'var(--green)' : 'var(--red)';
+    const TD = 'padding:10px 12px;font-size:12px;font-weight:700';
+    tfoot.innerHTML = `
+      <tr style="background:var(--bg3);border-top:2px solid var(--border)">
+        <td colspan="3" style="${TD};color:var(--text2)">
+          ${data.length} registros
+          ${nRec ? `<span style="margin-left:8px;color:var(--green);font-size:11px">▲ ${nRec} rec.</span>` : ''}
+          ${nPag ? `<span style="margin-left:6px;color:var(--red);font-size:11px">▼ ${nPag} pag.</span>` : ''}
+        </td>
+        <td style="${TD};text-align:right">${peso(totMonto)}</td>
+        <td colspan="3" style="${TD};color:var(--text2);text-align:center;font-weight:400;font-size:11px">— subtotal —</td>
+        <td style="${TD};text-align:right;color:var(--orange)">${totComis ? peso(totComis) : '—'}</td>
+        <td style="${TD};text-align:right;color:${impClr}">${peso(totImpacto)}</td>
+        <td colspan="2"></td>
+      </tr>`;
+  }
+}
+
+function abrirEditarMovimiento(id) {
+  if (_checkLock('editar movimientos')) return;
+  const m = allMovimientos.find(x => x.id === id);
+  if (!m) return;
+
+  document.getElementById('edit-mov-id').value = id;
+  document.getElementById('edit-mov-tipo').value = m.tipo || 'RECARGAS';
+  document.getElementById('edit-mov-fecha').value = m.fecha || today();
+  document.getElementById('edit-mov-motivo').value = '';
+
+  // Poblar selects con opciones actuales
+  const casaOpts = CASAS.map(c => `<option${c===m.casa?' selected':''}>${c}</option>`).join('');
+  document.getElementById('edit-mov-casa').innerHTML = casaOpts;
+
+  const metOpts = METODOS_MV.map(mt => `<option${mt===m.metodo?' selected':''}>${mt}</option>`).join('');
+  document.getElementById('edit-mov-metodo').innerHTML = metOpts;
+
+  const cliOpts = allClientes.map(c =>
+    `<option value="${c.id}"${c.nombre_completo===m.cliente?' selected':''}>${c.nombre_completo}</option>`
+  ).join('');
+  document.getElementById('edit-mov-cliente').innerHTML = '<option value="">— Sin cliente —</option>' + cliOpts;
+
+  // Monto formateado
+  const montoEl = document.getElementById('edit-mov-monto');
+  montoEl.value = m.monto ? m.monto.toLocaleString('es-CO') : '';
+  montoEl.dataset.raw = m.monto || 0;
+
+  // Pre-cargar estado 4×1000
+  const chkEdit4 = document.getElementById('edit-4x1000-check');
+  if (chkEdit4) chkEdit4.checked = !!(m.descuento_4x1000 > 0);
+  _editCalc4x1000();
+
+  document.getElementById('modal-edit-mov').classList.add('open');
+}
+
+function _editCalc4x1000() {
+  const tipo   = document.getElementById('edit-mov-tipo')?.value;
+  const row4   = document.getElementById('edit-4x1000-row');
+  const chk4   = document.getElementById('edit-4x1000-check');
+  const det4   = document.getElementById('edit-4x1000-detalle');
+  const inp4   = document.getElementById('edit-4x1000-valor');
+  const neto4  = document.getElementById('edit-4x1000-neto');
+  if (!row4) return;
+  row4.style.display = tipo === 'PAGOS' ? '' : 'none';
+  if (tipo !== 'PAGOS' && chk4) chk4.checked = false;
+  const aplicar = chk4?.checked && tipo === 'PAGOS';
+  if (det4) det4.style.display = aplicar ? 'flex' : 'none';
+  if (aplicar) {
+    const montoEl = document.getElementById('edit-mov-monto');
+    const monto = parseFloat((montoEl?.dataset?.raw) || montoEl?.value?.replace(/[^0-9]/g,'')) || 0;
+    const desc = Math.round(monto * 0.004);
+    if (inp4) { inp4.value = '− ' + formatCOP(desc); inp4.dataset.raw = String(desc); }
+    if (neto4) neto4.textContent = 'Cliente recibe: ' + formatCOP(monto - desc);
+  } else {
+    if (inp4) { inp4.value = ''; inp4.dataset.raw = ''; }
+    if (neto4) neto4.textContent = '';
+  }
+}
+
+async function guardarEdicionMovimiento() {
+  const id      = document.getElementById('edit-mov-id').value;
+  const motivo  = document.getElementById('edit-mov-motivo').value.trim();
+  if (!motivo) { toast('⚠ Indica el motivo de la edición', 'error'); return; }
+
+  const m = allMovimientos.find(x => x.id === id);
+  if (!m) return;
+
+  const cliente_id = document.getElementById('edit-mov-cliente').value;
+  const clienteNombre = allClientes.find(c => c.id === cliente_id)?.nombre_completo || m.cliente;
+  const tipo    = document.getElementById('edit-mov-tipo').value;
+  const fecha   = document.getElementById('edit-mov-fecha').value;
+  const casa    = document.getElementById('edit-mov-casa').value;
+  const metodo  = document.getElementById('edit-mov-metodo').value;
+  const montoEl = document.getElementById('edit-mov-monto');
+  const monto   = parseFloat(montoEl.dataset.raw || montoEl.value.replace(/[^0-9]/g,'')) || 0;
+
+  // Recalcular comisión e impacto con los nuevos valores
+  const comRate   = tipo === 'RECARGAS' ? getComision(casa, metodo, tipo) : 0;
+  const comision  = Math.round(monto * comRate);
+  const impacto   = tipo === 'RECARGAS' ? monto : -monto;
+
+  // Recalcular canal y estado_cajero si el método cambió
+  const METODOS_INTERNOS = ['EFECTIVO OPERADOR','BE MOVIL CAJA','CUENTA BANCARIA','BONIFICACION','SIN COMISION','FREE','BIENVENIDA','REJUEGO','DESCUENTO IVA','BONO IVA'];
+  const nuevoCanal = METODOS_INTERNOS.includes(metodo.toUpperCase()) ? 'I-OP' : 'C-OP';
+  let nuevoEstadoCajero = m.estado_cajero || 'Pendiente';
+  if (nuevoCanal === 'I-OP') {
+    nuevoEstadoCajero = 'Realizada'; // internos se consideran realizados automáticamente
+  } else if (m.canal === 'I-OP') {
+    // Cambió de interno → cajero: pasa a Pendiente
+    nuevoEstadoCajero = 'Pendiente';
+  }
+  // Actualizar sufijo del op_id (conservar número, cambiar canal)
+  const opIdNum = (m.op_id || '').split(' - ')[0] || '';
+  const nuevoOpId = opIdNum ? `${opIdNum} - ${nuevoCanal}` : m.op_id;
+
+  // Auditoría — guardar valores anteriores
+  const historial = m.historial || [];
+  historial.push({
+    fecha:    new Date().toISOString(),
+    editadoPor: currentUser?.displayName || currentUser?.email || 'operador',
+    motivo,
+    anterior: {
+      cliente: m.cliente, tipo: m.tipo, fecha: m.fecha,
+      casa: m.casa, metodo: m.metodo, monto: m.monto,
+      canal: m.canal, estado_cajero: m.estado_cajero
+    }
+  });
+
+  // 4×1000
+  const inp4Edit = document.getElementById('edit-4x1000-valor');
+  const chk4Edit = document.getElementById('edit-4x1000-check');
+  const descuento_4x1000 = (chk4Edit?.checked && tipo === 'PAGOS')
+    ? (parseInt(inp4Edit?.dataset?.raw) || Math.round(monto * 0.004))
+    : 0;
+
+  try {
+    const updateData = {
+      cliente: clienteNombre, cliente_id,
+      tipo, fecha, casa, metodo, monto, comision, impacto,
+      canal: nuevoCanal, estado_cajero: nuevoEstadoCajero, op_id: nuevoOpId,
+      editadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+      editadoPor: currentUser?.email || 'operador',
+      historial,
+      descuento_4x1000: descuento_4x1000 || firebase.firestore.FieldValue.delete(),
+      // Si ya estaba confirmado por el cajero, sincronizar monto_cajero al nuevo monto corregido
+      ...(m.estado_cajero === 'Realizada' && nuevoCanal === 'C-OP' ? { monto_cajero: monto } : {}),
+    };
+    await coll('movimientos').doc(id).update(updateData);
+
+    // Borrar gasto automático anterior vinculado a este movimiento (si lo había)
+    const gastosVinc = await coll('gastos').where('origen_mov_id','==',id).where('auto','==',true).get();
+    const batch = db.batch();
+    gastosVinc.docs.forEach(d => batch.delete(d.ref));
+    // Si hay nuevo descuento, crear gasto
+    if (descuento_4x1000 > 0) {
+      const nuevoGasto = coll('gastos').doc();
+      batch.set(nuevoGasto, {
+        opId, fecha, valor: descuento_4x1000, metodo,
+        descripcion: 'COSTO 4 X MIL',
+        origen_mov_id: id,
+        auto: true,
+        ts: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+    await batch.commit();
+
+    closeModal('modal-edit-mov');
+    toast('✅ Movimiento actualizado' + (descuento_4x1000 > 0 ? ' con descuento 4×1000' : ''), 'success');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+function formatCOP(n) {
+  return '$' + Math.round(n).toLocaleString('es-CO');
+}
+
+function renderComisionesTab() {
+  const lbl = document.getElementById('com-oficina-label');
+  if (lbl && COMISIONES_OFICINA) {
+    lbl.textContent = `Grupo: ${COMISIONES_OFICINA.toUpperCase()} — comisiones definidas por el administrador`;
+  }
+  const tbody = document.getElementById('com-tbody');
+  if (!tbody) return;
+  if (!COMISIONES_LISTA.length) {
+    tbody.innerHTML = `<tr><td colspan="4"><div class="empty"><div class="empty-icon">💱</div>Sin comisiones asignadas</div></td></tr>`;
+    return;
+  }
+  tbody.innerHTML = COMISIONES_LISTA.map(c => `
+    <tr>
+      <td><strong>${c.casa || '—'}</strong></td>
+      <td>${c.metodo || '—'}</td>
+      <td><span class="badge badge-green">${(c.tasaRecarga || 0).toLocaleString('es-CO', {maximumFractionDigits:2})}%</span></td>
+      <td><span class="badge badge-blue">${(c.tasaPago || 0).toLocaleString('es-CO', {maximumFractionDigits:2})}%</span></td>
+    </tr>`).join('');
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// LIQUIDACIÓN — Hoja de transacciones del mes cerrado
+// ══════════════════════════════════════════════════════════════════════════════
+let _liqVariaciones  = null;
+let _liqTxsListener  = null;
+let _liqTxs          = [];
+let _liqMesKey       = null;
+let _liqPasivoInicial = 0;
+let _liqParticipacion = null;   // lo que el CEO dejó guardado del mes
+const LIQ_UMBRAL_COBRO = 80;    // % de la liquidación que hay que pagar para poder cobrar
+let _liqCorrecciones = [];
+let _liqCorrListener = null;
+
+async function renderLiquidacion() {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return;
+
+  // Poblar selector de meses (últimos 6 meses)
+  const sel = document.getElementById('liq-mes-sel');
+  if (sel && !sel.options.length) {
+    const now = new Date();
+    for (let i = 1; i <= 6; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const val = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+      const lbl = d.toLocaleDateString('es-CO', { month: 'long', year: 'numeric' });
+      const opt = document.createElement('option');
+      opt.value = val;
+      opt.textContent = lbl.charAt(0).toUpperCase() + lbl.slice(1);
+      sel.appendChild(opt);
+    }
+    // Default: mes anterior al actual
+    const curMk = _mesKey(config.mes);
+    if (curMk) {
+      const [y, m] = curMk.split('-').map(Number);
+      const prev = new Date(y, m - 2, 1);
+      const prevMk = `${prev.getFullYear()}-${String(prev.getMonth()+1).padStart(2,'0')}`;
+      if (sel.querySelector(`option[value="${prevMk}"]`)) sel.value = prevMk;
+    }
+  }
+
+  const mesKey = sel?.value;
+  if (!mesKey) return;
+  _liqMesKey = mesKey;
+
+  // Actualizar subtítulo
+  const mesLabel = new Date(mesKey + '-02').toLocaleDateString('es-CO', { month: 'long', year: 'numeric' });
+  document.getElementById('liq-subtitle').textContent = 'Liquidación — ' + mesLabel.charAt(0).toUpperCase() + mesLabel.slice(1);
+
+  // El pasivo del cierre: patriarca_saldo_inicial del mes SIGUIENTE guarda
+  // gananciaMesAnterior, que es exactamente la "Liquidación por Pagar" del ESF.
+  _liqPasivoInicial = 0;
+  try {
+    const [ly, lm] = mesKey.split('-').map(Number);
+    const sigKey = (lm===12 ? (ly+1)+'-01' : ly+'-'+String(lm+1).padStart(2,'0'));
+    const siSnap = await db.collection('patriarca_saldo_inicial').doc(`${uid}_${sigKey}`).get({ source: 'server' });
+    if (siSnap.exists) _liqPasivoInicial = Math.round(siSnap.data().gananciaMesAnterior || 0);
+  } catch(e) { console.warn('liq: pasivo inicial:', e); }
+
+  // Leer variaciones del mes
+  const varSnap = await db.collection('patriarca_variaciones').doc(`${uid}_${mesKey}`).get({ source: 'server' });
+  if (!varSnap.exists) {
+    document.getElementById('liq-res-ini').textContent   = '$0';
+    document.getElementById('liq-res-pag').textContent   = '$0';
+    document.getElementById('liq-res-falta').textContent = '$0';
+    document.getElementById('liq-res-barra').style.width = '0%';
+    document.getElementById('liq-res-nota').textContent  = 'Sin datos de liquidación para este mes. El administrador debe aceptar el cierre primero.';
+    document.getElementById('liq-coms-tbody').innerHTML   = '<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--text2)">—</td></tr>';
+    document.getElementById('liq-pagos-tbody').innerHTML  = '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text2)">—</td></tr>';
+    document.getElementById('liq-estado-badge').textContent = 'Sin datos';
+    document.getElementById('btn-nuevo-pago').style.display = 'none';
+    return;
+  }
+
+  // La ganancia del mes la calcula y guarda el CEO
+  _liqParticipacion = null;
+  try {
+    const pSnap = await db.collection('patriarca_participacion').doc(`${uid}_${mesKey}`).get();
+    if (pSnap.exists) _liqParticipacion = pSnap.data();
+  } catch(e) { console.warn('liq: participacion:', e); }
+
+  cargarCuentaCorr();
+  _cargarMisRetiros();
+
+  _liqVariaciones = varSnap.data();
+  document.getElementById('btn-nuevo-pago').style.display = '';
+
+  // Escuchar pagos en tiempo real
+  if (_liqTxsListener) { _liqTxsListener(); _liqTxsListener = null; }
+  _liqTxsListener = db.collection('patriarca_liquidacion_txs')
+    .where('operadorId', '==', uid)
+    .where('mesKey',     '==', mesKey)
+    .onSnapshot(snap => {
+      _liqTxs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      _renderLiquidacionTablas();
+    });
+
+  // Escuchar solicitudes de corrección en tiempo real
+  if (_liqCorrListener) { _liqCorrListener(); _liqCorrListener = null; }
+  _liqCorrListener = db.collection('patriarca_liq_correcciones')
+    .where('operadorId', '==', uid)
+    .where('mesKey',     '==', mesKey)
+    .onSnapshot(snap => {
+      _liqCorrecciones = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      _renderLiquidacionTablas();
+    });
+}
+
+
+// ── Tu cuenta en el Corresponsal ──────────────────────────────────────────
+// Es la cuenta corriente del operador con la oficina: lo que le han
+// entregado y lo que ha devuelto.
+let _ctaMovs = [];
+let _ctaUnsub = null;
+let _ctaExiste = false;    // el operador tiene cuenta abierta en el corresponsal
+let _ctaCuenta = '';
+let _ctaOficina = '';
+
+function _ctaNombre() { return 'Operador ' + (operadorNombre || '').trim(); }
+
+function toggleCuentaCorr() {
+  const b = document.getElementById('cta-body');
+  const c = document.getElementById('cta-caret');
+  const oculto = b.style.display === 'none';
+  b.style.display = oculto ? '' : 'none';
+  if (c) c.textContent = oculto ? '▾' : '▸';
+}
+
+async function cargarCuentaCorr() {
+  const panel = document.getElementById('cta-panel');
+  const uid = auth.currentUser?.uid;
+  if (!panel || !uid) return;
+
+  // Primero por enlace directo; si no, por el nombre
+  let cuenta = null;
+  try {
+    const enl = await db.collection('corresponsal_cuentas').where('operadorUid','==',uid).limit(1).get();
+    if (!enl.empty) { cuenta = enl.docs[0].data().nombre; _ctaOficina = enl.docs[0].data().oficina || ''; }
+  } catch(e) { console.warn('cta enlace:', e); }
+  let enlazada = !!cuenta;
+  if (!cuenta) {
+    cuenta = _ctaNombre();
+    try {
+      const porNom = await db.collection('corresponsal_cuentas').where('nombre','==',cuenta).limit(1).get();
+      enlazada = !porNom.empty;
+      if (enlazada) _ctaOficina = porNom.docs[0].data().oficina || '';
+    } catch(e) {}
+  }
+  _ctaExiste = enlazada;
+  _ctaCuenta = cuenta;
+
+  // Saldo con que abrió el mes
+  let anterior = 0;
+  const mk = siMesActual();
+  try {
+    const si = await db.collection('corresponsal_saldo_inicial').where('mesKey','==',mk).get();
+    si.docs.forEach(d => { anterior += parseFloat((d.data().saldos || {})[cuenta]) || 0; });
+  } catch(e) { console.warn('cta saldo inicial:', e); }
+
+  if (_ctaUnsub) _ctaUnsub();
+  _ctaUnsub = db.collection('corresponsal_movimientos').where('cuenta','==',cuenta)
+    .onSnapshot(s => {
+      _ctaMovs = s.docs.map(d => ({id:d.id, ...d.data()}))
+        .filter(m => (m.mesKey || (m.fecha||'').slice(0,7)) === mk)
+        .sort((a,b) => (a.fecha||'').localeCompare(b.fecha||'') || (a.op||0)-(b.op||0));
+      renderCuentaCorr(anterior);
+    }, e => console.warn('cta movs:', e));
+}
+
+function renderCuentaCorr(anterior) {
+  const panel = document.getElementById('cta-panel');
+  const tb    = document.getElementById('cta-tbody');
+  if (!panel || !tb) return;
+
+  // Se muestra si tiene cuenta abierta, así esté en cero
+  if (!_ctaExiste && !_ctaMovs.length && !anterior) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+
+  let din = 0, deg = 0, saldo = anterior;
+  const filas = _ctaMovs.map(m => {
+    const v   = parseFloat(m.monto) || 0;
+    const esIn = m.movimiento === 'Ingresos';
+    if (esIn) { din += v; saldo += v; } else { deg += v; saldo -= v; }
+    return `<tr>
+      <td style="white-space:nowrap">${m.fecha || ''}</td>
+      <td><span class="badge ${esIn ? 'badge-green' : 'badge-red'}">${m.movimiento || ''}</span></td>
+      <td style="text-align:right;font-weight:600">${peso(v)}</td>
+      <td style="font-size:11px;color:var(--text2)">${m.descripcion || ''}</td>
+      <td style="text-align:right;font-weight:700;color:${saldo<0?'var(--red)':'var(--green)'}">${peso(saldo)}</td>
+    </tr>`;
+  }).join('');
+
+  const total = anterior + din - deg;
+  _ctaSaldoActual = total;
+  document.getElementById('cta-ant').textContent = peso(anterior);
+  document.getElementById('cta-in').textContent  = peso(din);
+  document.getElementById('cta-eg').textContent  = peso(deg);
+  const elS = document.getElementById('cta-saldo');
+  elS.textContent = peso(total);
+  elS.style.color = total < 0 ? 'var(--red)' : 'var(--green)';
+
+  tb.innerHTML = filas || '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text2)">Sin movimientos este mes</td></tr>';
+
+  document.getElementById('cta-nota').textContent =
+      total === 0 ? `Tu cuenta ${_ctaCuenta} está en cero.`
+    : total > 0   ? `Tienes ${peso(total)} disponibles para retirar.`
+    :               `Tu cuenta está en rojo por ${peso(-total)}.`;
+}
+
+
+// ── Retiros de la cuenta del corresponsal ─────────────────────────────────
+// El operador pide, la cajera aprueba y ahí se descuenta. Así queda el
+// rastro de que todo lo que sale de su cuenta lo pidió él.
+const RET_TIPOS = {
+  efectivo:  { label:'Efectivo',            icono:'💵', hint:'La cajera te entrega los billetes.' },
+  deposito:  { label:'Depósito a mi cuenta',icono:'🏦', hint:'La cajera decide por cuál método lo envía.' },
+  pago:      { label:'Pago a un tercero',   icono:'📄', hint:'Servicios, tarjetas o transferencias a otra persona.' },
+  inversion: { label:'Inversión en cupo',   icono:'📈', hint:'Sale de tu cuenta y entra a Academia Aj1.6 como inversión.' },
+};
+
+let _retMios = [];
+let _retUnsub = null;
+let _ctaSaldoActual = 0;
+
+function _retTipoChange() {
+  const t = document.getElementById('ret-tipo').value;
+  document.getElementById('ret-hint').textContent = RET_TIPOS[t]?.hint || '';
+  document.getElementById('ret-wrap-banco').style.display = t === 'deposito' ? '' : 'none';
+  document.getElementById('ret-wrap-benef').style.display = t === 'pago'     ? '' : 'none';
+}
+
+function abrirModalRetiro() {
+  if (!_ctaExiste) { toast('⚠ Todavía no tienes cuenta en el corresponsal', 'error'); return; }
+  document.getElementById('ret-disp').textContent = peso(_ctaSaldoActual);
+  document.getElementById('ret-tipo').value  = 'efectivo';
+  ['ret-monto','ret-banco','ret-numero','ret-titular','ret-beneficiario','ret-nota']
+    .forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
+  _retTipoChange();
+  openModal('modal-retiro');
+}
+
+async function enviarRetiro() {
+  const tipo  = document.getElementById('ret-tipo').value;
+  const monto = parseInt(document.getElementById('ret-monto').value) || 0;
+  if (!monto) { toast('⚠ Escribe el monto', 'error'); return; }
+  if (monto > _ctaSaldoActual) {
+    if (!confirm(`Estás pidiendo ${peso(monto)} y tu cuenta tiene ${peso(_ctaSaldoActual)}.\n\n¿Solicitar de todos modos?`)) return;
+  }
+
+  const detalle = {};
+  if (tipo === 'deposito') {
+    detalle.banco   = document.getElementById('ret-banco').value.trim();
+    detalle.numero  = document.getElementById('ret-numero').value.trim();
+    detalle.titular = document.getElementById('ret-titular').value.trim();
+    if (!detalle.banco || !detalle.numero) { toast('⚠ Falta el banco y el número', 'error'); return; }
+  }
+  if (tipo === 'pago') {
+    detalle.beneficiario = document.getElementById('ret-beneficiario').value.trim();
+    if (!detalle.beneficiario) { toast('⚠ Escribe a quién o a qué', 'error'); return; }
+  }
+
+  const btn = document.getElementById('ret-btn');
+  btn.disabled = true; btn.textContent = '⏳ Enviando…';
+  try {
+    await db.collection('corresponsal_retiros').add({
+      operadorUid: auth.currentUser.uid,
+      operadorNombre: operadorNombre || '',
+      cuenta: _ctaCuenta,
+      oficina: _ctaOficina || '',
+      fecha: _hoyLocalOp(),
+      monto, tipo, detalle,
+      nota: document.getElementById('ret-nota').value.trim(),
+      estado: 'pendiente',
+      creadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    closeModal('modal-retiro');
+    toast('📤 Solicitud enviada — la cajera la va a revisar', 'success');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+  finally { btn.disabled = false; btn.textContent = '📤 Solicitar'; }
+}
+
+// Fecha de hoy en hora local — toISOString devuelve UTC y adelanta el día
+function _hoyLocalOp(d) {
+  d = d || new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function _cargarMisRetiros() {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return;
+  if (_retUnsub) _retUnsub();
+  _retUnsub = db.collection('corresponsal_retiros').where('operadorUid','==',uid)
+    .onSnapshot(s => {
+      _retMios = s.docs.map(d => ({id:d.id, ...d.data()}))
+        .sort((a,b) => (b.creadoEn?.seconds||0) - (a.creadoEn?.seconds||0));
+      renderMisRetiros();
+    }, e => console.warn('mis retiros:', e));
+}
+
+function renderMisRetiros() {
+  const c = document.getElementById('cta-retiros');
+  if (!c) return;
+  const recientes = _retMios.slice(0, 8);
+  if (!recientes.length) { c.innerHTML = ''; return; }
+
+  const badge = e => e === 'aprobado'  ? '<span style="color:var(--green);font-weight:700">✓ entregado</span>'
+               : e === 'rechazado' ? '<span style="color:var(--red);font-weight:700">✕ rechazado</span>'
+               : '<span style="color:var(--orange);font-weight:700">⏳ esperando</span>';
+
+  c.innerHTML = `<div style="padding:12px 16px;border-top:1px solid var(--border)">
+    <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Tus solicitudes</div>
+    ${recientes.map(r => `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:6px 0;font-size:12px;border-bottom:1px solid var(--border)">
+      <span style="color:var(--text2);white-space:nowrap">${r.fecha || ''}</span>
+      <span style="flex:1">${RET_TIPOS[r.tipo]?.icono || ''} ${RET_TIPOS[r.tipo]?.label || r.tipo}${
+        r.motivoRechazo ? `<br><span style="font-size:10px;color:var(--red)">${r.motivoRechazo}</span>` : ''}</span>
+      <strong>${peso(r.monto)}</strong>
+      <span style="min-width:90px;text-align:right">${badge(r.estado)}</span>
+    </div>`).join('')}
+  </div>`;
+}
+
+function _renderLiquidacionTablas() {
+  const v = _liqVariaciones;
+  if (!v) return;
+  const peso = n => '$' + Math.round(n || 0).toLocaleString('es-CO');
+  const clrP = n => n > 0 ? 'color:var(--red);font-weight:700' : 'color:var(--green)';
+
+  // Calcular pagado por tipo y método (solo aprobados)
+  const pagadoS = {}, pagadoC = {};
+  _liqTxs.filter(t => t.estado === 'aprobado').forEach(t => {
+    if (t.tipo === 'saldo')    pagadoS[t.metodo] = (pagadoS[t.metodo] || 0) + (t.monto || 0);
+    if (t.tipo === 'comision') pagadoC[t.metodo] = (pagadoC[t.metodo] || 0) + (t.monto || 0);
+  });
+
+  // ── LIQUIDACIÓN POR PAGAR ──
+  // Todo pago aprobado abona al pasivo, igual que en el ESF
+  const pagadoTotal = _liqTxs
+    .filter(t => t.estado === 'aprobado')
+    .reduce((acc, t) => acc + Math.round(t.monto || 0), 0);
+  const pasivoIni = Math.round(_liqPasivoInicial || 0);
+  const falta     = pasivoIni - pagadoTotal;
+  const pct       = pasivoIni > 0 ? Math.min(100, Math.max(0, (pagadoTotal / pasivoIni) * 100)) : (pagadoTotal > 0 ? 100 : 0);
+
+  document.getElementById('liq-res-ini').textContent   = peso(pasivoIni);
+  document.getElementById('liq-res-pag').textContent   = peso(pagadoTotal);
+
+  const elFalta = document.getElementById('liq-res-falta');
+  elFalta.textContent  = falta === 0 ? '✓ Liquidado' : peso(falta);
+  elFalta.style.color  = falta === 0 ? 'var(--green)' : falta > 0 ? 'var(--orange)' : '#3b82f6';
+
+  const barra = document.getElementById('liq-res-barra');
+  barra.style.width      = pct + '%';
+  barra.style.background = falta < 0 ? '#3b82f6' : 'var(--green)';
+
+  const nota = document.getElementById('liq-res-nota');
+  if (pasivoIni === 0 && pagadoTotal === 0) {
+    nota.textContent = 'Sin liquidación pendiente para este mes.';
+  } else if (falta === 0) {
+    nota.innerHTML = '<span style="color:var(--green);font-weight:700">✓ Liquidación completa.</span>';
+  } else if (falta < 0) {
+    nota.innerHTML = `<span style="color:#3b82f6;font-weight:700">Pagaste ${peso(-falta)} de más</span> — queda a tu favor.`;
+  } else {
+    nota.textContent = `Has abonado ${Math.round(pct)}% de la liquidación.`;
+  }
+
+  // ── TU GANANCIA DEL MES ──
+  // Se libera en la misma proporción en que se va pagando la liquidación,
+  // y solo se puede cobrar después de abonar el umbral.
+  const panelGan = document.getElementById('liq-gan-panel');
+  if (_liqParticipacion && (_liqParticipacion.gananciaOperador || 0) > 0) {
+    panelGan.style.display = '';
+    const g        = Math.round(_liqParticipacion.gananciaOperador || 0);
+    const liberado = Math.round(g * Math.min(1, Math.max(0, pct / 100)));
+    const retenido = g - liberado;
+    const habilitado = pct >= LIQ_UMBRAL_COBRO;
+
+    document.getElementById('liq-gan-total').textContent    = peso(g);
+    document.getElementById('liq-gan-liberado').textContent = habilitado ? peso(liberado) : peso(0);
+    document.getElementById('liq-gan-retenido').textContent = peso(habilitado ? retenido : g);
+    document.getElementById('liq-gan-pct').textContent      = `${Math.round(pct)}% de tu ganancia`;
+
+    const esc = _liqParticipacion;
+    document.getElementById('liq-gan-sub').textContent =
+      `Productividad ${peso(esc.productividad)} · ${esc.participacion}%${esc.bonoPct ? ' + ' + esc.bonoPct + '% bono' : ''}`;
+
+    // La primera vez que cruza el umbral, celebrarlo — una sola vez por mes
+    if (habilitado && liberado > 0) {
+      _felizUnaVez('cobro',
+        '\u00a1YA PUEDES COBRAR!',
+        `Pasaste el ${LIQ_UMBRAL_COBRO}% de tu liquidación \ud83d\udcb8`,
+        peso(liberado),
+        _liqMesKey,
+        'Disponible para cobrar');
+    }
+
+    const badge = document.getElementById('liq-gan-estado');
+    if (habilitado) {
+      badge.textContent = '✅ Habilitado para cobrar';
+      badge.style.color = 'var(--green)';
+      badge.style.background = 'rgba(36,191,98,.12)';
+    } else {
+      badge.textContent = `🔒 Bloqueado — falta llegar al ${LIQ_UMBRAL_COBRO}%`;
+      badge.style.color = 'var(--orange)';
+      badge.style.background = 'rgba(251,146,60,.12)';
+    }
+
+    const nota = document.getElementById('liq-gan-nota');
+    if (!habilitado) {
+      const faltaPct  = LIQ_UMBRAL_COBRO - pct;
+      const faltaPlata = Math.round(pasivoIni * (faltaPct / 100));
+      nota.innerHTML = `Llevas <strong>${Math.round(pct)}%</strong> de tu liquidación pagada. `
+        + `Abonando <strong style="color:var(--orange)">${peso(faltaPlata)}</strong> más llegas al ${LIQ_UMBRAL_COBRO}% `
+        + `y podrás cobrar ${peso(Math.round(g * LIQ_UMBRAL_COBRO / 100))}.`;
+    } else if (retenido > 0) {
+      nota.innerHTML = `Puedes cobrar <strong style="color:var(--green)">${peso(liberado)}</strong>. `
+        + `Los ${peso(retenido)} restantes se liberan a medida que termines de pagar la liquidación.`;
+    } else {
+      nota.innerHTML = `<strong style="color:var(--green)">Liquidación al día.</strong> Puedes cobrar tu ganancia completa.`;
+    }
+
+    document.getElementById('liq-gan-desglose').innerHTML =
+      `Rango ${esc.rango} · Rojo ${esc.rojo ? peso(esc.rojo) : 'exento'} · `
+      + `Base neta ${peso(esc.baseNeta)} · Bruta ${peso(esc.bruta)}`
+      + (esc.interesCapital ? ` · Interés de capital −${peso(esc.interesCapital)}` : ' · Sin interés de capital');
+  } else {
+    panelGan.style.display = 'none';
+  }
+
+  // ── COMISIONES ──
+  let cHtml = '', totCom = 0, totPC = 0, totPendC = 0;
+  Object.entries(v.comisionesPorMetodo || {}).sort((a,b) => b[1]-a[1]).forEach(([met, val]) => {
+    const pag = pagadoC[met] || 0;
+    const pend = val - pag;
+    totCom += val; totPC += pag; totPendC += pend;
+    cHtml += `<tr>
+      <td>Cuenta Por Cobrar comisiones ${met} Operadores</td>
+      <td style="font-weight:600;color:var(--orange)">${peso(val)}</td>
+      <td style="color:var(--green)">${pag ? peso(pag) : '<span style="color:var(--text2)">—</span>'}</td>
+      <td style="${clrP(pend)}">${pend > 0 ? peso(pend) : '✓ Pagado'}</td>
+    </tr>`;
+  });
+  if (!Object.keys(v.comisionesPorMetodo || {}).length) {
+    cHtml = '<tr><td colspan="4" style="text-align:center;color:var(--text2);padding:16px">Sin comisiones registradas</td></tr>';
+  } else {
+    cHtml += `<tr style="background:var(--bg3);font-weight:800">
+      <td>TOTAL</td>
+      <td style="color:var(--orange)">${peso(totCom)}</td>
+      <td style="color:var(--green)">${peso(totPC)}</td>
+      <td style="${clrP(totPendC)}">${totPendC > 0 ? peso(totPendC) : '✓'}</td>
+    </tr>`;
+  }
+  document.getElementById('liq-coms-tbody').innerHTML = cHtml;
+
+  // ── PAGOS ──
+  let pHtml = '';
+  const sorted = [..._liqTxs].sort((a,b) => (b.creadoEn?.seconds||0)-(a.creadoEn?.seconds||0));
+  if (sorted.length) {
+    let totalPagos = 0, totalAprobado = 0, totalPendiente = 0;
+    sorted.forEach(t => {
+      const eColor = t.estado==='aprobado' ? 'var(--green)' : t.estado==='rechazado' ? 'var(--red)' : 'var(--orange)';
+      const eIcon  = t.estado==='aprobado' ? '✅' : t.estado==='rechazado' ? '❌' : '⏳';
+      const corrPend = (_liqCorrecciones||[]).find(c => c.txId === t.id && c.estado === 'pendiente');
+      const btnEdit = t.estado === 'pendiente'
+        ? `<button onclick="editarPagoLiq('${t.id}')" style="background:transparent;border:1px solid var(--border);border-radius:4px;padding:2px 8px;cursor:pointer;font-size:12px;color:var(--text2)" title="Editar pago">✏️</button>`
+        : t.estado === 'aprobado' && !corrPend
+          ? `<button onclick="solicitarCorreccionPago('${t.id}')" style="background:transparent;border:1px solid var(--border);border-radius:4px;padding:2px 8px;cursor:pointer;font-size:11px;color:var(--text2)" title="Solicitar corrección">✏️ Corregir</button>`
+          : t.estado === 'aprobado' && corrPend
+            ? `<span style="font-size:10px;color:var(--orange);font-weight:700">⏳ Corrección pendiente</span>`
+            : '';
+      totalPagos += (t.monto || 0);
+      if (t.estado === 'aprobado')  totalAprobado  += (t.monto || 0);
+      if (t.estado === 'pendiente') totalPendiente += (t.monto || 0);
+      pHtml += `<tr>
+        <td>${t.fecha || '—'}</td>
+        <td>${t.tipo === 'saldo' ? '💰 Saldo' : '📑 Comisión'}</td>
+        <td>${t.metodo || '—'}</td>
+        <td style="font-weight:700">${peso(t.monto)}</td>
+        <td style="color:${eColor};font-weight:700">${eIcon} ${t.estado}</td>
+        <td style="font-size:11px;color:var(--text2)">${t.notas || '—'}</td>
+        <td>${btnEdit}</td>
+      </tr>`;
+    });
+    // Fila total
+    pHtml += `<tr style="border-top:2px solid var(--border);background:rgba(255,255,255,.02)">
+      <td colspan="3" style="font-size:12px;font-weight:700;color:var(--text2);padding-top:10px">TOTAL PAGADO</td>
+      <td style="font-weight:800;font-size:14px;color:var(--green)">${peso(totalPagos)}</td>
+      <td colspan="3" style="font-size:11px;color:var(--text2)">
+        ${totalAprobado  ? `<span style="color:var(--green)">✅ ${peso(totalAprobado)} aprobado</span>` : ''}
+        ${totalPendiente ? `&nbsp;·&nbsp;<span style="color:var(--orange)">⏳ ${peso(totalPendiente)} pendiente</span>` : ''}
+      </td>
+    </tr>`;
+  } else {
+    pHtml = '<tr><td colspan="6" style="text-align:center;color:var(--text2);padding:20px">Sin pagos registrados aún</td></tr>';
+  }
+  document.getElementById('liq-pagos-tbody').innerHTML = pHtml;
+
+  // ── BADGE ESTADO ──
+  const totalPend = falta;
+  const badge = document.getElementById('liq-estado-badge');
+  if (totalPend <= 0) {
+    badge.textContent = '✅ Liquidado'; badge.style.color = 'var(--green)'; badge.style.background = 'rgba(36,191,98,.12)';
+  } else {
+    badge.textContent = `Pendiente ${peso(totalPend)}`; badge.style.color = 'var(--orange)'; badge.style.background = 'rgba(251,146,60,.12)';
+  }
+}
+
+function abrirModalPagoLiq() {
+  if (!_liqVariaciones) { toast('Primero carga los datos del mes', 'error'); return; }
+  document.getElementById('pago-liq-fecha').value = new Date().toISOString().slice(0,10);
+  document.getElementById('pago-liq-tipo').value  = 'saldo';
+  document.getElementById('pago-liq-monto').value = '';
+  document.getElementById('pago-liq-notas').value = '';
+  updatePagoLiqMetodos();
+  // Resetear posición al centro
+  const box = document.getElementById('modal-pago-liq-box');
+  box.style.transform = 'translate(-50%,-50%)';
+  box.style.top  = '50%';
+  box.style.left = '50%';
+  document.getElementById('modal-pago-liq').style.display = 'block';
+}
+
+function cerrarModalPagoLiq() {
+  document.getElementById('modal-pago-liq').style.display = 'none';
+  delete window._editingPagoId;
+}
+
+let _corrTxId = null;
+
+function solicitarCorreccionPago(txId) {
+  const tx = _liqTxs.find(t => t.id === txId);
+  if (!tx) return;
+  _corrTxId = txId;
+  const peso = n => '$' + Math.round(n||0).toLocaleString('es-CO');
+  document.getElementById('corr-original-info').innerHTML =
+    `<span style="color:var(--text2)">Original:</span> <strong>${tx.tipo==='comision'?'Comisión':'Saldo'} ${tx.metodo}</strong>
+     &nbsp;·&nbsp; <strong>${peso(tx.monto)}</strong> &nbsp;·&nbsp; ${tx.fecha}`;
+  document.getElementById('liq-corr-nuevo-monto').value = tx.monto || '';
+  document.getElementById('liq-corr-nueva-fecha').value = tx.fecha || '';
+  document.getElementById('liq-corr-motivo').value = '';
+  // Resetear posición
+  const box = document.getElementById('modal-correccion-box');
+  box.style.transform = 'translate(-50%,-50%)';
+  box.style.top = '50%'; box.style.left = '50%';
+  document.getElementById('modal-correccion-liq').style.display = 'block';
+}
+
+function cerrarModalCorreccion() {
+  document.getElementById('modal-correccion-liq').style.display = 'none';
+  _corrTxId = null;
+}
+
+async function enviarSolicitudCorreccion() {
+  const motivo    = document.getElementById('liq-corr-motivo').value.trim();
+  const newMonto  = parseInt(document.getElementById('liq-corr-nuevo-monto').value) || 0;
+  const newFecha  = document.getElementById('liq-corr-nueva-fecha').value;
+  if (!motivo)          { toast('Indica el motivo de la corrección', 'error'); return; }
+  if (newMonto <= 0)    { toast('Ingresa el monto correcto', 'error'); return; }
+  if (!newFecha)        { toast('Ingresa la fecha correcta', 'error'); return; }
+  if (!_corrTxId)       return;
+
+  const tx = _liqTxs.find(t => t.id === _corrTxId);
+  if (!tx) return;
+
+  try {
+    await db.collection('patriarca_liq_correcciones').add({
+      txId:           _corrTxId,
+      operadorId:     auth.currentUser?.uid,
+      operadorNombre: auth.currentUser?.displayName || auth.currentUser?.email || '',
+      mesKey:         tx.mesKey,
+      tipo:           tx.tipo,
+      metodo:         tx.metodo,
+      oldMonto:       tx.monto,
+      oldFecha:       tx.fecha,
+      newMonto,
+      newFecha,
+      motivo,
+      opContableOriginal: tx.opContable || null,
+      estado:         'pendiente',
+      creadoEn:       firebase.firestore.FieldValue.serverTimestamp()
+    });
+    toast('✅ Solicitud enviada — el admin la revisará');
+    cerrarModalCorreccion();
+  } catch(e) {
+    toast('❌ Error: ' + e.message, 'error');
+  }
+}
+
+async function editarPagoLiq(txId) {
+  const tx = _liqTxs.find(t => t.id === txId);
+  if (!tx) return;
+  // Reusar el mismo modal, pre-llenado
+  document.getElementById('pago-liq-tipo').value  = tx.tipo;
+  document.getElementById('pago-liq-fecha').value = tx.fecha || '';
+  document.getElementById('pago-liq-monto').value = tx.monto || 0;
+  document.getElementById('pago-liq-notas').value = tx.notas || '';
+  updatePagoLiqMetodos();
+  // Esperar un tick para que los selects se pueblen
+  await new Promise(r => setTimeout(r, 80));
+  document.getElementById('pago-liq-metodo').value = tx.metodo || '';
+  if (tx.tipo === 'saldo' && tx.destino) {
+    await new Promise(r => setTimeout(r, 50));
+    const dsel = document.getElementById('pago-liq-destino');
+    if (dsel) dsel.value = tx.destino;
+  }
+  // Marcar que estamos editando (no creando)
+  window._editingPagoId = txId;
+  // Cambiar título del modal
+  document.querySelector('#modal-pago-liq-box .modal-drag-handle').innerHTML =
+    '<span style="font-size:11px;color:var(--text2);opacity:.5">⠿</span> Editar Pago';
+  // Resetear posición al centro
+  const box = document.getElementById('modal-pago-liq-box');
+  box.style.transform = 'translate(-50%,-50%)';
+  box.style.top  = '50%';
+  box.style.left = '50%';
+  document.getElementById('modal-pago-liq').style.display = 'block';
+}
+
+// ── Modal arrastrable ──
+(function() {
+  let _drag = null;
+  document.addEventListener('mousedown', e => {
+    const handle = e.target.closest('.modal-drag-handle');
+    if (!handle) return;
+    const box = handle.closest('.modal-box');
+    if (!box) return;
+    // Si aún tiene transform centrado, calculamos posición real primero
+    const r = box.getBoundingClientRect();
+    box.style.transform = 'none';
+    box.style.top  = r.top  + 'px';
+    box.style.left = r.left + 'px';
+    _drag = { box, dx: e.clientX - r.left, dy: e.clientY - r.top };
+    handle.style.cursor = 'grabbing';
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', e => {
+    if (!_drag) return;
+    const x = Math.max(0, Math.min(window.innerWidth  - _drag.box.offsetWidth,  e.clientX - _drag.dx));
+    const y = Math.max(0, Math.min(window.innerHeight - _drag.box.offsetHeight, e.clientY - _drag.dy));
+    _drag.box.style.left = x + 'px';
+    _drag.box.style.top  = y + 'px';
+  });
+  document.addEventListener('mouseup', () => {
+    if (_drag) {
+      _drag.box.querySelector('.modal-drag-handle').style.cursor = 'grab';
+      _drag = null;
+    }
+  });
+})();
+
+// ── Cuentas destino habilitadas por el admin ──
+let _destinosLiq = [];
+async function loadDestinosLiq() {
+  try {
+    const snap = await db.collection('patriarca_config_global').doc('liq_destinos').get();
+    _destinosLiq = snap.exists ? (snap.data().activos || []) : [];
+  } catch(e) { _destinosLiq = []; }
+  _renderDestinoSelect();
+}
+function _renderDestinoSelect() {
+  const sel = document.getElementById('pago-liq-destino');
+  if (!sel) return;
+  if (!_destinosLiq.length) {
+    sel.innerHTML = '<option value="">— Sin cuentas habilitadas —</option>';
+  } else {
+    sel.innerHTML = _destinosLiq.map(c => `<option value="${c}">${c}</option>`).join('');
+  }
+}
+
+function updatePagoLiqMetodos() {
+  const tipo = document.getElementById('pago-liq-tipo').value;
+  // Mostrar / ocultar destino según tipo
+  const dg = document.getElementById('pago-liq-destino-group');
+  if (dg) dg.style.display = tipo === 'saldo' ? 'block' : 'none';
+  if (tipo === 'saldo' && !_destinosLiq.length) loadDestinosLiq();
+
+  // Calcular pagado aprobado por método
+  const pagado = {};
+  (_liqTxs || []).filter(t => t.estado === 'aprobado' && t.tipo === tipo).forEach(t => {
+    pagado[t.metodo] = (pagado[t.metodo] || 0) + (t.monto || 0);
+  });
+
+  let fuente;
+  if (tipo === 'saldo') {
+    // Para saldo: cualquier método físico sirve para abonar la liquidación
+    fuente = METODOS_CAJA.filter(m => !METODOS_VIRTUALES.has(m)).sort();
+  } else {
+    const mapaTotal = _liqVariaciones?.comisionesPorMetodo || {};
+    fuente = Object.entries(mapaTotal)
+      .filter(([met, val]) => (val - (pagado[met] || 0)) > 0)
+      .map(([met]) => met)
+      .sort();
+  }
+
+  if (!fuente.length) {
+    document.getElementById('pago-liq-metodo').innerHTML =
+      `<option value="">— Todo pagado —</option>`;
+    return;
+  }
+
+  document.getElementById('pago-liq-metodo').innerHTML = tipo === 'saldo'
+    ? fuente.map(m => `<option value="${m}">${m}</option>`).join('')
+    : fuente.map(m => `<option value="${m}">Cuenta Por Cobrar comisiones ${m} Operadores</option>`).join('');
+}
+
+async function guardarPagoLiq() {
+  const uid     = auth.currentUser?.uid;
+  const tipo    = document.getElementById('pago-liq-tipo').value;
+  const metodo  = document.getElementById('pago-liq-metodo').value;
+  const destino = tipo === 'saldo' ? (document.getElementById('pago-liq-destino')?.value || '') : '';
+  const monto   = parseInt(document.getElementById('pago-liq-monto').value) || 0;
+  const fecha   = document.getElementById('pago-liq-fecha').value;
+  const notas   = document.getElementById('pago-liq-notas').value.trim();
+
+  if (monto <= 0)              { toast('Ingresa un monto válido', 'error'); return; }
+  if (!fecha)                  { toast('Selecciona una fecha',    'error'); return; }
+  if (!metodo)                 { toast('Selecciona un método',    'error'); return; }
+  if (tipo === 'saldo' && !destino) { toast('Selecciona la cuenta destino', 'error'); return; }
+
+  try {
+    if (window._editingPagoId) {
+      // Modo edición — actualiza campos incluyendo destino
+      await db.collection('patriarca_liquidacion_txs').doc(window._editingPagoId).update({
+        tipo, metodo, destino, monto, fecha, notas,
+        editadoEn: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      toast('✅ Pago actualizado');
+    } else {
+      // Modo creación
+      await db.collection('patriarca_liquidacion_txs').add({
+        operadorId:     uid,
+        operadorNombre: auth.currentUser?.displayName || auth.currentUser?.email || uid,
+        mesKey:         _liqMesKey,
+        tipo, metodo, destino, monto, fecha, notas,
+        estado:         'pendiente',
+        creadoPor:      uid,
+        creadoEn:       firebase.firestore.FieldValue.serverTimestamp()
+      });
+      toast('✅ Pago registrado — pendiente de aprobación');
+      // Limpiar solo monto y notas, mantener modal abierto para registrar más
+      document.getElementById('pago-liq-monto').value = '';
+      document.getElementById('pago-liq-notas').value = '';
+      document.getElementById('pago-liq-monto').focus();
+    }
+    if (window._editingPagoId) cerrarModalPagoLiq(); // En edición sí se cierra
+  } catch(e) {
+    toast('❌ Error: ' + e.message, 'error');
+    console.error('guardarPagoLiq:', e);
+  }
+}
+
+// ── EQUIPO ──────────────────────────────────────────────────────────────────
+let EQUIPO_LISTA = [];
+let EQUIPO_OFICINA = '';
+
+function loadEquipoTab() {
+  // Siempre recarga para reflejar cambios del admin
+  const email = firebase.auth().currentUser?.email || '';
+  db.collection('admin_usuarios').where('email', '==', email).limit(1).get().then(snap => {
+    const miOficina = snap.empty ? '' : (snap.docs[0].data().oficinaNombre || '');
+    let query = db.collection('admin_usuarios').where('rol', '==', 'operador');
+    if (miOficina) query = query.where('oficinaNombre', '==', miOficina);
+    query.get().then(s2 => {
+      EQUIPO_LISTA = s2.docs.map(d => ({ id: d.id, ...d.data() }));
+      renderEquipoTab();
+    });
+  });
+}
+
+function renderEquipoTab() {
+  const tbody = document.getElementById('equipo-tbody');
+  if (!tbody) return;
+  const lista = EQUIPO_LISTA.sort((a,b) => {
+    if ((a.estado||'activo') !== (b.estado||'activo')) return a.estado === 'inactivo' ? 1 : -1;
+    return (a.nombre||'').localeCompare(b.nombre||'');
+  });
+  if (!lista.length) {
+    tbody.innerHTML = `<tr><td colspan="5"><div class="empty"><div class="empty-icon">👥</div>Sin operadores registrados</div></td></tr>`;
+    return;
+  }
+  const activos = lista.filter(o => o.estado !== 'inactivo').length;
+  const sub = document.getElementById('equipo-sub');
+  if (sub) sub.textContent = `${activos} activo${activos!==1?'s':''} de ${lista.length} — gestionados desde administrador`;
+  tbody.innerHTML = lista.map((op, i) => {
+    const activo = op.estado !== 'inactivo';
+    return `<tr style="opacity:${activo?1:0.5}">
+      <td style="color:var(--text2)">${i+1}</td>
+      <td><b>${op.nombre||op.email||op.id}</b></td>
+      <td><span class="badge badge-blue">${op.oficinaNombre||'—'}</span></td>
+      <td><span class="badge ${activo?'badge-green':'badge-gray'}">${activo?'Activo':'Inactivo'}</span></td>
+    </tr>`;
+  }).join('');
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
+function formatMontoInput(el) {
+  const raw = el.value.replace(/[^0-9]/g, '');
+  const num = parseInt(raw) || 0;
+  el.value = num ? '$' + num.toLocaleString('es-CO') : '';
+  el.dataset.raw = raw;
+}
+
+function getMontoRaw() {
+  const el = document.getElementById('mv-monto');
+  return parseFloat(el.dataset.raw || el.value.replace(/[^0-9]/g,'')) || 0;
+}
+
+function calcMovComision() {
+  const casa   = document.getElementById('mv-casa').value;
+  const metodo = document.getElementById('mv-metodo').value;
+  const monto  = getMontoRaw();
+  const tipo   = document.getElementById('mv-tipo').value;
+  const comEl  = document.getElementById('mv-comision');
+  if (!casa || !metodo) { comEl.value = ''; }
+  else {
+    const comRate = getComision(casa, metodo, tipo);
+    comEl.value = formatCOP(monto * comRate);
+  }
+  // ── 4×1000 (GMF) — solo para PAGOS, controlado por checkbox manual ───────
+  const row4    = document.getElementById('mv-4x1000-row');
+  const chk4    = document.getElementById('mv-4x1000-check');
+  const det4    = document.getElementById('mv-4x1000-detalle');
+  const inp4    = document.getElementById('mv-4x1000');
+  const neto4   = document.getElementById('mv-4x1000-neto');
+  if (row4) {
+    // Mostrar el panel solo en PAGOS
+    row4.style.display = tipo === 'PAGOS' ? '' : 'none';
+    if (tipo !== 'PAGOS' && chk4) { chk4.checked = false; }
+    // Calcular solo si el checkbox está marcado
+    const aplicar = chk4?.checked && tipo === 'PAGOS';
+    if (det4) det4.style.display = aplicar ? 'flex' : 'none';
+    if (aplicar && monto) {
+      const desc = Math.round(monto * 0.004);
+      if (inp4) { inp4.value = '− ' + formatCOP(desc); inp4.dataset.raw = String(desc); }
+      if (neto4) neto4.textContent = 'Cliente recibe: ' + formatCOP(monto - desc);
+    } else {
+      if (inp4) { inp4.value = ''; inp4.dataset.raw = ''; }
+      if (neto4) neto4.textContent = '';
+    }
+  }
+}
+
+async function saveMovimiento() {
+  if (_checkLock('registrar movimientos')) return;
+  const tipo    = document.getElementById('mv-tipo').value;
+  const cliente_id = document.getElementById('mv-cliente').value;
+  const casa    = document.getElementById('mv-casa').value;
+  const metodo  = document.getElementById('mv-metodo').value;
+  const monto   = getMontoRaw();
+  const fecha   = document.getElementById('mv-fecha').value || today();
+  const comision = parseFloat(document.getElementById('mv-comision').value.replace(/[^0-9]/g,''))||0;
+  if (!monto || !casa || !metodo) { toast('⚠ Completa los campos requeridos','error'); return; }
+  const clienteNombre = allClientes.find(c=>c.id===cliente_id)?.nombre_completo || '';
+  const impacto = tipo==='RECARGAS' ? monto : -monto;
+  const desc4x1000El = document.getElementById('mv-4x1000');
+  const descuento_4x1000 = (desc4x1000El?.dataset?.raw) ? parseInt(desc4x1000El.dataset.raw) : 0;
+  // Métodos internos (operador los maneja sin cajero)
+  const METODOS_INTERNOS = ['EFECTIVO OPERADOR','BE MOVIL CAJA','CUENTA BANCARIA','BONIFICACION','SIN COMISION','FREE','BIENVENIDA','REJUEGO','DESCUENTO IVA','BONO IVA'];
+  const canal = METODOS_INTERNOS.includes(metodo.toUpperCase()) ? 'I-OP' : 'C-OP';
+  const estado_cajero = canal === 'I-OP' ? 'Realizada' : 'Pendiente';
+  // Contador por canal — solo mes activo
+  const mkMov = _mesKey(config.mes);
+  const movMesCanal = allMovimientos.filter(m => m.canal === canal && (mkMov ? (m.fecha||'').startsWith(mkMov) : true));
+  const cntCanal = movMesCanal.length + 1;
+  const op_id = `${cntCanal} - ${canal}`;
+  try {
+    const docData = {
+      opId, op_id, canal, estado_cajero, tipo, cliente: clienteNombre, cliente_id,
+      casa, metodo, monto, fecha, comision, impacto,
+      ts: firebase.firestore.FieldValue.serverTimestamp(),
+    };
+    if (descuento_4x1000 > 0) docData.descuento_4x1000 = descuento_4x1000;
+    const movRef = await coll('movimientos').add(docData);
+    // ── Gasto automático 4×1000 ───────────────────────────────────────────
+    if (descuento_4x1000 > 0) {
+      await coll('gastos').add({
+        opId, fecha, valor: descuento_4x1000, metodo,
+        descripcion: 'COSTO 4 X MIL',
+        origen_mov_id: movRef.id,
+        auto: true,
+        ts: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+    // No cerrar: resetear solo monto para registrar otro rápido
+    const montoEl = document.getElementById('mv-monto');
+    montoEl.value = ''; montoEl.dataset.raw = '';
+    document.getElementById('mv-comision').value = '';
+    if (desc4x1000El) { desc4x1000El.value = ''; desc4x1000El.dataset.raw = ''; }
+    const neto4R = document.getElementById('mv-4x1000-neto');
+    if (neto4R) neto4R.textContent = '';
+    const chk4R = document.getElementById('mv-4x1000-check');
+    if (chk4R) chk4R.checked = false;
+    const det4R = document.getElementById('mv-4x1000-detalle');
+    if (det4R) det4R.style.display = 'none';
+    montoEl.focus();
+    toast('✅ Movimiento guardado — puedes registrar otro o cerrar','success');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+async function solicitarEliminarMovimiento(id) {
+  const motivo = prompt('¿Por qué deseas eliminar este movimiento?\n(Describe brevemente el motivo — campo obligatorio)');
+  if (motivo === null) return; // canceló
+  if (!motivo.trim()) { toast('⚠ Debes indicar el motivo de la eliminación', 'error'); return; }
+  try {
+    await coll('movimientos').doc(id).update({
+      solicitud_eliminar: true,
+      solicitud_eliminar_ts: firebase.firestore.FieldValue.serverTimestamp(),
+      solicitud_eliminar_op: operadorNombre || opId,
+      solicitud_eliminar_motivo: motivo.trim(),
+    });
+    toast('✅ Solicitud enviada — el administrador debe aprobarla', 'info');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+// ──────────────────── IMPORTAR CLIENTES DESDE EXCEL ────────────────────
+function toggleImportCli() {
+  const panel = document.getElementById('import-cli-panel');
+  const txt   = document.getElementById('import-cli-txt');
+  if (panel.style.display === 'none') {
+    panel.style.display = 'block';
+    setTimeout(() => txt.focus(), 50);
+  } else {
+    panel.style.display = 'none';
+    txt.value = '';
+    document.getElementById('import-cli-status').textContent = '';
+  }
+}
+
+async function ejecutarImportCli() {
+  const txt    = document.getElementById('import-cli-txt').value.trim();
+  const status = document.getElementById('import-cli-status');
+  if (!txt) { status.textContent = '⚠ Pega los datos primero'; return; }
+
+  status.textContent = 'Procesando...';
+
+  // Nombres ya existentes (para no duplicar)
+  const existentes = new Set(allClientes.map(c => (c.nombre_completo || '').toLowerCase().trim()));
+
+  const SKIP_HEADERS = new Set(['id','nombre completo','nombre','inicio','#']);
+
+  const lineas = txt.split('\n').map(l => l.trim()).filter(l => l);
+  const batch  = [];
+  let ok = 0, skip = 0, dup = 0;
+
+  for (const linea of lineas) {
+    const cols = linea.includes('\t') ? linea.split('\t') : linea.split(';');
+    if (cols.length < 2) { skip++; continue; }
+
+    // Detectar encabezado
+    const c0raw = cols[0].trim();
+    const c0 = c0raw.toLowerCase();
+    if (SKIP_HEADERS.has(c0) || c0 === 'inicio') { skip++; continue; }
+
+    // Detectar formato: ¿primera columna es ID numérico?
+    const tieneId = /^\d+(\.\d+)?$/.test(c0raw);
+
+    let nombreCompleto, nombre, apellidos, cedula;
+    if (tieneId) {
+      // Formato con ID: ID | NOMBRE_COMPLETO | NOMBRE | APELLIDOS | CEDULA
+      nombreCompleto = cols[1]?.trim() || '';
+      nombre         = cols[2]?.trim() || '';
+      apellidos      = cols[3]?.trim() || '';
+      cedula         = cols[4]?.trim() || '';
+    } else if (cols.length >= 4 && cols[0].trim().split(' ').length >= 2) {
+      // Sin ID pero primera col es NOMBRE_COMPLETO (tiene varias palabras):
+      // NOMBRE_COMPLETO | NOMBRE | APELLIDOS | CEDULA
+      nombreCompleto = cols[0].trim();
+      nombre         = cols[1]?.trim() || '';
+      apellidos      = cols[2]?.trim() || '';
+      cedula         = cols[3]?.trim() || '';
+    } else {
+      // Sin ID, 2-3 cols: NOMBRE | APELLIDOS | (CEDULA)
+      nombre         = cols[0].trim();
+      apellidos      = cols[1]?.trim() || '';
+      cedula         = cols[2]?.trim() || '';
+      nombreCompleto = (nombre + (apellidos ? ' ' + apellidos : '')).trim();
+    }
+
+    if (!nombreCompleto || nombreCompleto.toLowerCase() === 'externo') { skip++; continue; }
+
+    // Omitir duplicados
+    if (existentes.has(nombreCompleto.toLowerCase())) { dup++; continue; }
+    existentes.add(nombreCompleto.toLowerCase());
+
+    batch.push({
+      opId,
+      nombre_completo: nombreCompleto,
+      nombre: nombre || nombreCompleto.split(' ')[0],
+      apellidos: apellidos || nombreCompleto.split(' ').slice(1).join(' '),
+      cedula: cedula || '',
+      telefono: '',
+      ts: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    ok++;
+  }
+
+  if (!batch.length) {
+    status.textContent = `⚠ Ninguna fila válida. Revisa el formato.`;
+    return;
+  }
+
+  status.textContent = `Guardando ${batch.length} clientes...`;
+  try {
+    const CHUNK = 400;
+    for (let i = 0; i < batch.length; i += CHUNK) {
+      const fb = db.batch();
+      batch.slice(i, i + CHUNK).forEach(doc => fb.set(coll('clientes').doc(), doc));
+      await fb.commit();
+    }
+    const msg = `✅ ${ok} importados` + (dup ? ` · ${dup} ya existían` : '') + (skip ? ` · ${skip} ignorados` : '');
+    status.textContent = msg;
+    toast(`✅ ${ok} clientes importados`, 'success');
+    setTimeout(() => toggleImportCli(), 2500);
+  } catch(e) {
+    console.error(e);
+    status.textContent = `❌ Error: ${e.message}`;
+  }
+}
+
+// ──────────────────── IMPORTAR MOVIMIENTOS DESDE EXCEL ────────────────────
+function toggleImportMov() {
+  const panel = document.getElementById('import-mov-panel');
+  const txt   = document.getElementById('import-mov-txt');
+  if (panel.style.display === 'none') {
+    panel.style.display = 'block';
+    setTimeout(() => txt.focus(), 50);
+  } else {
+    panel.style.display = 'none';
+    txt.value = '';
+    document.getElementById('import-mov-status').textContent = '';
+  }
+}
+
+function parseFechaImport(raw) {
+  if (!raw) return today();
+  raw = raw.trim();
+  // DD/MM/YY o DD/MM/YYYY
+  const m1 = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (m1) {
+    let [, d, mo, y] = m1;
+    if (y.length === 2) y = '20' + y;
+    return `${y}-${mo.padStart(2,'0')}-${d.padStart(2,'0')}`;
+  }
+  // YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  return today();
+}
+
+function parseMontoImport(raw) {
+  if (!raw) return 0;
+  let s = String(raw).trim().replace(/[^0-9.,\-]/g, '');
+  const neg = s.startsWith('-');
+  s = s.replace('-','');
+  // Formato colombiano: 1.180.700 → quitar puntos
+  if (/^\d{1,3}(\.\d{3})*$/.test(s)) s = s.replace(/\./g,'');
+  else if (/,\d{1,2}$/.test(s)) s = s.replace(/\./g,'').replace(',','.');
+  else s = s.replace(/[.,]/g,'');
+  return neg ? -(parseFloat(s)||0) : (parseFloat(s)||0);
+}
+
+const METODOS_INTERNOS_IMP = ['EFECTIVO OPERADOR','BE MOVIL CAJA','CUENTA BANCARIA',
+  'BONIFICACION','BONO','SIN COMISION','FREE','BIENVENIDA','REJUEGO','DESCUENTO IVA','BONO IVA'];
+
+// Alias: nombre Excel → nombre sistema (aplicar ANTES del fuzzy matching)
+const METODO_ALIAS_IMP = {
+  'BEMOVIL'            : 'BE MOVIL CAJA',
+  'BE MOVIL'           : 'BE MOVIL CAJA',
+  'WPLAY POS'          : 'WPLAY UNITY',
+  'EFECTIVO'           : 'EFECTIVO OPERADOR',
+  'EFECTY'             : 'EFECTY 1 DE MAYO',
+  'CORRESPONSAL'       : 'CORRESPONSAL EL PARAMO',
+  'EASYCHANGER'        : 'EASY CHANGER',
+  'SUPERGIROS'         : 'SUPER GIROS UNITY',
+};
+
+function resolveMetodo(raw) {
+  const r = (raw||'').trim().toUpperCase();
+  // 1. Alias exacto
+  if (METODO_ALIAS_IMP[r]) return METODO_ALIAS_IMP[r];
+  // 2. Match exacto en sistema
+  const exact = METODOS_CAJA.find(m => m.toUpperCase() === r);
+  if (exact) return exact;
+  // 3. Fuzzy solo si hay palabra completa compartida (evita EFECTY→EFECTIVO)
+  const starts = METODOS_CAJA.find(m => m.toUpperCase().startsWith(r) || r.startsWith(m.toUpperCase()));
+  if (starts) return starts;
+  return r;
+}
+
+async function ejecutarImportMov() {
+  if (_checkLock('importar movimientos')) return;
+  const txt    = document.getElementById('import-mov-txt').value.trim();
+  const status = document.getElementById('import-mov-status');
+  if (!txt) { status.textContent = '⚠ Pega los datos primero'; return; }
+
+  status.textContent = 'Procesando...';
+
+  // Mapa nombre → cliente para lookup
+  const nombreACli = {};
+  allClientes.forEach(c => {
+    const n = (c.nombre_completo || c.nombre || '').toLowerCase();
+    if (n) nombreACli[n] = { id: c.id, nombre: c.nombre_completo || c.nombre };
+  });
+
+  // Contar C-OP e I-OP solo del mes activo para continuar la secuencia
+  const _mkImp = _mesKey(config.mes);
+  const _movMesImp = _mkImp ? allMovimientos.filter(m => (m.fecha||'').startsWith(_mkImp)) : allMovimientos;
+  let cntCOP = _movMesImp.filter(m => m.canal === 'C-OP').length;
+  let cntIOP = _movMesImp.filter(m => m.canal === 'I-OP').length;
+
+  const lineas = txt.split('\n').map(l => l.trim()).filter(l => l);
+  const batch  = [];
+  let ok = 0, skip = 0;
+
+  for (const linea of lineas) {
+    const cols = linea.includes('\t') ? linea.split('\t') : linea.split(';');
+
+    // ── Detectar formato completo: col[0] tiene patrón OP-O como "4-C-OP" ──
+    const col0test = (cols[0]||'').trim().replace(/[‐-―−﹘﹣－]/g,'-');
+    const isFullFormat = cols.length >= 7 && /^\d+\s*-\s*[IC]\s*-\s*OP$/i.test(col0test);
+
+    // Helper de lookup cliente
+    function lookupCli(raw) {
+      const key = raw.toLowerCase();
+      let d = nombreACli[key];
+      if (!d) { const p = Object.keys(nombreACli).find(k => k.startsWith(key.substring(0,8))); if(p) d = nombreACli[p]; }
+      return d;
+    }
+
+    if (isFullFormat) {
+      // ── FORMATO COMPLETO 12 cols: OP-O | ID | FECHA | CLIENTE | MONTO | CASA | TIPO | MÉTODO | DESCUENTOS | MONTO DESC | COMISIÓN | IMPACTO ──
+      const opO      = cols[0].trim();
+      const idApRaw  = cols[1].trim();
+      const fechaRaw = cols[2].trim();
+      const cliRaw   = cols[3].trim();
+      const montoRaw = cols[4].trim();
+      const casaRaw  = cols[5].trim().toUpperCase();
+      const tipoRaw  = cols[6].trim().toUpperCase();
+      const metRaw   = (cols[7]||'').trim().toUpperCase();
+      const descRaw  = (cols[8]||'').trim().toUpperCase();
+      const montoDescRaw = (cols[9]||'').trim();
+      const comRaw   = (cols[10]||'').trim();
+      const impRaw   = (cols[11]||'').trim();
+
+      // Saltar encabezados y filas vacías
+      if (!cliRaw || cliRaw === 'CLIENTE' || opO === 'OP-O' || opO === 'INICIO' || opO === 'OP') { skip++; continue; }
+
+      const monto = Math.abs(parseMontoImport(montoRaw));
+      if (!monto) { skip++; continue; }
+
+      const fecha = parseFechaImport(fechaRaw);
+      const tipo  = tipoRaw.includes('PAG') ? 'PAGOS' : 'RECARGAS';
+      // (BONIFICACION, BONO y otros se guardan como RECARGAS — el método distingue)
+
+      // Parsear OP-O → canal + número: "4-I-OP" → canal=I-OP, num=4
+      // Normalizar cualquier tipo de guión (en-dash, em-dash, minus) → hyphen normal
+      const opONorm = opO.replace(/[‐-―−﹘﹣－]/g, '-');
+      let canal = 'C-OP', opNum = null;
+      const opMatch = opONorm.match(/^(\d+)\s*-\s*([IC])\s*-\s*OP$/i);
+      if (opMatch) {
+        opNum = parseInt(opMatch[1]);
+        canal = opMatch[2].toUpperCase() === 'I' ? 'I-OP' : 'C-OP';
+      } else {
+        // Fallback: detectar por método (usar alias ya resuelto)
+        const metResuelto = resolveMetodo(metRaw);
+        const esInt = METODOS_INTERNOS_IMP.includes(metResuelto) || METODOS_INTERNOS_IMP.some(m => metResuelto.includes(m));
+        canal = esInt ? 'I-OP' : 'C-OP';
+        if (canal === 'C-OP') { cntCOP++; opNum = cntCOP; } else { cntIOP++; opNum = cntIOP; }
+      }
+      const op_id = `${opNum} - ${canal}`;
+
+      const cliData = lookupCli(cliRaw);
+      const casaMatch = CASAS.find(c => c === casaRaw) || CASAS.find(c => c.includes(casaRaw) || casaRaw.includes(c.replace(/ .*/,''))) || casaRaw;
+      const metMatch  = resolveMetodo(metRaw);
+
+      const impacto       = parseMontoImport(impRaw) || (tipo === 'RECARGAS' ? monto : -monto);
+      const comision      = Math.abs(parseMontoImport(comRaw)) || 0;
+      const monto_desc    = Math.abs(parseMontoImport(montoDescRaw)) || 0;
+
+      batch.push({
+        opId, op_id, canal, estado_cajero: 'Realizada', tipo,
+        cliente: cliData?.nombre || cliRaw, cliente_id: cliData?.id || '',
+        casa: casaMatch, metodo: metMatch,
+        monto, fecha, comision, impacto,
+        descuentos: descRaw || '', monto_descontar: monto_desc,
+        id_apuesta_ref: parseInt(idApRaw) || null,
+        op_o_original: opO,
+        ts: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      ok++;
+
+    } else {
+      // ── FORMATO SIMPLE 6 cols: FECHA | CLIENTE | MONTO | CASA | TIPO | MÉTODO ──
+      if (cols.length < 6) { skip++; continue; }
+
+      const fechaRaw  = cols[0].trim();
+      const cliRaw    = cols[1].trim();
+      const montoRaw  = cols[2].trim();
+      const casaRaw   = cols[3].trim().toUpperCase();
+      const tipoRaw   = cols[4].trim().toUpperCase();
+      const metodoRaw = cols[5].trim().toUpperCase();
+
+      if (!cliRaw || !montoRaw || !casaRaw || !tipoRaw || !metodoRaw) { skip++; continue; }
+      if (cliRaw === 'CLIENTE' || fechaRaw === 'FECHA') { skip++; continue; }
+
+      const tipo  = tipoRaw.includes('PAG') ? 'PAGOS' : 'RECARGAS';
+      const monto = Math.abs(parseMontoImport(montoRaw));
+      if (!monto) { skip++; continue; }
+
+      const fecha   = parseFechaImport(fechaRaw);
+      const impacto = tipo === 'RECARGAS' ? monto : -monto;
+
+      const cliData = lookupCli(cliRaw);
+
+      const metMatch  = resolveMetodo(metodoRaw);
+      const esInterno = METODOS_INTERNOS_IMP.includes(metMatch) || METODOS_INTERNOS_IMP.some(m => metMatch.includes(m));
+      const canal = esInterno ? 'I-OP' : 'C-OP';
+      if (canal === 'C-OP') cntCOP++; else cntIOP++;
+      const op_id = `${canal === 'C-OP' ? cntCOP : cntIOP} - ${canal}`;
+
+      const casaMatch = CASAS.find(c => c === casaRaw) || CASAS.find(c => c.includes(casaRaw) || casaRaw.includes(c.replace(/ .*/,''))) || casaRaw;
+
+      batch.push({
+        opId, op_id, canal, estado_cajero: 'Realizada', tipo,
+        cliente: cliData?.nombre || cliRaw, cliente_id: cliData?.id || '',
+        casa: casaMatch, metodo: metMatch,
+        monto, fecha, comision: 0, impacto,
+        id_apuesta_ref: null,
+        ts: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      ok++;
+    }
+  }
+
+  if (!batch.length) {
+    status.textContent = `⚠ No se pudo procesar ninguna fila. Revisa el formato.`;
+    return;
+  }
+
+  status.textContent = `Guardando ${batch.length} movimientos...`;
+
+  try {
+    const CHUNK = 400;
+    for (let i = 0; i < batch.length; i += CHUNK) {
+      const fb = db.batch();
+      batch.slice(i, i + CHUNK).forEach(doc => {
+        fb.set(coll('movimientos').doc(), doc);
+      });
+      await fb.commit();
+    }
+    status.textContent = `✅ ${ok} importados · ${skip} ignorados`;
+    toast(`✅ ${ok} movimientos importados`, 'success');
+    setTimeout(() => toggleImportMov(), 2000);
+  } catch(e) {
+    console.error(e);
+    status.textContent = `❌ Error: ${e.message}`;
+  }
+}
+
+// ──────────────────── IMPORTAR EVENTOS ────────────────────
+function toggleImportEv() {
+  const p = document.getElementById('import-ev-panel');
+  const open = p.style.display === 'none' || p.style.display === '';
+  p.style.display = open ? 'block' : 'none';
+  if (open) { document.getElementById('import-ev-txt').value = ''; document.getElementById('import-ev-status').textContent = ''; }
+}
+
+async function ejecutarImportEv() {
+  const txt    = document.getElementById('import-ev-txt').value.trim();
+  const status = document.getElementById('import-ev-status');
+  if (!txt) { status.textContent = '⚠ Pega los datos primero'; return; }
+  status.textContent = 'Procesando...';
+
+  const lineas = txt.split('\n').map(l => l.trim()).filter(l => l);
+  const deletes = []; // refs a borrar (existentes + duplicados)
+  const creates = []; // datos a crear frescos
+  let ok = 0, skip = 0;
+
+  for (const linea of lineas) {
+    const cols = linea.includes('\t') ? linea.split('\t') : linea.split(';');
+    if (cols.length < 4) { skip++; continue; }
+
+    const idRaw       = cols[0].trim();
+    const fRegRaw     = cols[1].trim();
+    const nombreRaw   = cols[2].trim();
+    const fEvRaw      = cols[3].trim();
+    const deporteRaw  = (cols[4]||'').trim().toUpperCase();
+    const opcionesRaw = (cols[5]||'').trim();
+    const estadoRaw   = (cols[6]||'').trim().toUpperCase();
+    const ganadoraRaw = (cols[7]||'').trim().toUpperCase();
+    const analisisRaw = (cols[8]||'').trim();
+
+    // Saltar encabezados
+    if (!idRaw || isNaN(parseInt(idRaw)) || idRaw === 'ID' || idRaw === 'INICIO') { skip++; continue; }
+    if (!nombreRaw) { skip++; continue; }
+
+    const numRaw = parseInt(idRaw);
+
+    // Normalizar opciones
+    let opciones = '2 Opciones';
+    if (opcionesRaw.includes('3') || opcionesRaw === '3') opciones = '3 Opciones';
+    else if (opcionesRaw.includes('2') || opcionesRaw === '2') opciones = '2 Opciones';
+    else if (opcionesRaw) opciones = opcionesRaw;
+
+    // Normalizar estado
+    const estado = estadoRaw.includes('CERR') ? 'CERRADO' : 'ABIERTO';
+
+    // Normalizar opcion_ganadora
+    let opcion_ganadora = '';
+    if (estado === 'CERRADO') {
+      opcion_ganadora = ['1','2','3','X'].includes(ganadoraRaw) ? ganadoraRaw : ganadoraRaw;
+    }
+
+    const docData = {
+      opId, num: numRaw,
+      mesKey: _mesKey(config.mes) || null,
+      nombre: nombreRaw.toUpperCase(),
+      fecha_registro: parseFechaImport(fRegRaw),
+      fecha_evento:   parseFechaImport(fEvRaw),
+      deporte: deporteRaw,
+      opciones, estado, opcion_ganadora,
+      analisis: analisisRaw,
+      ts: firebase.firestore.FieldValue.serverTimestamp(),
+    };
+
+    // Buscar TODOS los eventos con este num (pueden ser duplicados) → borrarlos todos
+    const existentes = allEventos.filter(e => parseInt(e.num) === numRaw && e.opId === opId);
+    existentes.forEach(e => deletes.push(coll('eventos').doc(e.id)));
+    creates.push(docData); // siempre crear fresco
+    ok++;
+  }
+
+  if (!ok) {
+    status.textContent = '⚠ No se pudo procesar ninguna fila. Revisa el formato.';
+    return;
+  }
+
+  status.textContent = `Guardando ${ok} eventos (${deletes.length} reemplazando · ${creates.length} creando)...`;
+  try {
+    const CHUNK = 400;
+    // 1. Borrar existentes (incluyendo duplicados)
+    for (let i = 0; i < deletes.length; i += CHUNK) {
+      const fb = db.batch();
+      deletes.slice(i, i + CHUNK).forEach(ref => fb.delete(ref));
+      await fb.commit();
+    }
+    // 2. Crear todos frescos
+    for (let i = 0; i < creates.length; i += CHUNK) {
+      const fb = db.batch();
+      creates.slice(i, i + CHUNK).forEach(data => fb.set(coll('eventos').doc(), data));
+      await fb.commit();
+    }
+    status.textContent = `✅ ${ok} eventos importados · ${skip} ignorados`;
+    toast(`✅ ${ok} eventos importados`, 'success');
+    setTimeout(() => toggleImportEv(), 2000);
+  } catch(e) {
+    console.error(e);
+    status.textContent = `❌ Error: ${e.message}`;
+  }
+}
+
+// ──────────────────── ELIMINAR / RE-VINCULAR INVERSIONES ────────────────────
+async function eliminarTodasInversiones() {
+  const mk = _mesKey(config?.mes);
+  const mesLabel = config?.mes || 'todos los meses';
+  // SOLO eliminar inversiones del mes activo
+  const invMes = mk ? _filtrarInvMes(mk) : allInversiones;
+  const total = invMes.length;
+  if (!total) { toast(`No hay inversiones en ${mesLabel}`, 'info'); return; }
+  if (!confirm(`¿Eliminar las ${total} inversiones de ${mesLabel}?\n\nEsta acción NO se puede deshacer.`)) return;
+  try {
+    const ids = invMes.map(inv => inv.id);
+    const CHUNK = 400;
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const fb = db.batch();
+      ids.slice(i, i + CHUNK).forEach(id => fb.delete(coll('inversiones').doc(id)));
+      await fb.commit();
+    }
+    toast(`🗑 ${total} inversiones de ${mesLabel} eliminadas`, 'info');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+async function revincularOrigenComision() {
+  // Construye mapa normalizado de movimientos actuales
+  const movByOpId = {};
+  const movDocIds = new Set(allMovimientos.map(m => m.id));
+  const normOpId = s => (s||'').replace(/[‐-―−﹘﹣－]/g,'-').replace(/\s*-\s*/g,'-').toUpperCase();
+  allMovimientos.forEach(m => {
+    if (m.op_id)          movByOpId[normOpId(m.op_id)] = m;
+    if (m.op_o_original)  movByOpId[normOpId(m.op_o_original)] = m;
+  });
+
+  // Solo inversiones del mes activo — evita contaminar meses cruzados
+  const mk = _mesKey(config?.mes);
+  const invsMes = mk
+    ? allInversiones.filter(inv => (inv.mesKey || (inv.fecha||'').slice(0,7)) === mk)
+    : allInversiones;
+
+  // Pendientes: tienen label Y (no tienen id_recarga O su id_recarga apunta a un doc eliminado)
+  const pendientes = invsMes.filter(inv =>
+    inv.id_recarga_label &&
+    inv.id_recarga_label !== 'REJUEGO' &&
+    (!inv.id_recarga || !movDocIds.has(inv.id_recarga))
+  );
+
+  if (!pendientes.length) {
+    // Todas ya están correctamente vinculadas — ofrecer re-vincular igual
+    const conLabel = invsMes.filter(inv => inv.id_recarga_label && inv.id_recarga_label !== 'REJUEGO');
+    if (!conLabel.length) { toast('No hay inversiones con Origen Comisión para vincular', 'info'); return; }
+    if (!confirm(`Todo ya está vinculado. ¿Re-vincular de todas formas los ${conLabel.length} registros con label?`)) return;
+    pendientes.push(...conLabel);
+  }
+
+  const rotas = pendientes.filter(inv => inv.id_recarga && !movDocIds.has(inv.id_recarga)).length;
+  const sinRec = pendientes.filter(inv => !inv.id_recarga).length;
+  const msg = rotas > 0
+    ? `Re-vincular ${pendientes.length} inversiones (${rotas} con link roto + ${sinRec} sin link)?`
+    : `Re-vincular Origen Comisión para ${pendientes.length} inversiones?`;
+  if (!confirm(msg)) return;
+
+  let actualizadas = 0, noEncontradas = 0;
+  const CHUNK = 400;
+  const updates = [];
+
+  for (const inv of pendientes) {
+    const norm = normOpId(inv.id_recarga_label || '');
+    const recMov = movByOpId[norm];
+    if (recMov) {
+      updates.push({ id: inv.id, id_recarga: recMov.id });
+      actualizadas++;
+    } else {
+      noEncontradas++;
+    }
+  }
+
+  for (let i = 0; i < updates.length; i += CHUNK) {
+    const fb = db.batch();
+    updates.slice(i, i + CHUNK).forEach(u =>
+      fb.update(coll('inversiones').doc(u.id), { id_recarga: u.id_recarga })
+    );
+    await fb.commit();
+  }
+
+  toast(`🔗 ${actualizadas} re-vinculadas · ${noEncontradas} sin match`, actualizadas ? 'success' : 'info');
+  if (actualizadas) reloadDash();
+}
+
+// ──────────────────── IMPORTAR INVERSIONES ────────────────────
+function toggleImportInv() {
+  const p = document.getElementById('import-inv-panel');
+  const open = p.style.display === 'none' || p.style.display === '';
+  p.style.display = open ? 'block' : 'none';
+  if (open) { document.getElementById('import-inv-txt').value = ''; document.getElementById('import-inv-status').textContent = ''; }
+}
+
+async function ejecutarImportInv() {
+  const txt    = document.getElementById('import-inv-txt').value.trim();
+  const status = document.getElementById('import-inv-status');
+  if (!txt) { status.textContent = '⚠ Pega los datos primero'; return; }
+  status.textContent = 'Procesando...';
+
+  // Mapas de lookup
+  const nombreACli = {};
+  allClientes.forEach(c => {
+    const n = (c.nombre_completo || c.nombre || '').toLowerCase();
+    if (n) nombreACli[n] = { id: c.id, nombre: c.nombre_completo || c.nombre };
+  });
+  const eventoByNum = {};
+  allEventos.forEach(e => { if(e.num) eventoByNum[String(e.num)] = e; });
+  // Map por op_id normalizado
+  const movByOpId = {};
+  const normOpId2 = s => (s||'').replace(/[‐-―−﹘﹣－]/g,'-').replace(/\s*-\s*/g,'-').toUpperCase();
+  allMovimientos.forEach(m => {
+    if (m.op_id)         movByOpId[normOpId2(m.op_id)] = m;
+    if (m.op_o_original) movByOpId[normOpId2(m.op_o_original)] = m;
+  });
+
+  function lookupCli(raw) {
+    const key = raw.toLowerCase();
+    let d = nombreACli[key];
+    if (!d) { const p = Object.keys(nombreACli).find(k => k.startsWith(key.substring(0,8))); if(p) d = nombreACli[p]; }
+    return d;
+  }
+
+  const lineas = txt.split('\n').map(l => l.trim()).filter(l => l);
+  const batch = [];
+  let ok = 0, skip = 0;
+
+  for (const linea of lineas) {
+    const cols = linea.includes('\t') ? linea.split('\t') : linea.split(';');
+    if (cols.length < 8) { skip++; continue; }
+
+    const fechaRaw    = cols[0].trim();
+    // Saltar encabezados
+    if (!fechaRaw || fechaRaw === 'FECHA' || fechaRaw === 'INICIO') { skip++; continue; }
+
+    const idApuesta       = parseInt(cols[1]?.trim()) || null;
+    const idEvRaw         = (cols[2]?.trim()) || '';
+    const cliRaw          = (cols[3]?.trim()) || '';
+    const montoRaw        = (cols[4]?.trim()) || '';
+    const casaRaw         = (cols[5]?.trim()||'').toUpperCase();
+    const opcionRaw       = (cols[6]?.trim()||'').toUpperCase();
+    const cuotaRaw        = (cols[7]?.trim()||'').replace(',','.');
+    const eventoNombreRaw = (cols[8]?.trim()||'').toUpperCase();
+    const fondosRaw       = (cols[9]?.trim()||'PROPIO').toUpperCase();
+    const idRecargaRaw    = (cols[10]?.trim()) || '';
+    const comisionRaw     = (cols[11]?.trim()) || '';
+    const controlRaw      = (cols[12]?.trim()||'').toUpperCase();
+    const potRetornoRaw   = (cols[13]?.trim()) || '';
+    const estadoEvRaw     = (cols[14]?.trim()||'').toUpperCase();
+    const retCliRaw       = (cols[15]?.trim()) || '';
+    const retPlatRaw      = (cols[16]?.trim()) || '';
+    const impactoRaw      = (cols[17]?.trim()) || '';
+
+    const monto = Math.abs(parseMontoImport(montoRaw));
+    if (!monto) { skip++; continue; }
+
+    const fecha  = parseFechaImport(fechaRaw);
+    const cuota  = parseFloat(cuotaRaw) || 0;
+
+    // Evento
+    const ev = eventoByNum[idEvRaw] || allEventos.find(e => (e.nombre||'').toUpperCase() === eventoNombreRaw);
+
+    // Cliente
+    const cliData = lookupCli(cliRaw);
+
+    // Recarga
+    const idRecNorm = idRecargaRaw.replace(/[‐-―−﹘﹣－]/g,'-').replace(/\s*-\s*/g,'-').toUpperCase();
+    const recMov    = movByOpId[idRecNorm];
+    const id_recarga       = recMov?.id || null;
+    const id_recarga_label = idRecargaRaw || null;
+
+    // Normalizar fondos
+    let fondos = 'PROPIO';
+    if (fondosRaw.includes('BON')) fondos = 'BONIFICACION';
+    else if (fondosRaw.includes('REJ')) fondos = 'REJUEGO';
+
+    // Normalizar control recarga
+    let control_recarga = '';
+    if      (controlRaw.includes('LIMITE') || controlRaw.includes('LÍMITE')) control_recarga = 'AL LÍMITE';
+    else if (controlRaw.includes('EXCESO'))     control_recarga = 'EXCESO';
+    else if (controlRaw.includes('DISPONIBLE')) control_recarga = 'DISPONIBLE';
+    else if (controlRaw.includes('REJUEGO'))    control_recarga = 'REJUEGO';
+    else control_recarga = controlRaw;
+
+    // Normalizar estado evento
+    let estado_evento = 'ABIERTO';
+    if      (estadoEvRaw.includes('CERR')) estado_evento = 'CERRADO';
+    else if (estadoEvRaw.includes('DISP')) estado_evento = 'DISPONIBLE';
+
+    // Opción elegida
+    const opcion_elegida = ['1','2','3','X'].includes(opcionRaw) ? opcionRaw : opcionRaw;
+
+    batch.push({
+      opId, fecha, id_apuesta: idApuesta,
+      id_evento_ref: ev?.id || null,
+      evento: ev?.nombre || eventoNombreRaw,
+      cliente: cliData?.nombre || cliRaw, cliente_id: cliData?.id || '',
+      monto, casa: casaRaw, opcion_elegida, cuota, fondos,
+      id_recarga, id_recarga_label,
+      comision_aplicada:   Math.abs(parseMontoImport(comisionRaw)) || 0,
+      control_recarga,
+      potencial_retorno:   Math.abs(parseMontoImport(potRetornoRaw)) || Math.round(monto * cuota),
+      estado_evento,
+      retorno_cliente:     Math.abs(parseMontoImport(retCliRaw)) || 0,
+      retorno_plataforma:  Math.abs(parseMontoImport(retPlatRaw)) || 0,
+      impacto_apuesta:     parseMontoImport(impactoRaw) || 0,
+      ts: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    ok++;
+  }
+
+  if (!batch.length) {
+    status.textContent = `⚠ No se procesó ninguna fila. Revisa el formato.`;
+    return;
+  }
+
+  status.textContent = `Guardando ${batch.length} inversiones...`;
+  try {
+    const CHUNK = 400;
+    for (let i = 0; i < batch.length; i += CHUNK) {
+      const fb = db.batch();
+      batch.slice(i, i + CHUNK).forEach(doc => fb.set(coll('inversiones').doc(), doc));
+      await fb.commit();
+    }
+    status.textContent = `✅ ${ok} importados · ${skip} ignorados`;
+    toast(`✅ ${ok} inversiones importadas`, 'success');
+    setTimeout(() => toggleImportInv(), 2000);
+  } catch(e) {
+    console.error(e);
+    status.textContent = `❌ Error: ${e.message}`;
+  }
+}
+
+// ──────────────────── INVERSIONES ────────────────────
+function onEventoChange() { /* legacy — la selección ahora ocurre en selectEventoItem */ }
+
+// ── Combo búsqueda de evento ──
+function _renderEventoDD(list) {
+  const dd = document.getElementById('inv-evento-dd');
+  if (!dd) return;
+  if (!list.length) { dd.innerHTML = '<div style="padding:10px 12px;font-size:13px;color:var(--text2)">Sin resultados</div>'; dd.style.display = ''; return; }
+  dd.innerHTML = list.slice(0,30).map(e => {
+    const label = `#${e.num||'?'} — ${e.nombre||'Sin nombre'}`;
+    const cerrado = e.estado === 'CERRADO';
+    return `<div onmousedown="selectEventoItem('${e.id}','${e.num||''}',\`${(e.nombre||'').replace(/`/g,"'")}\`,'${e.fecha_evento||''}')"
+      style="padding:9px 14px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border)"
+      onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background=''">
+      <span style="color:var(--gold);font-weight:700;min-width:32px">#${e.num||'?'}</span>
+      <span style="flex:1">${e.nombre||'Sin nombre'}</span>
+      ${cerrado ? '<span style="font-size:10px;color:var(--text2);background:var(--bg3);padding:1px 6px;border-radius:4px">cerrado</span>' : ''}
+    </div>`;
+  }).join('');
+  dd.style.display = '';
+}
+
+function _deduplicarEventos(lista) {
+  // Conserva solo el primero de cada num+nombre combinado (evita duplicados visibles)
+  const seen = new Set();
+  return lista.filter(e => {
+    const key = `${e.num||''}|${(e.nombre||'').toUpperCase()}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function _eventosMesActivo() {
+  const mk = _mesKey(config?.mes);
+  // Solo eventos del mes activo: si tiene mesKey usar eso; si no, inferir de fecha_evento
+  return mk
+    ? allEventos.filter(e => e.mesKey ? e.mesKey === mk : (e.fecha_evento||'').startsWith(mk))
+    : allEventos;
+}
+
+function showEventoDD() {
+  const q = (document.getElementById('inv-evento-search')?.value || '').toLowerCase().trim();
+  const pool = _eventosMesActivo();
+  const base = q ? pool.filter(e =>
+    String(e.num||'').includes(q) || (e.nombre||'').toLowerCase().includes(q)
+  ) : [...pool].sort((a,b) => (b.estado==='ABIERTO'?1:0)-(a.estado==='ABIERTO'?1:0));
+  _renderEventoDD(_deduplicarEventos(base));
+}
+
+function filterEventoDD() {
+  const q = (document.getElementById('inv-evento-search')?.value || '').toLowerCase().trim();
+  if (!q) { showEventoDD(); return; }
+  const list = _eventosMesActivo().filter(e =>
+    String(e.num||'').includes(q) || (e.nombre||'').toLowerCase().includes(q)
+  );
+  _renderEventoDD(_deduplicarEventos(list));
+}
+
+function selectEventoItem(id, num, nombre, fecha) {
+  document.getElementById('inv-evento').value = id;
+  document.getElementById('inv-evento-search').value = `#${num} — ${nombre}`;
+  const dd = document.getElementById('inv-evento-dd');
+  if (dd) dd.style.display = 'none';
+  // Solo usar la fecha del evento si es del mes activo; de lo contrario usar hoy
+  const mesMov = _mesKey(config?.mes) || today().slice(0,7);
+  const fechaUsar = (fecha && fecha.startsWith(mesMov)) ? fecha : today();
+  document.getElementById('inv-fecha').value = fechaUsar;
+  if (num) document.getElementById('inv-apuesta').value = num;
+}
+
+// ── Filas dinámicas por opción ──
+let _invRowCnt = 0;
+
+function makeInvRowHTML(rowId, data = {}) {
+  const clienteOpts = '<option value="">— Cliente —</option>' +
+    allClientes.map(c =>
+      `<option value="${c.id}"${data.cliente_id === c.id ? ' selected' : ''}>${c.nombre_completo}</option>`
+    ).join('');
+  const casaOpts = '<option value="">— Casa —</option>' +
+    CASAS.map(c => `<option${data.casa === c ? ' selected' : ''}>${c}</option>`).join('');
+  const isRejuego = data.fondos === 'REJUEGO';
+  return `
+    <div class="inv-row-item" id="inv-row-${rowId}" style="background:var(--bg2);border-radius:8px;padding:10px 12px;margin-bottom:8px;border:1px solid var(--border)">
+      <div style="display:grid;grid-template-columns:1.5fr 1.1fr 1.3fr 1fr 22px;gap:6px;align-items:end;margin-bottom:7px">
+        <div>
+          <div style="font-size:11px;color:var(--text2);margin-bottom:2px">Cliente</div>
+          <select class="inv-r-cliente" style="width:100%;font-size:13px" onchange="onInvRowClienteCasaChange(${rowId})">${clienteOpts}</select>
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--text2);margin-bottom:2px">Casa</div>
+          <select class="inv-r-casa" style="width:100%;font-size:13px" onchange="onInvRowClienteCasaChange(${rowId})">${casaOpts}</select>
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--text2);margin-bottom:2px">Monto</div>
+          <input type="text" class="inv-r-monto" value="${data.monto ? data.monto.toLocaleString('es-CO') : ''}" placeholder="0" inputmode="numeric"
+            oninput="formatMontoInput(this)" style="width:100%;font-size:13px" data-raw="${data.monto||''}">
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--text2);margin-bottom:2px">Cuota</div>
+          <input type="number" class="inv-r-cuota" step="0.001" value="${data.cuota||''}" placeholder="1.80" style="width:100%;font-size:13px">
+        </div>
+        <button onclick="removeInvRow(${rowId})" style="background:none;border:none;color:var(--text2);cursor:pointer;font-size:18px;line-height:1;padding-bottom:4px" title="Eliminar">✕</button>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 2fr;gap:6px">
+        <div>
+          <div style="font-size:11px;color:var(--text2);margin-bottom:2px">Fondos</div>
+          <select class="inv-r-fondos" style="width:100%;font-size:13px" onchange="onInvRowFondosChange(${rowId})">
+            <option value="PROPIO"${!data.fondos||data.fondos==='PROPIO'?' selected':''}>PROPIO</option>
+            <option value="BONIFICACION"${data.fondos==='BONIFICACION'?' selected':''}>BONIFICACION</option>
+            <option value="REJUEGO"${data.fondos==='REJUEGO'?' selected':''}>REJUEGO</option>
+          </select>
+        </div>
+        <div id="inv-r-recgrp-${rowId}"${isRejuego?' style="display:none"':''}>
+          <div style="font-size:11px;color:var(--text2);margin-bottom:2px">Origen Comisión</div>
+          <select class="inv-r-recarga" style="width:100%;font-size:13px">
+            <option value="">— Seleccione recarga —</option>
+          </select>
+        </div>
+      </div>
+    </div>`;
+}
+
+function addInvRow(opcion, data = {}) {
+  const rowId = ++_invRowCnt;
+  const container = document.querySelector('.inv-rows-' + opcion);
+  if (!container) return rowId;
+  container.insertAdjacentHTML('beforeend', makeInvRowHTML(rowId, data));
+  if (data.cliente_id && data.casa) onInvRowClienteCasaChange(rowId, data.id_recarga);
+  return rowId;
+}
+
+function removeInvRow(rowId) {
+  document.getElementById('inv-row-' + rowId)?.remove();
+}
+
+function onInvRowClienteCasaChange(rowId, preselect) {
+  const row = document.getElementById('inv-row-' + rowId);
+  if (!row) return;
+  const clienteId = row.querySelector('.inv-r-cliente').value;
+  const casa = row.querySelector('.inv-r-casa').value;
+  const recSel = row.querySelector('.inv-r-recarga');
+  if (!recSel) return;
+  recSel.innerHTML = '<option value="">— Seleccione recarga —</option>';
+  if (!clienteId || !casa) return;
+  const clienteObj = allClientes.find(c => c.id === clienteId);
+  const nombreCorto   = clienteObj?.nombre || '';
+  const nombreCompleto = clienteObj?.nombre_completo || '';
+
+  // 1. Solo mes activo
+  const mesActivo = _mesKey(config?.mes);
+
+  // 2. Monto ya asignado a cada recarga (sumando inversiones guardadas)
+  const asignadoMap = {};
+  allInversiones.forEach(inv => {
+    if (inv.id_recarga) {
+      asignadoMap[inv.id_recarga] = (asignadoMap[inv.id_recarga] || 0) + (parseFloat(inv.monto) || 0);
+    }
+  });
+
+  const recargas = allMovimientos.filter(m => {
+    if (!((m.cliente_id === clienteId || m.cliente === nombreCorto || m.cliente === nombreCompleto) &&
+          m.casa === casa && m.tipo === 'RECARGAS')) return false;
+    // Solo mes activo
+    if (mesActivo && (m.mesKey || (m.fecha||'').slice(0,7)) !== mesActivo) return false;
+    // Ocultar si ya fue totalmente asignada (saldo <= 100 para ignorar diferencias de redondeo)
+    const saldo = (parseFloat(m.monto) || 0) - (asignadoMap[m.id] || 0);
+    return saldo > 100;
+  });
+
+  recSel.innerHTML = '<option value="">— Seleccione recarga —</option>' +
+    recargas.map(m => {
+      const saldo = (parseFloat(m.monto) || 0) - (asignadoMap[m.id] || 0);
+      const parcial = saldo < (parseFloat(m.monto) || 0);
+      const saldoTxt = parcial ? ` · Saldo:${peso(saldo)}` : '';
+      return `<option value="${m.id}" data-monto="${m.monto}" data-comision="${m.comision||0}" data-opid="${m.op_id||''}">
+        ${m.op_id||m.id.slice(-5)} | ${m.fecha} | ${peso(m.monto)}${saldoTxt} | Com:${peso(m.comision||0)}
+      </option>`;
+    }).join('');
+  if (preselect) recSel.value = preselect;
+}
+
+function onInvRowFondosChange(rowId) {
+  const row = document.getElementById('inv-row-' + rowId);
+  if (!row) return;
+  const fondos = row.querySelector('.inv-r-fondos').value;
+  const grp = document.getElementById('inv-r-recgrp-' + rowId);
+  if (grp) grp.style.display = fondos === 'REJUEGO' ? 'none' : '';
+}
+
+// Helpers de badge
+function controlBadge(ctrl) {
+  const map = { 'AL LÍMITE':'badge-green', 'DISPONIBLE':'badge-blue', 'EXCESO':'badge-red', 'REJUEGO':'badge-orange' };
+  return `<span class="badge ${map[ctrl]||'badge-gray'}">${ctrl||'—'}</span>`;
+}
+function fondosBadge(f) {
+  if (f==='BONIFICACION') return `<span class="badge" style="background:#854d0e;color:#fef08a">BON</span>`;
+  if (f==='REJUEGO')      return `<span class="badge badge-orange">REJ</span>`;
+  return `<span class="badge badge-gray">PROP</span>`;
+}
+
+// ── Recalcula comisiones desde los movimientos (capped por recarga) ──
+// Úsala en cualquier render que necesite comision correcta en lugar de comision_aplicada
+function buildInvComMap() {
+  const mk = _mesKey(config?.mes);
+  const recMap = {};
+  allMovimientos.forEach(m => {
+    const tipo = (m.tipo||'').toUpperCase();
+    if (tipo !== 'RECARGAS' && tipo !== 'RECARGA') return;
+    const id = m.id; if (!id) return;
+    const monto    = parseFloat(m.monto)    || 0;
+    const comision = parseFloat(m.comision) || 0;
+    if (monto > 0) recMap[id] = { comision, rate: comision / monto, remaining: comision };
+  });
+  const invComMap = {};
+  // Solo procesar inversiones del mes activo — evita contaminación cross-mes
+  const invsMes = mk
+    ? allInversiones.filter(inv => (inv.mesKey || (inv.fecha||'').slice(0,7)) === mk)
+    : allInversiones;
+  // invsMes está ordenado por ts (cronológico) — respeta orden de registro
+  invsMes.forEach(inv => {
+    const idRec = inv.id_recarga;
+    if (!idRec || !recMap[idRec]) { invComMap[inv.id] = 0; return; }
+    const rec      = recMap[idRec];
+    const calc     = (parseFloat(inv.monto) || 0) * rec.rate;
+    const aplicado = Math.max(0, Math.min(calc, rec.remaining));
+    rec.remaining -= aplicado;
+    invComMap[inv.id] = Math.round(aplicado);
+  });
+  return invComMap;
+}
+
+function renderInversiones() {
+  const tbody = document.getElementById('inversiones-tbody');
+
+  // ── Resumen comisiones ──
+  const resumenEl = document.getElementById('inv-com-resumen');
+  if (resumenEl) {
+    const invComMap = buildInvComMap();
+    const _mkRes = _mesKey(config?.mes);
+    const _invRes = _filtrarInvMes(_mkRes);
+    const _movRes = _mkRes ? allMovimientos.filter(m   => (m.fecha||'').startsWith(_mkRes))  : allMovimientos;
+    const comAsignada = _invRes.reduce((s,inv) => s + (invComMap[inv.id]||0), 0);
+    const comMovs = _movRes.reduce((s,m) => {
+      const t = (m.tipo||'').toUpperCase();
+      return (t === 'RECARGAS' || t === 'RECARGA') ? s + (parseFloat(m.comision)||0) : s;
+    }, 0);
+    const comPendiente = comMovs - comAsignada;
+    const pct = comMovs > 0 ? Math.round(comAsignada / comMovs * 100) : 0;
+    const col = comPendiente <= 0 ? 'var(--green)' : 'var(--orange)';
+    resumenEl.innerHTML = `
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px 16px;display:flex;flex-direction:column;gap:2px">
+        <div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Com. en Movimientos</div>
+        <div style="font-size:15px;font-weight:700;color:var(--blue)">${peso(comMovs)}</div>
+      </div>
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px 16px;display:flex;flex-direction:column;gap:2px">
+        <div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Com. Asignadas en Inversiones</div>
+        <div style="font-size:15px;font-weight:700;color:var(--green)">${peso(comAsignada)} <span style="font-size:11px;color:var(--text2)">(${pct}%)</span></div>
+      </div>
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px 16px;display:flex;flex-direction:column;gap:2px">
+        <div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Sin Asignar</div>
+        <div style="font-size:15px;font-weight:700;color:${col}">${peso(comPendiente)}</div>
+      </div>`;
+  }
+
+  // Filtrar por mes activo
+  const _mkInv = _mesKey(config?.mes);
+  const _invBase = _filtrarInvMes(_mkInv);
+  if (!_invBase.length) {
+    tbody.innerHTML = '<tr><td colspan="18"><div class="empty"><div class="empty-icon">🎯</div>Sin inversiones</div></td></tr>';
+    return;
+  }
+  // Filtros
+  const buscar  = (document.getElementById('filtro-inv-buscar')?.value||'').toLowerCase().trim();
+  const fCli    = document.getElementById('filtro-inv-cliente')?.value||'';
+  const fFondos = document.getElementById('filtro-inv-fondos')?.value||'';
+  const fEstado = document.getElementById('filtro-inv-estado')?.value||'';
+  const fDesde    = document.getElementById('filtro-inv-desde')?.value||'';
+  const fHasta    = document.getElementById('filtro-inv-hasta')?.value||'';
+  const fMontoMin = parseFloat((document.getElementById('filtro-inv-monto-min')?.value||'').replace(/[^0-9.]/g,''))||0;
+  const fMontoMax = parseFloat((document.getElementById('filtro-inv-monto-max')?.value||'').replace(/[^0-9.]/g,''))||0;
+  let data = _invBase;
+  if (fCli)      data = data.filter(i => i.cliente === fCli);
+  if (fFondos)   data = data.filter(i => i.fondos === fFondos);
+  if (fEstado)   data = data.filter(i => (i.estado_evento||'ABIERTO') === fEstado);
+  if (fDesde)    data = data.filter(i => (i.fecha||'') >= fDesde);
+  if (fHasta)    data = data.filter(i => (i.fecha||'') <= fHasta);
+  if (fMontoMin) data = data.filter(i => (parseFloat(i.monto)||0) >= fMontoMin);
+  if (fMontoMax) data = data.filter(i => (parseFloat(i.monto)||0) <= fMontoMax);
+  if (buscar)  data = data.filter(i =>
+    String(i.id_apuesta||'').includes(buscar) ||
+    (i.cliente||'').toLowerCase().includes(buscar) ||
+    (i.evento||'').toLowerCase().includes(buscar) ||
+    (i.casa||'').toLowerCase().includes(buscar) ||
+    (i.id_recarga_label||'').toLowerCase().includes(buscar)
+  );
+  if (!data.length) {
+    tbody.innerHTML = '<tr><td colspan="18"><div class="empty"><div class="empty-icon">🔍</div>Sin resultados</div></td></tr>';
+    return;
+  }
+  // Ordenar por fecha, luego id_apuesta, luego opción (1 < X < 2)
+  const _opOrd = {'1':0,'X':1,'2':2};
+  const sorted = [...data].sort((a,b) => {
+    if ((a.fecha||'') !== (b.fecha||'')) return (a.fecha||'').localeCompare(b.fecha||'');
+    if ((a.id_apuesta||0) !== (b.id_apuesta||0)) return (a.id_apuesta||0) - (b.id_apuesta||0);
+    return (_opOrd[a.opcion_elegida]??9) - (_opOrd[b.opcion_elegida]??9);
+  });
+  const invComMap = buildInvComMap();
+  tbody.innerHTML = sorted.map(inv => {
+    const impacto    = parseFloat(inv.impacto_apuesta)||0;
+    const retCliente = parseFloat(inv.retorno_cliente)||0;
+    const ctrl       = inv.control_recarga || (inv.fondos==='REJUEGO' ? 'REJUEGO' : '');
+    const recLabel   = inv.id_recarga_label || inv.id_recarga?.slice(-5) || '—';
+    const comisionCalc = invComMap[inv.id] ?? parseFloat(inv.comision_aplicada) ?? 0;
+    // Fecha/hora exacta de registro (campo ts = serverTimestamp de Firestore)
+    const tsDate = inv.ts?.toDate?.();
+    const tsStr  = tsDate
+      ? `${tsDate.getDate().toString().padStart(2,'0')}/${(tsDate.getMonth()+1).toString().padStart(2,'0')} ${tsDate.getHours().toString().padStart(2,'0')}:${tsDate.getMinutes().toString().padStart(2,'0')}`
+      : '—';
+    const tsTitle = tsDate ? tsDate.toLocaleString('es-CO') : 'Sin fecha de registro';
+    return `<tr>
+      <td>${fmtDate(inv.fecha)}</td>
+      <td style="font-weight:700;color:var(--gold)">${inv.id_apuesta||'—'}</td>
+      <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${inv.evento||''}">${inv.evento||'—'}</td>
+      <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${inv.cliente||'—'}</td>
+      <td>${peso(inv.monto)}</td>
+      <td>${inv.casa||'—'}</td>
+      <td style="font-weight:700">${inv.opcion_elegida||'—'}</td>
+      <td>${inv.cuota||'—'}</td>
+      <td>${fondosBadge(inv.fondos)}</td>
+      <td style="font-size:11px;color:var(--slate)">${recLabel}</td>
+      <td style="color:var(--gold)">${comisionCalc ? peso(comisionCalc) : '$—'}</td>
+      <td>${ctrl ? controlBadge(ctrl) : '—'}</td>
+      <td style="color:var(--blue)">${peso(inv.potencial_retorno)}</td>
+      <td><span class="badge ${inv.estado_evento==='ABIERTO'?'badge-blue':'badge-gray'}">${inv.estado_evento||'ABIERTO'}</span></td>
+      <td style="color:${retCliente>0?'var(--green)':'var(--slate)'};font-weight:${retCliente>0?'600':'400'}">${retCliente>0?peso(retCliente):'—'}</td>
+      <td style="color:${impacto>0?'var(--green)':impacto<0?'var(--red)':'var(--slate)'};font-weight:600">${impacto!==0?peso(impacto):'—'}</td>
+      <td style="font-size:11px;color:var(--text2);white-space:nowrap" title="${tsTitle}">${tsStr}</td>
+      <td style="display:flex;gap:4px;align-items:center">
+        <button class="btn-del" title="Editar" onclick="abrirEditarInversion('${inv.id}')">✏️</button>
+        <button class="btn-del" onclick="solicitarEliminarInversion('${inv.id}',this)" title="Solicitar eliminación al administrador">🗑</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+// ──────────────────── SUB-TABS INVERSIONES ────────────────────
+function showInvSubtab(name) {
+  const isEj = name === 'enjuego';
+  document.getElementById('inv-panel-historial').style.display = isEj ? 'none' : '';
+  document.getElementById('inv-panel-enjuego').style.display   = isEj ? '' : 'none';
+  const tabH = document.getElementById('inv-subtab-historial');
+  const tabE = document.getElementById('inv-subtab-enjuego');
+  tabH.style.color = isEj ? 'var(--text2)' : 'var(--gold)';
+  tabH.style.borderBottomColor = isEj ? 'transparent' : 'var(--gold)';
+  tabE.style.color = isEj ? 'var(--gold)' : 'var(--text2)';
+  tabE.style.borderBottomColor = isEj ? 'var(--gold)' : 'transparent';
+  if (isEj) renderEnJuego();
+}
+
+// ──────────────────── EN JUEGO ────────────────────
+function renderEnJuego() {
+  const tbody = document.getElementById('en-juego-tbody');
+  if (!tbody) return;
+  const abiertas = allInversiones.filter(inv => (inv.estado_evento||'ABIERTO') === 'ABIERTO');
+  // KPIs
+  const totalJuego = abiertas.reduce((s,inv) => s + (parseFloat(inv.monto)||0), 0);
+
+  // Potencial retorno: por apuesta, agrupar por opción y tomar el MAX
+  // (solo gana UNA opción por apuesta, no se suman todos los retornos)
+  const apOpcMap = {};
+  abiertas.forEach(inv => {
+    const ap = inv.id_apuesta;
+    const op = inv.opcion_elegida || '?';
+    if (!apOpcMap[ap]) apOpcMap[ap] = {};
+    apOpcMap[ap][op] = (apOpcMap[ap][op]||0) + (parseFloat(inv.potencial_retorno)||0);
+  });
+  // Suma del peor caso por apuesta (opción con mayor retorno = máxima exposición)
+  const totalRetorno = Object.values(apOpcMap).reduce((s, opcMap) => {
+    return s + Math.max(...Object.values(opcMap));
+  }, 0);
+
+  const clientes = new Set(abiertas.map(inv => inv.cliente)).size;
+  document.getElementById('ej-total-juego').textContent    = peso(totalJuego);
+  document.getElementById('ej-total-retorno').textContent  = peso(totalRetorno);
+  document.getElementById('ej-cnt-abiertas').textContent   = abiertas.length;
+  document.getElementById('ej-cnt-clientes').textContent   = clientes;
+  if (!abiertas.length) {
+    tbody.innerHTML = '<tr><td colspan="9"><div class="empty"><div class="empty-icon">⚡</div>Sin apuestas abiertas</div></td></tr>';
+    return;
+  }
+  // Ordenar por id_apuesta, luego opción (1 < X < 2), luego cliente
+  const opOrder = {'1':0,'X':1,'2':2};
+  const sorted = [...abiertas].sort((a,b) => {
+    if ((a.id_apuesta||0) !== (b.id_apuesta||0)) return (a.id_apuesta||0)-(b.id_apuesta||0);
+    const oa = opOrder[a.opcion_elegida]??9, ob = opOrder[b.opcion_elegida]??9;
+    if (oa !== ob) return oa - ob;
+    return (a.cliente||'').localeCompare(b.cliente||'');
+  });
+  tbody.innerHTML = sorted.map(inv => `<tr>
+    <td style="font-weight:700;color:var(--gold)">${inv.id_apuesta||'—'}</td>
+    <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${inv.evento||''}">${inv.evento||'—'}</td>
+    <td>${inv.cliente||'—'}</td>
+    <td>${inv.casa||'—'}</td>
+    <td style="font-weight:600;color:var(--red)">${peso(inv.monto)}</td>
+    <td style="font-weight:700">${inv.opcion_elegida||'—'}</td>
+    <td>${inv.cuota||'—'}</td>
+    <td>${fondosBadge(inv.fondos)}</td>
+    <td style="color:var(--gold);font-weight:600">${peso(inv.potencial_retorno)}</td>
+  </tr>`).join('');
+}
+
+// ID de la inversión en edición (null = nueva)
+let _editInvId = null;
+
+function abrirEditarInversion(id) {
+  if (_checkLock('editar inversiones')) return;
+  const inv = allInversiones.find(i => i.id === id);
+  if (!inv) return;
+  _editInvId = id;
+
+  // Fecha e ID apuesta
+  document.getElementById('inv-fecha').value   = inv.fecha || '';
+  document.getElementById('inv-apuesta').value = inv.id_apuesta || '';
+
+  // Rellenar combo de evento
+  const ev0 = allEventos.find(e => e.id === inv.id_evento_ref);
+  document.getElementById('inv-evento').value = inv.id_evento_ref || '';
+  document.getElementById('inv-evento-search').value = ev0
+    ? `#${ev0.num||''} — ${ev0.nombre||''}`
+    : (inv.id_evento_ref ? inv.id_evento_ref.slice(-6) : '');
+
+  // Limpiar filas y añadir una sola fila en la sección correcta
+  ['1','X','2'].forEach(op => {
+    const c = document.querySelector('.inv-rows-' + op);
+    if (c) c.innerHTML = '';
+  });
+  addInvRow(inv.opcion_elegida || '1', {
+    cliente_id: inv.cliente_id,
+    casa:       inv.casa,
+    monto:      inv.monto,
+    cuota:      inv.cuota,
+    fondos:     inv.fondos || 'PROPIO',
+    id_recarga: inv.id_recarga,
+  });
+
+  // Título y botón
+  document.querySelector('#modal-inversion h3').textContent = '✏️ Editar Apuesta';
+  const btnGuardar = document.querySelector('#modal-inversion .btn-gold');
+  if (btnGuardar) { btnGuardar.textContent = 'Actualizar'; btnGuardar.onclick = actualizarInversion; }
+  // Mostrar campo motivo y limpiar
+  const motivoRow = document.getElementById('inv-motivo-row');
+  const motivoEl  = document.getElementById('inv-motivo');
+  if (motivoRow) motivoRow.style.display = '';
+  if (motivoEl)  motivoEl.value = '';
+
+  openModal('modal-inversion');
+}
+
+async function actualizarInversion() {
+  if (!_editInvId) return;
+  const motivo = (document.getElementById('inv-motivo')?.value || '').trim();
+  if (!motivo) { toast('⚠ Indica el motivo de la edición', 'error'); document.getElementById('inv-motivo')?.focus(); return; }
+  const evId      = document.getElementById('inv-evento').value;
+  const ev        = allEventos.find(e=>e.id===evId);
+  const idApuesta = parseInt(document.getElementById('inv-apuesta').value)||null;
+  const fecha     = document.getElementById('inv-fecha').value || today();
+
+  // Leer la única fila del modal
+  let r = null;
+  for (const opcion of ['1','X','2']) {
+    const container = document.querySelector('.inv-rows-' + opcion);
+    if (!container) continue;
+    const rowEl = container.querySelector('.inv-row-item');
+    if (!rowEl) continue;
+    const cliente_id = rowEl.querySelector('.inv-r-cliente')?.value || '';
+    const casa       = rowEl.querySelector('.inv-r-casa')?.value || '';
+    const _montoEl1  = rowEl.querySelector('.inv-r-monto');
+    const monto      = parseFloat(_montoEl1?.dataset?.raw || _montoEl1?.value?.replace(/[^0-9]/g,'')) || 0;
+    const cuota      = parseFloat(rowEl.querySelector('.inv-r-cuota')?.value) || 0;
+    const fondos     = rowEl.querySelector('.inv-r-fondos')?.value || 'PROPIO';
+    const recSel     = rowEl.querySelector('.inv-r-recarga');
+    const recOpt     = recSel?.options[recSel.selectedIndex];
+    const id_recarga       = (fondos !== 'REJUEGO' && recOpt?.value) ? recOpt.value : null;
+    const id_recarga_label = recOpt?.dataset?.opid || null;
+    const recData = id_recarga
+      ? { monto: parseFloat(recOpt.dataset.monto)||0, comision: parseFloat(recOpt.dataset.comision)||0 }
+      : null;
+    r = { opcion, cliente_id, casa, monto, cuota, fondos, id_recarga, id_recarga_label, recData };
+    break;
+  }
+
+  if (!r || !r.monto || !r.cuota || !r.casa) { toast('⚠ Completa los campos requeridos','error'); return; }
+  const clienteNombre     = allClientes.find(c=>c.id===r.cliente_id)?.nombre_completo || '';
+  const potencial_retorno = Math.round(r.monto * r.cuota);
+  const estado_evento     = ev?.estado || 'ABIERTO';
+
+  // Comisión proporcional — con tope por comisión disponible de la recarga
+  let comision_aplicada = 0, control_recarga = r.fondos === 'REJUEGO' ? 'REJUEGO' : '';
+  if (r.id_recarga && r.recData) {
+    const rate = r.recData.monto > 0 ? r.recData.comision / r.recData.monto : 0;
+    // Calcular cuánta comisión ya consumieron otras inversiones de la misma recarga (en orden ts)
+    const otrasInvs = allInversiones
+      .filter(inv => inv.id_recarga === r.id_recarga && inv.id !== _editInvId);
+    let comisionUsada = 0;
+    otrasInvs.forEach(inv => {
+      const calc    = (parseFloat(inv.monto) || 0) * rate;
+      const aplicado = Math.max(0, Math.min(calc, r.recData.comision - comisionUsada));
+      comisionUsada += aplicado;
+    });
+    const disponible  = Math.max(0, r.recData.comision - comisionUsada);
+    comision_aplicada = Math.round(Math.min(r.monto * rate, disponible));
+    const montoUsado  = otrasInvs.reduce((s,inv)=>s+(parseFloat(inv.monto)||0),0);
+    const totalUsado  = montoUsado + r.monto;
+    control_recarga   = totalUsado < r.recData.monto ? 'DISPONIBLE' : totalUsado === r.recData.monto ? 'AL LÍMITE' : 'EXCESO';
+  }
+
+  // Retorno e impacto si evento cerrado
+  let retorno_cliente = 0, retorno_plataforma = 0, impacto_apuesta = 0;
+  if (estado_evento === 'CERRADO' && ev?.opcion_ganadora) {
+    const gano = String(r.opcion) === String(ev.opcion_ganadora);
+    retorno_cliente    = gano ? potencial_retorno : 0;
+    retorno_plataforma = gano ? 0 : r.monto;
+    impacto_apuesta    = gano ? potencial_retorno - r.monto : -r.monto;
+  }
+
+  // Historial de auditoría
+  const invActual = allInversiones.find(i => i.id === _editInvId) || {};
+  const historialInv = invActual.historial || [];
+  historialInv.push({
+    fecha: new Date().toISOString(),
+    editadoPor: currentUser?.email || 'operador',
+    motivo,
+    anterior: {
+      monto: invActual.monto, cuota: invActual.cuota, casa: invActual.casa,
+      cliente: invActual.cliente, fecha: invActual.fecha,
+      opcion_elegida: invActual.opcion_elegida,
+    }
+  });
+
+  try {
+    await coll('inversiones').doc(_editInvId).update({
+      fecha, id_apuesta: idApuesta, id_evento_ref: evId||null,
+      evento: ev?.nombre||'', cliente: clienteNombre, cliente_id: r.cliente_id,
+      monto: r.monto, casa: r.casa, opcion_elegida: r.opcion, cuota: r.cuota, fondos: r.fondos,
+      id_recarga: r.id_recarga, id_recarga_label: r.id_recarga_label,
+      comision_aplicada, control_recarga,
+      potencial_retorno, estado_evento,
+      retorno_cliente, retorno_plataforma, impacto_apuesta,
+      editadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+      editadoPor: currentUser?.email || 'operador',
+      historial: historialInv,
+    });
+    closeModal('modal-inversion');
+    toast('✅ Apuesta actualizada','success');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+async function saveInversion() {
+  if (_checkLock('registrar inversiones')) return;
+  _editInvId = null;
+  const evId      = document.getElementById('inv-evento').value;
+  const ev        = allEventos.find(e=>e.id===evId);
+  const idApuesta = parseInt(document.getElementById('inv-apuesta').value)||null;
+  if (!evId) { toast('⚠ Selecciona el evento','error'); return; }
+  // Garantizar que la fecha sea del mes activo; si el campo tiene fecha de otro mes → hoy
+  const mesActivo = _mesKey(config?.mes) || today().slice(0,7);
+  const fechaRaw  = document.getElementById('inv-fecha').value || today();
+  const fecha     = fechaRaw.startsWith(mesActivo) ? fechaRaw : today();
+
+  // Recolectar todas las filas de las 3 secciones
+  const rows = [];
+  for (const opcion of ['1','X','2']) {
+    const container = document.querySelector('.inv-rows-' + opcion);
+    if (!container) continue;
+    container.querySelectorAll('.inv-row-item').forEach(rowEl => {
+      const cliente_id = rowEl.querySelector('.inv-r-cliente')?.value || '';
+      const casa       = rowEl.querySelector('.inv-r-casa')?.value || '';
+      const _montoEl2  = rowEl.querySelector('.inv-r-monto');
+      const monto      = parseFloat(_montoEl2?.dataset?.raw || _montoEl2?.value?.replace(/[^0-9]/g,'')) || 0;
+      const cuota      = parseFloat(rowEl.querySelector('.inv-r-cuota')?.value) || 0;
+      const fondos     = rowEl.querySelector('.inv-r-fondos')?.value || 'PROPIO';
+      const recSel     = rowEl.querySelector('.inv-r-recarga');
+      const recOpt     = recSel?.options[recSel.selectedIndex];
+      const id_recarga       = (fondos !== 'REJUEGO' && recOpt?.value) ? recOpt.value : null;
+      const id_recarga_label = recOpt?.dataset?.opid || null;
+      const recData = id_recarga
+        ? { monto: parseFloat(recOpt.dataset.monto)||0, comision: parseFloat(recOpt.dataset.comision)||0 }
+        : null;
+      // Validar fila con datos parciales
+      const tieneAlgo = monto > 0 || cuota > 0 || casa || cliente_id;
+      if (tieneAlgo) {
+        if (!monto)  { toast(`⚠ Opción ${opcion}: falta el Monto`, 'error'); return; }
+        if (!cuota)  { toast(`⚠ Opción ${opcion}: falta la Cuota`, 'error'); return; }
+        if (!casa)   { toast(`⚠ Opción ${opcion}: falta seleccionar Casa`, 'error'); return; }
+        rows.push({ opcion, cliente_id, casa, monto, cuota, fondos, id_recarga, id_recarga_label, recData });
+      }
+    });
+  }
+
+  if (!rows.length) { toast('⚠ Agrega al menos una apuesta con monto, cuota y casa','error'); return; }
+
+  try {
+    const ts = firebase.firestore.FieldValue.serverTimestamp();
+    const estado_evento = ev?.estado || 'ABIERTO';
+    for (const r of rows) {
+      const clienteNombre     = allClientes.find(c=>c.id===r.cliente_id)?.nombre_completo || '';
+      const potencial_retorno = Math.round(r.monto * r.cuota);
+      let comision_aplicada = 0, control_recarga = r.fondos === 'REJUEGO' ? 'REJUEGO' : '';
+      if (r.id_recarga && r.recData) {
+        const rate = r.recData.monto > 0 ? r.recData.comision / r.recData.monto : 0;
+        comision_aplicada = Math.round(r.monto * rate);
+        const usadoPorOtros = allInversiones.filter(inv=>inv.id_recarga===r.id_recarga).reduce((s,inv)=>s+(parseFloat(inv.monto)||0),0);
+        const totalUsado = usadoPorOtros + r.monto;
+        control_recarga = totalUsado < r.recData.monto ? 'DISPONIBLE' : totalUsado === r.recData.monto ? 'AL LÍMITE' : 'EXCESO';
+      }
+      let retorno_cliente = 0, retorno_plataforma = 0, impacto_apuesta = 0;
+      if (estado_evento === 'CERRADO' && ev?.opcion_ganadora) {
+        const gano = String(r.opcion) === String(ev.opcion_ganadora);
+        retorno_cliente    = gano ? potencial_retorno : 0;
+        retorno_plataforma = gano ? 0 : r.monto;
+        impacto_apuesta    = gano ? potencial_retorno - r.monto : -r.monto;
+      }
+      await coll('inversiones').add({
+        opId, fecha, mesKey: mesActivo,
+        id_apuesta: idApuesta, id_evento_ref: evId||null,
+        evento: ev?.nombre||'', cliente: clienteNombre, cliente_id: r.cliente_id,
+        monto: r.monto, casa: r.casa, opcion_elegida: r.opcion, cuota: r.cuota, fondos: r.fondos,
+        id_recarga: r.id_recarga, id_recarga_label: r.id_recarga_label,
+        comision_aplicada, control_recarga,
+        potencial_retorno, estado_evento,
+        retorno_cliente, retorno_plataforma, impacto_apuesta,
+        ts,
+      });
+    }
+    closeModal('modal-inversion');
+    toast(`✅ ${rows.length} apuesta${rows.length>1?'s':''} registrada${rows.length>1?'s':''}`, 'success');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+// ──────────────────── INTERCAMBIOS ────────────────────
+
+// Cargar operadores activos de la misma oficina (para dropdown de Op2)
+async function loadActiveOperators() {
+  try {
+    // Un solo where para evitar requerir índice compuesto — filtrar estado en JS
+    const snap = await db.collection('admin_usuarios')
+      .where('rol','==','operador').get();
+
+    activeOperators = snap.docs
+      .map(d => ({...d.data(), docId: d.id}))
+      .filter(op => {
+        if (!op.uid || op.uid === opId) return false;
+        const uid28 = op.uid.length > 10 && !/\s/.test(op.uid); // uid real, no un nombre
+        if (!uid28) return false;
+        const est = (op.estado || 'activo').toLowerCase();
+        return est === 'activo';
+      });
+
+    const sel = document.getElementById('int-op2');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">— Seleccionar operador —</option>';
+    activeOperators.forEach(op => {
+      const o = document.createElement('option');
+      o.value = op.uid;
+      o.dataset.email = (op.email || '').toLowerCase();
+      o.textContent = op.nombre || op.email;
+      sel.appendChild(o);
+    });
+  } catch(e) { console.warn('loadActiveOperators:', e); }
+}
+
+// Suscribirse a intercambios entrantes
+function subscribeIncoming() {
+  const email = (currentUser?.email || '').toLowerCase();
+  if (!email && !opId) return;
+
+  // Dos listeners en paralelo: por email (normal) y por uid (fallback para registros con email vacío)
+  // Se combinan sin duplicados por doc ID
+  const _incomingByEmail = {};
+  const _incomingByUid   = {};
+
+  const _merge = () => {
+    const combined = { ..._incomingByEmail };
+    Object.entries(_incomingByUid).forEach(([id, d]) => { if (!combined[id]) combined[id] = d; });
+    allIncoming = Object.values(combined).filter(d => d.estado === 'pendiente_aceptar');
+    renderIncoming();
+  };
+
+  if (email) {
+    db.collection('patriarca_ix_incoming')
+      .where('destinatario_email', '==', email)
+      .onSnapshot(snap => {
+        snap.docs.forEach(d => { _incomingByEmail[d.id] = { id: d.id, ...d.data() }; });
+        // Eliminar los que ya no están en este snapshot
+        Object.keys(_incomingByEmail).forEach(id => {
+          if (!snap.docs.find(d => d.id === id)) delete _incomingByEmail[id];
+        });
+        _merge();
+      }, () => {});
+  }
+
+  if (opId) {
+    db.collection('patriarca_ix_incoming')
+      .where('destinatario_uid', '==', opId)
+      .onSnapshot(snap => {
+        snap.docs.forEach(d => { _incomingByUid[d.id] = { id: d.id, ...d.data() }; });
+        Object.keys(_incomingByUid).forEach(id => {
+          if (!snap.docs.find(d => d.id === id)) delete _incomingByUid[id];
+        });
+        _merge();
+      }, () => {});
+  }
+
+  // Fallback extra: buscar por nombre del operador en destinatario_uid
+  // (cubre registros viejos donde se guardó el nombre en vez del UID)
+  if (operadorNombre) {
+    db.collection('patriarca_ix_incoming')
+      .where('destinatario_uid', '==', operadorNombre)
+      .onSnapshot(snap => {
+        snap.docs.forEach(d => {
+          _incomingByUid[d.id] = { id: d.id, ...d.data() };
+          // Autocorregir el documento para futuros reinicios
+          if (d.data().destinatario_email !== (currentUser?.email||'').toLowerCase()) {
+            db.collection('patriarca_ix_incoming').doc(d.id).update({
+              destinatario_uid:   opId,
+              destinatario_email: (currentUser?.email||'').toLowerCase()
+            }).catch(() => {});
+          }
+        });
+        Object.keys(_incomingByUid).forEach(id => {
+          if (!snap.docs.find(d => d.id === id) && _incomingByUid[id]?.destinatario_uid === operadorNombre)
+            delete _incomingByUid[id];
+        });
+        _merge();
+      }, () => {});
+  }
+}
+
+function renderIncoming() {
+  const wrap = document.getElementById('ix-incoming-wrap');
+  const list = document.getElementById('ix-incoming-list');
+  if (!wrap || !list) return;
+  if (!allIncoming.length) { wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  list.innerHTML = allIncoming.map(ix => `
+    <div style="background:var(--bg3);border:1px solid var(--gold);border-radius:8px;padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <div style="flex:1;min-width:200px">
+        <div style="font-size:12px;font-weight:700;color:var(--gold);margin-bottom:4px">✅ Intercambio de ${ix.operador1||'Operador'}</div>
+        <div style="font-size:12px;color:var(--text2)">
+          Sale <span style="color:var(--red);font-weight:600">${ix.caja_egresa||'—'}</span> &nbsp;→&nbsp;
+          Entra <span style="color:var(--green);font-weight:600">${ix.caja_ingresa||'—'}</span> &nbsp;·&nbsp;
+          <span style="color:var(--gold);font-weight:600">${peso(ix.monto)}</span>
+        </div>
+        <div style="font-size:11px;color:var(--text2);margin-top:2px">ID Op1: ${ix.op1_ix_id||'—'} · ${fmtDate(ix.fecha)}</div>
+      </div>
+      <button class="btn btn-gold btn-sm" id="btn-acept-${ix.id}" onclick="(btn=>{btn.disabled=true;btn.textContent='Procesando…';aceptarIntercambio('${ix.id}','${ix.global_id}').finally(()=>{btn.disabled=false;btn.textContent='Aceptar ✅';})})(this)">Aceptar ✅</button>
+    </div>`).join('');
+}
+
+function renderIntercambios() {
+  const tbody = document.getElementById('intercambios-tbody');
+  if (!tbody) return;
+
+  // Guardar mapa para onclick
+  window._ixMap = {};
+  allIntercambios.forEach(ix => { window._ixMap[ix.id] = ix; });
+
+  // ── Poblar selects dinámicos con valores únicos ──
+  const selEgr  = document.getElementById('filtro-ix-egresa');
+  const selIng  = document.getElementById('filtro-ix-ingresa');
+  const selOp2  = document.getElementById('filtro-ix-op2');
+  if (selEgr && selIng && selOp2) {
+    const prevEgr = selEgr.value, prevIng = selIng.value, prevOp2 = selOp2.value;
+    const egrs  = [...new Set(allIntercambios.map(ix => ix.caja_egresa).filter(Boolean))].sort();
+    const ings  = [...new Set(allIntercambios.map(ix => ix.caja_ingresa).filter(Boolean))].sort();
+    const ops   = [...new Set(allIntercambios.map(ix => ix.operador2 || 'Propio').filter(Boolean))].sort();
+    selEgr.innerHTML  = '<option value="">📤 Caja Egresa</option>'  + egrs.map(v=>`<option${v===prevEgr?' selected':''}>${v}</option>`).join('');
+    selIng.innerHTML  = '<option value="">📥 Caja Ingresa</option>' + ings.map(v=>`<option${v===prevIng?' selected':''}>${v}</option>`).join('');
+    selOp2.innerHTML  = '<option value="">👤 Operador 2</option>'   + ops.map(v=>`<option${v===prevOp2?' selected':''}>${v}</option>`).join('');
+  }
+
+  // ── Leer filtros ──
+  const fEstado  = (document.getElementById('filtro-ix-estado')?.value  || '').toLowerCase();
+  const fDesde   =  document.getElementById('filtro-ix-desde')?.value   || '';
+  const fHasta   =  document.getElementById('filtro-ix-hasta')?.value   || '';
+  const fEgresa  =  document.getElementById('filtro-ix-egresa')?.value  || '';
+  const fIngresa =  document.getElementById('filtro-ix-ingresa')?.value || '';
+  const fOp2     =  document.getElementById('filtro-ix-op2')?.value     || '';
+  const fBuscar  = (document.getElementById('filtro-ix-buscar')?.value  || '').toLowerCase();
+
+  // ── Aplicar filtros (solo mes activo) ──
+  const _mkIx = _mesKey(config?.mes);
+  const _ixBase = _mkIx ? allIntercambios.filter(ix => (ix.fecha||'').startsWith(_mkIx)) : allIntercambios;
+  let data = _ixBase.filter(ix => {
+    if (fEstado) {
+      const est = ix.estado || 'pendiente_op2';
+      if (fEstado === 'pendiente' && !est.startsWith('pendiente')) return false;
+      if (fEstado === 'completado' && est !== 'completado') return false;
+      if (fEstado === 'cancelado'  && est !== 'cancelado')  return false;
+    }
+    if (fDesde   && (ix.fecha||'') < fDesde)   return false;
+    if (fHasta   && (ix.fecha||'') > fHasta)   return false;
+    if (fEgresa  && ix.caja_egresa  !== fEgresa)  return false;
+    if (fIngresa && ix.caja_ingresa !== fIngresa) return false;
+    if (fOp2     && (ix.operador2||'Propio') !== fOp2) return false;
+    if (fBuscar) {
+      const hay = [ix.ix_id, ix.op_id, String(ix.monto||''), ix.caja_egresa, ix.caja_ingresa, ix.operador2]
+        .some(v => (v||'').toLowerCase().includes(fBuscar));
+      if (!hay) return false;
+    }
+    return true;
+  });
+
+  if (!data.length) {
+    tbody.innerHTML = '<tr><td colspan="8"><div class="empty"><div class="empty-icon">🔄</div>Sin resultados</div></td></tr>';
+    return;
+  }
+
+  const checkBadge = ix => {
+    if (ix.estado === 'cancelado') return '<span class="badge badge-red">Cancelado</span>';
+    const n2 = ix.checkmarks || 1;
+    return `<span style="font-size:14px;letter-spacing:2px" title="${['Pendiente Op2','Pendiente Cajera','Completado'][n2-1]}">${'✅'.repeat(n2)}</span>`;
+  };
+
+  const accionIX = ix => {
+    const estado = ix.estado || 'pendiente_op2';
+    if (estado === 'cancelado') return '<span style="font-size:10px;color:var(--text2)">Anulado</span>';
+    if (estado === 'pendiente_op2' && ix.es_creador)
+      return `<button class="btn-del" title="Eliminar" onclick="eliminarIntercambio('${ix.id}','${ix.global_id||''}')">🗑</button>`;
+    if (estado === 'pendiente_cajera')
+      return `<button class="btn btn-ghost" style="font-size:10px;padding:3px 8px" onclick="solicitarCorreccion('${ix.id}','${ix.global_id||''}','correccion')">📝 Corregir</button>`;
+    if (estado === 'completado')
+      return `<div style="display:flex;gap:4px;align-items:center">
+        <button class="btn btn-ghost" style="font-size:10px;padding:3px 8px;color:var(--text2)" onclick="solicitarCorreccion('${ix.id}','${ix.global_id||''}','autorizacion')">🔐 Solicitar</button>
+        <button class="btn-del" title="Solicitar eliminación" onclick="abrirSolicitudEliminacion('${ix.id}','${ix.global_id||''}')">🗑</button>
+      </div>`;
+    return '';
+  };
+
+  tbody.innerHTML = data.map(ix => `
+    <tr style="${ix.estado==='completado'?'opacity:.65':(ix.estado==='cancelado'?'opacity:.45;text-decoration:line-through':'')}">
+      <td>${checkBadge(ix)}</td>
+      <td style="font-size:11px">${fmtDate(ix.fecha)}</td>
+      <td style="font-size:11px;color:var(--text2);max-width:140px;overflow:hidden;text-overflow:ellipsis">${ix.ix_id||ix.op_id||'—'}</td>
+      <td style="font-weight:600;color:${ix.estado==='cancelado'?'var(--text2)':'var(--gold)'}">${peso(ix.monto)}</td>
+      <td><span class="badge badge-red">${ix.caja_egresa||'—'}</span></td>
+      <td><span class="badge badge-green">${ix.caja_ingresa||'—'}</span></td>
+      <td style="font-size:11px">${ix.operador2||'Propio'}</td>
+      <td>${accionIX(ix)}</td>
+    </tr>`).join('');
+
+  // ── Totales al pie ──
+  const tfoot = document.getElementById('intercambios-tfoot');
+  if (tfoot) {
+    const totMonto = data.filter(ix => ix.estado !== 'cancelado').reduce((s, ix) => s + (parseFloat(ix.monto)||0), 0);
+    const hayFiltro = fEstado || fDesde || fHasta || fEgresa || fIngresa || fOp2 || fBuscar;
+    const TD = 'padding:6px 10px;font-size:12px;border-top:2px solid var(--border)';
+    tfoot.innerHTML = `<tr style="background:var(--bg2)">
+      <td colspan="3" style="${TD};color:var(--text2)">${data.length} intercambio${data.length!==1?'s':''}${hayFiltro?' · filtrado':''}</td>
+      <td style="${TD};font-weight:700;color:var(--gold)">${peso(totMonto)}</td>
+      <td colspan="4" style="${TD}"></td>
+    </tr>`;
+  }
+}
+
+// ──────────────────── IMPORTAR INTERCAMBIOS ────────────────────
+function toggleImportIx() {
+  const p = document.getElementById('import-ix-panel');
+  const open = p.style.display === 'none' || p.style.display === '';
+  p.style.display = open ? 'block' : 'none';
+  if (open) { document.getElementById('import-ix-txt').value = ''; document.getElementById('import-ix-status').textContent = ''; }
+}
+
+async function ejecutarImportIx() {
+  const txt    = document.getElementById('import-ix-txt').value.trim();
+  const status = document.getElementById('import-ix-status');
+  if (!txt) { status.textContent = '⚠ Pega los datos primero'; return; }
+  status.textContent = 'Procesando...';
+
+  // IDs ya existentes para evitar duplicados
+  const existentes = new Set(allIntercambios.map(ix => ix.ix_id).filter(Boolean));
+
+  const lineas = txt.split('\n').map(l => l.trim()).filter(l => l);
+  const batch  = [];
+  let ok = 0, skip = 0, dup = 0;
+
+  for (const linea of lineas) {
+    const cols = linea.includes('\t') ? linea.split('\t') : linea.split(';');
+    if (cols.length < 5) { skip++; continue; }
+
+    const fechaRaw  = cols[0]?.trim();
+    const opRaw     = cols[1]?.trim() || '';
+    const montoRaw  = cols[2]?.trim() || '';
+    const op1Name   = cols[3]?.trim() || '';
+    const egresaRaw = (cols[4]?.trim() || '').toUpperCase();
+    const ingresaRaw= (cols[5]?.trim() || '').toUpperCase();
+    const op2Name   = cols[6]?.trim() || op1Name;
+
+    // Saltar encabezados
+    if (!fechaRaw || fechaRaw === 'FECHA' || fechaRaw === 'INICIO') { skip++; continue; }
+
+    const monto = Math.abs(parseMontoImport(montoRaw));
+    if (!monto) { skip++; continue; }
+
+    const fecha = parseFechaImport(fechaRaw);
+
+    // Parsear OP: "2 - C - OP - INTERCAMBIO" → num=2, tipo='C', ix_id="2-C-OP-INTERCAMBIO"
+    const opNorm = opRaw.replace(/[‐-―−﹘﹣－]/g, '-').replace(/\s*-\s*/g, '-').toUpperCase();
+    const opMatch = opNorm.match(/^(\d+)-([CI])-OP-INTERCAMBIO$/i);
+    let ixNum, ixTipo, ix_id;
+    if (opMatch) {
+      ixNum  = parseInt(opMatch[1]);
+      ixTipo = opMatch[2].toUpperCase(); // 'C' o 'I'
+      ix_id  = `${ixNum}-${ixTipo}-OP-INTERCAMBIO`;
+    } else {
+      // Fallback: usar el texto normalizado como ix_id
+      ix_id  = opNorm || `IMP-${Date.now()}-${ok}`;
+      ixTipo = opNorm.includes('-I-') ? 'I' : 'C';
+    }
+
+    // Evitar duplicados
+    if (existentes.has(ix_id)) { dup++; continue; }
+
+    // Resolver métodos con alias
+    const caja_egresa  = resolveMetodo(egresaRaw);
+    const caja_ingresa = resolveMetodo(ingresaRaw);
+
+    batch.push({
+      opId, fecha, monto,
+      tipo: ixTipo,
+      ix_id,
+      op_o_original: opRaw,
+      caja_egresa, caja_ingresa,
+      operador1: op1Name, operador1_uid: opId,
+      operador2: op2Name, operador2_uid: opId,
+      estado: 'completado',
+      es_creador: true,
+      checkmarks: 3,
+      ts: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    existentes.add(ix_id);
+    ok++;
+  }
+
+  if (!batch.length) {
+    status.textContent = `⚠ Nada importado. ${dup} duplicados, ${skip} ignorados.`;
+    return;
+  }
+
+  status.textContent = `Guardando ${batch.length} intercambios...`;
+  try {
+    const CHUNK = 400;
+    for (let i = 0; i < batch.length; i += CHUNK) {
+      const fb = db.batch();
+      batch.slice(i, i + CHUNK).forEach(doc => {
+        // Guardar en patriarca_intercambios (operador)
+        const intRef = coll('intercambios').doc();
+        fb.set(intRef, doc);
+
+        // También guardar en patriarca_ix_global para que el cajero lo vea
+        const globalDoc = {
+          tipo:         doc.tipo,
+          oficina:      operadorOficina || '',
+          fecha:        doc.fecha,
+          monto:        doc.monto,
+          op1_uid:      doc.operador1_uid || opId,
+          op1_nombre:   doc.operador1 || operadorNombre,
+          op1_ix_id:    doc.ix_id,
+          op1_egresa:   doc.caja_egresa,
+          op1_ingresa:  doc.caja_ingresa,
+          op1_doc_id:   intRef.id,
+          estado:       'completado',
+          checkmarks:   3,
+          ts:           doc.ts,
+          importado:    true,
+        };
+        // Si tiene Op2 distinto, agregar campos op2
+        if (doc.operador2 && doc.operador2 !== doc.operador1) {
+          globalDoc.op2_uid    = doc.operador2_uid || null;
+          globalDoc.op2_nombre = doc.operador2;
+          globalDoc.op2_egresa = doc.caja_ingresa;
+          globalDoc.op2_ingresa= doc.caja_egresa;
+        }
+        fb.set(db.collection('patriarca_ix_global').doc(), globalDoc);
+      });
+      await fb.commit();
+    }
+    status.textContent = `✅ ${ok} importados · ${dup} duplicados · ${skip} ignorados`;
+    toast(`✅ ${ok} intercambios importados`, 'success');
+    setTimeout(() => toggleImportIx(), 2500);
+  } catch(e) {
+    console.error(e);
+    status.textContent = `❌ Error: ${e.message}`;
+  }
+}
+
+// Migrar intercambios importados previamente al patriarca_ix_global para que el cajero los vea
+async function migrarIxAlCajero(btn) {
+  const status = document.getElementById('import-ix-status');
+  if (!opId) { status.textContent = '❌ No hay operador activo'; return; }
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⏳ Migrando...';
+  status.textContent = 'Consultando datos...';
+  try {
+    // 1. Obtener TODOS los intercambios completados de este operador
+    //    (sin filtrar por es_creador — versiones antiguas del import no tenían ese campo)
+    const intSnap = await db.collection('patriarca_intercambios')
+      .where('opId', '==', opId)
+      .where('estado', '==', 'completado')
+      .get();
+
+    if (intSnap.empty) {
+      status.textContent = '✅ No hay intercambios completados para migrar.';
+      btn.disabled = false; btn.textContent = originalText; return;
+    }
+
+    // 2. Obtener docs ya presentes en patriarca_ix_global para este operador
+    const globalOp1Snap = await db.collection('patriarca_ix_global')
+      .where('op1_uid', '==', opId).get();
+
+    // Clave única: ix_id + fecha + monto (para detectar colisiones de ix_id)
+    const globalKeys = new Set(
+      globalOp1Snap.docs.map(d => {
+        const g = d.data();
+        return `${g.op1_ix_id}|${g.fecha}|${g.monto}`;
+      }).filter(Boolean)
+    );
+
+    // 3. Filtrar los que faltan — comparando ix_id + fecha + monto
+    const faltantes = intSnap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .filter(doc => {
+        if (!doc.ix_id) return false;
+        const key = `${doc.ix_id}|${doc.fecha}|${doc.monto}`;
+        return !globalKeys.has(key);
+      });
+
+    if (!faltantes.length) {
+      status.textContent = '✅ Todos los intercambios ya están sincronizados con el cajero.';
+      btn.disabled = false; btn.textContent = originalText; return;
+    }
+
+    status.textContent = `Migrando ${faltantes.length} intercambios...`;
+
+    // 4. Escribir los faltantes en patriarca_ix_global
+    const CHUNK = 400;
+    let migrados = 0;
+    for (let i = 0; i < faltantes.length; i += CHUNK) {
+      const fb = db.batch();
+      faltantes.slice(i, i + CHUNK).forEach(doc => {
+        const globalDoc = {
+          tipo:       doc.tipo || 'I',
+          oficina:    operadorOficina || '',
+          fecha:      doc.fecha,
+          monto:      doc.monto,
+          op1_uid:    doc.operador1_uid || opId,
+          op1_nombre: doc.operador1 || operadorNombre,
+          op1_ix_id:  doc.ix_id,
+          op1_egresa: doc.caja_egresa,
+          op1_ingresa:doc.caja_ingresa,
+          op1_doc_id: doc.id,
+          estado:     'completado',
+          checkmarks: 3,
+          ts:         doc.ts || firebase.firestore.FieldValue.serverTimestamp(),
+          importado:  true,
+        };
+        if (doc.operador2 && doc.operador2 !== doc.operador1) {
+          globalDoc.op2_uid    = doc.operador2_uid || null;
+          globalDoc.op2_nombre = doc.operador2;
+          globalDoc.op2_egresa = doc.caja_ingresa;
+          globalDoc.op2_ingresa= doc.caja_egresa;
+        }
+        fb.set(db.collection('patriarca_ix_global').doc(), globalDoc);
+        migrados++;
+      });
+      await fb.commit();
+    }
+
+    status.textContent = `✅ ${migrados} intercambios migrados al cajero correctamente.`;
+    toast(`✅ ${migrados} intercambios sincronizados al cajero`, 'success');
+  } catch(e) {
+    console.error('migrarIxAlCajero error:', e);
+    status.textContent = `❌ Error: ${e.message}`;
+  }
+  btn.disabled = false;
+  btn.textContent = originalText;
+}
+
+function limpiarFiltrosIx() {
+  ['filtro-ix-estado','filtro-ix-egresa','filtro-ix-ingresa','filtro-ix-op2'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+  ['filtro-ix-desde','filtro-ix-hasta','filtro-ix-buscar'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+  renderIntercambios();
+}
+
+// ── Helpers ──
+function setIxTipo(tipo) {
+  document.getElementById('ix-tipo').value = tipo;
+  // Restaurar etiquetas por si quedaron sobrescritas
+  document.getElementById('ix-btn-c').textContent = '🔀 Cruzado — con otro operador';
+  document.getElementById('ix-btn-i').textContent = '↩ Interno — propio';
+  document.getElementById('ix-btn-c').className = tipo==='C' ? 'btn btn-gold' : 'btn btn-ghost';
+  document.getElementById('ix-btn-i').className = tipo==='I' ? 'btn btn-gold' : 'btn btn-ghost';
+  document.getElementById('ix-op2-wrap').style.display = tipo==='C' ? '' : 'none';
+  document.getElementById('ix-btn-c').style.flex = '1'; document.getElementById('ix-btn-c').style.fontSize = '12px';
+  document.getElementById('ix-btn-i').style.flex = '1'; document.getElementById('ix-btn-i').style.fontSize = '12px';
+  updateIxPreview();
+}
+
+function updateIxPreview() {
+  const tipo    = document.getElementById('ix-tipo').value;
+  const egresa  = document.getElementById('int-egresa').value;
+  const ingresa = document.getElementById('int-ingresa').value;
+  const op2Sel  = document.getElementById('int-op2');
+  const op2Name = op2Sel?.options[op2Sel?.selectedIndex]?.text || '';
+  const prev    = document.getElementById('ix-preview');
+  if (!egresa && !ingresa) { prev.style.display='none'; return; }
+  prev.style.display='';
+  document.getElementById('ix-prev-op1').textContent   = operadorNombre;
+  document.getElementById('ix-prev-egresa').textContent = egresa || '—';
+  document.getElementById('ix-prev-ingresa').textContent = ingresa || '—';
+  const op2Wrap = document.getElementById('ix-prev-op2-wrap');
+  if (tipo==='C' && op2Name && op2Name!=='— Seleccionar operador —') {
+    op2Wrap.style.display=''; document.getElementById('ix-prev-op2').textContent = op2Name;
+  } else if (tipo==='I') {
+    op2Wrap.style.display='none';
+  } else { op2Wrap.style.display='none'; }
+}
+
+function abrirModalIntercambio() {
+  if (_checkLock('registrar intercambios')) return;
+  document.getElementById('int-fecha').value = today();
+  document.getElementById('int-monto').value = '';
+  setIxTipo('C');
+  document.getElementById('ix-preview').style.display='none';
+
+  // Agregar listeners de preview
+  ['int-egresa','int-ingresa','int-op2'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.onchange = updateIxPreview;
+  });
+
+  openModal('modal-intercambio');
+}
+
+// ── Contador de intercambios (por operador, tipo y mes) ──
+async function getNextIxNum(uid, tipo) {
+  const ref   = db.collection('patriarca_config').doc(uid);
+  const mk    = _mesKey(config.mes) || 'global';
+  const field = (tipo === 'I' ? 'cnt_I' : 'cnt_C') + '_' + mk; // ej: cnt_C_2026-07
+  let num = 1;
+  await db.runTransaction(async t => {
+    const doc = await t.get(ref);
+    num = (doc.exists ? (doc.data()?.[field] || 0) : 0) + 1;
+    t.set(ref, { [field]: num }, { merge: true });
+  });
+  return num;
+}
+
+// ── Crear intercambio ──
+async function saveIntercambio() {
+  if (_checkLock('registrar intercambios')) return;
+  const tipo   = document.getElementById('ix-tipo').value;
+  const monto  = parseFloat(document.getElementById('int-monto').value)||0;
+  const egresa = document.getElementById('int-egresa').value;
+  const ingresa= document.getElementById('int-ingresa').value;
+  const fecha  = document.getElementById('int-fecha').value || today();
+  if (!monto||!egresa||!ingresa) { toast('⚠ Completa todos los campos','error'); return; }
+
+  const btn = document.getElementById('ix-btn-guardar');
+  if (btn) { btn.disabled=true; btn.textContent='Enviando...'; }
+
+  try {
+    const ts = firebase.firestore.FieldValue.serverTimestamp();
+
+    if (tipo === 'C') {
+      // Cruzado — con otro operador
+      const op2Sel    = document.getElementById('int-op2');
+      const op2Uid    = op2Sel.value;
+      const op2Nombre = op2Sel.options[op2Sel.selectedIndex]?.text || '';
+      if (!op2Uid) { toast('⚠ Selecciona el Operador 2','error'); return; }
+      // Email del Op2 desde data-email del option (más confiable)
+      const op2Email = (op2Sel.options[op2Sel.selectedIndex]?.dataset?.email ||
+                        activeOperators.find(op => op.uid === op2Uid)?.email || '').toLowerCase();
+
+      // Contador propio (Op1)
+      const num1  = await getNextIxNum(opId, 'C');
+      const ixId1 = `${num1}-C-OP-INTERCAMBIO`;
+
+      // Crear registro en patriarca_intercambios (Op1)
+      const op1Ref = await db.collection('patriarca_intercambios').add({
+        opId, fecha, monto, tipo:'C',
+        ix_id: ixId1,
+        operador1: operadorNombre, operador1_uid: opId,
+        operador2: op2Nombre,      operador2_uid: op2Uid,
+        caja_egresa: egresa, caja_ingresa: ingresa,
+        es_creador: true,
+        estado: 'pendiente_op2',
+        checkmarks: 1, ts,
+      });
+
+      // Crear registro global
+      const globalRef = await db.collection('patriarca_ix_global').add({
+        tipo: 'C', oficina: operadorOficina, fecha, monto,
+        op1_uid: opId,   op1_nombre: operadorNombre, op1_ix_id: ixId1,
+        op1_egresa: egresa, op1_ingresa: ingresa, op1_doc_id: op1Ref.id,
+        op2_uid: op2Uid, op2_nombre: op2Nombre,   op2_ix_id: null,
+        op2_egresa: ingresa, op2_ingresa: egresa,  op2_doc_id: null,
+        estado: 'pendiente_op2', checkmarks: 1,
+        confirmado_op1_at: ts, confirmado_op2_at: null, confirmado_cajera_at: null, ts,
+      });
+      await op1Ref.update({ global_id: globalRef.id });
+
+      // Notificación entrante para Op2
+      await db.collection('patriarca_ix_incoming').add({
+        destinatario_uid:   op2Uid,
+        destinatario_email: op2Email,
+        global_id:  globalRef.id,
+        op1_doc_id: op1Ref.id,
+        op1_ix_id:  ixId1,
+        fecha, monto,
+        operador1: operadorNombre, operador1_uid: opId,
+        // Desde perspectiva de Op2: lo que sale de ella es lo que ingresa en Op1
+        caja_egresa: ingresa, caja_ingresa: egresa,
+        estado: 'pendiente_aceptar', ts,
+      });
+
+      toast(`✅ Intercambio enviado a ${op2Nombre} — esperando aceptación`, 'success');
+
+    } else {
+      // Interno — mismo operador
+      const num  = await getNextIxNum(opId, 'I');
+      const ixId = `${num}-I-OP-INTERCAMBIO`;
+
+      const op1Ref = await db.collection('patriarca_intercambios').add({
+        opId, fecha, monto, tipo:'I',
+        ix_id: ixId,
+        operador1: operadorNombre, operador1_uid: opId,
+        operador2: 'Propio',       operador2_uid: null,
+        caja_egresa: egresa, caja_ingresa: ingresa,
+        es_creador: true,
+        estado: 'pendiente_cajera',
+        checkmarks: 1, ts,
+      });
+
+      const globalRef = await db.collection('patriarca_ix_global').add({
+        tipo: 'I', oficina: operadorOficina, fecha, monto,
+        op1_uid: opId, op1_nombre: operadorNombre, op1_ix_id: ixId,
+        op1_egresa: egresa, op1_ingresa: ingresa, op1_doc_id: op1Ref.id,
+        estado: 'pendiente_cajera', checkmarks: 1,
+        confirmado_op1_at: ts, confirmado_cajera_at: null, ts,
+      });
+      await op1Ref.update({ global_id: globalRef.id });
+
+      toast('✅ Intercambio registrado — pendiente confirmación Cajera', 'success');
+    }
+
+    closeModal('modal-intercambio');
+    document.getElementById('int-monto').value = '';
+
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+  finally { if (btn) { btn.disabled=false; btn.textContent='📤 Enviar intercambio'; } }
+}
+
+// ── Op2 acepta intercambio entrante ──
+async function aceptarIntercambio(incomingId, globalId) {
+  try {
+    const globalSnap = await db.collection('patriarca_ix_global').doc(globalId).get();
+    if (!globalSnap.exists) { toast('⚠ Intercambio no encontrado','error'); return; }
+    const g = globalSnap.data();
+
+    // Contador de Op2
+    const num2  = await getNextIxNum(opId, 'C');
+    const ixId2 = `${num2}-C-OP-INTERCAMBIO`;
+
+    const ts = firebase.firestore.FieldValue.serverTimestamp();
+
+    // Crear registro en patriarca_intercambios para Op2
+    const op2Ref = await db.collection('patriarca_intercambios').add({
+      opId, fecha: g.fecha, monto: g.monto, tipo: 'C',
+      ix_id: ixId2,
+      operador1: operadorNombre,  operador1_uid: opId,
+      operador2: g.op1_nombre,    operador2_uid: g.op1_uid,
+      caja_egresa: g.op2_egresa, caja_ingresa: g.op2_ingresa,
+      es_creador: false,
+      global_id: globalId,
+      estado: 'pendiente_cajera',
+      checkmarks: 2, ts,
+    });
+
+    const batch = db.batch();
+    // Actualizar global (set+merge — siempre existe)
+    batch.set(db.collection('patriarca_ix_global').doc(globalId), {
+      op2_doc_id: op2Ref.id, op2_ix_id: ixId2,
+      estado: 'pendiente_cajera', checkmarks: 2,
+      confirmado_op2_at: ts,
+    }, { merge: true });
+    // Actualizar checkmarks de Op1 si el doc aún existe
+    if (g.op1_doc_id) {
+      const op1DocRef = db.collection('patriarca_intercambios').doc(g.op1_doc_id);
+      const op1Snap   = await op1DocRef.get();
+      if (op1Snap.exists) {
+        batch.update(op1DocRef, { checkmarks: 2, estado: 'pendiente_cajera', op2_ix_id: ixId2 });
+      }
+    }
+    // Eliminar notificación entrante
+    batch.delete(db.collection('patriarca_ix_incoming').doc(incomingId));
+    await batch.commit();
+
+    toast('✅ Intercambio aceptado — pendiente confirmación Cajera', 'success');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+// ── Eliminar intercambio (solo pendiente_op2 + es_creador) ──
+async function eliminarIntercambio(docId, globalId, esCompletado = false) {
+  const msg = esCompletado
+    ? '⚠️ ¿Eliminar este intercambio COMPLETADO?\n\nSe borrará de ambos lados (operador y cajero).'
+    : '¿Eliminar este intercambio?\n\nSe eliminará también la notificación enviada al Operador 2.';
+  if (!confirm(msg)) return;
+  try {
+    const batch = db.batch();
+    // 1. Eliminar doc local de Op1
+    batch.delete(db.collection('patriarca_intercambios').doc(docId));
+    // 2. Eliminar global
+    if (globalId) batch.delete(db.collection('patriarca_ix_global').doc(globalId));
+    // 3. Eliminar incoming del Op2 (por global_id)
+    if (globalId) {
+      const incSnap = await db.collection('patriarca_ix_incoming')
+        .where('global_id', '==', globalId).get();
+      incSnap.docs.forEach(d => batch.delete(d.ref));
+    }
+    await batch.commit();
+    toast('🗑 Intercambio eliminado y notificación cancelada', 'info');
+  } catch(e) { toast('⚠ Error al eliminar: ' + e.message, 'error'); }
+}
+
+// ── Solicitar eliminación de intercambio al admin ──
+function abrirSolicitudEliminacion(docId, globalId) {
+  const ix = (window._ixMap && window._ixMap[docId]) || {};
+  document.getElementById('del-ix-doc-id').value    = docId;
+  document.getElementById('del-ix-global-id').value = globalId || '';
+  document.getElementById('del-ix-motivo').value    = '';
+  document.getElementById('del-ix-submit').disabled = true;
+  document.getElementById('del-ix-info').innerHTML  = `
+    <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Intercambio</div>
+    <div><b>${ix.ix_id||'—'}</b> · Fecha: <b>${ix.fecha||'—'}</b> · Monto: <span style="color:var(--gold)">${peso(ix.monto||0)}</span></div>
+    <div style="margin-top:4px">Sale <span style="color:var(--red)">${ix.caja_egresa||'—'}</span> → Entra <span style="color:var(--green)">${ix.caja_ingresa||'—'}</span></div>`;
+  openModal('modal-del-ix');
+}
+
+async function saveDeleteRequest() {
+  const docId    = document.getElementById('del-ix-doc-id').value;
+  const globalId = document.getElementById('del-ix-global-id').value;
+  const motivo   = document.getElementById('del-ix-motivo').value.trim();
+  if (!motivo) return;
+  const ix = (window._ixMap && window._ixMap[docId]) || {};
+  const btn = document.getElementById('del-ix-submit');
+  btn.disabled = true; btn.textContent = 'Enviando...';
+  try {
+    await db.collection('patriarca_ix_delete_requests').add({
+      docId, globalId,
+      ix_id:       ix.ix_id || '',
+      monto:       ix.monto || 0,
+      fecha:       ix.fecha || '',
+      caja_egresa: ix.caja_egresa || '',
+      caja_ingresa:ix.caja_ingresa || '',
+      operador2:   ix.operador2 || 'Propio',
+      solicitante_uid:    opId,
+      solicitante_nombre: operadorNombre,
+      motivo,
+      estado: 'pendiente',
+      ts: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    toast('📤 Solicitud enviada — el administrador revisará y eliminará si aprueba', 'success');
+    closeModal('modal-del-ix');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+  finally { btn.disabled = false; btn.textContent = '📤 Enviar solicitud'; }
+}
+
+// ── SOLICITAR ELIMINACIÓN DE INVERSIÓN ──
+function solicitarEliminarInversion(invId, btnEl) {
+  const inv = allInversiones.find(i => i.id === invId);
+  if (!inv) { toast('⚠ No se encontró la apuesta', 'error'); return; }
+  document.getElementById('del-inv-id').value = invId;
+  document.getElementById('del-inv-motivo').value = '';
+  document.getElementById('del-inv-submit').disabled = true;
+  document.getElementById('del-inv-info').innerHTML = `
+    <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Apuesta a eliminar</div>
+    <div><b>Ap# ${inv.op_id||'—'}</b> · 📅 ${inv.fecha||'—'} · 💰 <span style="color:var(--gold)">${peso(inv.monto||0)}</span></div>
+    <div style="margin-top:4px">🎯 ${inv.evento||'—'} &nbsp;·&nbsp; 👤 ${inv.cliente||'—'} &nbsp;·&nbsp; 🏠 ${inv.casa||'—'}</div>
+    <div style="margin-top:2px">📦 Fondos: <b>${inv.fondos||'—'}</b> &nbsp;·&nbsp; Estado: <b>${inv.estado||'—'}</b></div>`;
+  openModal('modal-del-inv');
+}
+
+async function saveDeleteInvRequest() {
+  const invId  = document.getElementById('del-inv-id').value;
+  const motivo = document.getElementById('del-inv-motivo').value.trim();
+  if (!motivo || !invId) return;
+  const inv = allInversiones.find(i => i.id === invId) || {};
+  const btn = document.getElementById('del-inv-submit');
+  btn.disabled = true; btn.textContent = 'Enviando...';
+  try {
+    await db.collection('patriarca_inv_delete_requests').add({
+      invId,
+      ap_num:    inv.op_id   || '',
+      evento:    inv.evento  || '',
+      cliente:   inv.cliente || '',
+      casa:      inv.casa    || '',
+      monto:     inv.monto   || 0,
+      fecha:     inv.fecha   || '',
+      fondos:    inv.fondos  || '',
+      estado_ap: inv.estado  || '',
+      solicitante_uid:    opId,
+      solicitante_nombre: operadorNombre,
+      motivo,
+      estado: 'pendiente',
+      ts: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    toast('📤 Solicitud enviada — el administrador aprobará la eliminación', 'success');
+    closeModal('modal-del-inv');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+  finally { btn.disabled = false; btn.textContent = '📤 Enviar solicitud'; }
+}
+
+// ── Abrir modal de solicitud de corrección/autorización ──
+function solicitarCorreccion(docId, globalId, tipo) {
+  document.getElementById('corr-doc-id').value    = docId;
+  document.getElementById('corr-global-id').value = globalId;
+  document.getElementById('corr-tipo').value      = tipo;
+  document.getElementById('corr-motivo').value    = '';
+  document.getElementById('corr-submit').disabled = true;
+
+  const esAut = tipo === 'autorizacion';
+  document.getElementById('corr-titulo').textContent = esAut ? '🔐 Solicitar Corrección (Completado)' : '📝 Solicitar Corrección';
+
+  // Leer datos del mapa en memoria
+  const ix = (window._ixMap && window._ixMap[docId]) || {};
+
+  // Mostrar valores actuales
+  document.getElementById('corr-info').innerHTML = `
+    <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Valores actuales</div>
+    <div><b>${ix.ix_id||'—'}</b> · Fecha: <b>${fmtDate(ix.fecha||'')}</b> · Monto: <span style="color:var(--gold)">${peso(ix.monto||0)}</span></div>
+    <div style="margin-top:4px">Sale <span style="color:var(--red)">${ix.caja_egresa||'—'}</span> → Entra <span style="color:var(--green)">${ix.caja_ingresa||'—'}</span> · Op2: ${ix.operador2||'Propio'}</div>`;
+
+  // Pre-llenar campos editables con valores actuales
+  document.getElementById('corr-fecha').value  = ix.fecha || today();
+  document.getElementById('corr-monto').value  = ix.monto || '';
+
+  // Poblar selects de cajas
+  ['corr-egresa','corr-ingresa'].forEach(selId => {
+    const sel = document.getElementById(selId);
+    const current = selId === 'corr-egresa' ? ix.caja_egresa : ix.caja_ingresa;
+    const srcSel = document.getElementById(selId === 'corr-egresa' ? 'int-egresa' : 'int-ingresa');
+    sel.innerHTML = '<option value="">— Sin cambio —</option>';
+    if (srcSel) {
+      Array.from(srcSel.options).forEach(o => {
+        if (!o.value) return;
+        const opt = document.createElement('option');
+        opt.value = o.value; opt.textContent = o.textContent;
+        if (o.value === current) opt.selected = true;
+        sel.appendChild(opt);
+      });
+    }
+  });
+
+  // Mostrar selector de Op2 solo para intercambios cruzados
+  const op2Wrap = document.getElementById('corr-op2-wrap');
+  const op2Sel  = document.getElementById('corr-nuevo-op2');
+  if ((ix.tipo === 'C' || ix.tipo === 'I') && op2Wrap && op2Sel) {
+    op2Wrap.style.display = '';
+    // Si ya es Interno no tiene sentido ofrecer "convertir a Interno"
+    op2Sel.innerHTML = '<option value="">— Sin cambio de operador —</option>'
+      + (ix.tipo === 'C' ? '<option value="PROPIO">↩ Convertir a Interno (Propio)</option>' : '');
+    // Agregar otros operadores activos (excluyendo el Op2 actual y el propio)
+    const op2ActualUid = ix.operador2_uid || '';
+    activeOperators.filter(op => op.uid !== op2ActualUid && op.uid !== opId).forEach(op => {
+      const o = document.createElement('option');
+      o.value = op.uid;
+      o.dataset.nombre = op.nombre || op.email;
+      o.dataset.email  = (op.email || '').toLowerCase();
+      o.textContent    = op.nombre || op.email;
+      op2Sel.appendChild(o);
+    });
+  } else if (op2Wrap) {
+    op2Wrap.style.display = 'none';
+  }
+
+  openModal('modal-correccion');
+}
+
+// ── Guardar solicitud de corrección ──
+async function saveCorreccion() {
+  const docId    = document.getElementById('corr-doc-id').value;
+  const globalId = document.getElementById('corr-global-id').value;
+  const tipo     = document.getElementById('corr-tipo').value;
+  const motivo   = document.getElementById('corr-motivo').value.trim();
+  if (!motivo) { toast('⚠ Escribe el motivo', 'error'); return; }
+
+  const ix = (window._ixMap && window._ixMap[docId]) || {};
+
+  // Recoger valores propuestos (solo los que cambiaron)
+  const nuevaFecha  = document.getElementById('corr-fecha').value;
+  const nuevoMonto  = parseFloat(document.getElementById('corr-monto').value) || null;
+  const nuevaEgresa = document.getElementById('corr-egresa').value;
+  const nuevaIngresa= document.getElementById('corr-ingresa').value;
+
+  const valoresActuales = {
+    fecha: ix.fecha, monto: ix.monto,
+    caja_egresa: ix.caja_egresa, caja_ingresa: ix.caja_ingresa,
+  };
+  const valoresPropuestos = {};
+  if (nuevaFecha   && nuevaFecha   !== ix.fecha)        valoresPropuestos.fecha        = nuevaFecha;
+  if (nuevoMonto   && nuevoMonto   !== ix.monto)        valoresPropuestos.monto        = nuevoMonto;
+  if (nuevaEgresa  && nuevaEgresa  !== ix.caja_egresa)  valoresPropuestos.caja_egresa  = nuevaEgresa;
+  if (nuevaIngresa && nuevaIngresa !== ix.caja_ingresa) valoresPropuestos.caja_ingresa = nuevaIngresa;
+
+  // Recoger cambio de Op2 si fue seleccionado
+  const nuevoOp2Sel  = document.getElementById('corr-nuevo-op2');
+  const nuevoOp2Uid  = nuevoOp2Sel?.value || '';
+  const nuevoOp2Opt  = nuevoOp2Sel?.options[nuevoOp2Sel?.selectedIndex];
+  const nuevoOp2Nombre = nuevoOp2Uid === 'PROPIO' ? 'Propio'
+    : (nuevoOp2Opt?.dataset?.nombre || '');
+  const nuevoOp2Email = nuevoOp2Opt?.dataset?.email || '';
+
+  const corrData = {
+    docId, globalId, tipo, motivo,
+    solicitante_uid:    opId,
+    solicitante_nombre: operadorNombre,
+    valoresActuales,
+    valoresPropuestos,
+    estado: 'pendiente',
+    ts: firebase.firestore.FieldValue.serverTimestamp(),
+  };
+  if (nuevoOp2Uid) {
+    corrData.cambio_op2 = {
+      uid:    nuevoOp2Uid,
+      nombre: nuevoOp2Nombre,
+      email:  nuevoOp2Email,
+      nuevo_tipo: nuevoOp2Uid === 'PROPIO' ? 'I' : 'C',
+    };
+  }
+
+  const btn = document.getElementById('corr-submit');
+  btn.disabled = true; btn.textContent = 'Enviando...';
+  try {
+    await db.collection('patriarca_ix_correcciones').add(corrData);
+    toast('📤 Solicitud enviada — el Cajero revisará y aplicará el cambio si lo aprueba', 'success');
+    closeModal('modal-correccion');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+  finally { btn.disabled = false; btn.textContent = '📤 Enviar solicitud'; }
+}
+
+// ──────────────────── CLIENTES ────────────────────
+function renderClientes() {
+  const tbody = document.getElementById('clientes-tbody');
+  if (!allClientes.length) {
+    tbody.innerHTML='<tr><td colspan="6"><div class="empty"><div class="empty-icon">👥</div>Sin clientes</div></td></tr>';
+    return;
+  }
+  tbody.innerHTML = allClientes.map((c,i)=>`
+    <tr>
+      <td><input type="checkbox" class="chk-cli" data-id="${c.id}" onchange="actualizarSelCli()"></td>
+      <td>${i+1}</td>
+      <td style="font-weight:600">${c.nombre_completo}</td>
+      <td>${c.cedula||'—'}</td>
+      <td>${c.telefono||'—'}</td>
+      <td><button class="btn-del" onclick="deleteDoc('clientes','${c.id}')">🗑</button></td>
+    </tr>`).join('');
+  actualizarSelCli();
+}
+
+function toggleSelCli(checked) {
+  document.querySelectorAll('.chk-cli').forEach(c => c.checked = checked);
+  actualizarSelCli();
+}
+
+function actualizarSelCli() {
+  const chks = document.querySelectorAll('.chk-cli:checked');
+  const btn  = document.getElementById('btn-del-sel-cli');
+  const cnt  = document.getElementById('cnt-sel-cli');
+  if (btn) btn.style.display = chks.length ? '' : 'none';
+  if (cnt) cnt.textContent = chks.length;
+  const all = document.getElementById('chk-cli-all');
+  const total = document.querySelectorAll('.chk-cli').length;
+  if (all) all.checked = total > 0 && chks.length === total;
+}
+
+async function eliminarClientesSeleccionados() {
+  const ids = [...document.querySelectorAll('.chk-cli:checked')].map(c => c.dataset.id);
+  if (!ids.length) return;
+  if (!confirm(`¿Eliminar ${ids.length} cliente(s) seleccionado(s)?`)) return;
+  try {
+    const CHUNK = 400;
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const fb = db.batch();
+      ids.slice(i, i + CHUNK).forEach(id => fb.delete(coll('clientes').doc(id)));
+      await fb.commit();
+    }
+    toast(`🗑 ${ids.length} clientes eliminados`, 'info');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+function renderCuentas() {
+  const tbody = document.getElementById('cuentas-tbody');
+  if (!allCuentas.length) {
+    tbody.innerHTML='<tr><td colspan="6"><div class="empty"><div class="empty-icon">🏦</div>Sin cuentas</div></td></tr>';
+    return;
+  }
+  const color = {'VERIFICADO':'green','NO VERIFICADO':'orange','BLOQUEADO':'red','CUENTA CERRADA':'gray'};
+  tbody.innerHTML = allCuentas.map((c,i)=>`
+    <tr>
+      <td>${i+1}</td>
+      <td>${c.nombre_cliente||'—'}</td>
+      <td>${c.casa||'—'}</td>
+      <td>${c.usuario||'—'}</td>
+      <td><span class="badge badge-${color[c.estado]||'gray'}">${c.estado||'—'}</span></td>
+      <td><button class="btn-del" onclick="deleteDoc('cuentas','${c.id}')">🗑</button></td>
+    </tr>`).join('');
+}
+
+async function saveCliente() {
+  const nombre   = document.getElementById('cl-nombre').value.trim();
+  const apellido = document.getElementById('cl-apellido').value.trim();
+  if (!nombre) { toast('⚠ Ingresa el nombre','error'); return; }
+  const nombre_completo = `${nombre} ${apellido}`.trim();
+  try {
+    await coll('clientes').add({
+      opId, nombre_completo, nombre, apellidos: apellido,
+      cedula:   document.getElementById('cl-cedula').value,
+      telefono: document.getElementById('cl-tel').value,
+      ts: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    closeModal('modal-cliente');
+    ['cl-nombre','cl-apellido','cl-cedula','cl-tel'].forEach(id=>document.getElementById(id).value='');
+    toast('✅ Cliente guardado','success');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+async function saveCuenta() {
+  const cliente_id = document.getElementById('cc-cliente').value;
+  const casa = document.getElementById('cc-casa').value;
+  if (!cliente_id||!casa) { toast('⚠ Selecciona cliente y casa','error'); return; }
+  const clienteNombre = allClientes.find(c=>c.id===cliente_id)?.nombre_completo||'';
+  try {
+    await coll('cuentas').add({
+      opId, cliente_id, nombre_cliente: clienteNombre, casa,
+      usuario: document.getElementById('cc-usuario').value,
+      estado:  document.getElementById('cc-estado').value,
+      ts: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    closeModal('modal-cuenta');
+    toast('✅ Cuenta guardada','success');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+// ──────────────────── SALDOS — CONTROL DE SUBTABS ────────────────────
+let _saldosSubtabActual = 'clientes';
+
+function showSaldosSubtab(tab) {
+  _saldosSubtabActual = tab;
+  const panels = { clientes: 'saldos-panel-clientes', metodos: 'saldos-panel-metodos', si: 'saldos-panel-si' };
+  const tabs   = { clientes: 'saldos-subtab-clientes', metodos: 'saldos-subtab-metodos', si: 'saldos-subtab-si' };
+  Object.entries(panels).forEach(([k, id]) => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = k === tab ? '' : 'none';
+  });
+  Object.entries(tabs).forEach(([k, id]) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.style.color = k === tab ? 'var(--gold)' : 'var(--text2)';
+    el.style.borderBottomColor = k === tab ? 'var(--gold)' : 'transparent';
+  });
+  const btn = document.getElementById('saldos-recalc-btn');
+  if (btn) btn.onclick = tab === 'metodos' ? renderMetodosSaldo : tab === 'si' ? renderSaldoInicial : renderSaldos;
+  renderSaldosActivo();
+}
+
+async function renderSaldosActivo() {
+  if (_saldosSubtabActual === 'metodos') await renderMetodosSaldo();
+  else if (_saldosSubtabActual === 'si') renderSaldoInicial();
+  else renderSaldos();
+}
+
+// ──────────────────── SALDO POR MÉTODO ────────────────────
+// Fórmula: actual = inicial + ix - recargas + pagos - gastos - liqPago
+// (Igual que el ESF — liqPago = pagos de liquidación del mes anterior aprobados)
+async function renderMetodosSaldo() {
+  const tbody = document.getElementById('met-tbody');
+  const grid  = document.getElementById('met-grid');
+  if (!tbody || !grid) return;
+
+  const ci = config.cupos_iniciales || {};
+
+  // Filtrar por mes activo
+  const _mkMet = _mesKey(config?.mes);
+  const _movMet = _mkMet ? allMovimientos.filter(m  => (m.fecha||'').startsWith(_mkMet))  : allMovimientos;
+  const _ixMet  = _mkMet ? allIntercambios.filter(ix => (ix.fecha||'').startsWith(_mkMet)) : allIntercambios;
+  const _gMet   = _mkMet ? (allGastos||[]).filter(g  => (g.fecha||'').startsWith(_mkMet))  : (allGastos||[]);
+
+  // Usar METODOS_CAJA como lista maestra, excluyendo métodos virtuales sin saldo real
+  const map = {};
+  METODOS_CAJA.filter(m => !METODOS_VIRTUALES.has(m)).forEach(m => {
+    map[m] = { inicial: parseFloat(ci[m])||0, ix:0, recargas:0, pagos:0, gastos:0, liqPago:0, cnt:0 };
+  });
+
+  // 1. Movimientos — solo cajas reales (METODOS_CAJA), ignorar métodos virtuales como BONIFICACION
+  _movMet.forEach(mv => {
+    const met = normMetodo(mv.metodo);
+    if (!met || !map[met]) return;
+    const monto = parseFloat(mv.monto) || 0;
+    if (mv.tipo === 'RECARGA' || mv.tipo === 'RECARGAS') map[met].recargas += monto;
+    else if (mv.tipo === 'PAGO' || mv.tipo === 'PAGOS')  map[met].pagos    += monto;
+    map[met].cnt++;
+  });
+
+  // 2. Intercambios activos — normalizar nombres antes de buscar en map
+  _ixMet
+    .filter(ix => ix.estado !== 'pendiente_aceptar' && ix.estado !== 'cancelado')
+    .forEach(ix => {
+      const monto = parseFloat(ix.monto) || 0;
+      const egr = normMetodo(ix.caja_egresa);
+      const ing = normMetodo(ix.caja_ingresa);
+      if (egr && map[egr]) map[egr].ix -= monto;
+      if (ing && map[ing]) map[ing].ix += monto;
+    });
+
+  // 3. Gastos — solo cajas reales
+  _gMet.forEach(g => {
+    const met = normMetodo(g.metodo);
+    if (!met || !map[met]) return;
+    map[met].gastos += parseFloat(g.valor) || 0;
+  });
+
+  // 4. Pagos de liquidación del mes anterior (tipo='saldo') — igual que el ESF
+  try {
+    const uid = auth.currentUser?.uid;
+    const mesKey = siMesActual();
+    if (uid && mesKey) {
+      const [yk, mk] = mesKey.split('-').map(Number);
+      const prevKey = (mk===1 ? (yk-1)+'-12' : yk+'-'+String(mk-1).padStart(2,'0'));
+      const liqSnap = await db.collection('patriarca_liquidacion_txs')
+        .where('operadorId', '==', uid)
+        .where('mesKey',     '==', prevKey)
+        .where('estado',     '==', 'aprobado')
+        .get();
+      liqSnap.docs.forEach(d => {
+        const tx = d.data();
+        if (tx.tipo !== 'saldo') return;
+        const met = normMetodo(tx.metodo);
+        if (met && map[met]) map[met].liqPago += parseFloat(tx.monto) || 0;
+      });
+    }
+  } catch(e) { console.warn('renderMetodosSaldo: liqPago:', e); }
+
+  // Solo mostrar métodos con actividad o cupo inicial
+  const metodos = Object.keys(map).filter(m => {
+    const d = map[m];
+    return d.inicial || d.recargas || d.pagos || d.ix || d.gastos || d.liqPago || d.cnt;
+  }).sort();
+
+  let tIni=0, tIx=0, tRec=0, tPag=0, tGas=0, tLiq=0, tAct=0;
+
+  // Cards
+  grid.innerHTML = metodos.length
+    ? metodos.map(met => {
+        const d      = map[met];
+        const actual = d.inicial + d.ix - d.recargas + d.pagos - d.gastos - d.liqPago;
+        tIni += d.inicial; tIx += d.ix; tRec += d.recargas; tPag += d.pagos;
+        tGas += d.gastos; tLiq += d.liqPago; tAct += actual;
+        const cls    = actual >= 0 ? 'pos' : 'neg';
+        const ixLine = d.ix !== 0
+          ? `<div style="font-size:10px;color:var(--blue);margin-top:2px">Ix: ${d.ix>0?'+':''}${peso(d.ix)}</div>`
+          : '';
+        const liqLine = d.liqPago
+          ? `<div style="font-size:10px;color:var(--orange);margin-top:2px">Liq: −${peso(d.liqPago)}</div>`
+          : '';
+        return `<div class="metodo-card">
+          <div class="metodo-name">${met}</div>
+          <div class="metodo-value ${cls}">${peso(actual)}</div>
+          <div style="font-size:10px;color:var(--text2);margin-top:6px;display:flex;justify-content:space-between">
+            <span style="color:var(--green)">Pag +${peso(d.pagos)}</span>
+            <span style="color:var(--red)">Rec −${peso(d.recargas)}</span>
+          </div>
+          ${d.inicial ? `<div style="font-size:10px;color:var(--gold);margin-top:2px">Ini: ${peso(d.inicial)}</div>` : ''}
+          ${ixLine}${liqLine}
+          <div style="font-size:10px;color:var(--muted);margin-top:2px">${d.cnt} movs</div>
+        </div>`;
+      }).join('')
+    : '<div class="empty"><div class="empty-icon">💳</div>Sin movimientos ni cupos registrados</div>';
+
+  // Reset totals (se calcularon en el loop de cards)
+  tIni=0; tIx=0; tRec=0; tPag=0; tGas=0; tLiq=0; tAct=0;
+
+  // Tabla detalle
+  tbody.innerHTML = metodos.length
+    ? metodos.map(met => {
+        const d      = map[met];
+        const actual = d.inicial + d.ix - d.recargas + d.pagos - d.gastos - d.liqPago;
+        tIni+=d.inicial; tIx+=d.ix; tRec+=d.recargas; tPag+=d.pagos;
+        tGas+=d.gastos; tLiq+=d.liqPago; tAct+=actual;
+        const cls = actual >= 0 ? 'var(--green)' : 'var(--red)';
+        return `<tr>
+          <td style="font-weight:600">${met}</td>
+          <td style="text-align:right;color:var(--gold)">${d.inicial ? peso(d.inicial) : '—'}</td>
+          <td style="text-align:right;color:${d.ix>=0?'var(--green)':'var(--red)'}">${d.ix!==0?(d.ix>0?'+':'')+peso(d.ix):'—'}</td>
+          <td style="text-align:right;color:var(--blue)">${d.recargas ? peso(d.recargas) : '—'}</td>
+          <td style="text-align:right;color:var(--green)">${d.pagos ? peso(d.pagos) : '—'}</td>
+          <td style="text-align:right;color:var(--red)">${d.gastos ? peso(d.gastos) : '—'}</td>
+          <td style="text-align:right;color:var(--orange);font-weight:${d.liqPago?'700':'400'}">${d.liqPago ? '−'+peso(d.liqPago) : '—'}</td>
+          <td style="text-align:right;font-weight:700;color:${cls}">${peso(actual)}</td>
+        </tr>`;
+      }).join('') + `<tr style="background:var(--bg3);font-weight:700;border-top:2px solid var(--border)">
+          <td>TOTAL</td>
+          <td style="text-align:right;color:var(--gold)">${peso(tIni)}</td>
+          <td style="text-align:right">${tIx!==0?(tIx>0?'+':'')+peso(tIx):'—'}</td>
+          <td style="text-align:right;color:var(--blue)">${peso(tRec)}</td>
+          <td style="text-align:right;color:var(--green)">${peso(tPag)}</td>
+          <td style="text-align:right;color:var(--red)">${tGas?peso(tGas):'—'}</td>
+          <td style="text-align:right;color:var(--orange)">${tLiq?'−'+peso(tLiq):'—'}</td>
+          <td style="text-align:right;color:${tAct>=0?'var(--green)':'var(--red)'}">${peso(tAct)}</td>
+        </tr>`
+    : '<tr><td colspan="7"><div class="empty">Sin datos</div></td></tr>';
+
+  // KPIs
+  document.getElementById('met-total-ingresos').textContent = peso(tPag);
+  document.getElementById('met-total-egresos').textContent  = peso(tRec + tGas);
+  const netoEl = document.getElementById('met-total-neto');
+  netoEl.textContent = peso(tAct);
+  netoEl.style.color = tAct >= 0 ? 'var(--green)' : 'var(--red)';
+}
+
+// ──────────────────── SALDOS CLIENTES ────────────────────
+async function renderSaldos() {
+  const uid    = auth.currentUser?.uid;
+  const tbody  = document.getElementById('saldos-tbody');
+  if (!uid || !tbody) return;
+
+  // 1. Cargar saldo inicial del mes configurado (o mes actual como fallback)
+  const mesKey = siMesActual();
+  let saldoInicial = {};
+  try {
+    const snap = await db.collection('patriarca_saldo_inicial').doc(`${uid}_${mesKey}`).get();
+    saldoInicial = snap.exists ? (snap.data().saldos || {}) : {};
+  } catch(e) { console.warn('saldos: saldo inicial:', e); }
+
+  // Mapa clienteId → nombre completo (preferir nombre_completo para consistencia con UI)
+  const idToNombre = {};
+  allClientes.forEach(c => idToNombre[c.id] = c.nombre_completo || c.nombre || c.id);
+  idToNombre['_externo_'] = 'Externo';
+
+  // 2. Acumular recargas y pagos por clave "nombre||casa" — solo del mes activo
+  // Normalizar por cliente_id para unificar nombre corto vs nombre_completo
+  const _movSaldos = mesKey ? allMovimientos.filter(m => (m.fecha||'').startsWith(mesKey)) : allMovimientos;
+  const _invSaldos = _filtrarInvMes(mesKey);
+  const movMap = {};
+  _movSaldos.forEach(m => {
+    if (!m.cliente || !m.casa) return;
+    const nombre = (m.cliente_id && idToNombre[m.cliente_id]) || m.cliente;
+    const k = `${nombre}||${m.casa}`;
+    if (!movMap[k]) movMap[k] = { recargas: 0, pagos: 0 };
+    if (m.tipo === 'RECARGAS') movMap[k].recargas += parseFloat(m.monto) || 0;
+    if (m.tipo === 'PAGOS')    movMap[k].pagos    += parseFloat(m.monto) || 0;
+  });
+
+  // 3. Acumular inversiones: saldo -= monto (siempre) + retorno_cliente si ganó
+  const invMap = {};
+  _invSaldos.forEach(inv => {
+    if (!inv.cliente || !inv.casa) return;
+    const nombre = (inv.cliente_id && idToNombre[inv.cliente_id]) || inv.cliente;
+    const k = `${nombre}||${inv.casa}`;
+    if (!invMap[k]) invMap[k] = { invertido: 0, retornado: 0 };
+    invMap[k].invertido += parseFloat(inv.monto) || 0;
+    const ret = parseFloat(inv.retorno_cliente) || 0;
+    if (ret > 0) invMap[k].retornado += ret;
+  });
+
+  // Saldo inicial convertido a "nombre||casa"
+  // Usar += porque un cliente puede tener entradas bajo _externo_ Y bajo su UID real
+  const siMap = {};
+  Object.entries(saldoInicial).forEach(([cid, casaMap]) => {
+    const nombre = idToNombre[cid] || cid;
+    Object.entries(casaMap).forEach(([casa, monto]) => {
+      siMap[`${nombre}||${casa}`] = (siMap[`${nombre}||${casa}`] || 0) + (parseFloat(monto) || 0);
+    });
+  });
+
+  // 4. Unión de todas las claves
+  const allKeys = new Set([...Object.keys(siMap), ...Object.keys(movMap), ...Object.keys(invMap)]);
+
+  // 5. Construir filas
+  const rows = [];
+  allKeys.forEach(k => {
+    const [clienteNombre, casa] = k.split('||');
+    const si        = siMap[k] || 0;
+    const recargas  = (movMap[k] || {}).recargas  || 0;
+    const pagos     = (movMap[k] || {}).pagos     || 0;
+    const invertido = (invMap[k] || {}).invertido  || 0;
+    const retornado = (invMap[k] || {}).retornado  || 0;
+    const actual    = si + recargas - pagos - invertido + retornado;
+    rows.push({ clienteNombre, casa, si, recargas, pagos, invertido, retornado, actual });
+  });
+
+  // Ordenar por cliente luego casa
+  rows.sort((a,b) => a.clienteNombre.localeCompare(b.clienteNombre) || a.casa.localeCompare(b.casa));
+
+  // 6. Totales
+  const totSI       = rows.reduce((s,r) => s + r.si, 0);
+  const totRecargas = rows.reduce((s,r) => s + r.recargas, 0);
+  const totPagos    = rows.reduce((s,r) => s + r.pagos, 0);
+  const totActual   = rows.reduce((s,r) => s + r.actual, 0);
+  const totPos      = rows.filter(r => r.actual > 0).reduce((s,r) => s + r.actual, 0);
+  const totNeg      = rows.filter(r => r.actual < 0).reduce((s,r) => s + r.actual, 0);
+
+  document.getElementById('saldo-total').textContent    = peso(totActual);
+  document.getElementById('saldo-positivo').textContent = peso(totPos);
+  document.getElementById('saldo-negativo').textContent = peso(totNeg);
+  document.getElementById('saldo-recargas').textContent = peso(totRecargas);
+  document.getElementById('saldo-pagos').textContent    = peso(totPagos);
+
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="6"><div class="empty">Sin datos — agrega saldo inicial y movimientos</div></td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = rows.map(r => {
+    const colorActual = r.actual > 0 ? 'var(--green)' : r.actual < 0 ? 'var(--red)' : 'var(--muted)';
+    const colorSI     = r.si < 0 ? 'var(--red)' : 'var(--text)';
+    return `<tr>
+      <td style="padding:7px 10px;font-weight:600">${r.clienteNombre}</td>
+      <td style="padding:7px 10px;color:var(--muted)">${r.casa}</td>
+      <td style="text-align:right;padding:7px 10px;color:${colorSI}">${r.si ? peso(r.si) : '—'}</td>
+      <td style="text-align:right;padding:7px 10px;color:var(--green)">${r.recargas ? peso(r.recargas) : '—'}</td>
+      <td style="text-align:right;padding:7px 10px;color:var(--red)">${r.pagos ? peso(r.pagos) : '—'}</td>
+      <td style="text-align:right;padding:7px 10px;color:var(--orange)">${r.invertido ? peso(r.invertido) : '—'}</td>
+      <td style="text-align:right;padding:7px 10px;color:var(--blue)">${r.retornado ? peso(r.retornado) : '—'}</td>
+      <td style="text-align:right;padding:7px 10px;font-weight:700;color:${colorActual}">${peso(r.actual)}</td>
+    </tr>`;
+  }).join('') + `
+  <tr style="background:var(--panel-alt,#1a2035);border-top:2px solid var(--border)">
+    <td colspan="2" style="padding:8px 10px;font-weight:700">TOTAL</td>
+    <td style="text-align:right;padding:8px 10px;font-weight:700;color:var(--gold)">${totSI ? peso(totSI) : '—'}</td>
+    <td style="text-align:right;padding:8px 10px;font-weight:700;color:var(--green)">${peso(totRecargas)}</td>
+    <td style="text-align:right;padding:8px 10px;font-weight:700;color:var(--red)">${peso(totPagos)}</td>
+    <td style="text-align:right;padding:8px 10px;font-weight:700;color:var(--orange)">${peso(rows.reduce((s,r)=>s+r.invertido,0))}</td>
+    <td style="text-align:right;padding:8px 10px;font-weight:700;color:var(--blue)">${peso(rows.reduce((s,r)=>s+r.retornado,0))}</td>
+    <td style="text-align:right;padding:8px 10px;font-weight:700;color:var(--gold)">${peso(totActual)}</td>
+  </tr>`;
+}
+
+// ──────────────────── PRODUCTIVIDAD ────────────────────
+function renderProductividad() {
+  const tbody = document.getElementById('productividad-tbody');
+
+  // ── Leer filtros ──
+  const fEstado   = (document.getElementById('filtro-prod-estado')?.value   || '').toUpperCase();
+  const fAnalisis = (document.getElementById('filtro-prod-analisis')?.value || '').toUpperCase();
+  const fDesde    =  document.getElementById('filtro-prod-desde')?.value    || '';
+  const fHasta    =  document.getElementById('filtro-prod-hasta')?.value    || '';
+  const fBuscar   = (document.getElementById('filtro-prod-buscar')?.value   || '').toLowerCase();
+
+  // ── Comisiones recalculadas con tope por recarga ──
+  const invComMap = buildInvComMap();
+
+  // ── Agrupar por id_apuesta (solo mes activo) ──
+  const _mkProd = _mesKey(config?.mes);
+  const _invProd = _filtrarInvMes(_mkProd);
+  const apMap = {};
+  _invProd.forEach(inv => {
+    const k = inv.id_apuesta;
+    if (!k && k!==0) return;
+    if (!apMap[k]) apMap[k] = { invs: [], evento: inv.evento, fecha: inv.fecha, estado: inv.estado_evento };
+    apMap[k].invs.push(inv);
+    if (inv.estado_evento==='CERRADO') apMap[k].estado = 'CERRADO';
+    if (!apMap[k].fecha || inv.fecha < apMap[k].fecha) apMap[k].fecha = inv.fecha;
+    if (inv.evento) apMap[k].evento = inv.evento;
+  });
+
+  let tFil=0, tInv=0, tRet=0, tBruta=0, tCom=0, tNeta=0;
+
+  const rows = Object.entries(apMap).sort((a,b)=>Number(a[0])-Number(b[0])).map(([num, data]) => {
+    // BONIFICACION no es capital real → no cuenta como invertido
+    const invertido = data.invs.reduce((s,i) => {
+      const fondos = (i.fondos||'').toUpperCase();
+      return s + (fondos==='BONIFICACION' ? 0 : parseFloat(i.monto)||0);
+    }, 0);
+    const retorno   = data.invs.reduce((s,i)=>s+(parseFloat(i.retorno_cliente)||0),0);
+    const comision  = data.invs.reduce((s,i)=>s+(invComMap[i.id]||0),0);
+    const estado    = data.estado || 'ABIERTO';
+    const fecha     = data.fecha  || '';
+    const abierto   = estado !== 'CERRADO';
+
+    // Solo calcular resultado cuando el evento está CERRADO
+    const utilBruta = abierto ? null : retorno - invertido;
+    const utilidad  = abierto ? null : (utilBruta + comision);
+    const roi       = abierto ? null : (invertido > 0 ? utilidad / invertido : 0);
+    const analisis  = abierto ? '—' : (utilidad >= 0 ? 'CORRECTO' : 'PÉRDIDA');
+
+    // ── Aplicar filtros ──
+    if (fEstado   && estado   !== fEstado)                        return null;
+    if (fAnalisis && (abierto || analisis !== fAnalisis))         return null;
+    if (fDesde    && fecha < fDesde)                              return null;
+    if (fHasta    && fecha > fHasta)                              return null;
+    if (fBuscar && !String(num).includes(fBuscar) && !(data.evento||'').toLowerCase().includes(fBuscar)) return null;
+
+    tFil++; tInv+=invertido; tRet+=retorno;
+    if (!abierto) { tBruta+=utilBruta; tCom+=comision; tNeta+=utilidad; }
+
+    return `<tr>
+      <td style="font-weight:700;color:var(--gold)">${num}</td>
+      <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis">${data.evento||'—'}</td>
+      <td>${fmtDate(fecha)}</td>
+      <td>${peso(invertido)}</td>
+      <td>${abierto ? '$—' : peso(retorno)}</td>
+      <td style="font-weight:600;color:${abierto?'var(--text2)':utilBruta>=0?'var(--green)':'var(--red)'}">${abierto ? '$—' : peso(utilBruta)}</td>
+      <td style="color:var(--orange)">${(!abierto && comision) ? peso(comision) : '$—'}</td>
+      <td style="font-weight:700;color:${abierto?'var(--text2)':utilidad>=0?'var(--green)':'var(--red)'}">${abierto ? '$—' : peso(utilidad)}</td>
+      <td style="color:${abierto?'var(--text2)':roi>=0?'var(--green)':'var(--red)'}">${abierto ? '—' : pct(roi)}</td>
+      <td><span class="badge ${estado==='CERRADO'?'badge-gray':'badge-blue'}">${estado}</span></td>
+      <td style="color:${analisis==='CORRECTO'?'var(--green)':analisis==='PÉRDIDA'?'var(--red)':'var(--text2)'}"> ${analisis==='CORRECTO'?'✓ ':analisis==='PÉRDIDA'?'✗ ':''}${analisis}</td>
+    </tr>`;
+  }).filter(Boolean);
+
+  tbody.innerHTML = rows.join('') || '<tr><td colspan="11"><div class="empty"><div class="empty-icon">📈</div>Sin datos de productividad</div></td></tr>';
+
+  // ── Actualizar KPIs ──
+  const setKpi = (id, val, color) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = val;
+    if (color) el.style.color = color;
+  };
+  setKpi('prod-total-filas',     tFil);
+  setKpi('prod-total-invertido', peso(tInv));
+  setKpi('prod-total-retorno',   peso(tRet));
+  setKpi('prod-total-bruta',     peso(tBruta), tBruta>=0?'var(--green)':'var(--red)');
+  setKpi('prod-total-comision',  tCom ? peso(tCom) : '$—', 'var(--orange)');
+  setKpi('prod-total-neta',      peso(tNeta), tNeta>=0?'var(--green)':'var(--red)');
+}
+
+function limpiarFiltrosProd() {
+  ['filtro-prod-estado','filtro-prod-analisis'].forEach(id => {
+    const el = document.getElementById(id); if(el) el.value = '';
+  });
+  ['filtro-prod-desde','filtro-prod-hasta','filtro-prod-buscar'].forEach(id => {
+    const el = document.getElementById(id); if(el) el.value = '';
+  });
+  renderProductividad();
+}
+
+// ──────────────────── TRIXI ────────────────────
+function updateComision(comId, casaId, metId) {
+  const casa   = document.getElementById(casaId)?.value||'';
+  const metodo = document.getElementById(metId)?.value||'';
+  const com = getComision(casa, metodo);
+  const el = document.getElementById(comId);
+  if(el) el.value = com;
+  calcTrixi();
+}
+
+function calcTrixi() {
+  const retorno = parseFloat(document.getElementById('tx-retorno').value)||2000000;
+  const c1 = parseFloat(document.getElementById('tx-cuota1').value)||1;
+  const cX = parseFloat(document.getElementById('tx-cuotaX').value)||1;
+  const c2 = parseFloat(document.getElementById('tx-cuota2').value)||1;
+  const com1 = parseFloat(document.getElementById('tx-com1').value)||0;
+  const comX = parseFloat(document.getElementById('tx-comX').value)||0;
+  const com2 = parseFloat(document.getElementById('tx-com2').value)||0;
+
+  // Inversiones para que cada escenario devuelva 'retorno'
+  const inv1 = retorno / c1;
+  const invX = retorno / cX;
+  const inv2 = retorno / c2;
+
+  function renderOpt(elId, inv, cuota, com, ganadora) {
+    const com_monto = inv * com;
+    const retReal = inv * cuota;
+    const utilBruta = retReal - (inv1 + invX + inv2);
+    const utilNeta  = utilBruta + com_monto;
+    const roi = (inv1+invX+inv2) > 0 ? utilNeta/(inv1+invX+inv2) : 0;
+    document.getElementById(elId).innerHTML = `
+      <div class="trixi-row"><span>Inversión ${ganadora}</span><span>${peso(inv)}</span></div>
+      <div class="trixi-row"><span>Comisión</span><span style="color:var(--orange)">${peso(com_monto)}</span></div>
+      <div class="trixi-row"><span>Retorno</span><span style="color:var(--blue)">${peso(retReal)}</span></div>
+      <div class="trixi-row"><span>Utilidad Bruta</span><span style="color:${utilBruta>=0?'var(--green)':'var(--red)'}">${peso(utilBruta)}</span></div>
+      <div class="trixi-row"><span>Utilidad Neta</span><span style="color:${utilNeta>=0?'var(--green)':'var(--red)'}; font-weight:700">${peso(utilNeta)}</span></div>
+      <div class="trixi-row"><span>ROI</span><span style="color:${roi>=0?'var(--green)':'var(--red)'}">${pct(roi)}</span></div>`;
+  }
+  renderOpt('trixi-opt1', inv1, c1, com1, '1');
+  renderOpt('trixi-optX', invX, cX, comX, 'X');
+  renderOpt('trixi-opt2', inv2, c2, com2, '2');
+  const totalInv = inv1 + invX + inv2;
+  document.getElementById('trixi-resumen').innerHTML = `
+    <div class="trixi-row"><span>Total Inversión</span><span>${peso(totalInv)}</span></div>
+    <div class="trixi-row"><span>Retorno Objetivo</span><span style="color:var(--blue)">${peso(retorno)}</span></div>
+    <div class="trixi-row"><span>Inv. Op. 1 (${c1}x)</span><span>${peso(inv1)}</span></div>
+    <div class="trixi-row"><span>Inv. Op. X (${cX}x)</span><span>${peso(invX)}</span></div>
+    <div class="trixi-row"><span>Inv. Op. 2 (${c2}x)</span><span>${peso(inv2)}</span></div>`;
+}
+
+function calcTrixi2() {
+  const retorno = parseFloat(document.getElementById('t2-retorno').value)||2000000;
+  const c1 = parseFloat(document.getElementById('t2-cuota1').value)||2;
+  const c2 = parseFloat(document.getElementById('t2-cuota2').value)||2;
+  const inv1 = retorno / c1;
+  const inv2 = retorno / c2;
+  const total = inv1 + inv2;
+  const util1 = retorno - total;
+  const util2 = retorno - total;
+  document.getElementById('trixi2-result').innerHTML = `
+    <div class="trixi-grid">
+      <div class="trixi-option">
+        <h4>Si gana Opción 1 (${c1}x)</h4>
+        <div class="trixi-row"><span>Inversión 1</span><span>${peso(inv1)}</span></div>
+        <div class="trixi-row"><span>Inversión 2</span><span>${peso(inv2)}</span></div>
+        <div class="trixi-row"><span>Total Inv</span><span>${peso(total)}</span></div>
+        <div class="trixi-row"><span>Retorno</span><span style="color:var(--blue)">${peso(retorno)}</span></div>
+        <div class="trixi-row"><span>Utilidad</span><span style="color:${util1>=0?'var(--green)':'var(--red)'}; font-weight:700">${peso(util1)}</span></div>
+      </div>
+      <div class="trixi-option">
+        <h4>Si gana Opción 2 (${c2}x)</h4>
+        <div class="trixi-row"><span>Inversión 1</span><span>${peso(inv1)}</span></div>
+        <div class="trixi-row"><span>Inversión 2</span><span>${peso(inv2)}</span></div>
+        <div class="trixi-row"><span>Total Inv</span><span>${peso(total)}</span></div>
+        <div class="trixi-row"><span>Retorno</span><span style="color:var(--blue)">${peso(retorno)}</span></div>
+        <div class="trixi-row"><span>Utilidad</span><span style="color:${util2>=0?'var(--green)':'var(--red)'}; font-weight:700">${peso(util2)}</span></div>
+      </div>
+    </div>`;
+}
+
+// ──────────────────── ESF ────────────────────
+// Snapshot del ESF para el resumen de cierre de mes
+let _esfCierre = { clientes:0, invertido:0, comisiones:0, cajas:0, total:0, listo:false };
+
+async function renderESF() {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return;
+
+  // ── 1. Clientes Mes Anterior (saldo_inicial) ──
+  const mesKey = siMesActual();
+  let saldoInicial = {};
+  let comisionesMesAnt = 0;   // Comisiones del mes anterior por cobrar (nuevas en activos)
+  let gananciaMesAnt  = 0;    // Ganancia neta del mes anterior (pasivo: liquidación por pagar)
+  try {
+    const snap = await db.collection('patriarca_saldo_inicial').doc(`${uid}_${mesKey}`).get({ source: 'server' });
+    if (snap.exists) {
+      const siData = snap.data();
+      saldoInicial     = siData.saldos || {};
+      comisionesMesAnt = Math.round(siData.comisionesMesAnterior || 0);
+      gananciaMesAnt   = Math.round(siData.gananciaMesAnterior   || 0);
+    }
+  } catch(e) { console.warn('esf: saldo_inicial:', e); }
+
+  // Restar pagos ya aprobados en la liquidación del mes anterior
+  let _liqPrevDocs = [];
+  try {
+    const [yk, mk] = mesKey.split('-').map(Number);
+    const prevKey = (mk===1 ? (yk-1)+'-12' : yk+'-'+String(mk-1).padStart(2,'0')); // mes anterior
+    if (prevKey) {
+      const liqSnap = await db.collection('patriarca_liquidacion_txs')
+        .where('operadorId', '==', uid)
+        .where('mesKey',     '==', prevKey)
+        .where('estado',     '==', 'aprobado')
+        .get({ source: 'server' });
+      _liqPrevDocs = liqSnap.docs;
+      liqSnap.docs.forEach(d => {
+        const tx = d.data();
+        const monto = Math.round(tx.monto || 0);
+        if (tx.tipo === 'comision') {
+          comisionesMesAnt = Math.max(0, comisionesMesAnt - monto);
+        }
+        // Todo pago aprobado (comisión o saldo) reduce el pasivo Liquidación por Pagar
+        gananciaMesAnt = Math.max(0, gananciaMesAnt - monto);
+      });
+    }
+  } catch(e) { console.warn('esf: liq_pagos:', e); }
+
+  let clientesMesAnt = 0;
+  Object.values(saldoInicial).forEach(casaMap => {
+    Object.values(casaMap || {}).forEach(v => { clientesMesAnt += parseFloat(v)||0; });
+  });
+
+  // ── 2. Clientes actual — misma fórmula que pestaña Saldos ──
+  // saldo_actual = saldo_inicial + recargas - pagos - invertido_total + retornado_ganado
+  const idToNombre = {};
+  allClientes.forEach(c => idToNombre[c.id] = c.nombre_completo || c.nombre || c.id);
+  idToNombre['_externo_'] = 'Externo';
+
+  // Convertir saldo_inicial {clienteId: {casa: monto}} → {nombre||casa: monto}
+  const siMapEsf = {};
+  Object.entries(saldoInicial).forEach(([cid, casaMap]) => {
+    const nombre = idToNombre[cid] || cid;
+    Object.entries(casaMap || {}).forEach(([casa, monto]) => {
+      siMapEsf[`${nombre}||${casa}`] = parseFloat(monto) || 0;
+    });
+  });
+
+  // Filtrar datos por mes activo
+  const _movEsf = mesKey ? allMovimientos.filter(m   => (m.fecha||'').startsWith(mesKey))   : allMovimientos;
+  const _invEsf = _filtrarInvMes(mesKey);
+  const _ixEsf  = mesKey ? allIntercambios.filter(ix => (ix.fecha||'').startsWith(mesKey))  : allIntercambios;
+  const _gEsf   = mesKey ? allGastos.filter(g        => (g.fecha||'').startsWith(mesKey))   : allGastos;
+
+  // Movimientos: recargas y pagos por cliente||casa (normalizar por cliente_id)
+  const movMapEsf = {};
+  _movEsf.forEach(m => {
+    if (!m.cliente || !m.casa) return;
+    const nombre = (m.cliente_id && idToNombre[m.cliente_id]) || m.cliente;
+    const k = `${nombre}||${m.casa}`;
+    if (!movMapEsf[k]) movMapEsf[k] = { recargas: 0, pagos: 0 };
+    if (m.tipo === 'RECARGAS') movMapEsf[k].recargas += parseFloat(m.monto) || 0;
+    if (m.tipo === 'PAGOS')    movMapEsf[k].pagos    += parseFloat(m.monto) || 0;
+  });
+
+  // Inversiones: invertido total + retornado de bets ganadas (normalizar por cliente_id)
+  const invMapEsf = {};
+  _invEsf.forEach(inv => {
+    if (!inv.cliente || !inv.casa) return;
+    const nombre = (inv.cliente_id && idToNombre[inv.cliente_id]) || inv.cliente;
+    const k = `${nombre}||${inv.casa}`;
+    if (!invMapEsf[k]) invMapEsf[k] = { invertido: 0, retornado: 0 };
+    invMapEsf[k].invertido += parseFloat(inv.monto) || 0;
+    const ret = parseFloat(inv.retorno_cliente) || 0;
+    if (ret > 0) invMapEsf[k].retornado += ret;
+  });
+
+  // Suma total de saldos actuales
+  const allSaldoKeys = new Set([...Object.keys(siMapEsf), ...Object.keys(movMapEsf), ...Object.keys(invMapEsf)]);
+  let totalClientes = 0;
+  allSaldoKeys.forEach(k => {
+    const si  = siMapEsf[k] || 0;
+    const rec = (movMapEsf[k] || {}).recargas || 0;
+    const pag = (movMapEsf[k] || {}).pagos    || 0;
+    const inv = (invMapEsf[k] || {}).invertido || 0;
+    const ret = (invMapEsf[k] || {}).retornado || 0;
+    totalClientes += si + rec - pag - inv + ret;
+  });
+
+  // ── 3. Invertido (apuestas ABIERTO) ──
+  let invertido = 0;
+  _invEsf.forEach(inv => {
+    if ((inv.estado_evento||'ABIERTO') !== 'CERRADO') invertido += parseFloat(inv.monto)||0;
+  });
+
+  // ── 4. Comisiones por método (de movimientos) ──
+  const comByMetodo = {};
+  _movEsf.forEach(m => {
+    const com = parseFloat(m.comision)||0;
+    if (com <= 0) return;
+    const met = m.metodo || 'SIN MÉTODO';
+    comByMetodo[met] = (comByMetodo[met]||0) + com;
+  });
+  const totalComisiones = Object.values(comByMetodo).reduce((s,v)=>s+v, 0);
+
+  // ── 5. Gastos ──
+  const totalGastos = _gEsf.reduce((s,g)=>s+(parseFloat(g.valor)||0), 0);
+
+  // ── 6. Utilidad (inversiones CERRADAS) = retorno − invertido, sin comisiones ──
+  let utilidad = 0;
+  const apMap = {};
+  _invEsf.forEach(inv => {
+    const k = inv.id_apuesta; if (!k) return;
+    if (!apMap[k]) apMap[k] = { ret:0, inv:0, estado: inv.estado_evento||'ABIERTO' };
+    apMap[k].ret += parseFloat(inv.retorno_cliente)||0;
+    const fondosEsf = (inv.fondos||'').toUpperCase();
+    if (fondosEsf !== 'BONIFICACION') apMap[k].inv += parseFloat(inv.monto)||0;
+    if (inv.estado_evento==='CERRADO') apMap[k].estado='CERRADO';
+  });
+  Object.values(apMap).forEach(a => {
+    if (a.estado==='CERRADO') utilidad += a.ret - a.inv;
+  });
+
+  // ── 6b. Productividad ──
+  const _recargasMes  = _movEsf.filter(m => m.tipo === 'RECARGAS' || m.tipo === 'RECARGA');
+  const _pagosMes     = _movEsf.filter(m => m.tipo === 'PAGOS'    || m.tipo === 'PAGO');
+  const numRecargas   = _recargasMes.length;
+  const montoRecargas = Math.round(_recargasMes.reduce((s,m)=>s+(parseFloat(m.monto)||0),0));
+  const numPagos      = _pagosMes.length;
+  const montoPagos    = Math.round(_pagosMes.reduce((s,m)=>s+(parseFloat(m.monto)||0),0));
+  const numInversiones = _invEsf.length;
+  const _cliSet = new Set([
+    ..._recargasMes.map(m=>m.cliente_id||m.cliente),
+    ..._invEsf.map(i=>i.cliente_id||i.cliente)
+  ].filter(Boolean));
+  const clientesUnicos = _cliSet.size;
+
+  // ── 7. Cajas por método — solo cajas físicas (excluir virtuales) ──
+  const ci = config.cupos_iniciales || {};
+  const mapaData = {};
+  const metodosFisicos = METODOS_CAJA.filter(m => !METODOS_VIRTUALES.has(m));
+  metodosFisicos.forEach(m => {
+    mapaData[m] = { inicial: Math.round(parseFloat(ci[m])||0), ix:0, recargas:0, pagos:0, gastos:0, liqPago:0 };
+  });
+  _movEsf.forEach(mv => {
+    const met = normMetodo(mv.metodo);
+    if (!met || !mapaData[met]) return;
+    if (mv.tipo==='RECARGA'||mv.tipo==='RECARGAS') mapaData[met].recargas += parseFloat(mv.monto)||0;
+    else if (mv.tipo==='PAGO'||mv.tipo==='PAGOS')  mapaData[met].pagos    += parseFloat(mv.monto)||0;
+  });
+  _ixEsf.filter(ix => ix.estado !== 'pendiente_aceptar' && ix.estado !== 'cancelado').forEach(ix => {
+    const egr = normMetodo(ix.caja_egresa);
+    const ing = normMetodo(ix.caja_ingresa);
+    if (egr && mapaData[egr]) mapaData[egr].ix -= parseFloat(ix.monto)||0;
+    if (ing && mapaData[ing]) mapaData[ing].ix += parseFloat(ix.monto)||0;
+  });
+  _gEsf.forEach(g => {
+    const met = normMetodo(g.metodo);
+    if (met && mapaData[met]) mapaData[met].gastos += parseFloat(g.valor)||0;
+  });
+
+  // Pagos de liquidación del mes anterior (saldo) — reducen el saldo del método en ESF actual
+  // Usa _liqPrevDocs cargado directamente desde Firestore (no depende del tab de liquidación)
+  _liqPrevDocs.filter(d => d.data().tipo === 'saldo').forEach(d => {
+    const tx = d.data();
+    const met = normMetodo(tx.metodo);
+    if (met && mapaData[met]) mapaData[met].liqPago += parseFloat(tx.monto) || 0;
+  });
+
+  let totalCajas = 0;
+  const cajasHtml = metodosFisicos.map(m => {
+    const d = mapaData[m];
+    const v = d.inicial + d.ix - d.recargas + d.pagos - d.gastos - d.liqPago;
+    totalCajas += v;
+    const col = v > 0 ? 'var(--green)' : v < 0 ? 'var(--red)' : 'var(--text2)';
+    return `<div class="esf-row"><span style="color:var(--text2);font-size:12px">${m}</span><span style="color:${col};font-weight:600">${v !== 0 ? peso(v) : '$—'}</span></div>`;
+  }).join('');
+
+  // ── 8. Totales ──
+  const totalActivos = totalClientes + invertido + totalComisiones + comisionesMesAnt + totalCajas;
+  const totalPasivos = gananciaMesAnt; // Liquidación por Pagar (ganancia mes anterior que adeuda el operador)
+
+  // Guardar para el resumen de cierre de mes
+  _esfCierre = {
+    clientes:   totalClientes,
+    invertido,
+    comisiones: totalComisiones + comisionesMesAnt,
+    cajas:      totalCajas,
+    total:      totalActivos,
+    listo:      true
+  };
+
+  // ── Poblar ACTIVOS ──
+  document.getElementById('esf-clientes').textContent      = peso(totalClientes);
+  document.getElementById('esf-invertido').textContent     = peso(invertido);
+  document.getElementById('esf-comisiones').textContent    = peso(totalComisiones);
+  // Comisiones Mes Anterior (solo si hay saldo inicial = mes post-cierre)
+  const comAntRow = document.getElementById('esf-com-ant-row');
+  if (comisionesMesAnt > 0) {
+    document.getElementById('esf-com-ant').textContent = peso(comisionesMesAnt);
+    if (comAntRow) comAntRow.style.display = '';
+  } else {
+    if (comAntRow) comAntRow.style.display = 'none';
+  }
+  document.getElementById('esf-cajas-detalle').innerHTML   = cajasHtml || '<div style="color:var(--text2);font-size:12px;padding:4px 0">Sin saldo en cajas</div>';
+  document.getElementById('esf-total-activos').textContent = peso(totalActivos);
+
+  // ── Poblar PASIVOS ──
+  const liqRow = document.getElementById('esf-liq-pagar-row');
+  if (gananciaMesAnt > 0) {
+    document.getElementById('esf-liq-pagar').textContent = peso(gananciaMesAnt);
+    if (liqRow) liqRow.style.display = '';
+  } else {
+    if (liqRow) liqRow.style.display = 'none';
+  }
+  document.getElementById('esf-total-pasivos').textContent = peso(totalPasivos);
+
+  // ── Poblar PATRIMONIO ──
+  // Mes 2+ (post-cierre): PATRIMONIO = ACTIVOS - PASIVOS (garantiza cuadre por diseño)
+  // Mes 1 (sin cierre anterior): PATRIMONIO = cupo asignado + ganancia del mes
+  const cupoLabelEl = document.getElementById('esf-cupo-label');
+  let cupoEnCajas, cupoRedondeado;
+  if (clientesMesAnt > 0) {
+    // Post-cierre: patrimonio derivado, no depende de config.cupo
+    const _totalPat = Math.round(totalActivos) - Math.round(totalPasivos);
+    cupoEnCajas    = _totalPat - Math.round(clientesMesAnt) - Math.round(utilidad) + Math.round(totalGastos) - Math.round(totalComisiones);
+    cupoRedondeado = _totalPat - Math.round(utilidad) + Math.round(totalGastos) - Math.round(totalComisiones);
+    if (cupoLabelEl) cupoLabelEl.textContent = 'Cupo Residual';
+  } else {
+    cupoRedondeado = Math.round(config.cupo);
+    cupoEnCajas    = cupoRedondeado;
+    if (cupoLabelEl) cupoLabelEl.textContent = 'Cupo';
+  }
+
+  // ── Sección informativa: Cupo Total Asignado ──────────────────────────────
+  // CUPO TOTAL: guardado explícitamente en cupos_por_mes, o sum de capital_propio + capital_asignado
+  const cupoTotalAsignado = parseFloat(config.cupos_iniciales?.['CUPO TOTAL'])
+    || ((parseFloat(config.capital_propio) || 0) + (parseFloat(config.capital_asignado) || 0));
+  const cupoTotalBox = document.getElementById('esf-cupo-total-box');
+  if (cupoTotalAsignado > 0 && clientesMesAnt > 0) {
+    const residualFijo = cupoTotalAsignado - clientesMesAnt;
+    document.getElementById('esf-cupo-total-val').textContent      = peso(cupoTotalAsignado);
+    document.getElementById('esf-cupo-total-cma').textContent      = peso(clientesMesAnt);
+    const residualEl = document.getElementById('esf-cupo-total-residual');
+    residualEl.textContent  = peso(residualFijo);
+    residualEl.style.color  = residualFijo >= 0 ? 'var(--green)' : 'var(--red)';
+    if (cupoTotalBox) cupoTotalBox.style.display = 'block';
+  } else {
+    if (cupoTotalBox) cupoTotalBox.style.display = 'none';
+  }
+
+  document.getElementById('esf-mes-ant').textContent        = peso(clientesMesAnt);
+  const cupoEl = document.getElementById('esf-cupo');
+  cupoEl.textContent  = peso(cupoEnCajas);
+  cupoEl.style.color  = cupoEnCajas < 0 ? 'var(--red)' : cupoEnCajas > 0 ? '' : 'var(--text2)';
+  const utEl = document.getElementById('esf-utilidad');
+  utEl.textContent = peso(utilidad);
+  utEl.style.color = utilidad >= 0 ? 'var(--green)' : 'var(--red)';
+  document.getElementById('esf-gastos-pat').textContent     = totalGastos > 0 ? '-' + peso(totalGastos) : '$—';
+
+  // Comisiones por método en patrimonio
+  const comHtml = Object.entries(comByMetodo)
+    .sort((a,b)=>b[1]-a[1])
+    .map(([met,val]) =>
+      `<div class="esf-row"><span style="color:var(--text2);font-size:12px">Comisiones ${met}</span><span style="color:var(--orange)">${peso(val)}</span></div>`
+    ).join('') || '<div style="color:var(--text2);font-size:12px;padding:4px 0">Sin comisiones registradas</div>';
+  document.getElementById('esf-com-detalle').innerHTML = comHtml;
+
+  // Total patrimonio
+  const totalPatrimonio = cupoRedondeado + Math.round(utilidad) - Math.round(totalGastos) + Math.round(totalComisiones);
+  document.getElementById('esf-total-patrimonio').textContent = peso(totalPatrimonio);
+
+  // ── Banner cuadre ──
+  const _totPat = totalPatrimonio;
+  const diff = Math.abs(Math.round(totalActivos) - Math.round(totalPasivos) - _totPat);
+  const banner = document.getElementById('esf-cuadre-banner');
+  if (diff <= 1) {
+    banner.innerHTML = `<strong>✓ CUADRE</strong> — Activos = Pasivos + Patrimonio = ${peso(totalActivos)}`;
+    banner.className = 'alert alert-success';
+  } else {
+    banner.innerHTML = `<strong>✗ DESCUADRE</strong> — Diferencia de ${peso(diff)} · Revisar saldo_inicial o cajas`;
+    banner.className = 'alert alert-error';
+  }
+  banner.style.display = 'block';
+
+  // ── Mapa de Capital por Método ──
+  let tI=0, tIx=0, tRec=0, tPag=0, tGas=0, tLiq=0, tAct=0;
+  const mapaRows = metodosFisicos.map(m => {
+    const d = mapaData[m];
+    const actual = d.inicial + d.ix - d.recargas + d.pagos - d.gastos - d.liqPago;
+    tI+=d.inicial; tIx+=d.ix; tRec+=d.recargas; tPag+=d.pagos; tGas+=d.gastos; tLiq+=d.liqPago; tAct+=actual;
+    const actCol = actual >= 0 ? 'var(--green)' : 'var(--red)';
+    return `<tr>
+      <td style="font-weight:600">${m}</td>
+      <td style="text-align:right;color:var(--text)">${d.inicial ? peso(d.inicial) : '—'}</td>
+      <td style="text-align:right;color:${d.ix>=0?'var(--green)':'var(--red)'}">${d.ix!==0?peso(d.ix):'—'}</td>
+      <td style="text-align:right;color:var(--blue)">${d.recargas?peso(d.recargas):'—'}</td>
+      <td style="text-align:right;color:var(--green)">${d.pagos?peso(d.pagos):'—'}</td>
+      <td style="text-align:right;color:var(--red)">${d.gastos?peso(d.gastos):'—'}</td>
+      <td style="text-align:right;color:var(--orange)">${d.liqPago?'-'+peso(d.liqPago):'—'}</td>
+      <td style="text-align:right;font-weight:700;color:${actCol}">${peso(actual)}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('esf-mapa-tbody').innerHTML = mapaRows;
+  document.getElementById('esf-map-total-inicial').textContent = peso(tI);
+  document.getElementById('esf-map-total-ix').textContent      = tIx!==0 ? peso(tIx) : '—';
+  document.getElementById('esf-map-total-rec').textContent     = peso(tRec);
+  document.getElementById('esf-map-total-pag').textContent     = peso(tPag);
+  document.getElementById('esf-map-total-gas').textContent     = tGas?peso(tGas):'—';
+  document.getElementById('esf-map-total-liq').textContent     = tLiq?'-'+peso(tLiq):'—';
+  document.getElementById('esf-map-total-actual').textContent  = peso(tAct);
+
+  // Label período
+  document.getElementById('esf-periodo-label').textContent = config.mes || 'Período actual';
+
+  // ── Guardar resumen ESF en Firestore para que el admin lo vea en ESF Ops ──
+  try {
+    const cajasGuardar = metodosFisicos.map(m => {
+      const d = mapaData[m];
+      return { metodo: m, valor: Math.round(d.inicial + d.ix - d.recargas + d.pagos - d.gastos - (d.liqPago || 0)) };
+    }).filter(c => c.valor !== 0);
+    db.collection('patriarca_esf_resumen').doc(`${uid}_${mesKey}`).set({
+      uid:             uid,
+      nombre:          auth.currentUser?.displayName || auth.currentUser?.email || uid,
+      mes:             config.mes || '',
+      mesKey:          mesKey,
+      cuadre:          diff <= 1,
+      totalActivos:      totalActivos,
+      totalPasivos:      totalPasivos,
+      totalPatrimonio:   _totPat,
+      totalClientes:     totalClientes,
+      invertido:         invertido,
+      totalComisiones:   totalComisiones,
+      comisionesMesAnt:  comisionesMesAnt,
+      gananciaMesAnt:    gananciaMesAnt,
+      comByMetodo,
+      clientesMesAnt:  Math.round(clientesMesAnt),
+      cupoEnCajas:     Math.round(cupoEnCajas),
+      cupo:            cupoRedondeado,
+      utilidad:        Math.round(utilidad),
+      totalGastos:     Math.round(totalGastos),
+      cajas:           cajasGuardar,
+      productividad: {
+        numRecargas,   montoRecargas,
+        numPagos,      montoPagos,
+        numInversiones,
+        clientesUnicos,
+      },
+      actualizadoEn:   firebase.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true }).catch(e => console.warn('esf-resumen:', e));
+  } catch(e) { console.warn('esf-resumen save:', e); }
+}
+
+function numToCOP(n) {
+  if (!n) return '';
+  const fixed = n.toFixed(2);
+  const [int, dec] = fixed.split('.');
+  const intFmt = int.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return dec === '00' ? intFmt : intFmt + ',' + dec;
+}
+// formatCOP definida arriba (línea ~1602)
+function parseCOP(str) {
+  if (!str) return 0;
+  return parseFloat(str.replace(/\./g, '').replace(',', '.')) || 0;
+}
+function onCupoInput(el) {
+  const pos = el.selectionStart;
+  const oldLen = el.value.length;
+  el.value = formatCOP(el.value);
+  const diff = el.value.length - oldLen;
+  el.selectionStart = el.selectionEnd = Math.max(0, pos + diff);
+}
+
+async function saveCuposIniciales() {
+  const cupos = {};
+  METODOS_CAJA.forEach(m => {
+    const el = document.getElementById('ci-' + m.replace(/ /g,'_'));
+    const v = parseCOP(el?.value);
+    if (v) cupos[m] = v;
+  });
+  config.cupos_iniciales = cupos;
+  try {
+    await db.collection('patriarca_config').doc(opId).set({ cupos_iniciales: cupos }, { merge: true });
+    toast('✅ Capital inicial guardado','success');
+    renderESF();
+  } catch(e) { toast('⚠ Error: ' + e.message,'error'); }
+}
+
+// ──────────────────── GASTOS ────────────────────
+function limpiarFiltrosGastos() {
+  ['g-f-desde','g-f-hasta','g-f-desc'].forEach(id => { const el = document.getElementById(id); if(el) el.value=''; });
+  const sel = document.getElementById('g-f-metodo'); if(sel) sel.value='';
+  renderGastos();
+}
+
+function renderGastos() {
+  const tbody = document.getElementById('gastos-tbody');
+  const _mkG = _mesKey(config?.mes);
+  const _gastosBase = _mkG ? allGastos.filter(g => (g.fecha||'').startsWith(_mkG)) : allGastos;
+
+  // Poblar select de métodos (solo métodos presentes en este mes)
+  const selMet = document.getElementById('g-f-metodo');
+  if (selMet) {
+    const metodos = [...new Set(_gastosBase.map(g => g.metodo).filter(Boolean))].sort();
+    const valActual = selMet.value;
+    selMet.innerHTML = '<option value="">Todos los métodos</option>' +
+      metodos.map(m => `<option value="${m}" ${m===valActual?'selected':''}>${m}</option>`).join('');
+  }
+
+  // Leer filtros
+  const fDesde  = (document.getElementById('g-f-desde')?.value  || '');
+  const fHasta  = (document.getElementById('g-f-hasta')?.value  || '');
+  const fMetodo = (document.getElementById('g-f-metodo')?.value || '');
+  const fDesc   = (document.getElementById('g-f-desc')?.value   || '').toLowerCase();
+
+  const filtrado = _gastosBase.filter(g => {
+    if (fDesde  && (g.fecha||'') < fDesde)  return false;
+    if (fHasta  && (g.fecha||'') > fHasta)  return false;
+    if (fMetodo && g.metodo !== fMetodo)     return false;
+    if (fDesc   && !(g.descripcion||'').toLowerCase().includes(fDesc)) return false;
+    return true;
+  });
+
+  const total = filtrado.reduce((s,g)=>s+(parseFloat(g.valor)||0),0);
+  document.getElementById('gastos-total').textContent = peso(total);
+
+  if (!filtrado.length) {
+    tbody.innerHTML='<tr><td colspan="6"><div class="empty"><div class="empty-icon">💳</div>Sin gastos</div></td></tr>';
+    return;
+  }
+  tbody.innerHTML = filtrado.map((g,i)=>`
+    <tr>
+      <td>${fmtDate(g.fecha)}</td>
+      <td>${i+1}</td>
+      <td style="color:var(--red);font-weight:700">${peso(g.valor)}</td>
+      <td>${g.metodo||'—'}</td>
+      <td>${g.descripcion||'—'}</td>
+      <td style="display:flex;gap:6px">
+        <button class="btn-del" style="background:rgba(255,200,0,.12);border-color:var(--gold);color:var(--gold)" onclick="editGasto('${g.id}')">✏</button>
+        <button class="btn-del" onclick="deleteDoc('gastos','${g.id}')">🗑</button>
+      </td>
+    </tr>`).join('');
+}
+
+function nuevoGasto() {
+  if (_checkLock('registrar gastos')) return;
+  document.getElementById('gs-edit-id').value = '';
+  document.getElementById('gs-modal-title').textContent = '💳 Registrar Gasto';
+  document.getElementById('gs-save-btn').textContent    = 'Guardar';
+  document.getElementById('gs-valor').value = '';
+  document.getElementById('gs-otro').value  = '';
+  document.getElementById('gs-otro-wrap').style.display = 'none';
+  document.getElementById('gs-desc').value = 'COSTO 4 X MIL';
+  document.getElementById('gs-fecha').value = today();
+  openModal('modal-gasto');
+}
+
+function editGasto(id) {
+  if (_checkLock('editar gastos')) return;
+  const g = allGastos.find(x => x.id === id);
+  if (!g) return;
+  document.getElementById('gs-edit-id').value     = id;
+  document.getElementById('gs-modal-title').textContent = '✏ Editar Gasto';
+  document.getElementById('gs-save-btn').textContent    = 'Actualizar';
+  document.getElementById('gs-fecha').value  = g.fecha || '';
+  document.getElementById('gs-valor').value  = g.valor || '';
+  // Método
+  const metEl = document.getElementById('gs-metodo');
+  if (metEl) metEl.value = g.metodo || '';
+  // Descripción
+  const descEl  = document.getElementById('gs-desc');
+  const otroWrap = document.getElementById('gs-otro-wrap');
+  const otroEl   = document.getElementById('gs-otro');
+  const knownDescs = [...descEl.options].map(o => o.value);
+  if (knownDescs.includes(g.descripcion)) {
+    descEl.value = g.descripcion;
+    otroWrap.style.display = 'none';
+  } else {
+    descEl.value       = 'OTRO';
+    otroEl.value       = g.descripcion || '';
+    otroWrap.style.display = '';
+  }
+  openModal('modal-gasto');
+}
+
+async function saveGasto() {
+  if (_checkLock('registrar gastos')) return;
+  const editId = document.getElementById('gs-edit-id').value;
+  const valor  = parseFloat(document.getElementById('gs-valor').value)||0;
+  const metodo = document.getElementById('gs-metodo').value;
+  const fecha  = document.getElementById('gs-fecha').value||today();
+  const selDesc = document.getElementById('gs-desc').value;
+  const desc   = selDesc === 'OTRO'
+    ? (document.getElementById('gs-otro').value.trim() || 'OTRO')
+    : selDesc;
+  if (!valor) { toast('⚠ Ingresa el valor','error'); return; }
+  if (selDesc === 'OTRO' && !document.getElementById('gs-otro').value.trim()) {
+    toast('⚠ Describe el gasto','error'); return;
+  }
+  try {
+    if (editId) {
+      // Editar gasto existente
+      await coll('gastos').doc(editId).update({ fecha, valor, metodo, descripcion: desc });
+      toast('✅ Gasto actualizado','success');
+    } else {
+      // Nuevo gasto
+      await coll('gastos').add({
+        opId, fecha, valor, metodo, descripcion: desc,
+        ts: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      toast('✅ Gasto registrado','success');
+    }
+    closeModal('modal-gasto');
+    // Resetear modal a modo "nuevo"
+    document.getElementById('gs-edit-id').value = '';
+    document.getElementById('gs-modal-title').textContent = '💳 Registrar Gasto';
+    document.getElementById('gs-save-btn').textContent    = 'Guardar';
+    document.getElementById('gs-valor').value = '';
+    document.getElementById('gs-otro').value  = '';
+    document.getElementById('gs-otro-wrap').style.display = 'none';
+    document.getElementById('gs-desc').value = 'COSTO 4 X MIL';
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+// ──────────────────── DELETE ────────────────────
+async function eliminarTodosMovimientos() {
+  const mk = _mesKey(config?.mes);
+  const mesLabel = config?.mes || 'todos los meses';
+  // SOLO eliminar movimientos del mes activo para evitar borrar datos de otros meses
+  const movsMes = mk
+    ? allMovimientos.filter(m => m.mesKey ? m.mesKey === mk : (m.fecha||'').startsWith(mk))
+    : allMovimientos;
+  const total = movsMes.length;
+  if (!total) { toast(`No hay movimientos en ${mesLabel}`, 'info'); return; }
+  if (!confirm(`¿Eliminar los ${total} movimientos de ${mesLabel}?\n\nEsta acción NO se puede deshacer.`)) return;
+  try {
+    const ids = movsMes.map(m => m.id);
+    const CHUNK = 400;
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const fb = db.batch();
+      ids.slice(i, i + CHUNK).forEach(id => fb.delete(coll('movimientos').doc(id)));
+      await fb.commit();
+    }
+    toast(`🗑 ${total} movimientos de ${mesLabel} eliminados`, 'info');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+async function deleteDoc(colName, id) {
+  if (!confirm('¿Eliminar este registro?')) return;
+  try {
+    await coll(colName).doc(id).delete();
+    toast('🗑 Eliminado','info');
+  } catch(e) { toast('⚠ Error al eliminar: ' + e.message, 'error'); }
+}
+
+// ──────────────────── SALDO INICIAL DE CLIENTES ────────────────────
+// ──────────────────── SALDO INICIAL (operador — solo lectura) ────────────────────
+function siMesActual() {
+  // Usar siempre el mes configurado en admin; solo caer al calendario si no hay config
+  return _mesKey(config?.mes) || (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  })();
+}
+
+function siPopulateMeses() {
+  const sel = document.getElementById('si-mes-select');
+  if (!sel || sel.options.length > 0) return;
+  const now = new Date();
+  const opts = [];
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const val = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    const label = d.toLocaleDateString('es-CO', { month: 'long', year: 'numeric' });
+    opts.push(`<option value="${val}"${i===0?' selected':''}>${label.charAt(0).toUpperCase()+label.slice(1)}</option>`);
+  }
+  sel.innerHTML = opts.join('');
+}
+
+async function renderSaldoInicial() {
+  siPopulateMeses();
+  const mesKey = document.getElementById('si-mes-select')?.value || siMesActual();
+  const uid    = auth.currentUser?.uid;
+  const wrap   = document.getElementById('si-grid-wrap');
+  if (!uid || !wrap) return;
+
+  wrap.innerHTML = '<div class="empty"><div class="empty-icon">⏳</div>Cargando...</div>';
+
+  let saldos = {};
+  try {
+    const snap = await db.collection('patriarca_saldo_inicial').doc(`${uid}_${mesKey}`).get();
+    saldos = snap.exists ? (snap.data().saldos || {}) : {};
+  } catch(e) { console.warn('saldo inicial load:', e); }
+
+  // Convertir mapa a lista de filas ordenada por cliente
+  const clienteMap = {};
+  allClientes.forEach(c => {
+    clienteMap[c.id] = c.nombre_completo || c.nombre || c.id;
+  });
+  clienteMap['_externo_'] = 'Externo';
+
+  const filas = [];
+  Object.entries(saldos).forEach(([clienteId, casaMap]) => {
+    Object.entries(casaMap).forEach(([casa, monto]) => {
+      if ((parseFloat(monto)||0) !== 0) {
+        filas.push({ clienteNombre: clienteMap[clienteId] || clienteId, casa, monto: parseFloat(monto) });
+      }
+    });
+  });
+  filas.sort((a,b) => a.clienteNombre.localeCompare(b.clienteNombre) || a.casa.localeCompare(b.casa));
+
+  const grandTotal = filas.reduce((s,r) => s + r.monto, 0);
+  const clientesActivos = new Set(filas.map(r => r.clienteNombre)).size;
+  const casasActivas    = new Set(filas.map(r => r.casa)).size;
+
+  document.getElementById('si-total').textContent          = peso(grandTotal);
+  document.getElementById('si-clientes-count').textContent = clientesActivos;
+  document.getElementById('si-casas-count').textContent    = casasActivas;
+
+  if (!filas.length) {
+    wrap.innerHTML = '<div class="empty"><div class="empty-icon">📊</div>Sin saldos iniciales para este mes · El administrador debe cargarlos</div>';
+    return;
+  }
+
+  const rows = filas.map(r => {
+    const color = r.monto < 0 ? 'var(--red)' : 'var(--green)';
+    return `<tr>
+      <td style="padding:8px 10px">${r.clienteNombre}</td>
+      <td style="padding:8px 10px;color:var(--muted)">${r.casa}</td>
+      <td style="padding:8px 10px;text-align:right;font-weight:700;color:${color}">${peso(r.monto)}</td>
+    </tr>`;
+  }).join('');
+
+  wrap.innerHTML = `<table style="border-collapse:collapse;width:100%;max-width:600px">
+    <thead>
+      <tr style="background:var(--panel-alt,#1a2035)">
+        <th style="padding:8px 10px;text-align:left">Cliente</th>
+        <th style="padding:8px 10px;text-align:left">Casa de Apuestas</th>
+        <th style="padding:8px 10px;text-align:right">Saldo Inicial</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+    <tfoot>
+      <tr style="background:var(--panel-alt,#1a2035);border-top:2px solid var(--border)">
+        <td colspan="2" style="padding:8px 10px;font-weight:700">TOTAL</td>
+        <td style="padding:8px 10px;text-align:right;font-weight:700;color:var(--gold)">${peso(grandTotal)}</td>
+      </tr>
+    </tfoot>
+  </table>`;
+}
+
+// ──────────────────── MODALS ────────────────────
+function openModal(id) {
+  // Precargar mes actual si se abre el modal de cambio de mes
+  if (id === 'modal-mes' && config && config.mes) {
+    const sel = document.getElementById('mes-select');
+    if (sel) { for(let o of sel.options) o.selected = (o.value === config.mes); }
+  }
+  // Precargar config actual si se abre el modal de configuración
+  if (id === 'modal-config' && config && config.mes) {
+    const sel = document.getElementById('cfg-mes');
+    if (sel) { for(let o of sel.options) if(o.value===config.mes) o.selected=true; }
+    const cupoEl = document.getElementById('cfg-cupo'); if(cupoEl) cupoEl.value = config.cupo||8000000;
+    const metaEl = document.getElementById('cfg-meta'); if(metaEl) metaEl.value = config.meta||5000000;
+    const vincEl = document.getElementById('cfg-vinc'); if(vincEl) vincEl.value = config.vinc||'Propio';
+    const rojoEl = document.getElementById('cfg-rojo'); if(rojoEl) rojoEl.value = config.rojo||600000;
+    const intEl  = document.getElementById('cfg-interes'); if(intEl) intEl.value = config.interes||5;
+  }
+  // Set default dates
+  const dateFields = document.querySelectorAll(`#${id} input[type=date]`);
+  dateFields.forEach(f => { if(!f.value) f.value = today(); });
+  const el = document.getElementById(id);
+  el.classList.add('open');
+  // Foco automático al primer campo interactivo del modal
+  requestAnimationFrame(() => {
+    const first = el.querySelector('select, input:not([type=hidden]), textarea, button');
+    if (first) first.focus();
+  });
+  // Focus trap: Tab queda dentro del modal
+  el._trapFn = function(e) {
+    if (e.key !== 'Tab') return;
+    const focusable = [...el.querySelectorAll('select, input:not([type=hidden]), textarea, button:not([disabled])')].filter(f => f.offsetParent !== null);
+    if (!focusable.length) return;
+    const first = focusable[0], last = focusable[focusable.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last)  { e.preventDefault(); first.focus(); }
+  };
+  document.addEventListener('keydown', el._trapFn);
+}
+function closeModal(id) {
+  const el = document.getElementById(id);
+  el.classList.remove('open');
+  // Liberar focus trap
+  if (el._trapFn) { document.removeEventListener('keydown', el._trapFn); el._trapFn = null; }
+  // Restaurar modal inversión siempre
+  if (id === 'modal-inversion') {
+    ['1','X','2'].forEach(op => {
+      const c = document.querySelector('.inv-rows-' + op);
+      if (c) c.innerHTML = '';
+    });
+    _editInvId = null;
+    const srch = document.getElementById('inv-evento-search');
+    if (srch) srch.value = '';
+    const hid = document.getElementById('inv-evento');
+    if (hid) hid.value = '';
+    document.querySelector('#modal-inversion h3').textContent = '🎯 Registrar Apuesta';
+    const btn = document.querySelector('#modal-inversion .btn-gold');
+    if (btn) { btn.textContent = 'Guardar Todo'; btn.onclick = saveInversion; }
+    // Ocultar campo motivo al volver a modo creación
+    const mRow = document.getElementById('inv-motivo-row');
+    if (mRow) mRow.style.display = 'none';
+    const mEl = document.getElementById('inv-motivo');
+    if (mEl) mEl.value = '';
+    populateEventSelects();
+  }
+}
+// Close on backdrop click
+document.querySelectorAll('.modal-overlay').forEach(o => {
+  o.addEventListener('click', e => { if(e.target===o) o.classList.remove('open'); });
+});
+
+// ── TEMA: AUTO / CLARO / OSCURO ─────────────────────────────────────────────
+function _themeStored() { return localStorage.getItem('aj16-theme') || 'auto'; }
+function _isLight() {
+  const t = _themeStored();
+  if (t === 'light') return true;
+  if (t === 'dark')  return false;
+  return window.matchMedia('(prefers-color-scheme: light)').matches;
+}
+function toggleTheme() {
+  // Ciclo: auto → light → dark → auto
+  const t = _themeStored();
+  const next = t === 'auto' ? 'light' : t === 'light' ? 'dark' : 'auto';
+  if (next === 'auto') {
+    document.documentElement.removeAttribute('data-theme');
+    localStorage.removeItem('aj16-theme');
+  } else {
+    document.documentElement.setAttribute('data-theme', next);
+    localStorage.setItem('aj16-theme', next);
+  }
+  _updateThemeBtn();
+}
+function _updateThemeBtn() {
+  const btn = document.getElementById('btn-theme');
+  if (!btn) return;
+  const t = _themeStored();
+  if (t === 'auto')  { btn.textContent = '🌗'; btn.title = 'Automático (según sistema) — clic para modo claro'; }
+  else if (t === 'light') { btn.textContent = '🌙'; btn.title = 'Modo claro — clic para modo oscuro'; }
+  else               { btn.textContent = '☀️'; btn.title = 'Modo oscuro — clic para automático'; }
+}
+window.addEventListener('DOMContentLoaded', _updateThemeBtn);
+window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', _updateThemeBtn);
+
+// ──────────────────── CIERRE DE MES ────────────────────
+
+// Calcula el mes siguiente dado "YYYY-MM"
+function nextMesKey(mesKey) {
+  const [y, m] = (mesKey || '').split('-').map(Number);
+  if (!y || !m) return '';
+  return (m===12 ? (y+1)+'-01' : y+'-'+String(m+1).padStart(2,'0')); // m es 1-indexed → new Date(y,m,1) = mes siguiente
+}
+
+// Calcula saldo actual por clienteId/casa al cierre del mes (mismo cálculo que pestaña Saldos)
+async function calcCierreClientes() {
+  const uid    = auth.currentUser?.uid;
+  const mesKey = siMesActual();
+
+  let saldoInicial = {};
+  try {
+    const snap = await db.collection('patriarca_saldo_inicial').doc(`${uid}_${mesKey}`).get();
+    saldoInicial = snap.exists ? (snap.data().saldos || {}) : {};
+  } catch(e) { console.warn('cierre: saldo_inicial:', e); }
+
+  const idToNombre = {};
+  const nombreToId = {};
+  allClientes.forEach(c => {
+    const n = c.nombre_completo || c.nombre || c.id;
+    idToNombre[c.id] = n;
+    nombreToId[n] = c.id;
+  });
+  idToNombre['_externo_'] = 'Externo';
+  nombreToId['Externo']   = '_externo_';
+
+  // Acumuladores keyed por "clienteId||casa" — solo movimientos del mes
+  const _movCierre = allMovimientos.filter(m   => (m.fecha||'').startsWith(mesKey));
+  const _invCierre = _filtrarInvMes(mesKey);
+  const movAcc = {}, invAcc = {};
+
+  _movCierre.forEach(m => {
+    if (!m.cliente || !m.casa) return;
+    const cid = m.cliente_id || nombreToId[m.cliente] || m.cliente;
+    const k = `${cid}||${m.casa}`;
+    if (!movAcc[k]) movAcc[k] = { recargas: 0, pagos: 0 };
+    if (m.tipo === 'RECARGAS') movAcc[k].recargas += parseFloat(m.monto) || 0;
+    if (m.tipo === 'PAGOS')    movAcc[k].pagos    += parseFloat(m.monto) || 0;
+  });
+
+  _invCierre.forEach(inv => {
+    if (!inv.cliente || !inv.casa) return;
+    const cid = inv.cliente_id || nombreToId[inv.cliente] || inv.cliente;
+    const k = `${cid}||${inv.casa}`;
+    if (!invAcc[k]) invAcc[k] = { invertido: 0, retornado: 0 };
+    invAcc[k].invertido += parseFloat(inv.monto) || 0;
+    const ret = parseFloat(inv.retorno_cliente) || 0;
+    if (ret > 0) invAcc[k].retornado += ret;
+  });
+
+  // Unión de todas las claves
+  const allKeys = new Set();
+  Object.entries(saldoInicial).forEach(([cid, casaMap]) =>
+    Object.keys(casaMap).forEach(casa => allKeys.add(`${cid}||${casa}`)));
+  Object.keys(movAcc).forEach(k => allKeys.add(k));
+  Object.keys(invAcc).forEach(k => allKeys.add(k));
+
+  // Construir resultado { clienteId: { casa: saldoFinal } }
+  const result = {};
+  allKeys.forEach(k => {
+    const [cid, casa] = k.split('||');
+    const si  = (saldoInicial[cid] || {})[casa] || 0;
+    const { recargas = 0, pagos = 0 }         = movAcc[k] || {};
+    const { invertido = 0, retornado = 0 }     = invAcc[k] || {};
+    const actual = si + recargas - pagos - invertido + retornado;
+    if (!result[cid]) result[cid] = {};
+    result[cid][casa] = Math.round(actual * 100) / 100;
+  });
+
+  return result;
+}
+
+// Calcula saldo actual por método al cierre del mes (mismo cálculo que pestaña Métodos)
+async function calcCierreMetodos() {
+  const ci  = config.cupos_iniciales || {};
+  const mk  = siMesActual();
+  const _mv = mk ? allMovimientos.filter(m   => (m.fecha||'').startsWith(mk))  : allMovimientos;
+  const _ix = mk ? allIntercambios.filter(ix => (ix.fecha||'').startsWith(mk)) : allIntercambios;
+  const _gx = mk ? (allGastos||[]).filter(g  => (g.fecha||'').startsWith(mk))  : (allGastos||[]);
+  const map = {};
+  METODOS_CAJA.filter(m => !METODOS_VIRTUALES.has(m)).forEach(m => {
+    map[m] = { inicial: parseFloat(ci[m]) || 0, ix: 0, recargas: 0, pagos: 0, gastos: 0, liqPago: 0 };
+  });
+  _mv.forEach(mv => {
+    const met = normMetodo(mv.metodo);
+    if (!met || !map[met]) return;
+    const monto = parseFloat(mv.monto) || 0;
+    if (mv.tipo === 'RECARGA' || mv.tipo === 'RECARGAS') map[met].recargas += monto;
+    else if (mv.tipo === 'PAGO' || mv.tipo === 'PAGOS')  map[met].pagos    += monto;
+  });
+  _ix
+    .filter(ix => ix.estado !== 'pendiente_aceptar' && ix.estado !== 'cancelado')
+    .forEach(ix => {
+      const monto = parseFloat(ix.monto) || 0;
+      const egr = normMetodo(ix.caja_egresa), ing = normMetodo(ix.caja_ingresa);
+      if (egr && map[egr]) map[egr].ix -= monto;
+      if (ing && map[ing]) map[ing].ix += monto;
+    });
+  _gx.forEach(g => {
+    const met = normMetodo(g.metodo);
+    if (met && map[met]) map[met].gastos += parseFloat(g.valor) || 0;
+  });
+
+  // Liquidación del mes anterior ya pagada — reduce el saldo del método (igual que el ESF)
+  try {
+    const uid = auth.currentUser?.uid;
+    const [yk, mkNum] = (mk || '').split('-').map(Number);
+    if (uid && yk && mkNum) {
+      const prevKey = (mkNum===1 ? (yk-1)+'-12' : yk+'-'+String(mkNum-1).padStart(2,'0'));
+      const liqSnap = await db.collection('patriarca_liquidacion_txs')
+        .where('operadorId', '==', uid)
+        .where('mesKey',     '==', prevKey)
+        .where('estado',     '==', 'aprobado')
+        .get({ source: 'server' });
+      liqSnap.docs.forEach(d => {
+        const tx = d.data();
+        if (tx.tipo !== 'saldo') return;
+        const met = normMetodo(tx.metodo);
+        if (met && map[met]) map[met].liqPago += parseFloat(tx.monto) || 0;
+      });
+    }
+  } catch(e) { console.warn('calcCierreMetodos liq:', e); }
+
+  const result = {};
+  Object.entries(map).forEach(([m, d]) => {
+    const actual = d.inicial + d.ix - d.recargas + d.pagos - d.gastos - d.liqPago;
+    if (actual !== 0 || d.inicial !== 0) result[m] = Math.round(actual * 100) / 100;
+  });
+  return result;
+}
+
+// Calcula ganancia neta del mes (mismo cálculo que ESF)
+function calcCierreGanancia() {
+  const mk   = siMesActual();
+  const _inv = _filtrarInvMes(mk);
+  const _mov = mk ? allMovimientos.filter(m   => (m.fecha||'').startsWith(mk))   : allMovimientos;
+  const _gx  = mk ? (allGastos||[]).filter(g  => (g.fecha||'').startsWith(mk))   : (allGastos||[]);
+
+  // Utilidad de inversiones CERRADAS
+  let utilidad = 0;
+  const apMap  = {};
+  _inv.forEach(inv => {
+    const k = inv.id_apuesta; if (!k) return;
+    if (!apMap[k]) apMap[k] = { ret: 0, inv: 0, estado: inv.estado_evento || 'ABIERTO' };
+    apMap[k].ret += parseFloat(inv.retorno_cliente) || 0;
+    if ((inv.fondos || '').toUpperCase() !== 'BONIFICACION') apMap[k].inv += parseFloat(inv.monto) || 0;
+    if (inv.estado_evento === 'CERRADO') apMap[k].estado = 'CERRADO';
+  });
+  Object.values(apMap).forEach(a => { if (a.estado === 'CERRADO') utilidad += a.ret - a.inv; });
+
+  // Gastos
+  const gastos = _gx.reduce((s, g) => s + (parseFloat(g.valor) || 0), 0);
+
+  // Comisiones por método
+  const comisiones = {};
+  _mov.forEach(m => {
+    const com = parseFloat(m.comision) || 0;
+    if (com <= 0) return;
+    const met = m.metodo || 'SIN MÉTODO';
+    comisiones[met] = (comisiones[met] || 0) + com;
+  });
+  const totalCom = Object.values(comisiones).reduce((s, v) => s + v, 0);
+
+  return {
+    utilidad: Math.round(utilidad),
+    gastos:   Math.round(gastos),
+    comisiones,
+    totalComisiones: Math.round(totalCom),
+    total: Math.round(utilidad - gastos + totalCom)
+  };
+}
+
+// Abre modal de confirmación de cierre
+async function cerrarMes() {
+  const uid = auth.currentUser?.uid;
+  if (!uid || !config.mes) return;
+
+  // Verificar si ya hay cierre pendiente/aceptado para este mes
+  try {
+    const snap = await db.collection('patriarca_cierres')
+      .where('operadorId', '==', uid)
+      .where('mes', '==', config.mes)
+      .where('estado', 'in', ['pendiente', 'aceptado'])
+      .limit(1).get();
+    if (!snap.empty) {
+      const e = snap.docs[0].data().estado;
+      toast(e === 'pendiente' ? '⏳ Ya tienes un cierre pendiente de aprobación' : '✅ El mes ya fue cerrado', 'info');
+      return;
+    }
+  } catch(e) {}
+
+  const mesSig = nextMesKey(_mesKey(config.mes) || siMesActual());
+  document.getElementById('cierre-mes-label').textContent    = config.mes;
+  document.getElementById('cierre-mes-siguiente').textContent = mesSig;
+
+  // ── Resumen de cierre — mismos valores del ESF ──
+  const gan = calcCierreGanancia();
+  if (!_esfCierre.listo) { try { await renderESF(); } catch(e) {} }
+  const E = _esfCierre;
+
+  const fila = (label, valor, color) => `
+    <div style="display:flex;justify-content:space-between;padding:3px 0">
+      <span style="color:var(--text2)">${label}</span>
+      <span style="color:${color||'var(--text)'};font-weight:700">${peso(valor)}</span>
+    </div>`;
+
+  document.getElementById('cierre-resumen').style.display = '';
+  document.getElementById('cierre-resumen').innerHTML = `
+    <div style="background:var(--bg3);border-radius:8px;padding:12px 14px;font-size:12px;line-height:1.6">
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text2);font-weight:700;margin-bottom:6px">Con qué cierras el mes</div>
+      ${fila('Saldo de Clientes', E.clientes, 'var(--green)')}
+      ${fila('Comisiones por Cobrar', E.comisiones, 'var(--green)')}
+      ${fila('Saldo en Métodos', E.cajas, 'var(--green)')}
+      ${E.invertido ? fila('Invertido (apuestas abiertas)', E.invertido, 'var(--green)') : ''}
+      <div style="display:flex;justify-content:space-between;padding:7px 0 3px;margin-top:5px;border-top:1px solid var(--border);font-size:13px">
+        <span style="font-weight:700">TOTAL ACTIVOS</span>
+        <span style="color:var(--green);font-weight:800">${peso(E.total)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:7px 0 3px;margin-top:4px;border-top:1px solid var(--border)">
+        <span style="color:var(--text2)">Ganancia neta del mes</span>
+        <span style="color:var(--gold);font-weight:800">${peso(gan.total)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0">
+        <span style="color:var(--text2)">Mes siguiente</span>
+        <span style="color:var(--gold);font-weight:700">${mesSig}</span>
+      </div>
+    </div>`;
+
+  const btn = document.getElementById('btn-confirmar-cierre');
+  btn.disabled = false;
+  btn.textContent = '✅ Confirmar y Enviar';
+  openModal('modal-cierre-mes');
+}
+
+// Ejecuta el cierre: calcula todo y guarda en Firestore
+async function confirmarCierreMes() {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return;
+  const btn = document.getElementById('btn-confirmar-cierre');
+  btn.disabled = true;
+  btn.textContent = '⏳ Calculando...';
+  try {
+    const mes     = config.mes;
+    const mesSig  = nextMesKey(_mesKey(mes) || siMesActual());
+
+    const saldosClientes = await calcCierreClientes();
+    const totalClientes  = Object.values(saldosClientes)
+      .reduce((s, cm) => s + Object.values(cm).reduce((ss, v) => ss + (v || 0), 0), 0);
+    const saldosMetodos = await calcCierreMetodos();
+    const ganancia      = calcCierreGanancia();
+
+    // Array para mostrar en admin: TODOS los saldos distintos de cero (incluidos negativos),
+    // para que el total del desglose coincida con el Saldo Clientes que se traslada.
+    const _idToNom = { '_externo_': 'Externo' };
+    allClientes.forEach(c => { _idToNom[c.id] = c.nombre_completo || c.nombre || c.id; });
+
+    const capitalActivoClientes = [];
+    Object.entries(saldosClientes).forEach(([cid, casaMap]) => {
+      const nombre = _idToNom[cid] || cid;
+      Object.entries(casaMap).forEach(([casa, saldo]) => {
+        const s = Math.round(saldo || 0);
+        if (s !== 0) capitalActivoClientes.push({ nombre, casa, saldo: s });
+      });
+    });
+    capitalActivoClientes.sort((a, b) => b.saldo - a.saldo);
+
+    await db.collection('patriarca_cierres').add({
+      operadorId:      uid,
+      operadorNombre:  operadorNombre || auth.currentUser.displayName || auth.currentUser.email || uid,
+      mes,
+      mesSiguiente:    mesSig,
+      estado:          'pendiente',
+      ts:              firebase.firestore.FieldValue.serverTimestamp(),
+      saldosClientes,
+      totalClientes:   Math.round(totalClientes),
+      capitalActivoClientes,
+      saldosMetodos,
+      ganancia
+    });
+
+    closeModal('modal-cierre-mes');
+    toast('✅ Cierre enviado al administrador para aprobación', 'success');
+    actualizarBotonCierre();
+  } catch(e) {
+    toast('❌ Error: ' + e.message, 'error');
+    btn.disabled    = false;
+    btn.textContent = '✅ Confirmar y Enviar';
+  }
+}
+
+// Aplica permisos configurados por el admin a los botones del portal
+function aplicarPermisos() {
+  const p = config.permisos || {};
+  const show = (id, visible) => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = visible ? '' : 'none';
+  };
+  // Importar Excel (los 3 tabs)
+  const puedoImportar = p.importarExcel !== false;
+  show('btn-import-ev',  puedoImportar);
+  show('btn-import-mov', puedoImportar);
+  show('btn-import-inv', puedoImportar);
+  show('btn-import-ix',  puedoImportar);
+  show('btn-import-cli', puedoImportar);
+  // Eliminar todo
+  const puedoEliminar = p.eliminarTodo !== false;
+  show('btn-elim-mov', puedoEliminar);
+  show('btn-elim-inv', puedoEliminar);
+  // Re-vincular Origen
+  show('btn-revincular', p.revinculatOrigen !== false);
+  // Hoja de Comisiones (tab)
+  show('tab-comisiones', p.hojaComisiones !== false);
+  // Cerrar Mes: lo controla actualizarBotonCierre() — sólo bloqueamos aquí si no tiene permiso
+  if (p.cerrarMes === false) {
+    const btnCierre = document.getElementById('btn-cerrar-mes');
+    if (btnCierre) btnCierre.style.display = 'none';
+  }
+}
+
+// Actualiza el estado visual del botón "Cerrar Mes"
+async function actualizarBotonCierre() {
+  const uid = auth.currentUser?.uid;
+  const btn = document.getElementById('btn-cerrar-mes');
+  if (!uid || !config.mes || !btn) return;
+  // Respetar permiso — si no tiene permiso, mantener oculto
+  if ((config.permisos || {}).cerrarMes === false) { btn.style.display = 'none'; return; }
+  btn.style.display = '';
+  try {
+    // Sin orderBy para evitar requerir índice compuesto — filtramos en JS
+    const snap = await db.collection('patriarca_cierres')
+      .where('operadorId', '==', uid)
+      .where('mes', '==', config.mes).get();
+    const docs = snap.docs.map(d => d.data()).sort((a, b) => {
+      const ta = a.ts?.toMillis?.() || 0;
+      const tb = b.ts?.toMillis?.() || 0;
+      return tb - ta;
+    });
+    const reciente = docs[0];
+    if (!reciente) {
+      btn.textContent = '📅 Cerrar Mes';
+      btn.disabled = false;
+      btn.style.opacity = '1';
+      btn.style.borderColor = 'var(--border)';
+      btn.style.color = 'var(--text2)';
+    } else {
+      const estado = reciente.estado;
+      if (estado === 'pendiente') {
+        btn.textContent = '⏳ Cierre Pendiente';
+        btn.disabled = true; btn.style.opacity = '0.6';
+      } else if (estado === 'aceptado') {
+        btn.textContent = '✅ Mes Cerrado';
+        btn.disabled = true; btn.style.opacity = '0.6';
+      } else { // rechazado
+        btn.textContent = '📅 Cerrar Mes';
+        btn.disabled = false; btn.style.opacity = '1';
+      }
+    }
+  } catch(e) {
+    console.warn('actualizarBotonCierre:', e);
+    btn.textContent = '📅 Cerrar Mes';
+    btn.disabled = false; btn.style.opacity = '1';
+  }
+}
+
+// ── Celebración ──────────────────────────────────────────────
+// null = primer cargue (inicializar sin animar), false = no cumple, true = cumple
+let _felizBonoActivo = null;
+let _felizMetaActiva = null;
+let _gastosLoaded    = false; // esperar que gastos carguen antes de animar (evita valor inflado)
+
+function _lanzarMonedas(set) {
+  const emojis = set === 'cobro'
+    ? ['💸','💵','🤑','💰','🪙','✅']
+    : ['🪙','💰','💵','✨','🎉','⭐'];
+  const total  = 38;
+  for (let i = 0; i < total; i++) {
+    setTimeout(() => {
+      const el = document.createElement('div');
+      el.className = 'coin';
+      el.textContent = emojis[Math.floor(Math.random() * emojis.length)];
+      el.style.left = Math.random() * 100 + 'vw';
+      el.style.fontSize = (16 + Math.random() * 18) + 'px';
+      const dur = 1.8 + Math.random() * 2.2;
+      el.style.animationDuration = dur + 's';
+      document.body.appendChild(el);
+      setTimeout(() => el.remove(), dur * 1000 + 100);
+    }, i * 60);
+  }
+}
+
+function mostrarFeliz(tipo, titulo, sub, monto, label) {
+  document.getElementById('feliz-emoji').textContent =
+    tipo === 'bono' ? '🎯' : tipo === 'cobro' ? '💸' : '🏆';
+  document.getElementById('feliz-titulo').textContent = titulo;
+  document.getElementById('feliz-sub').textContent    = sub;
+  document.getElementById('feliz-monto').textContent  = monto;
+  const lbl = document.querySelector('.feliz-monto-label');
+  if (lbl) lbl.textContent = label || 'Ganancia acumulada del mes';
+  const btn = document.querySelector('.feliz-btn');
+  if (btn) btn.textContent = tipo === 'cobro' ? '¡A cobrar! 💸' : '¡Excelente! 🚀';
+
+  _lanzarMonedas(tipo);
+  setTimeout(() => {
+    const m = document.getElementById('modal-feliz');
+    m.style.display = 'flex';
+    requestAnimationFrame(() => requestAnimationFrame(() => m.classList.add('visible')));
+  }, 800);
+}
+
+function cerrarFeliz() {
+  const m = document.getElementById('modal-feliz');
+  m.classList.remove('visible');
+  setTimeout(() => { m.style.display = 'none'; }, 400);
+}
+
+function _felizMesKey() {
+  const mk = _mesKey(config.mes);
+  return mk || null;   // null = la config aun no carga
+}
+
+// Muestra la celebracion una sola vez por logro y por mes
+function _felizUnaVez(tipo, titulo, sub, monto, mesKeyProp, label) {
+  const mk = mesKeyProp || _felizMesKey();
+  if (!mk) return;
+  const key = `_feliz_${mk}_${tipo}`;
+  if (localStorage.getItem(key)) return;   // ya se mostro este mes
+  localStorage.setItem(key, '1');
+  mostrarFeliz(tipo, titulo, sub, monto, label);
+}
+
+// Llamado desde reloadDash() cuando se supera la meta
+function _checkFelizMeta(ganancia) {
+  if (!_gastosLoaded || !_felizMesKey()) return;   // datos incompletos
+  if (ganancia > 0 && config.meta && ganancia >= config.meta) {
+    _felizUnaVez('meta', '\u00a1META ALCANZADA!', 'Superaste tu meta del mes \ud83d\udd25', peso(ganancia));
+  }
+}
+
+// Llamado desde _calcBono() cuando se alcanza el bono
+function _checkFelizBono(bonoStatus, bonoPct, ganOpeConBono) {
+  if (bonoStatus === 'sin') return;
+  if (!_gastosLoaded || !_felizMesKey()) return;   // datos incompletos
+  if (!ganOpeConBono) return;                      // ganancia aun sin calcular
+  const label = bonoStatus === 'combo' ? `Bono ${bonoPct}% combinado` : `Bono ${bonoPct}% alcanzado`;
+  _felizUnaVez('bono', '\u00a1BONO DESBLOQUEADO!', label + ' \ud83c\udfaf', peso(ganOpeConBono));
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// TRIXI BOT — buscador de surebets con comisión
+// ════════════════════════════════════════════════════════════════════════════
+
+// ── Hora Colombia, sin importar dónde esté conectado el navegador ──
+function tbHoyBogota() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota',
+    year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+}
+function tbFechaBogota(offsetDias) {
+  const base = new Date(tbHoyBogota() + 'T12:00:00');
+  base.setDate(base.getDate() + (offsetDias || 0));
+  const y = base.getFullYear(), m = String(base.getMonth()+1).padStart(2,'0'), d = String(base.getDate()).padStart(2,'0');
+  return `${y}-${m}-${d}`;
+}
+function tbHoraBogota() {
+  return new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota',
+    hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date());
+}
+
+// ── Comisión por casa + método (misma tabla que TRIXI) ──
+const TB_COM = {
+  'BET PLAY|SUPER GIROS UNITY':2, 'BET PLAY|SUPER GIROS MAQUINA':2,
+  'BETSSON|BE MOVIL CAJA':2, 'BETSSON|BE MOVIL MASTER':2, 'BETSSON|PTM PROPIO':1.68, 'BETSSON|MEGA RED':1.6,
+  'BWIN|BE MOVIL CAJA':2.5, 'BWIN|BE MOVIL MASTER':2.5,
+  'LUCKIA|BE MOVIL CAJA':2, 'LUCKIA|BE MOVIL MASTER':2, 'LUCKIA|PTM PROPIO':1.93, 'LUCKIA|MEGA RED':1.68,
+  'RUSHBET|BE MOVIL CAJA':3, 'RUSHBET|BE MOVIL MASTER':3, 'RUSHBET|PTM PROPIO':2.1, 'RUSHBET|MEGA RED':2.1,
+  'SPORTIUM|BE MOVIL CAJA':3, 'SPORTIUM|BE MOVIL MASTER':3, 'SPORTIUM|PTM PROPIO':1.85, 'SPORTIUM|MEGA RED':1.68,
+  'WPLAY|WPLAY UNITY':3, 'WPLAY|EASY CHANGER':3,
+  'YA JUEGOS|BE MOVIL CAJA':3, 'YA JUEGOS|BE MOVIL MASTER':3, 'YA JUEGOS|PTM PROPIO':1.68
+};
+
+// Todos los métodos con comisión de una casa, de mayor a menor
+function tbMetodosDe(casa) {
+  const c = (casa||'').toUpperCase().trim();
+  const out = [];
+  Object.keys(TB_COM).forEach(k => {
+    const [ca, me] = k.split('|');
+    if (ca === c) out.push({ metodo: me, pct: TB_COM[k] });
+  });
+  return out.sort((a,b) => b.pct - a.pct);
+}
+
+// Mejor comisión disponible para una casa (la que más le deja al operador)
+function tbMejorComision(casa) {
+  const c = (casa||'').toUpperCase().trim();
+  let mejor = { pct: 0, metodo: null };
+  Object.keys(TB_COM).forEach(k => {
+    const [ca, me] = k.split('|');
+    if (ca === c && TB_COM[k] > mejor.pct) mejor = { pct: TB_COM[k], metodo: me };
+  });
+  return mejor;
+}
+
+// ── Banderas ────────────────────────────────────────────────────────────────
+// El captador guarda el país tal como lo nombra la casa (en español). Se pasa
+// a código ISO y de ahí a bandera: los emoji de bandera son dos letras en el
+// bloque de indicadores regionales, así que no hace falta ninguna imagen.
+const TB_PAIS_ISO = {
+  'alemania':'DE','arabia saudita':'SA','arabia saudi':'SA','albania':'AL','argelia':'DZ','argentina':'AR','armenia':'AM',
+  'australia':'AU','austria':'AT','azerbaiyan':'AZ','belgica':'BE','bielorrusia':'BY',
+  'bolivia':'BO','bosnia y herzegovina':'BA','bosnia-herzegovina':'BA','bosnia & herzegovina':'BA','brasil':'BR',
+  'bulgaria':'BG','canada':'CA','catar':'QA','qatar':'QA','chequia':'CZ','republica checa':'CZ',
+  'chile':'CL','china':'CN','chipre':'CY','colombia':'CO','corea del sur':'KR','costa rica':'CR',
+  'croacia':'HR','dinamarca':'DK','ecuador':'EC','egipto':'EG','el salvador':'SV',
+  'emiratos arabes unidos':'AE','escocia':'GB','eslovaquia':'SK','eslovenia':'SI',
+  'espana':'ES','estados unidos':'US','estonia':'EE','finlandia':'FI','francia':'FR',
+  'gales':'GB','georgia':'GE','ghana':'GH','grecia':'GR','guatemala':'GT','honduras':'HN',
+  'hungria':'HU','india':'IN','indonesia':'ID','inglaterra':'GB','irak':'IQ','iran':'IR',
+  'irlanda':'IE','irlanda del norte':'GB','islandia':'IS','israel':'IL','italia':'IT',
+  'islas feroe':'FO','islas feroes':'FO','feroe':'FO','jamaica':'JM','japon':'JP','kazajistan':'KZ','kenia':'KE','kosovo':'XK','letonia':'LV',
+  'lituania':'LT','luxemburgo':'LU','macedonia del norte':'MK','malasia':'MY','malta':'MT',
+  'marruecos':'MA','mexico':'MX','moldavia':'MD','montenegro':'ME','mozambique':'MZ',
+  'nicaragua':'NI','nigeria':'NG','noruega':'NO','nueva zelanda':'NZ','paises bajos':'NL',
+  'holanda':'NL','panama':'PA','paraguay':'PY','peru':'PE','polonia':'PL','portugal':'PT',
+  'reino unido':'GB','rumania':'RO','rusia':'RU','serbia':'RS','singapur':'SG','siria':'SY',
+  'sudafrica':'ZA','suecia':'SE','suiza':'CH','tailandia':'TH','taiwan':'TW','tunez':'TN',
+  'turquia':'TR','ucrania':'UA','uruguay':'UY','uzbekistan':'UZ','venezuela':'VE','vietnam':'VN'
+};
+// Los torneos que no son de un país llevan símbolo en vez de bandera
+const TB_PAIS_SIMBOLO = {
+  'internacional':'🌍','mundial':'🌍','amistosos':'🤝','amistoso':'🤝',
+  'europa':'🇪🇺','uefa':'🇪🇺','conmebol':'🌎','sudamerica':'🌎',
+  'america':'🌎','concacaf':'🌎','africa':'🌍','asia':'🌏','oceania':'🌏'
+};
+
+function tbNormPais(p){
+  return String(p||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
+}
+function tbBandera(pais){
+  const k = tbNormPais(pais);
+  if (!k) return '';
+  const iso = TB_PAIS_ISO[k];
+  if (iso) return iso.replace(/./g, c => String.fromCodePoint(0x1F1E6 + c.charCodeAt(0) - 65));
+  for (const [clave, simbolo] of Object.entries(TB_PAIS_SIMBOLO)) if (k.includes(clave)) return simbolo;
+  return '🏳';
+}
+// "Premier League (Inglaterra) 🇬🇧" — sin país devuelve solo la liga
+function tbLigaConPais(liga, pais){
+  // Los torneos internacionales traen el mismo nombre como país: no repetirlo
+  if (!pais || tbNormPais(pais) === tbNormPais(liga)) return liga + (pais ? ' ' + tbBandera(pais) : '');
+  return `${liga} <span style="opacity:.75">(${pais})</span> ${tbBandera(pais)}`;
+}
+
+// ── Catálogo de mercados. Agregar uno aquí no requiere tocar el motor ──
+const TB_MERCADOS = {
+  '1X2':    { nombre: '1X2', vias: ['1','X','2'],
+              etiquetas: {'1':'Gana local','X':'Empate','2':'Gana visitante'}, conLinea: false },
+  'GOL_OU': { nombre: 'Goles', vias: ['OVER','UNDER'],
+              etiquetas: {'OVER':'Más de','UNDER':'Menos de'}, conLinea: true },
+  'BTTS':   { nombre: 'Ambos anotan', vias: ['SI','NO'],
+              etiquetas: {'SI':'Ambos anotan','NO':'No ambos'}, conLinea: false },
+  // Doble oportunidad NO entra como mercado de tres vías: apostando 1X, 12 y X2
+  // a la vez cualquier resultado paga DOS patas, no una, y la suma implícita
+  // mentiría. Se parte en pares que cubren el resultado exactamente una vez,
+  // cruzando la doble oportunidad de una casa con el 1X2 de otra.
+  'DC_1X_2': { nombre: 'Doble oport. 1X vs 2', vias: ['1X','2'],
+               etiquetas: {'1X':'Local o empate','2':'Gana visitante'}, conLinea: false },
+  'DC_X2_1': { nombre: 'Doble oport. X2 vs 1', vias: ['X2','1'],
+               etiquetas: {'X2':'Empate o visitante','1':'Gana local'}, conLinea: false },
+  'DC_12_X': { nombre: 'Doble oport. 12 vs X', vias: ['12','X'],
+               etiquetas: {'12':'Local o visitante','X':'Empate'}, conLinea: false }
+};
+
+// Pares de doble oportunidad: [clave, vía que sale de DC, vía que sale de 1X2]
+const TB_PARES_DC = [['DC_1X_2','1X','2'], ['DC_X2_1','X2','1'], ['DC_12_X','12','X']];
+
+// Devuelve todos los mercados escaneables de un evento, incluidos los que se
+// arman cruzando dos mercados distintos de la misma casa.
+function tbMercadosDeEvento(ev){
+  const lista = [];
+  Object.entries(ev.cuotas || {}).forEach(([clave, porCasa]) => {
+    if (clave.split('|')[0] === 'DC') return;      // se expande abajo
+    lista.push({ clave, porCasa });
+  });
+
+  const dc = (ev.cuotas || {})['DC'], x12 = (ev.cuotas || {})['1X2'];
+  if (dc && x12){
+    TB_PARES_DC.forEach(([clave, viaDC, via12]) => {
+      const porCasa = {};
+      // Cada casa aporta las dos patas que ella misma publica; el motor
+      // después elige, vía por vía, la casa que mejor la paga.
+      new Set([...Object.keys(dc), ...Object.keys(x12)]).forEach(casa => {
+        const a = dc[casa]?.[viaDC], b = x12[casa]?.[via12];
+        if (a || b) porCasa[casa] = { [viaDC]: a, [via12]: b };
+      });
+      if (Object.keys(porCasa).length) lista.push({ clave, porCasa });
+    });
+  }
+  return lista;
+}
+
+// La línea viaja en la clave con guion bajo porque Firestore no lleva bien los
+// puntos dentro de las claves de un mapa: 'GOL_OU|2_5' → "2.5"
+function tbLinea(v){ return v ? String(v).replace('_', '.') : ''; }
+
+// Nombre para mostrar de una clave de mercado completa
+function tbNombreMercado(clave){
+  const [mid, linea] = String(clave).split('|');
+  const def = TB_MERCADOS[mid];
+  if (!def) return clave;
+  return def.conLinea ? def.nombre + ' ' + tbLinea(linea) : def.nombre;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// MOTOR: dado un evento y un mercado, encuentra la mejor combinación
+//   cuotasMercado = { 'WPLAY': {'1':2.60,'X':3.40,'2':3.10}, 'BETSSON': {...} }
+//   Devuelve null si no hay oportunidad con utilidad neta positiva.
+// ════════════════════════════════════════════════════════════════════════════
+function tbBuscarOportunidad(cuotasMercado, vias, capital, casasPermitidas) {
+  const casas = Object.keys(cuotasMercado).filter(c => !casasPermitidas || casasPermitidas.includes(c));
+  if (casas.length === 0) return null;
+
+  // 1. Para cada vía, la casa que mejor la paga.
+  //    Empate de cuotas → gana la de mayor comisión: misma cuota, más plata.
+  //    Sobre 2,5 M la diferencia entre 2% y 3% es 25.000 por operación.
+  const mejores = {};
+  for (const via of vias) {
+    let best = null;
+    for (const casa of casas) {
+      const cuota = parseFloat(cuotasMercado[casa]?.[via]);
+      if (!cuota || cuota <= 1) continue;
+      const com = tbMejorComision(casa).pct;
+      // CUOTA EFECTIVA. Para garantizar un retorno R hay que apostar R/cuota,
+      // y la comisión devuelve com% de ese stake. El costo real de la pata es
+      // (1-com)/cuota, así que la mejor casa es la de mayor cuota/(1-com).
+      // Sin esto, una casa sin comisión con cuota apenas mejor gana
+      // indebidamente contra una con 3% — el caso de Stake.
+      const efectiva = cuota / (1 - com/100);
+      if (!best || efectiva > best.efectiva + 1e-9) best = { casa, cuota, com, efectiva };
+    }
+    if (!best) return null;          // falta una vía → no se puede cubrir el evento
+    mejores[via] = best;
+  }
+
+  // 2. Probabilidad implícita: si suma menos de 1 hay arbitraje puro
+  let sumaImplicita = 0;
+  vias.forEach(v => { sumaImplicita += 1 / mejores[v].cuota; });
+
+  // 3. Stakes proporcionales para que el retorno sea igual salga lo que salga.
+  //    La última pata absorbe el redondeo para que la suma dé exacto el capital.
+  let acumulado = 0;
+  const patas = vias.map((via, i) => {
+    const { casa, cuota } = mejores[via];
+    const exacto = capital * (1 / cuota) / sumaImplicita;
+    const stake  = (i === vias.length - 1) ? (capital - acumulado) : Math.round(exacto);
+    acumulado   += stake;
+    const com    = tbMejorComision(casa);
+    return {
+      via, casa, cuota,
+      stake,
+      metodo:   com.metodo,
+      comPct:   com.pct,
+      comValor: Math.round(stake * com.pct / 100),
+      retorno:  Math.round(stake * cuota)
+    };
+  });
+
+  // 4. Utilidad. La comisión SUMA porque el operador la cobra, no la paga.
+  const totalStake   = patas.reduce((s,p) => s + p.stake, 0);
+  const totalCom     = patas.reduce((s,p) => s + p.comValor, 0);
+  const retornoMin   = Math.min(...patas.map(p => p.retorno));
+  const utilidadPura = retornoMin - totalStake;
+  const utilidadNeta = utilidadPura + totalCom;
+
+  // 5. Clasificación por riesgo de que la casa marque la cuenta.
+  //    El arbitraje puro (<100%) es lo que persigue todo el mundo y es lo que
+  //    dispara las limitaciones. La franja 100%–(1/(1-com)) se ve como una
+  //    apuesta perdedora normal y solo es rentable gracias a la comisión.
+  const comPromedio = totalStake > 0 ? (totalCom / totalStake) : 0;
+  const techo       = comPromedio < 1 ? 1 / (1 - comPromedio) : Infinity;
+  let zona;
+  if (sumaImplicita < 1)            zona = 'arbitraje';   // rentable pero expone la cuenta
+  else if (sumaImplicita <= techo)  zona = 'segura';      // la que les sirve
+  else                              zona = 'inviable';
+
+  return {
+    patas, sumaImplicita,
+    totalStake, totalCom, retornoMin,
+    utilidadPura, utilidadNeta,
+    utilidadPct: totalStake > 0 ? (utilidadNeta / totalStake * 100) : 0,
+    esArbitrajePuro: sumaImplicita < 1,
+    // Cubrir las dos vías en la MISMA casa es la firma más evidente de un
+    // arbitrador: la casa ve una cuenta apostando contra sí misma en un solo
+    // evento. Se avisa, no se descarta: a veces es la única combinación.
+    mismaCasa: new Set(patas.map(p => p.casa)).size === 1,
+    zona, techoSuma: techo, comPromedio
+  };
+}
+
+// ── Escanea todos los eventos cargados y devuelve las oportunidades rentables ──
+function tbEscanear(eventos, opciones) {
+  const { capital, casasPermitidas, utilidadMinPct, mercadosSel, soloZonaSegura, ligasPermitidas } = opciones;
+  const salida = [];
+
+  eventos.forEach(ev => {
+    if (ligasPermitidas && !ligasPermitidas.includes(ev.liga || '—')) return;
+    tbMercadosDeEvento(ev).forEach(({ clave: claveMercado, porCasa: cuotasPorCasa }) => {
+      const [mid, linea] = claveMercado.split('|');
+      if (!tbMercadoHabilitado(mid)) return;          // permiso del administrador
+      if (mercadosSel && !mercadosSel(mid, claveMercado)) return;   // elección del operador
+      const def = TB_MERCADOS[mid];
+      if (!def) return;
+
+      const op = tbBuscarOportunidad(cuotasPorCasa, def.vias, capital, casasPermitidas);
+      if (!op) return;
+      if (op.utilidadPct < (utilidadMinPct || 0)) return;
+      if (soloZonaSegura && op.zona !== 'segura') return;
+
+      salida.push({
+        evento: ev, mercadoId: mid, claveMercado,
+        mercadoNombre: def.nombre, linea: linea ? tbLinea(linea) : null,
+        etiquetas: def.etiquetas, ...op
+      });
+    });
+  });
+
+  // Prioridad: primero la zona segura (no levanta sospecha), después el
+  // arbitraje puro, que aunque deja más también expone las cuentas.
+  return salida.sort((a,b) => b.utilidadNeta - a.utilidadNeta);
+}
+
+
+// ── Catálogo de mercados para cupones ──────────────────────────────────────
+// Ojo: acá la doble oportunidad va como mercado normal de tres vías, no como
+// los pares cruzados de Trixi Bot. Allá se cubrían todas las salidas; acá cada
+// vía es una pata suelta que puede entrar en un cupón.
+const CP_MERCADOS = {
+  '1X2':    { nombre:'1X2', vias:['1','X','2'],
+              etiquetas:{'1':'Gana local','X':'Empate','2':'Gana visitante'} },
+  'GOL_OU': { nombre:'Goles', vias:['OVER','UNDER'], conLinea:true,
+              etiquetas:{'OVER':'Más de','UNDER':'Menos de'} },
+  'BTTS':   { nombre:'Ambos anotan', vias:['SI','NO'],
+              etiquetas:{'SI':'Ambos anotan','NO':'No ambos anotan'} },
+  'DC':     { nombre:'Doble oportunidad', vias:['1X','12','X2'],
+              etiquetas:{'1X':'Local o empate','12':'Local o visitante','X2':'Empate o visitante'} }
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// COMBINADAS PRO — motor
+// Arma cupones de varias patas. A diferencia de Trixi Bot, acá NO hay certeza:
+// el cupón pierde si falla una sola pata. Lo que aporta el motor es escoger las
+// patas mejor pagadas y decir con qué probabilidad pega, sin adornos.
+// ════════════════════════════════════════════════════════════════════════════
+
+// BetPlay y Rushbet corren sobre el mismo motor (Kambi): medido, se separan
+// 1,87% en la mediana contra 8,2% frente a Ya Juegos. Son UNA opinión, no dos.
+// Si se contaran aparte, el consenso quedaría sesgado hacia Kambi.
+const CP_MOTOR = { 'BET PLAY':'kambi', 'RUSHBET':'kambi' };
+const cpMotorDe = casa => CP_MOTOR[casa] || casa;
+
+// Probabilidad justa de cada vía. Se le quita el margen a cada casa por
+// separado (método proporcional) y después se promedian las opiniones.
+function cpProbJusta(cuotasPorCasa, vias) {
+  const porMotor = {};
+  Object.entries(cuotasPorCasa || {}).forEach(([casa, c]) => {
+    if (!vias.every(v => c && c[v] > 1)) return;      // mercado incompleto
+    const suma = vias.reduce((s, v) => s + 1 / c[v], 0);
+    if (!(suma > 0)) return;
+    const m = cpMotorDe(casa);
+    (porMotor[m] = porMotor[m] || []).push(
+      Object.fromEntries(vias.map(v => [v, (1 / c[v]) / suma]))
+    );
+  });
+  const motores = Object.values(porMotor);
+  if (!motores.length) return null;
+
+  // Dentro de un motor se promedia (BetPlay y Rushbet), y luego entre motores
+  const porVia = {};
+  vias.forEach(v => {
+    const xs = motores.map(g => g.reduce((s, p) => s + p[v], 0) / g.length);
+    porVia[v] = xs.reduce((a, b) => a + b, 0) / xs.length;
+  });
+  return { p: porVia, opiniones: motores.length };
+}
+
+// Todas las patas jugables del día, con su ventaja contra el consenso
+function cpCandidatas(eventos, o) {
+  const { casasPermitidas, mercadosPermitidos, ligasPermitidas,
+          cuotaMin = 1, cuotaMax = 99 } = o;
+  const fuera = [];
+
+  eventos.forEach(ev => {
+    if (ligasPermitidas && !ligasPermitidas.includes(ev.liga || '—')) return;
+
+    Object.entries(ev.cuotas || {}).forEach(([clave, porCasa]) => {
+      const [mid, linea] = clave.split('|');
+      const def = CP_MERCADOS[mid];
+      if (!def) return;
+      if (mercadosPermitidos && mercadosPermitidos.size &&
+          !(mercadosPermitidos.has(mid) || mercadosPermitidos.has(clave))) return;
+
+      const justa = cpProbJusta(porCasa, def.vias);
+      if (!justa) return;
+
+      def.vias.forEach(via => {
+        // Mejor precio entre las casas donde el operador puede jugar
+        let mejor = null;
+        Object.entries(porCasa).forEach(([casa, c]) => {
+          if (casasPermitidas && !casasPermitidas.includes(casa)) return;
+          const cuota = c && c[via];
+          if (!(cuota > 1)) return;
+          if (!mejor || cuota > mejor.cuota) mejor = { casa, cuota };
+        });
+        if (!mejor) return;
+        if (mejor.cuota < cuotaMin || mejor.cuota > cuotaMax) return;
+
+        // Filtro de coincidencia: solo aplica a goles, que es lo único medido.
+        // Si no hay ficha de alguno de los dos equipos, no filtra nada — no
+        // sabemos, así que no descartamos.
+        let modelo = null;
+        if (o.exigirCoincidencia && mid === 'GOL_OU' && linea){
+          const L = parseFloat(tbLinea(linea));
+          const m = cpProbGoles(ev.local, ev.visitante, L);
+          if (m){
+            modelo = via === 'OVER' ? m.over : m.under;
+            if (Math.abs(modelo - justa.p[via]) > o.exigirCoincidencia) return;
+          }
+        }
+
+        fuera.push({
+          evento: ev, clave, mid, linea: linea || null, via, modelo,
+          // Lo que históricamente rinde este tipo de apuesta, en esta vía, a esta cuota
+          rendHist: cpRendimiento(mid, via, mejor.cuota),
+          etiqueta: def.etiquetas[via] || via,
+          casa: mejor.casa, cuota: mejor.cuota,
+          prob: justa.p[via],
+          // Ventaja: cuánto paga de más respecto a lo que vale. Negativa casi
+          // siempre — es el margen de la casa. Se busca la menos mala.
+          ventaja: mejor.cuota * justa.p[via] - 1,
+          opiniones: justa.opiniones,
+          cuotasTodas: Object.fromEntries(
+            Object.entries(porCasa).map(([casa, c]) => [casa, c && c[via]]).filter(x => x[1] > 1))
+        });
+      });
+    });
+  });
+  // Antes se ordenaba solo por precio. Ahora manda el rendimiento histórico del
+  // tipo de apuesta: un 1X2 a 1.60 vale más que un "más de 2.5" a 1.60 aunque
+  // el segundo esté mejor pagado, porque el primero históricamente no pierde.
+  return fuera.sort((a, b) =>
+    (b.rendHist - a.rendHist) || (b.ventaja - a.ventaja));
+}
+
+// Arma varios cupones distintos. Una pata por partido: dos selecciones del
+// mismo encuentro están relacionadas y la casa reajusta el tiquete.
+function cpArmarCupones(candidatas, o) {
+  const { patas = 3, cuantos = 5, totalMin = 0, totalMax = Infinity } = o;
+  const cupones = [];
+  const usadas = new Set();
+
+  for (let k = 0; k < cuantos * 4 && cupones.length < cuantos; k++) {
+    const partidos = new Set();
+    const sel = [];
+    for (const c of candidatas) {
+      if (sel.length >= patas) break;
+      const idPartido = c.evento.id || (c.evento.local + '|' + c.evento.visitante);
+      if (partidos.has(idPartido)) continue;
+      const id = idPartido + '|' + c.clave + '|' + c.via;
+      if (usadas.has(id)) continue;
+      partidos.add(idPartido);
+      sel.push(c);
+    }
+    if (sel.length < patas) break;
+    sel.forEach(c => usadas.add(
+      (c.evento.id || (c.evento.local + '|' + c.evento.visitante)) + '|' + c.clave + '|' + c.via));
+
+    // Una combinada va completa en una sola casa. Tomar la mejor cuota de cada
+    // casa daría un total que NO se puede jugar en ningún lado.
+    const porCasa = cpTotalPorCasa(sel);
+    if (!porCasa.length) continue;              // ninguna casa tiene todas
+    const elegida = porCasa[0];                 // la que mejor paga el cupón entero
+    const total = elegida.total;
+    if (total < totalMin || total > totalMax) continue;
+
+    // El cupón pega solo si pegan todas: las probabilidades se multiplican
+    const prob = sel.reduce((s, c) => s * c.prob, 1);
+
+    // Rendimiento esperado del cupón: el de cada opción, multiplicado. Es la
+    // cuenta que dice si un cupón de 3 a 1.60 sangra 0,4% o 12%.
+    const rendCupon = (sel.reduce((r, c) => r * (1 + (c.rendHist || 0)/100), 1) - 1) * 100;
+
+    cupones.push({
+      patas: sel.map(c => ({ ...c, cuotaEn: c.cuotasTodas[elegida.casa] })),
+      casa: elegida.casa,
+      total, prob, rendCupon,
+      // Ventaja con el precio real de esa casa, no con el mejor de cada una
+      ventaja: total * prob - 1,
+      porCasa
+    });
+  }
+  // Antes se ordenaba la lista final solo por "ventaja" — cuánto paga la
+  // cuota contra lo que el mercado considera justo. El problema es que ahí
+  // se vuelve a confiar en el propio mercado como si fuera neutral, que es
+  // justo el supuesto que los datos reales desmintieron para ciertas vías.
+  // Ahora manda el rendimiento histórico del combo (rendCupon), igual que ya
+  // mandaba al escoger CUÁL pata entra a cada partido; ventaja queda como
+  // desempate entre cupones con un historial parecido.
+  return cupones.sort((a, b) => (b.rendCupon - a.rendCupon) || (b.ventaja - a.ventaja));
+}
+
+// Cuánto paga el mismo cupón en cada casa. Solo aparecen las que tienen las
+// tres patas: si a una le falta un partido, ahí no se puede jugar.
+function cpTotalPorCasa(patas) {
+  const casas = [...new Set(patas.flatMap(p => Object.keys(p.cuotasTodas)))];
+  return casas.map(casa => {
+    if (!patas.every(p => p.cuotasTodas[casa] > 1)) return null;
+    return { casa, total: patas.reduce((s, p) => s * p.cuotasTodas[casa], 1) };
+  }).filter(Boolean).sort((a, b) => b.total - a.total);
+}
+
+// ── Mis cupones ─────────────────────────────────────────────────────────────
+// Todo lo que este operador ha pedido, y cómo terminó.
+//
+// Antes se mostraban 3 días fijos y todo desplegado: 65 cupones abiertos son
+// varias pantallas de scroll para encontrar uno. Ahora la lista llega plegada
+// —una línea por cupón con lo que importa de un vistazo: cuándo, en qué casa,
+// cómo va y a cuánto— y se abre el que se quiera mirar en detalle.
+//
+// Los filtros no vuelven a consultar la base de datos: la lectura se hace una
+// vez y se guarda en memoria. Cambiar de «3 días» a «Todo» no cuesta nada.
+const CP_DIAS_HISTORIAL = 3;      // con qué periodo abre la pantalla
+const CP_TOPE_LISTA     = 300;    // cuántas tarjetas se dibujan de una vez
+let _cpMisCupones = [];    // los del historial, en el formato que usan los botones de compartir
+
+let _cpMiosDatos    = null;       // lo leído de Firestore, sin filtrar
+let _cpMiosPeriodo  = 'd3';       // chip de periodo activo ('' si hay rango a mano)
+let _cpMiosEstado   = 'todos';
+let _cpMiosDesde    = '';
+let _cpMiosHasta    = '';
+const _cpMiosAbiertos = new Set();
+
+const CP_MIOS_PERIODOS = [
+  { id:'hoy',  txt:'Hoy',    dias:1  },
+  { id:'d3',   txt:'3 días', dias:3  },
+  { id:'d7',   txt:'7 días', dias:7  },
+  { id:'d30',  txt:'30 días',dias:30 },
+  { id:'todo', txt:'Todo',   dias:0  }
+];
+const CP_MIOS_ESTADOS = [
+  { id:'todos',     txt:'Todos',     col:'var(--text2)' },
+  { id:'ganado',    txt:'Ganadas',   col:'var(--green)' },
+  { id:'esperando', txt:'Esperando', col:'var(--gold)'  },
+  { id:'perdido',   txt:'Perdidas',  col:'var(--red)'   }
+];
+
+// El día del cupón. Se prefiere `fecha` (la jornada); si faltara, se deduce de
+// cuándo se propuso, siempre en hora Colombia.
+function cpMiosDia(c){
+  if (c.fecha) return String(c.fecha).slice(0,10);
+  const t = c.propuesto && c.propuesto.toDate ? c.propuesto.toDate() : null;
+  return t ? new Intl.DateTimeFormat('en-CA',{ timeZone:'America/Bogota',
+    year:'numeric', month:'2-digit', day:'2-digit' }).format(t) : '';
+}
+function cpMiosEstadoDe(c){
+  if (!c.resuelto) return 'esperando';
+  return c.estado === 'ganado' ? 'ganado' : 'perdido';
+}
+
+// El cupón guardado tiene otra forma que el recién armado. Se convierte para
+// que los botones de imagen y texto funcionen igual con los dos.
+function cpDesdeGuardado(c){
+  const VIA = {'1':'Gana local','X':'Empate','2':'Gana visitante','OVER':'Más de','UNDER':'Menos de',
+               'SI':'Ambos anotan','NO':'No ambos','1X':'Local o empate','12':'Local o visitante','X2':'Empate o visitante'};
+  return {
+    // El identificador viaja con el cupón: cpReportarHist lo necesita para
+    // que la administración sepa de cuál se está hablando.
+    id: c.id || null,
+    casa: c.casa, total: c.cuotaTotal || 0,
+    patas: (c.opciones||[]).map(o => ({
+      etiqueta: VIA[o.via] || o.via,
+      linea: o.linea || null,
+      cuota: o.cuota || 0, cuotaEn: o.cuota || 0,
+      evento: { local:o.local, visitante:o.visitante, liga:o.liga||'', pais:o.pais||'',
+                fecha:(o.inicio||'').slice(0,10),
+                hora: o.inicio ? new Intl.DateTimeFormat('es-CO',{timeZone:'America/Bogota',
+                        hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(o.inicio)) : '' }
+    }))
+  };
+}
+
+function cpVista(cual){
+  const A = document.getElementById('cp-vista-armar');
+  const M = document.getElementById('cp-vista-mios');
+  const tA = document.getElementById('cp-tab-armar');
+  const tM = document.getElementById('cp-tab-mios');
+  const on = (el, si) => { if(!el) return;
+    el.style.color = si ? 'var(--gold)' : 'var(--text2)';
+    el.style.borderBottomColor = si ? 'var(--gold)' : 'transparent';
+    el.style.fontWeight = si ? '700' : '600'; };
+  if (A) A.style.display = cual === 'armar' ? '' : 'none';
+  if (M) M.style.display = cual === 'mios' ? '' : 'none';
+  on(tA, cual === 'armar'); on(tM, cual === 'mios');
+  if (cual === 'mios') cpMisCupones();
+}
+
+// Aplica los filtros sobre lo que ya está en memoria. No toca Firestore.
+function cpMiosFiltrar(){
+  let desde = _cpMiosDesde, hasta = _cpMiosHasta;
+  if (!desde && !hasta){
+    const p = CP_MIOS_PERIODOS.find(x => x.id === _cpMiosPeriodo);
+    if (p && p.dias > 0){ desde = tbFechaBogota(-(p.dias - 1)); hasta = tbHoyBogota(); }
+  }
+  return (_cpMiosDatos || []).filter(c => {
+    const d = cpMiosDia(c);
+    if (desde && d && d < desde) return false;
+    if (hasta && d && d > hasta) return false;
+    if (_cpMiosEstado !== 'todos' && cpMiosEstadoDe(c) !== _cpMiosEstado) return false;
+    return true;
+  });
+}
+
+/* ── acciones de los filtros ─────────────────────────────────────────────── */
+// Elegir un periodo borra el rango a mano y al revés: son dos formas de decir
+// lo mismo y tenerlas activas a la vez confunde.
+function cpMiosPeriodo(id){
+  _cpMiosPeriodo = id; _cpMiosDesde = ''; _cpMiosHasta = '';
+  const a = document.getElementById('cp-mios-desde'); if (a) a.value = '';
+  const b = document.getElementById('cp-mios-hasta'); if (b) b.value = '';
+  cpPintarMios();
+}
+function cpMiosRango(){
+  _cpMiosDesde = document.getElementById('cp-mios-desde')?.value || '';
+  _cpMiosHasta = document.getElementById('cp-mios-hasta')?.value || '';
+  if (_cpMiosDesde || _cpMiosHasta) _cpMiosPeriodo = '';
+  cpPintarMios();
+}
+function cpMiosFiltroEstado(id){ _cpMiosEstado = id; cpPintarMios(); }
+
+// Abrir y cerrar no repinta nada: solo cambia la visibilidad del detalle.
+function cpMiosAbrir(i){
+  const det = document.getElementById('cp-mio-det-' + i);
+  const fle = document.getElementById('cp-mio-fl-'  + i);
+  if (!det) return;
+  const abierto = _cpMiosAbiertos.has(i);
+  if (abierto) _cpMiosAbiertos.delete(i); else _cpMiosAbiertos.add(i);
+  det.style.display = abierto ? 'none' : '';
+  if (fle) fle.textContent = abierto ? '▸' : '▾';
+}
+function cpMiosTodas(abrir){
+  cpMiosFiltrar().forEach(c => {
+    const det = document.getElementById('cp-mio-det-' + c._i);
+    const fle = document.getElementById('cp-mio-fl-'  + c._i);
+    if (!det) return;
+    if (abrir) _cpMiosAbiertos.add(c._i); else _cpMiosAbiertos.delete(c._i);
+    det.style.display = abrir ? '' : 'none';
+    if (fle) fle.textContent = abrir ? '▾' : '▸';
+  });
+}
+
+async function cpMisCupones(recargar){
+  const caja = document.getElementById('cp-vista-mios');
+  if (!caja) return;
+  const uid = auth.currentUser?.uid;
+  if (!uid){ caja.innerHTML = '<div class="empty"><p>Tu sesión se venció.</p></div>'; return; }
+
+  // Se lee una sola vez por sesión. Los filtros trabajan sobre esta copia.
+  if (_cpMiosDatos && !recargar){ cpMiosArmarPantalla(caja); return; }
+
+  caja.innerHTML = '<div class="empty"><p>Cargando…</p></div>';
+  try{
+    // Un solo filtro en la consulta y el resto en pantalla: cruzar uid con
+    // fecha obligaría a crear un índice en Firestore, y los cupones de un
+    // operador son pocos.
+    const snap = await db.collection('combinadas_cupones').where('uid','==',uid).get();
+    _cpMiosDatos = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      .sort((a,b) => (b.propuesto?.seconds||0) - (a.propuesto?.seconds||0));
+    // El índice se congela con la lista completa para que los botones de
+    // compartir sigan apuntando al cupón correcto sin importar el filtro.
+    _cpMiosDatos.forEach((c,i) => { c._i = i; });
+    _cpMisCupones = _cpMiosDatos.map(cpDesdeGuardado);
+    _cpMiosAbiertos.clear();
+    cpMiosArmarPantalla(caja);
+  }catch(e){
+    caja.innerHTML = `<div class="empty"><p style="color:var(--red)">${cpErrorClaro(e)}</p></div>`;
+  }
+}
+
+// La barra de filtros se dibuja una sola vez: si se repintara con cada cambio,
+// el calendario abierto se cerraría solo al escribir la fecha.
+function cpMiosArmarPantalla(caja){
+  if (!(_cpMiosDatos || []).length){
+    caja.innerHTML = `<div class="empty"><div class="empty-icon">📋</div>
+      <p>Todavía no has pedido ningún cupón.</p></div>`;
+    return;
+  }
+  const chip = (grupo, o) =>
+    `<span data-cpchip="${grupo}" data-cpid="${o.id}"
+       onclick="${grupo==='per'?`cpMiosPeriodo('${o.id}')`:`cpMiosFiltroEstado('${o.id}')`}"
+       style="cursor:pointer;user-select:none;font-size:11.5px;padding:5px 12px;border-radius:20px;
+              border:1px solid var(--border);color:var(--text2)">${o.txt}</span>`;
+
+  caja.innerHTML = `
+    <div id="cp-mios-kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:9px;margin-bottom:12px"></div>
+
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:11px 14px;margin-bottom:12px">
+      <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+        <span style="font-size:10.5px;color:var(--text2);letter-spacing:.4px;text-transform:uppercase;margin-right:4px">Cuándo</span>
+        ${CP_MIOS_PERIODOS.map(p => chip('per', p)).join('')}
+        <span style="width:1px;height:18px;background:var(--border);margin:0 6px"></span>
+        <input id="cp-mios-desde" type="date" onchange="cpMiosRango()"
+          style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:4px 7px;font-size:11.5px;font-family:inherit">
+        <span style="font-size:11px;color:var(--text2)">a</span>
+        <input id="cp-mios-hasta" type="date" onchange="cpMiosRango()"
+          style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:4px 7px;font-size:11.5px;font-family:inherit">
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:9px">
+        <span style="font-size:10.5px;color:var(--text2);letter-spacing:.4px;text-transform:uppercase;margin-right:4px">Cómo salió</span>
+        ${CP_MIOS_ESTADOS.map(e => chip('est', e)).join('')}
+        <span style="flex:1"></span>
+        <span onclick="cpMiosTodas(true)"  style="cursor:pointer;user-select:none;font-size:11px;color:var(--text2)">Abrir todas</span>
+        <span style="color:var(--border)">·</span>
+        <span onclick="cpMiosTodas(false)" style="cursor:pointer;user-select:none;font-size:11px;color:var(--text2)">Cerrar todas</span>
+        <span style="color:var(--border)">·</span>
+        <span onclick="cpMisCupones(true)" style="cursor:pointer;user-select:none;font-size:11px;color:var(--blue)">↻ Actualizar</span>
+      </div>
+    </div>
+
+    <div id="cp-mios-lista"></div>`;
+  cpPintarMios();
+}
+
+// Repinta solo lo que cambia con el filtro: los indicadores y la lista.
+function cpPintarMios(){
+  const lista = document.getElementById('cp-mios-lista');
+  const kpis  = document.getElementById('cp-mios-kpis');
+  if (!lista) return;
+
+  document.querySelectorAll('[data-cpchip]').forEach(el => {
+    const grupo = el.getAttribute('data-cpchip');
+    const id    = el.getAttribute('data-cpid');
+    const act   = grupo === 'per' ? id === _cpMiosPeriodo : id === _cpMiosEstado;
+    const color = grupo === 'est'
+      ? (CP_MIOS_ESTADOS.find(e => e.id === id) || {}).col || 'var(--gold)'
+      : 'var(--gold)';
+    el.style.color       = act ? color : 'var(--text2)';
+    el.style.borderColor = act ? color : 'var(--border)';
+    el.style.fontWeight  = act ? '700' : '400';
+    el.style.background  = act ? 'rgba(255,255,255,.04)' : 'transparent';
+  });
+
+  const cup = cpMiosFiltrar();
+
+  if (kpis){
+    const R = cup.filter(c => c.resuelto);
+    const G = R.filter(c => c.estado === 'ganado');
+    const P = R.length - G.length;
+    // El acierto solo se calcula sobre lo ya resuelto: contar los que están
+    // esperando lo haría ver peor de lo que es.
+    const pct = R.length ? Math.round(G.length * 100 / R.length) : null;
+    kpis.innerHTML = `
+      <div class="kpi"><div class="kpi-label">Cupones</div><div class="kpi-value">${cup.length}</div></div>
+      <div class="kpi green"><div class="kpi-label">Ganadas</div><div class="kpi-value">${G.length}</div></div>
+      <div class="kpi red"><div class="kpi-label">Perdidas</div><div class="kpi-value">${P}</div></div>
+      <div class="kpi"><div class="kpi-label">Esperando</div><div class="kpi-value">${cup.length - R.length}</div></div>
+      <div class="kpi blue"><div class="kpi-label">Acierto</div><div class="kpi-value">${pct == null ? '—' : pct + '%'}</div></div>`;
+  }
+
+  if (!cup.length){
+    lista.innerHTML = `<div class="empty"><div class="empty-icon">🔎</div>
+      <p>Ningún cupón con ese filtro.</p></div>`;
+    return;
+  }
+
+  const NOMBRE = {'1X2':'1X2','GOL_OU':'Goles','BTTS':'Ambos anotan','DC':'Doble oport.'};
+  const VIA = {'1':'Gana local','X':'Empate','2':'Gana visitante','OVER':'Más de','UNDER':'Menos de',
+               'SI':'Ambos anotan','NO':'No ambos','1X':'Local o empate','12':'Local o visitante','X2':'Empate o visitante'};
+  const EST = {bonos:'Liberar bono', acierto:'Favoritos claros', libre:'A mi medida'};
+  const hora = t => t?.toDate ? new Intl.DateTimeFormat('es-CO',{timeZone:'America/Bogota',
+    day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit', hour12:false}).format(t.toDate()) : '';
+
+  const visibles = cup.slice(0, CP_TOPE_LISTA);
+  lista.innerHTML = visibles.map(c => {
+    const i   = c._i;
+    const n   = (c.opciones||[]).length;
+    const ok  = c.aciertos != null ? c.aciertos : (c.estado === 'ganado' ? n : null);
+    const est = cpMiosEstadoDe(c);
+    const col = est === 'esperando' ? 'var(--text2)' : est === 'ganado' ? 'var(--green)' : 'var(--red)';
+    const etq = est === 'esperando' ? 'esperando'    : est === 'ganado' ? 'GANADO'       : 'no pegó';
+    const fondo = est === 'esperando' ? 'transparent'
+                : est === 'ganado' ? 'rgba(53,204,47,.12)' : 'rgba(255,90,90,.12)';
+    const abierto = _cpMiosAbiertos.has(i);
+
+    const filas = (c.opciones||[]).map(o => {
+      const ac = o.acerto != null ? o.acerto : (c.estado==='ganado' ? true : null);
+      const m  = ac===true ? '✓' : ac===false ? '✗' : '·';
+      const cc = ac===true ? 'var(--green)' : ac===false ? 'var(--red)' : 'var(--text2)';
+      return `<tr>
+        <td style="width:20px;color:${cc};font-weight:700">${m}</td>
+        <td style="padding:3px 0;font-size:12px">${o.local} vs ${o.visitante}</td>
+        <td style="font-size:11px;color:var(--text2)">${NOMBRE[o.mercado]||o.mercado} · ${VIA[o.via]||o.via}${o.linea?' '+String(o.linea).replace('_','.'):''}</td>
+        <td style="text-align:right;font-size:12px">${(o.cuota||0).toFixed(2)}</td>
+        <td style="text-align:right;font-size:11px;color:var(--text2)">${o.golesLocal!=null?o.golesLocal+'-'+o.golesVisita:''}</td></tr>`;
+    }).join('');
+
+    return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;margin-bottom:7px;overflow:hidden">
+
+      <div onclick="cpMiosAbrir(${i})" style="cursor:pointer;user-select:none;display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px">
+        <span id="cp-mio-fl-${i}" style="color:var(--text2);font-size:11px;width:10px">${abierto?'▾':'▸'}</span>
+        <span style="font-size:12px;color:var(--text2);min-width:82px">${hora(c.propuesto)}</span>
+        <span style="font-size:12px;font-weight:600">${c.casa||''}</span>
+        ${c.estrategia&&c.estrategia!=='libre'?`<span style="padding:2px 8px;border-radius:5px;background:${c.estrategia==='bonos'?'rgba(53,204,47,.15)':'rgba(74,158,255,.15)'};color:${c.estrategia==='bonos'?'var(--gold)':'var(--blue)'};font-size:10px;font-weight:600">${EST[c.estrategia]}</span>`:''}
+        <span style="flex:1;min-width:10px"></span>
+        <span style="font-size:11px;color:var(--text2)">${n} ${n===1?'opción':'opciones'}</span>
+        <span style="font-size:11px;font-weight:700;color:${col};background:${fondo};padding:3px 10px;border-radius:20px">${etq}${ok!=null&&c.resuelto?` · ${ok}/${n}`:''}</span>
+        <span style="font-size:13px;font-weight:700;color:var(--gold);min-width:44px;text-align:right">${(c.cuotaTotal||0).toFixed(2)}</span>
+      </div>
+
+      <div id="cp-mio-det-${i}" style="display:${abierto?'':'none'};padding:0 14px 12px;border-top:1px solid var(--border)">
+        <table style="width:100%;border-collapse:collapse;margin-top:9px">${filas}</table>
+        <div style="margin-top:9px;display:flex;gap:6px;flex-wrap:wrap">
+          <span onclick="cpReportarHist(${i})" style="cursor:pointer;user-select:none;font-size:11px;padding:4px 11px;border-radius:6px;border:1px solid rgba(74,158,255,.45);color:var(--blue)">🚩 Reportar</span>
+          ${chPuedeTransmitir() ? `<span onclick="cpTransmitirHist(${i})" title="Envía esto a todos los operadores"
+            style="cursor:pointer;user-select:none;font-size:11px;padding:4px 11px;border-radius:6px;border:1px solid rgba(240,160,80,.5);color:var(--gold)">📢 Enviar a todos</span>` : ''}
+        </div>
+        ${cpPuedeCompartir() ? `<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
+          <span onclick="cpImagenH(${i},this)" style="cursor:pointer;user-select:none;font-size:11px;padding:4px 11px;border-radius:6px;border:1px solid rgba(53,204,47,.45);color:var(--gold);font-weight:600">🖼 Imagen</span>
+          <span onclick="cpCopiarH(${i},this)" style="cursor:pointer;user-select:none;font-size:11px;padding:4px 11px;border-radius:6px;border:1px solid var(--border);color:var(--text2)">📋 Texto</span>
+          <span onclick="cpWhatsappH(${i},this)" style="cursor:pointer;user-select:none;font-size:11px;padding:4px 11px;border-radius:6px;border:1px solid var(--border);color:var(--text2)">WhatsApp</span>
+          <span onclick="cpTelegramH(${i},this)" style="cursor:pointer;user-select:none;font-size:11px;padding:4px 11px;border-radius:6px;border:1px solid var(--border);color:var(--text2)">Telegram</span>
+        </div>` : ''}
+      </div>
+    </div>`;
+  }).join('')
+  + (cup.length > CP_TOPE_LISTA
+      ? `<div style="font-size:11px;color:var(--text2);text-align:center;padding:10px">
+           Se muestran los ${CP_TOPE_LISTA} más recientes de ${cup.length}. Acota la fecha para ver el resto.</div>`
+      : '');
+}
+
+// ── Selector de ligas ───────────────────────────────────────────────────────
+// Con su propia selección, separada de la de Trixi Bot: no se busca lo mismo
+// para una surebet que para una combinada.
+let _cpLigas = [];
+let _cpLigasSel = new Set();
+
+function cpLigasClave(){ return 'cp-ligas-' + (auth.currentUser?.uid || ''); }
+function cpGuardarLigas(){
+  try { localStorage.setItem(cpLigasClave(), JSON.stringify([..._cpLigasSel])); } catch(_){}
+}
+function cpCargarLigasGuardadas(){
+  try { const g = JSON.parse(localStorage.getItem(cpLigasClave()) || 'null');
+    if (Array.isArray(g)) { _cpLigasSel = new Set(g); return true; } } catch(_){}
+  return false;
+}
+
+async function cpCatalogoLigas(){
+  const uid = auth.currentUser?.uid; if (!uid) return;
+  try{
+    const dias = parseInt(document.getElementById('cp-dias')?.value || '1', 10);
+    const snap = await db.collection('trixibot_eventos')
+      .where('fecha','>=',tbHoyBogota()).where('fecha','<=',tbFechaBogota(dias)).get();
+    const cuenta = {}, paisDe = {}, principal = {};
+    snap.docs.forEach(d => { const x = d.data(); const l = x.liga || '—';
+      cuenta[l] = (cuenta[l]||0)+1;
+      if (x.pais && !paisDe[l]) paisDe[l] = x.pais;
+      if (typeof x.principal === 'boolean') principal[l] = x.principal;
+    });
+    _cpLigas = Object.entries(cuenta).map(([liga,n]) => ({ liga, n,
+        pais: paisDe[liga] || '', principal: !!principal[liga] }))
+      .sort((a,b) => (a.pais||'zzz').localeCompare(b.pais||'zzz') || a.liga.localeCompare(b.liga));
+    // Primera vez: solo principales, que es lo que conviene para combinadas
+    if (!cpCargarLigasGuardadas())
+      _cpLigasSel = new Set(_cpLigas.filter(l => l.principal).map(l => l.liga));
+    cpPintarLigas();
+  }catch(e){ console.warn('ligas combinadas:', e); }
+}
+
+function cpLigasPanel(){
+  const box = document.getElementById('cp-ligas-box');
+  const btn = document.getElementById('cp-ligas-toggle');
+  if (!box) return;
+  const abierto = box.style.display !== 'none';
+  box.style.display = abierto ? 'none' : '';
+  if (btn) btn.textContent = abierto ? '▶ Elegir' : '▼ Cerrar';
+}
+function cpLigasTodas(si){
+  _cpLigasSel = si ? new Set(_cpLigas.map(l => l.liga)) : new Set();
+  cpGuardarLigas(); cpPintarLigas();
+}
+function cpLigasPrincipales(){
+  _cpLigasSel = new Set(_cpLigas.filter(l => l.principal).map(l => l.liga));
+  cpGuardarLigas(); cpPintarLigas();
+}
+function cpToggleLiga(l){
+  _cpLigasSel.has(l) ? _cpLigasSel.delete(l) : _cpLigasSel.add(l);
+  cpGuardarLigas(); cpPintarLigas();
+}
+
+function cpPintarLigas(){
+  const cont = document.getElementById('cp-ligas-lista');
+  const cnt  = document.getElementById('cp-ligas-cuenta');
+  if (cnt) cnt.textContent = _cpLigasSel.size + ' de ' + _cpLigas.length;
+  const top = document.getElementById('cp-ligas-top');
+  if (top) { const n = _cpLigas.filter(l => l.principal).length;
+    top.textContent = '⭐ Principales' + (n ? ' (' + n + ')' : ''); }
+  if (!cont) return;
+  const q = (document.getElementById('cp-ligas-buscar')?.value || '').toLowerCase();
+  const vis = _cpLigas.filter(l => !q ||
+    l.liga.toLowerCase().includes(q) || tbNormPais(l.pais).includes(tbNormPais(q)));
+  cont.innerHTML = vis.map(l => {
+    const on = _cpLigasSel.has(l.liga);
+    return `<label onclick="event.preventDefault();cpToggleLiga(${JSON.stringify(l.liga).replace(/"/g,'&quot;')})"
+      style="display:flex;align-items:center;gap:7px;cursor:pointer;user-select:none;padding:5px 8px;border-radius:5px;
+      background:${on?'rgba(53,204,47,.12)':'transparent'};border:1px solid ${on?'rgba(53,204,47,.35)':'var(--border)'}">
+      <span style="width:13px;height:13px;border-radius:3px;flex-shrink:0;border:1px solid ${on?'var(--gold)':'var(--border)'};
+        background:${on?'var(--gold)':'transparent'};color:#fff;font-size:10px;line-height:12px;text-align:center">${on?'✓':''}</span>
+      ${l.pais ? `<span title="${l.pais}" style="font-size:12px;flex-shrink:0;line-height:1">${tbBandera(l.pais)}</span>` : '<span style="width:14px;flex-shrink:0"></span>'}
+      <span style="font-size:11px;color:${on?'var(--gold)':'var(--text2)'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${l.liga}${l.pais?`<span style="opacity:.6"> (${l.pais})</span>`:''}</span>
+      ${l.principal ? '<span title="Liga principal" style="font-size:9px;color:var(--green)">⭐</span>' : ''}
+      <span style="font-size:10px;color:var(--text2)">${l.n}</span>
+    </label>`;
+  }).join('') || '<div style="font-size:11px;color:var(--text2);padding:8px">Sin coincidencias</div>';
+}
+
+// ── Estrategias ─────────────────────────────────────────────────────────────
+// Dos formas de armar cupones, con rangos distintos, para poder compararlas con
+// resultados en vez de opiniones:
+//   bonos   — 1.60 a 1.75, que es lo que piden las casas para liberar
+//   acierto — 1.20 a 1.40, que pega mucho más seguido aunque pague menos
+// Cada cupón queda marcado con la suya, y el administrador las separa.
+const CP_ESTRATEGIAS = {
+  bonos:   { min:1.60, max:1.75, nombre:'Liberar bono' },
+  acierto: { min:1.20, max:1.40, nombre:'Favoritos claros' }
+};
+
+function cpEstrategiaCambio(){
+  const v = document.getElementById('cp-estrategia').value;
+  const caja = document.getElementById('cp-cuota-caja');
+  // Con estrategia fija, el rango lo pone ella; solo en "a mi manera" se edita
+  if (caja) caja.style.display = (v === 'libre') ? '' : 'none';
+}
+
+// ── Rendimiento histórico por mercado y rango de cuota ──────────────────────
+// Medido sobre 113.155 apuestas de 22.660 partidos europeos (2020–2026).
+// Es el rendimiento real de apostar a ciegas en cada casilla: no dice qué va a
+// pasar en un partido, dice qué tipo de apuesta históricamente ha sangrado
+// menos.
+//
+// La tabla NO vive acá. Antes estaba escrita en el portal como números planos,
+// y como es dato y no código sobrevivía a la minificación: cualquiera que
+// descargara el archivo se llevaba el resultado de todo el análisis sin haberlo
+// hecho. Ahora vive en Firestore y solo la lee quien tiene sesión válida.
+//
+// Si por lo que sea no carga, se devuelve 0 — o sea, ninguna preferencia por
+// ningún rango de cuota. El bot sigue funcionando, solo que sin esa ayuda.
+let CP_RENDIMIENTO = null;
+
+async function cpCargarRendimiento(){
+  if (CP_RENDIMIENTO) return;
+  try {
+    const d = await db.collection('trixibot_estado').doc('rendimiento').get();
+    CP_RENDIMIENTO = d.exists ? (d.data().tabla || {}) : {};
+  } catch (e) {
+    console.warn('rendimiento histórico:', e.message);
+    CP_RENDIMIENTO = {};
+  }
+}
+
+// "Más de 2.5 goles" y "Menos de 2.5 goles" pueden rendir muy distinto aunque
+// sean el mismo mercado — se vio con los datos reales: Menos de rinde por
+// encima de lo esperado y Más de por debajo. Por eso primero se busca la
+// combinación mercado+vía ("GOL_OU|OVER") y solo si no existe se cae a la
+// del mercado completo, y de ahí a "_otros".
+function cpRendimiento(mid, via, cuota){
+  if (!CP_RENDIMIENTO) return 0;                       // todavía no ha cargado
+  const tabla = CP_RENDIMIENTO[mid + '|' + via] || CP_RENDIMIENTO[mid] || CP_RENDIMIENTO['_otros'];
+  if (!tabla || !tabla.length) return 0;               // no cargó: sin preferencia
+  // Firestore no guarda arreglos dentro de arreglos, así que cada tramo viene
+  // como { desde, val } en vez de [desde, val].
+  let r = tabla[0].val;
+  for (const t of tabla) { if (cuota >= t.desde) r = t.val; }
+  return r;   // en porcentaje, casi siempre negativo
+}
+
+// ── Modelo propio de goles ──────────────────────────────────────────────────
+// Estima cuántos goles saldrán en el partido con las fichas de los dos equipos
+// y de ahí la probabilidad de pasar cada línea.
+//
+// Medido sobre 9.669 partidos: el modelo NO le gana al mercado. Pero sí sabe
+// cuándo el mercado es confiable — filtrando las opciones donde los dos
+// coinciden, el margen por opción baja de 3,1% a 0,95%, y en un cupón de tres
+// eso es pasar de perder 9,1% a perder 2,8%.
+const CP_FICHAS = new Map();     // equipo normalizado → ficha
+
+// Igual que el normalizador de las functions, para que las claves coincidan
+const CP_ESTADOS = 'ac|al|ap|am|ba|ce|df|es|go|ma|mt|ms|mg|pa|pb|pr|pe|pi|rj|rn|rs|ro|rr|sc|sp|se|to';
+const CP_ALIAS = { athmadrid:'madrid', athbilbao:'athletic', espanol:'espanyol',
+  sociedad:'realsociedad', betis:'realbetis', vallecano:'rayovallecano', celta:'celtavigo',
+  manunited:'manchesterunited', mancity:'manchestercity', nottmforest:'nottinghamforest',
+  wolves:'wolverhampton', newcastle:'newcastleunited', tottenham:'tottenhamhotspur',
+  westham:'westhamunited', leeds:'leedsunited', einfrankfurt:'eintrachtfrankfurt',
+  mgladbach:'monchengladbach', dortmund:'borussiadortmund', leverkusen:'bayerleverkusen',
+  stuttgart:'vfbstuttgart', schalke:'schalke04', hertha:'herthaberlin',
+  parissg:'parissaintgermain', marseille:'olympiquemarsella', lyon:'olympiquelyon',
+  inter:'internazionale', milan:'acmilan', roma:'asroma', psveindhoven:'psv',
+  azalkmaar:'az', spportugal:'sporting', bragasp:'braga' };
+
+function cpNormEquipo(s){
+  const b = String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'')
+    .replace(new RegExp('[-\\s]+('+CP_ESTADOS+')\\.?\\s*$','i'),'')
+    .replace(new RegExp('\\s+('+CP_ESTADOS+')\\.?\\s*$','i'),'')
+    .replace(/\s+[a-z]\.\s*[a-z]\.\s*$/i,'')
+    .replace(/\b(fc|cf|cd|cda|sc|ac|se|ec|ad|cs|rcd|rc|ud|sd|club|deportivo|deportes|atletico|de|del|la|el|los)\b/g,'')
+    .replace(/[^a-z0-9]/g,'');
+  return CP_ALIAS[b] || b;
+}
+
+// Trae solo las fichas de los equipos que aparecen en estos partidos
+// ── Buscar la ficha de un equipo ────────────────────────────────────────────
+// La fuente histórica y las casas no escriben igual: la fuente dice "Norwich"
+// y la casa "Norwich City". Por eso hay dos intentos.
+//
+// El segundo intento quita los apellidos (City, Town, United, Rovers...), y ahí
+// aparece un peligro: Bristol City y Bristol Rovers quedan los dos en
+// "bristol". Se bloquea con dos guardias:
+//
+//   1. El diccionario del servidor bota las claves cortas que en el histórico
+//      apuntan a más de un equipo (Dundee / Dundee Utd).
+//   2. Acá se botan además las que se repiten entre los partidos que hay en
+//      pantalla — que es donde se ve el choque de Bristol.
+//
+// Ante la duda no se adivina: se prefiere quedarse sin ficha antes que ponerle
+// a un equipo la de otro.
+const CP_APELLIDOS = /\b(city|town|united|utd|rovers|wanderers|county|albion|hotspur|borussia|bayer|bayern|eintracht|werder|hertha|schalke)\b/g;
+let CP_ALIAS_TABLA = null;      // corta -> clave de ficha, lo escribe el servidor
+let CP_AMBIGUAS   = new Set();  // cortas que chocan en el catálogo de hoy
+
+function cpClaveCorta(s){
+  return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(new RegExp('[-\\s]+('+CP_ESTADOS+')\\.?\\s*$','i'),'')
+    .replace(/\s+[a-z]\.\s*[a-z]\.\s*$/i,'')
+    .replace(/\b(fc|cf|cd|cda|sc|ac|se|ec|ad|cs|rcd|rc|ud|sd|club|deportivo|deportes|atletico|de|del|la|el|los)\b/g,'')
+    .replace(CP_APELLIDOS,'')
+    .replace(/[^a-z0-9]/g,'');
+}
+
+// La clave con la que de verdad está guardada la ficha, o vacío si no se sabe
+function cpClaveFicha(nombre){
+  const estricta = cpNormEquipo(nombre);
+  if (CP_FICHAS.get(estricta)) return estricta;
+  const corta = cpClaveCorta(nombre);
+  if (!corta || corta === estricta) return estricta;
+  if (CP_AMBIGUAS.has(corta)) return estricta;          // dos equipos la comparten
+  const destino = CP_ALIAS_TABLA && CP_ALIAS_TABLA[corta];
+  if (destino && CP_FICHAS.get(destino)) return destino;
+  return estricta;
+}
+
+async function cpCargarFichas(eventos){
+  // El diccionario se lee una sola vez por sesión
+  if (CP_ALIAS_TABLA === null) {
+    try {
+      const d = await db.collection('trixibot_estado').doc('alias_equipos').get();
+      CP_ALIAS_TABLA = d.exists ? (d.data().tabla || {}) : {};
+    } catch(_) { CP_ALIAS_TABLA = {}; }
+  }
+
+  // Claves cortas que se repiten entre los partidos de hoy: no se usan
+  const cuenta = {};
+  const equipos = new Set();
+  eventos.forEach(e => [e.local, e.visitante].forEach(t => equipos.add(t)));
+  equipos.forEach(t => { const c = cpClaveCorta(t); if (c) cuenta[c] = (cuenta[c]||0)+1; });
+  CP_AMBIGUAS = new Set(Object.keys(cuenta).filter(c => cuenta[c] > 1));
+
+  // Se piden las dos claves posibles de cada equipo, y gana la que exista
+  const faltan = new Set();
+  equipos.forEach(t => {
+    const e = cpNormEquipo(t), c = cpClaveCorta(t);
+    if (e && !CP_FICHAS.has(e)) faltan.add(e);
+    if (c && c !== e && !CP_AMBIGUAS.has(c)) {
+      const d = CP_ALIAS_TABLA[c];
+      if (d && !CP_FICHAS.has(d)) faltan.add(d);
+    }
+  });
+
+  const claves = [...faltan];
+  for (let i = 0; i < claves.length; i += 25){
+    const trozo = claves.slice(i, i+25);
+    const docs = await Promise.all(trozo.map(k =>
+      db.collection('combinadas_equipos').doc(k).get().catch(()=>null)));
+    trozo.forEach((k, j) => CP_FICHAS.set(k, docs[j] && docs[j].exists ? docs[j].data() : null));
+  }
+}
+
+// Combina la memoria corta con la larga según cuánta confianza haya
+function cpNumeros(f){
+  if (!f) return null;
+  const corta = (f.partidos >= 4) ? f : null;
+  const larga = (f.historico && f.historico.partidos >= 10) ? f.historico : null;
+  if (!corta && !larga) return null;
+  if (!larga) return { gf: corta.golesFavor, gc: corta.golesContra, n: corta.partidos };
+  const lgf = larga.gf / larga.partidos, lgc = larga.gc / larga.partidos;
+  if (!corta) return { gf: lgf, gc: lgc, n: larga.partidos };
+  const p = Math.min(1, corta.partidos / 20);
+  return { gf: corta.golesFavor*p + lgf*(1-p), gc: corta.golesContra*p + lgc*(1-p),
+           n: corta.partidos + larga.partidos };
+}
+
+const cpPoisson = (k, l) => Math.exp(-l)*Math.pow(l,k)/[1,1,2,6,24,120,720,5040][k];
+
+// Probabilidad de que el partido pase de cierta línea de goles
+function cpProbGoles(local, visita, linea){
+  const A = cpNumeros(CP_FICHAS.get(cpClaveFicha(local)));
+  const B = cpNumeros(CP_FICHAS.get(cpClaveFicha(visita)));
+  if (!A || !B) return null;
+  const lh = (A.gf + B.gc) / 2, la = (B.gf + A.gc) / 2;
+  if (!(lh > 0) || !(la > 0) || lh > 6 || la > 6) return null;
+  const tope = Math.floor(linea);
+  let menos = 0;
+  for (let i = 0; i <= tope; i++)
+    for (let j = 0; j <= tope - i; j++) menos += cpPoisson(i, lh) * cpPoisson(j, la);
+  return { over: 1 - menos, under: menos, muestra: Math.min(A.n, B.n) };
+}
+
+// ── COMBINADAS PRO · interfaz ───────────────────────────────────────────────
+let _cpEventos = [];
+let _cpCupones = [];
+let _cpMercSel = new Set();
+
+function cpPeso(n){ return '$' + Math.round(n||0).toLocaleString('es-CO'); }
+
+// Las cuotas se escriben con coma en Colombia (1,60) pero también con punto
+function cpCuota(id, porDefecto){
+  const v = parseFloat(String(document.getElementById(id)?.value || '').replace(',', '.'));
+  return (isFinite(v) && v > 0) ? v : porDefecto;
+}
+// Alterna entre escoger de la lista o escribir la cuota. Al pasar a mano se
+// arrastra lo que estaba seleccionado, para no empezar de cero.
+let _cpManual = false;
+function cpModoCuota(){
+  _cpManual = !_cpManual;
+  const L = document.getElementById('cp-cuota-listas');
+  const M = document.getElementById('cp-cuota-manual');
+  const b = document.getElementById('cp-modo');
+  if (_cpManual){
+    document.getElementById('cp-cmin').value = document.getElementById('cp-cmin-sel').value.replace('.', ',');
+    document.getElementById('cp-cmax').value = document.getElementById('cp-cmax-sel').value.replace('.', ',');
+  }
+  L.style.display = _cpManual ? 'none' : 'flex';
+  M.style.display = _cpManual ? 'flex' : 'none';
+  b.textContent   = _cpManual ? '☰ de la lista' : '✎ a mano';
+}
+
+function cpPintarMercados(){
+  const panel = document.getElementById('cp-merc-panel');
+  const res   = document.getElementById('cp-merc-res');
+  if (!panel) return;
+  const lista = Object.entries(CP_MERCADOS).map(([id,d]) => ({id, nombre:d.nombre}));
+  panel.innerHTML = `<div style="display:flex;gap:6px;margin-bottom:6px">
+      <span onclick="cpMercTodos(true)"  style="cursor:pointer;font-size:11px;padding:3px 10px;border-radius:5px;border:1px solid var(--border);color:var(--text2)">Todos</span>
+      <span onclick="cpMercTodos(false)" style="cursor:pointer;font-size:11px;padding:3px 10px;border-radius:5px;border:1px solid var(--border);color:var(--text2)">Ninguno</span>
+    </div>` + lista.map(m => {
+      const on = _cpMercSel.has(m.id);
+      return `<label class="${on?'on':''}" onclick="event.preventDefault();cpMercToggle('${m.id}')">
+        <input type="checkbox" ${on?'checked':''} onclick="event.preventDefault()"><span>${m.nombre}</span></label>`;
+    }).join('');
+  if (res) res.textContent = !_cpMercSel.size ? 'Todos'
+    : _cpMercSel.size === lista.length ? 'Todos'
+    : _cpMercSel.size === 1 ? CP_MERCADOS[[..._cpMercSel][0]].nombre
+    : _cpMercSel.size + ' mercados';
+}
+function cpMercToggle(id){ _cpMercSel.has(id)?_cpMercSel.delete(id):_cpMercSel.add(id); cpPintarMercados(); }
+function cpMercTodos(si){ _cpMercSel = si ? new Set(Object.keys(CP_MERCADOS)) : new Set(); cpPintarMercados(); }
+
+document.addEventListener('click', e => {
+  const dd = document.getElementById('cp-mercado');
+  if (dd && dd.open && !dd.contains(e.target)) dd.open = false;
+});
+
+// ── Compartir el cupón ──────────────────────────────────────────────────────
+// Texto plano, sin formato raro: WhatsApp y Telegram lo respetan igual y se lee
+// bien en el celular. Sin probabilidades ni márgenes — eso es para adentro.
+function cpTexto(c){
+  if (!c) return '';
+  const importe = tbNum('cp-importe') || 10000;
+  const L = [];
+  L.push('COMBINADA · ' + c.patas.length + ' opciones');
+  L.push('Casa: ' + c.casa);
+  L.push('');
+  c.patas.forEach((p, i) => {
+    const ev = p.evento;
+    L.push((i+1) + '. ' + ev.local + ' vs ' + ev.visitante);
+    L.push('   ' + (p.etiqueta + (p.linea ? ' ' + tbLinea(p.linea) : '')) + '  →  ' + (p.cuotaEn||p.cuota).toFixed(2));
+    L.push('   ' + (ev.liga||'—') + (ev.pais && ev.pais !== ev.liga ? ' · ' + ev.pais : '') + ' · ' + ev.fecha + ' ' + (ev.hora||''));
+  });
+  L.push('');
+  L.push('Cuota total: ' + c.total.toFixed(2));
+  L.push('Con ' + cpPeso(importe) + ' cobras ' + cpPeso(importe * c.total));
+  return L.join('\n');
+}
+
+async function cpCopiar(c, btn){
+  const txt = cpTexto(c);
+  try { await navigator.clipboard.writeText(txt); }
+  catch(_){
+    // Algunos navegadores solo dejan copiar desde un campo de texto
+    const t = document.createElement('textarea');
+    t.value = txt; t.style.position='fixed'; t.style.opacity='0';
+    document.body.appendChild(t); t.select();
+    try { document.execCommand('copy'); } catch(__){}
+    t.remove();
+  }
+  if (btn){ const antes = btn.textContent; btn.textContent = '✓ Copiado';
+    setTimeout(()=>{ btn.textContent = antes; }, 1600); }
+}
+
+// Los botones mandan el índice de la tarjeta; aquí se convierte en el cupón.
+const cpDeIdx = i => (_cpCupones || [])[i];
+const cpDeHist = i => (_cpMisCupones || [])[i];
+
+function cpWhatsapp(idx, btn){ return cpEnviar(cpDeIdx(idx), 'whatsapp', btn); }
+function cpTelegram(idx, btn){ return cpEnviar(cpDeIdx(idx), 'telegram', btn); }
+function cpCopiarIdx(idx, btn){ return cpCopiar(cpDeIdx(idx), btn); }
+
+// Los mismos cuatro, sobre el historial guardado
+function cpImagenH(i, btn){   return cpEnviar(cpDeHist(i), null, btn); }
+function cpWhatsappH(i, btn){ return cpEnviar(cpDeHist(i), 'whatsapp', btn); }
+function cpTelegramH(i, btn){ return cpEnviar(cpDeHist(i), 'telegram', btn); }
+function cpCopiarH(i, btn){   return cpCopiar(cpDeHist(i), btn); }
+
+// ── Cupón como imagen ───────────────────────────────────────────────────────
+// Un texto en WhatsApp se pierde entre la conversación; una imagen se ve de
+// una. Se dibuja en un lienzo con la paleta de la marca y sale en PNG.
+// La marca, precargada: el lienzo se dibuja de golpe y no puede esperar a que cargue
+const CP_MARCA = new Image();
+CP_MARCA.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTI5LjgiIGhlaWdodD0iMTM2LjYiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgdmlld0JveD0iMCAwIDEyOS44MCAxMzYuNjAiIHJvbGU9ImltZyIgYXJpYS1sYWJlbD0iQUoxLjYgQWNhZGVtaWEiPjxkZWZzPjxjbGlwUGF0aCBpZD0iYzciPjxwYXRoIGQ9Ik0gMzAyIDM1NCBMIDMzOSAzNTQgTCAzMzkgMzc5LjU0Njg3NSBMIDMwMiAzNzkuNTQ2ODc1IFogTSAzMDIgMzU0ICIvPjwvY2xpcFBhdGg+PC9kZWZzPjxnIHRyYW5zZm9ybT0idHJhbnNsYXRlKC0yNDMuNzAsLTMyMy45MCkiPjxwYXRoIGZpbGw9IiMzNUNDMkYiIGQ9Ik0gMzcyLjMyODEyNSAzNTguNzg1MTU2IEwgMzQ1LjkyOTY4OCAzNTguNzg1MTU2IEMgMzQ1LjkyOTY4OCAzNTguNzg1MTU2IDM0NS41MzUxNTYgMzg2LjM5ODQzOCAzNDUuMDMxMjUgMzk1LjY4NzUgQyAzNDQuMzE2NDA2IDQwOC44MjQyMTkgMzM0LjIzMDQ2OSA0MjcuNDg0Mzc1IDMwNy41MzEyNSA0MzEuOTg0Mzc1IEMgMjk1Ljg0NzY1NiA0MzMuOTUzMTI1IDI3MS44MzU5MzggNDMwLjEwOTM3NSAyNjAuMTMyODEyIDQzMS45ODQzNzUgQyAyNTEuMTIxMDk0IDQzMy40MjU3ODEgMjQ1Ljc1MzkwNiA0NDAuNjgzNTk0IDI0My45NTMxMjUgNDU4LjY4MzU5NCBDIDI0My45NTMxMjUgNDU4LjY4MzU5NCAyOTMuNzY5NTMxIDQ1OS4zMTI1IDMxMy4yMzA0NjkgNDU4LjA4MjAzMSBDIDMzNC41MTE3MTkgNDU2LjczODI4MSAzNjUuMzc1IDQ1MS44ODI4MTIgMzcyLjMyODEyNSAzOTYuNTg1OTM4IEMgMzczLjUwNzgxMiAzODcuMjEwOTM4IDM3Mi4zMjgxMjUgMzU4Ljc4NTE1NiAzNzIuMzI4MTI1IDM1OC43ODUxNTYiLz48ZyBjbGlwLXBhdGg9InVybCgjYzcpIj48cGF0aCBmaWxsPSIjMjRCRjYyIiBkPSJNIDMxNS45NTcwMzEgNDYwLjUyMzQzOCBDIDMxNS45Mjk2ODggNDU5Ljc2NTYyNSAzMTUuODgyODEyIDQ1OS4wMTE3MTkgMzE1Ljg4MjgxMiA0NTguMjUzOTA2IEMgMzE1Ljg3ODkwNiA0NTAuNDU3MDMxIDMxNS44ODI4MTIgNDQyLjY2NDA2MiAzMTUuODc4OTA2IDQzNC44NjcxODggQyAzMTUuODc1IDQyOC4yOTI5NjkgMzE1Ljg1NTQ2OSA0MjEuNzE4NzUgMzE1Ljg1MTU2MiA0MTUuMTQwNjI1IEMgMzE1Ljg0NzY1NiA0MDguNTY2NDA2IDMxNS44NTE1NjIgNDAxLjk4ODI4MSAzMTUuODUxNTYyIDM5NS40MTQwNjIgQyAzMTUuODUxNTYyIDM5MC4zMTY0MDYgMzE1Ljg0Mzc1IDM4NS4yMjI2NTYgMzE1LjgzOTg0NCAzODAuMTI1IEMgMzE1LjgzOTg0NCAzNzkuOTQ5MjE5IDMxNS44MjAzMTIgMzc5Ljc3MzQzOCAzMTUuODA0Njg4IDM3OS41NTg1OTQgQyAzMTEuMzM5ODQ0IDM3OS41NjI1IDMwNi45MTAxNTYgMzc5LjU2MjUgMzAyLjMyNDIxOSAzNzkuNTY2NDA2IEMgMzA4LjM1MTU2MiAzNzEuMTE3MTg4IDMxNC4zMDQ2ODggMzYyLjc2NTYyNSAzMjAuMzE2NDA2IDM1NC4zMzU5MzggQyAzMjYuMzI0MjE5IDM2Mi43MzQzNzUgMzMyLjI4NTE1NiAzNzEuMDcwMzEyIDMzOC4zMjAzMTIgMzc5LjUwMzkwNiBDIDMzMy43ODkwNjIgMzc5LjUwNzgxMiAzMjkuMzUxNTYyIDM3OS41MTE3MTkgMzI0LjgzNTkzOCAzNzkuNTE1NjI1IEMgMzI0LjgzNTkzOCAzODAuMjA3MDMxIDMyNC44MzU5MzggMzgwLjgyMDMxMiAzMjQuODM1OTM4IDM4MS40MzM1OTQgQyAzMjQuODQzNzUgMzg1LjYzMjgxMiAzMjQuODUxNTYyIDM4OS44MjgxMjUgMzI0Ljg1NTQ2OSAzOTQuMDI3MzQ0IEMgMzI0Ljg1NTQ2OSAzOTguMjIyNjU2IDMyNC44NTE1NjIgNDAyLjQyMTg3NSAzMjQuODU1NDY5IDQwNi42MTcxODggQyAzMjQuODU5Mzc1IDQxMC44MTY0MDYgMzI0Ljg3MTA5NCA0MTUuMDExNzE5IDMyNC44NzEwOTQgNDE5LjIxMDkzOCBDIDMyNC44NzUgNDIzLjQwNjI1IDMyNC44NzEwOTQgNDI3LjYwNTQ2OSAzMjQuODc1IDQzMS44MDA3ODEgQyAzMjQuODc1IDQzNiAzMjQuODg2NzE5IDQ0MC4xOTUzMTIgMzI0Ljg5MDYyNSA0NDQuMzk0NTMxIEMgMzI0Ljg5NDUzMSA0NDguNTg5ODQ0IDMyNC44ODY3MTkgNDUyLjc4OTA2MiAzMjQuODk0NTMxIDQ1Ni45ODQzNzUgQyAzMjQuODk0NTMxIDQ1OC4xNjAxNTYgMzI0LjkzMzU5NCA0NTkuMzM5ODQ0IDMyNC45NTMxMjUgNDYwLjUxNTYyNSBaIE0gMzE1Ljk1NzAzMSA0NjAuNTIzNDM4Ii8+PC9nPjxwYXRoIGZpbGw9IiMyNEJGNjIiIGQ9Ik0gMzU0LjM0Mzc1IDMyNC45NDkyMTkgQyAzNTQuMzQzNzUgMzI0Ljk0OTIxOSAzMTUuNTgyMDMxIDMyMy45Mjk2ODggMjk1LjAzMTI1IDMyNC45NDkyMTkgQyAyNzQuNzk2ODc1IDMyNS45NTMxMjUgMjQ3LjM1OTM3NSAzMzYuNjQ4NDM4IDI0My42OTUzMTIgMzg3LjY0NDUzMSBMIDI0My42OTUzMTIgNDE5LjgwODU5NCBMIDMxMC40ODQzNzUgNDE5LjgwODU5NCBDIDMxMC40ODQzNzUgNDE5LjgwODU5NCAzMzAuMTI4OTA2IDQxOS40NDUzMTIgMzMxLjE3NTc4MSAzOTQuMjQ2MDk0IEwgMzMwLjY3OTY4OCAzNzguMzQ3NjU2IEwgMzA5LjE3MTg3NSAzNzguMDQ2ODc1IEwgMzA5LjE3MTg3NSAzOTguNDQ1MzEyIEwgMjY2Ljc0MjE4OCAzOTguNDQ1MzEyIEMgMjY2Ljc0MjE4OCAzOTguNDQ1MzEyIDI2MC40NjA5MzggMzc5LjA0Mjk2OSAyNzQuNzgxMjUgMzYxLjY2Nzk2OSBDIDI3OC41MjM0MzggMzU3LjEzMjgxMiAyODYuMDAzOTA2IDM0OC40MDYyNSAzMDAuMjgxMjUgMzQ1LjM0NzY1NiBMIDM0NS4xNjQwNjIgMzQ1LjM0NzY1NiBDIDM0NS4xNjQwNjIgMzQ1LjM0NzY1NiAzNTMuNTU4NTk0IDM0Ni4yNDYwOTQgMzU0LjM0Mzc1IDMyNC45NDkyMTkiLz48L2c+PC9zdmc+';
+
+function cpDibujar(c){
+  if (!c) return null;
+  const importe = tbNum('cp-importe') || 10000;
+  const D = 2;                                    // doble resolución, para que no se vea borroso
+  const A = 620, MG = 34;
+  const lienzo = document.createElement('canvas');
+  const g = lienzo.getContext('2d');
+  const F = (px, peso) => `${peso||400} ${px}px -apple-system, "Segoe UI", Roboto, sans-serif`;
+
+  // Partir los nombres largos en varias líneas
+  const partir = (txt, ancho, fuente) => {
+    g.font = fuente;
+    const out = []; let linea = '';
+    String(txt).split(' ').forEach(p => {
+      const prueba = linea ? linea + ' ' + p : p;
+      if (g.measureText(prueba).width > ancho && linea) { out.push(linea); linea = p; }
+      else linea = prueba;
+    });
+    if (linea) out.push(linea);
+    return out;
+  };
+
+  // Primera pasada: calcular el alto que hace falta
+  const bloques = c.patas.map(p => {
+    const ev = p.evento;
+    return { p, ev, titulo: partir(ev.local + '  vs  ' + ev.visitante, A - MG*2 - 70, F(16,600)) };
+  });
+  // El alto se calcula recorriendo los bloques igual que al dibujarlos, para que
+  // el pie quede pegado al contenido y no sobre espacio en blanco.
+  const yFin = bloques.reduce((y, b) => y + (b.titulo.length - 1) * 22 + 52, 96);
+  const ALTO = yFin - 7 + 72;
+
+  lienzo.width = A*D; lienzo.height = ALTO*D; g.scale(D, D);
+
+  // Fondo
+  g.fillStyle = '#12151c'; g.fillRect(0,0,A,ALTO);
+  g.fillStyle = '#35CC2F'; g.fillRect(0,0,A,4);
+
+  // Encabezado
+  g.fillStyle = '#8890a8'; g.font = F(11,600);
+  g.fillText('COMBINADA · ' + c.patas.length + ' OPCIONES', MG, 38);
+  g.fillStyle = '#35CC2F'; g.font = F(30,700);
+  g.textAlign = 'right'; g.fillText(c.total.toFixed(2), A-MG, 44); g.textAlign = 'left';
+  g.fillStyle = '#e8eaf0'; g.font = F(15,600);
+  g.fillText(c.casa, MG, 62);
+
+  let y = 96;
+  bloques.forEach((b, i) => {
+    g.strokeStyle = 'rgba(255,255,255,.08)'; g.beginPath();
+    g.moveTo(MG, y-16); g.lineTo(A-MG, y-16); g.stroke();
+
+    g.fillStyle = '#e8eaf0'; g.font = F(16,600);
+    b.titulo.forEach((l, k) => g.fillText(l, MG, y + k*22));
+    const yb = y + (b.titulo.length-1)*22;
+
+    g.fillStyle = '#35CC2F'; g.font = F(19,700); g.textAlign = 'right';
+    g.fillText((b.p.cuotaEn||b.p.cuota).toFixed(2), A-MG, yb); g.textAlign = 'left';
+
+    g.fillStyle = '#9aa3b8'; g.font = F(13,500);
+    const sel = b.p.etiqueta + (b.p.linea ? ' ' + tbLinea(b.p.linea) : '');
+    g.fillText(sel, MG, yb+21);
+    g.fillStyle = '#6b7488'; g.font = F(12,400);
+    const meta = (b.ev.liga||'—') + ' · ' + (b.ev.hora||'') + ' · ' + (b.ev.fecha||'');
+    g.textAlign = 'right'; g.fillText(meta, A-MG, yb+21); g.textAlign = 'left';
+
+    y = yb + 52;
+  });
+
+  // Pie
+  g.fillStyle = 'rgba(53,204,47,.08)'; g.fillRect(0, ALTO-72, A, 72);
+  g.fillStyle = '#8890a8'; g.font = F(12,500);
+  g.fillText('Inviertes ' + cpPeso(importe), MG, ALTO-42);
+  g.fillStyle = '#35CC2F'; g.font = F(22,700);
+  g.fillText('Cobras ' + cpPeso(importe * c.total), MG, ALTO-18);
+  if (CP_MARCA.complete && CP_MARCA.naturalWidth) {
+    const hm = 34, am = hm * CP_MARCA.naturalWidth / CP_MARCA.naturalHeight;
+    g.drawImage(CP_MARCA, A-MG-am, ALTO-24-hm, am, hm);
+  } else {
+    g.fillStyle = '#6b7488'; g.font = F(11,600); g.textAlign = 'right';
+    g.fillText('AJ1.6', A-MG, ALTO-18); g.textAlign = 'left';
+  }
+  return lienzo;
+}
+
+// WhatsApp y Telegram no dejan adjuntar una imagen desde un enlace: sus
+// direcciones de compartir solo aceptan texto. Así que:
+//  · en el celular se abre el menú del sistema, que sí manda el archivo
+//  · en el computador se copia la imagen y se abre la app para pegarla
+async function cpEnviar(c, destino, btn){
+  const lienzo = cpDibujar(c); if (!lienzo) return;
+  const blob = await new Promise(r => lienzo.toBlob(r, 'image/png'));
+  const archivo = new File([blob], 'combinada.png', { type:'image/png' });
+  const avisar = t => { if (!btn) return;
+    if (!btn.dataset.txt) btn.dataset.txt = btn.textContent;
+    btn.textContent = t;
+    setTimeout(()=>{ btn.textContent = btn.dataset.txt; }, 2200); };
+
+  // Celular: el menú del sistema muestra WhatsApp, Telegram y lo demás
+  if (navigator.canShare && navigator.canShare({ files:[archivo] })) {
+    try { await navigator.share({ files:[archivo], text: cpTexto(c) }); return; } catch(_){}
+  }
+
+  // Computador: copiar la imagen y abrir la app para pegarla
+  let copiada = false;
+  try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]); copiada = true; }
+  catch(_){}
+  if (!copiada) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = 'combinada.png'; a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
+  }
+  if (destino) {
+    window.open(destino === 'whatsapp' ? 'https://web.whatsapp.com/' : 'https://web.telegram.org/', '_blank');
+    toast(copiada ? '📋 Imagen copiada — pégala con ⌘V en el chat'
+                  : '⬇ Imagen descargada — arrástrala al chat', 'success');
+  } else {
+    avisar('✓ Copiada');
+    if (!copiada) toast('⬇ Imagen descargada', 'success');
+  }
+}
+
+function cpImagen(idx, btn){ return cpEnviar(cpDeIdx(idx), null, btn); }
+
+// ── Registro de cupones ─────────────────────────────────────────────────────
+// Cada cupón que el bot propone queda anotado con sus opciones y sus cuotas.
+// El cierre diario después lo resuelve contra los resultados y anota si pegó.
+// Sin esto el sistema aprende cómo juegan los equipos pero nunca sabe si SUS
+// propuestas aciertan, que es lo único que dice si el bot sirve.
+//
+// Se guarda lo que propone, no lo que el operador apuesta: la muestra tiene que
+// incluir los cupones que nadie jugó, o solo aprenderíamos de los que gustaron.
+async function cpRegistrar(cupones){
+  const uid = auth.currentUser?.uid; if (!uid || !cupones.length) return;
+  if (_checkLock('registrar cupones de combinadas')) return;
+  try{
+    const lote = db.batch();
+    const sello = tbHoyBogota();
+    cupones.forEach(c => {
+      // Id estable por contenido: si el bot propone el mismo cupón varias veces
+      // en el día, se guarda una sola vez y no infla la muestra.
+      const firma = (c.estrategia||'') + '|' + c.casa + '|' + c.patas
+        .map(p => (p.evento.id || '') + ':' + p.clave + ':' + p.via).sort().join('|');
+      let h = 0; for (let i=0;i<firma.length;i++) h = (h*31 + firma.charCodeAt(i)) | 0;
+      const id = sello + '_' + uid.slice(0,6) + '_' + Math.abs(h).toString(36);
+
+      lote.set(db.collection('combinadas_cupones').doc(id), {
+        uid, fecha: sello, casa: c.casa,
+        estrategia: c.estrategia || 'libre',
+        cuotaTotal: +c.total.toFixed(3),
+        probEstimada: +c.prob.toFixed(4),
+        margen: +(-c.ventaja).toFixed(4),
+        opciones: c.patas.map(p => ({
+          eventoId: p.evento.id || null,
+          local: p.evento.local, visitante: p.evento.visitante,
+          liga: p.evento.liga || '', pais: p.evento.pais || '',
+          inicio: p.evento.inicioUTC || null,
+          mercado: p.mid, linea: p.linea || null, via: p.via,
+          cuota: +(p.cuotaEn || p.cuota).toFixed(3)
+        })),
+        resuelto: false,
+        propuesto: firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+    });
+    await lote.commit();
+    // Se acaban de registrar cupones nuevos, así que la copia en memoria de
+    // «Mis cupones» quedó vieja. Se descarta para que la próxima visita relea.
+    _cpMiosDatos = null;
+  }catch(e){ console.warn('registro de cupones:', e.message); }
+}
+
+// Firestore contesta "Missing or insufficient permissions" cuando la sesión se
+// vence, que no le dice nada a nadie. Se traduce a lo que realmente pasó.
+function cpErrorClaro(e){
+  if (!auth.currentUser || e?.code === 'permission-denied')
+    return 'Tu sesión se venció. Vuelve a entrar al portal.';
+  return e?.message || String(e);
+}
+
+async function cpBuscar(){
+  if (!auth.currentUser){ toast('Tu sesión se venció. Vuelve a entrar al portal.', 'error'); return; }
+  const btn = document.getElementById('cp-btn');
+  btn.disabled = true; btn.textContent = '⏳ Armando...';
+  try{
+    const dias = parseInt(document.getElementById('cp-dias').value||'1',10);
+    const snap = await db.collection('trixibot_eventos')
+      .where('fecha','>=',tbHoyBogota()).where('fecha','<=',tbFechaBogota(dias)).get({source:'server'});
+    _cpEventos = snap.docs.map(d => ({ id:d.id, ...d.data() }));
+
+    const ligas = _cpLigasSel.size ? [..._cpLigasSel] : null;
+
+    // Las fichas de los equipos que juegan, para el modelo propio
+    const coincidencia = parseFloat(document.getElementById('cp-coincidencia')?.value || '0');
+    await cpCargarRendimiento();
+    if (coincidencia > 0) await cpCargarFichas(_cpEventos);
+
+    const estr = document.getElementById('cp-estrategia')?.value || 'libre';
+    const patas = parseInt(document.getElementById('cp-patas').value,10);
+    const base = { exigirCoincidencia: coincidencia || null, casasPermitidas: null,
+                   mercadosPermitidos: _cpMercSel, ligasPermitidas: ligas };
+
+    // Una tanda por estrategia; con "ambas" salen las dos y se marcan aparte
+    const tandas = estr === 'ambas' ? ['bonos','acierto']
+                 : estr === 'libre' ? [null] : [estr];
+    let cand = [], cupones = [];
+    tandas.forEach(nom => {
+      const e = CP_ESTRATEGIAS[nom];
+      const c = cpCandidatas(_cpEventos, { ...base,
+        cuotaMin: e ? e.min : (_cpManual ? cpCuota('cp-cmin',1)  : parseFloat(document.getElementById('cp-cmin-sel').value)),
+        cuotaMax: e ? e.max : (_cpManual ? cpCuota('cp-cmax',99) : parseFloat(document.getElementById('cp-cmax-sel').value))
+      });
+      cand = cand.concat(c);
+      cpArmarCupones(c, { patas, cuantos: estr === 'ambas' ? 3 : 6 })
+        .forEach(x => cupones.push({ ...x, estrategia: nom || 'libre',
+                                     estrategiaNombre: e ? e.nombre : 'A mi medida' }));
+    });
+    // Sin el detalle a la vista, el operador escogería el que más pague — que
+    // siempre es el menos probable. Ordenando por probabilidad, el más sensato
+    // le queda de primero sin necesidad de esconderle nada.
+    cupones.sort((a,b) => (b.rendCupon||0) - (a.rendCupon||0));
+    if (!cpVerDetalle()) cupones.sort((a,b) => b.prob - a.prob);
+
+    document.getElementById('cp-k-ev').textContent    = _cpEventos.length;
+    document.getElementById('cp-k-patas').textContent = cand.length;
+    document.getElementById('cp-k-cup').textContent   = cupones.length;
+    cpPintar(cupones);
+    cpRegistrar(cupones);          // en segundo plano, no hace esperar al operador
+  }catch(e){ toast(cpErrorClaro(e), 'error'); }
+  btn.disabled = false; btn.textContent = '🎟 Armar cupones';
+}
+
+function cpPintar(cupones){
+  const cont = document.getElementById('cp-cuerpo');
+  if (!cupones.length){
+    cont.innerHTML = `<div class="empty"><div class="empty-icon">🎟</div>
+      <p>No hay suficientes opciones para armar cupones con esos filtros.</p>
+      <p style="font-size:12px;color:var(--text2)">Baja la cuota mínima, quita el filtro de ligas principales o amplía la ventana.</p></div>`;
+    return;
+  }
+  const importe = tbNum('cp-importe') || 10000;
+  _cpCupones = cupones;
+  const conModelo = cupones.reduce((n,c)=>n+c.patas.filter(p=>p.modelo!=null).length,0);
+  cont.innerHTML = (conModelo ? `<div style="font-size:11px;color:var(--text2);margin-bottom:10px">
+      ✓ <b style="color:var(--green)">${conModelo}</b> opciones respaldadas por el análisis propio ·
+      el resto son ligas sin historial suficiente</div>` : '')
+    + cupones.map((c,i) => cpTarjeta(c, i, importe)).join('');
+}
+
+function cpTarjeta(c, idx, importe){
+  const filas = c.patas.map(p => `
+    <tr>
+      <td style="padding:7px 0;font-size:12px;font-weight:600">${p.etiqueta}${p.linea?' '+tbLinea(p.linea):''}
+        <div style="font-size:10px;color:var(--text2);font-weight:400">${p.evento.local} vs ${p.evento.visitante}</div>
+        <div style="font-size:10px;color:var(--text2);font-weight:400">${tbLigaConPais(p.evento.liga||'—', p.evento.pais)} · ${p.evento.fecha} ${p.evento.hora||''}</div></td>
+      <td style="text-align:right;font-size:13px;font-weight:700;vertical-align:top;padding-top:7px">${(p.cuotaEn||p.cuota).toFixed(2)}
+        ${p.modelo!=null ? `<div style="font-size:9px;font-weight:400;color:var(--green)" title="El análisis propio coincide con la cuota">✓ análisis${cpVerDetalle()?' '+(p.modelo*100).toFixed(0)+'%':''}</div>` : ''}</td>
+    </tr>`).join('');
+
+  // La probabilidad sale del consenso de las casas, no de un pronóstico propio
+  const pct  = (c.prob*100);
+  const unaDe = c.prob > 0 ? (1/c.prob) : 0;
+  // La ventaja contra el consenso es casi siempre negativa: es lo que cobra la
+  // casa. Se muestra como "margen" en positivo, que se entiende mejor.
+  const margen = -c.ventaja * 100;
+  // Pero el margen del cupón entero no sirve para juzgar el precio: se
+  // multiplica con cada opción, así que un cupón de 3 siempre sale peor que uno
+  // de 2 aunque esté mejor pagado. Se compara por opción.
+  const porOp = (1 - Math.pow(1 + c.ventaja, 1 / c.patas.length)) * 100;
+  const etq   = cpEtiqueta(c.prob);
+  const rc    = c.rendCupon != null ? c.rendCupon : 0;
+  const casas = c.porCasa.map(x => { const on = x.casa === c.casa;
+    return `<span style="font-size:11px;padding:3px 9px;border-radius:5px;
+      border:1px solid ${on?'var(--gold)':'var(--border)'};color:${on?'var(--gold)':'var(--text2)'};font-weight:${on?'700':'400'}">
+      ${x.casa} ${x.total.toFixed(2)}</span>`; }).join('');
+
+  return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:12px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
+      <div style="font-size:14px;font-weight:700">Cupón ${idx+1} · ${c.patas.length} opciones
+        <span style="font-size:11px;font-weight:600;color:var(--gold);margin-left:6px">en ${c.casa}</span>
+        ${c.estrategiaNombre && c.estrategia!=='libre' ? `<span style="font-size:10px;font-weight:600;margin-left:6px;padding:2px 8px;border-radius:5px;background:${c.estrategia==='bonos'?'rgba(53,204,47,.15)':'rgba(74,158,255,.15)'};color:${c.estrategia==='bonos'?'var(--gold)':'var(--blue)'}">${c.estrategiaNombre}</span>` : ''}</div>
+      <div style="font-size:16px;font-weight:800;color:var(--gold)">${c.total.toFixed(2)}</div>
+    </div>
+    <table style="width:100%;border-collapse:collapse">${filas}</table>
+    <div style="border-top:1px solid var(--border);margin-top:10px;padding-top:10px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px">
+      <div style="font-size:12px;color:var(--text2)">
+        Con ${cpPeso(importe)} cobras <b style="color:var(--green)">${cpPeso(importe*c.total)}</b><br>
+        ${cpVerDetalle() ? `
+          Probabilidad de pegar <b style="color:${pct>=25?'var(--green)':pct>=12?'var(--orange)':'var(--red)'}">${pct.toFixed(1)}%</b>
+          <span style="opacity:.7">· uno de cada ${unaDe.toFixed(0)}</span><br>
+          Precio <b style="color:${porOp<4.5?'var(--green)':porOp<6.5?'var(--orange)':'var(--red)'}">${porOp<4.5?'muy bueno':porOp<6.5?'normal':'flojo'}</b>
+          <span style="opacity:.7">· ${porOp.toFixed(1)}% por opción</span><br>
+          Histórico de este tipo de cupón
+          <b style="color:${rc>=-2?'var(--green)':rc>=-8?'var(--orange)':'var(--red)'}">${rc>=0?'+':''}${rc.toFixed(1)}%</b>`
+        : `<b style="color:${etq.col}">${etq.txt}</b>
+          <span style="opacity:.7">· tipo de cupón ${rc>=-2?'de los buenos':rc>=-8?'normal':'de los flojos'}</span>`}
+      </div>
+      <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:flex-start">${casas}</div>
+    </div>
+    <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
+      <span onclick="cpReportar(${idx})" style="cursor:pointer;user-select:none;font-size:11px;padding:5px 12px;border-radius:6px;border:1px solid rgba(74,158,255,.45);color:var(--blue)">🚩 Reportar</span>
+      ${chPuedeTransmitir() ? `<span onclick="cpTransmitir(${idx})" title="Envía esto a todos los operadores"
+        style="cursor:pointer;user-select:none;font-size:11px;padding:5px 12px;border-radius:6px;border:1px solid rgba(240,160,80,.5);color:var(--gold)">📢 Enviar a todos</span>` : ''}
+    </div>
+    ${cpPuedeCompartir() ? `<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
+      <span onclick="cpImagen(${idx},this)" style="cursor:pointer;user-select:none;font-size:11px;padding:5px 12px;border-radius:6px;border:1px solid rgba(53,204,47,.45);color:var(--gold);font-weight:600">🖼 Imagen</span>
+      <span onclick="cpCopiarIdx(${idx},this)" style="cursor:pointer;user-select:none;font-size:11px;padding:5px 12px;border-radius:6px;border:1px solid var(--border);color:var(--text2)">📋 Texto</span>
+      <span onclick="cpWhatsapp(${idx},this)" style="cursor:pointer;user-select:none;font-size:11px;padding:5px 12px;border-radius:6px;border:1px solid var(--border);color:var(--text2)">WhatsApp</span>
+      <span onclick="cpTelegram(${idx},this)" style="cursor:pointer;user-select:none;font-size:11px;padding:5px 12px;border-radius:6px;border:1px solid var(--border);color:var(--text2)">Telegram</span>
+    </div>` : ''}
+  </div>`;
+}
+
+// ── Reportar a la administración con el cupón pegado ────────────────────────
+// El operador no clasifica nada: el contexto lo pone la pantalla desde donde
+// salió el reporte. Así el administrador abre el mensaje y ya sabe de qué
+// cupón se está hablando, sin tener que ir a buscarlo.
+
+function cpResumen(c){
+  if (!c) return '';
+  const L = [ (c.patas.length) + ' opciones · ' + c.casa + ' · cuota ' + c.total.toFixed(2) ];
+  c.patas.forEach(p => {
+    const ev = p.evento;
+    L.push('· ' + ev.local + ' vs ' + ev.visitante + ' — '
+      + p.etiqueta + (p.linea ? ' ' + tbLinea(p.linea) : '')
+      + ' @ ' + (p.cuotaEn || p.cuota).toFixed(2));
+  });
+  return L.join('\n');
+}
+
+// La combinada se entiende de un vistazo en imagen; en texto hay que leer
+// tres renglones. Se reutiliza el mismo dibujante de la imagen de WhatsApp.
+//
+// Firestore aguanta 1 MiB por documento, así que la imagen se comprime hasta
+// entrar con margen. WebP pesa la mitad que PNG en un gráfico de colores
+// planos como este; si el navegador no lo soporta, cae a PNG.
+const CP_TOPE_IMG = 700 * 1024;
+
+function cpImagenReporte(c){
+  const lienzo = cpDibujar(c);
+  if (!lienzo) return null;
+  for (const [tipo, cal] of [['image/webp',.85],['image/webp',.7],['image/png',1]]) {
+    try {
+      const d = lienzo.toDataURL(tipo, cal);
+      if (d.startsWith('data:' + tipo) && d.length < CP_TOPE_IMG) return d;
+    } catch(_){}
+  }
+  return null;   // no cupo: el reporte sale con el texto y ya
+}
+
+function cpMandarReporte(c, ref){
+  if (!c || !window.AJChat) return;
+  AJChat.reportar({
+    tipo: 'cupon', ref: ref || '',
+    resumen: cpResumen(c),
+    imagen: cpImagenReporte(c)
+  });
+}
+
+function cpReportar(idx){     cpMandarReporte(cpDeIdx(idx)); }
+function cpReportarHist(i){   const c = cpDeHist(i); cpMandarReporte(c, c && c.id); }
+
+// ── Transmitir a todos los operadores ───────────────────────────────────────
+// A diferencia de "Reportar" (privado, hacia el administrador), esto sale
+// directo como anuncio para todos los operadores. Por eso pide confirmación
+// antes de mandarlo: no hay forma de deshacerlo desde acá.
+async function cpMandarTransmision(c, ref){
+  if (!c || !window.AJChat) return;
+  if (!confirm('¿Enviar esta combinada a TODOS los operadores? No es privado, les va a llegar a todos.')) return;
+  try {
+    await AJChat.transmitir({
+      tipo: 'cupon', ref: ref || '',
+      resumen: cpResumen(c),
+      imagen: cpImagenReporte(c)
+    });
+    toast('📢 Enviado a todos los operadores', 'success');
+  } catch (e) { toast('No se pudo enviar: ' + e.message, 'error'); }
+}
+function cpTransmitir(idx){    cpMandarTransmision(cpDeIdx(idx)); }
+function cpTransmitirHist(i){  const c = cpDeHist(i); cpMandarTransmision(c, c && c.id); }
+
+// ── TRIXI BOT · interfaz del operador ───────────────────────────────────────
+let _tbCfg      = { activo:false, plan:'basico', limiteDiario:1, mercados:['1X2'] };
+let _cpCfg      = { activo:false, detalle:false, compartir:false };
+// Permiso para transmitir un anuncio a todos los operadores. Lo enciende el
+// administrador por persona (dueños como Ronaldo o Vanlly, típicamente) —
+// apagado por defecto, igual que el resto de permisos de este archivo.
+let _chCfg      = { transmitir:false };
+function chPuedeTransmitir(){ return !!(_chCfg && _chCfg.transmitir); }
+// Con "detalle" se ven probabilidades y porcentajes. Sin él, solo la etiqueta:
+// al operador el número crudo lo desanima y no le cambia la decisión.
+function cpVerDetalle(){ return !!(_cpCfg && _cpCfg.detalle); }
+// Compartir es un permiso aparte: los cupones son del ecosistema y no todos
+// los operadores tienen por qué poder sacarlos de él.
+function cpPuedeCompartir(){ return !!(_cpCfg && _cpCfg.compartir); }
+// Etiqueta de riesgo a partir de la probabilidad del cupón
+function cpEtiqueta(p){
+  if (p >= 0.25) return { txt:'Sólido',      col:'var(--green)'  };
+  if (p >= 0.12) return { txt:'Equilibrado', col:'var(--gold)'   };
+  return                 { txt:'Arriesgado', col:'var(--orange)' };
+}
+
+// Mercados habilitados por el administrador. Si nunca se configuró, solo 1X2:
+// es el único verificado a fondo, y un mercado mal leído muestra ganancias que
+// no existen.
+function tbMercadosPermitidos(){
+  const m = _tbCfg && _tbCfg.mercados;
+  return (Array.isArray(m) && m.length) ? m : ['1X2'];
+}
+// Los pares de doble oportunidad dependen del mercado 'DC'
+function tbMercadoHabilitado(mid){
+  const p = tbMercadosPermitidos();
+  if (String(mid).startsWith('DC_')) return p.includes('DC');
+  return p.includes(mid);
+}
+let _tbUrls     = {};
+let _tbCasas    = [];
+let _tbSelec    = new Set();
+let _tbEventos  = [];
+let _tbUso      = 0;
+
+const TB_PLANES = {
+  basico: { nombre:'Básico', limite:1,       color:'#8a8a8a' },
+  full:   { nombre:'Full',   limite:Infinity, color:'var(--gold)' }
+};
+
+function tbFmt(el){
+  const n = el.value.replace(/\D/g,'');
+  el.value = n ? Number(n).toLocaleString('es-CO') : '';
+}
+function tbNum(id){
+  return parseFloat((document.getElementById(id)?.value||'0').replace(/\./g,'').replace(',','.')) || 0;
+}
+function tbPeso(n){
+  return (n<0?'-$':'$') + Math.abs(Math.round(n)).toLocaleString('es-CO');
+}
+
+// Activación: solo se muestra la pestaña si el administrador la habilitó
+async function tbInit(){
+  const uid = auth.currentUser?.uid; if (!uid) return;
+  try {
+    const s = await db.collection('patriarca_config').doc(uid).get();
+    _tbCfg = (s.exists && s.data().trixibot) || { activo:false, plan:'basico', limiteDiario:1, mercados:['1X2'] };
+    _cpCfg = (s.exists && s.data().combinadas) || { activo:false, detalle:false, compartir:false };
+    _chCfg = (s.exists && s.data().chat) || { transmitir:false };
+  } catch(_) {}
+  // Combinadas Pro es un módulo aparte: si el administrador no lo habilitó,
+  // la pestaña ni siquiera existe para el operador.
+  const tabC = document.getElementById('tab-combinadas');
+  if (tabC) tabC.style.display = _cpCfg.activo ? '' : 'none';
+  // La pestaña Trixi siempre está — la calculadora es para todos.
+  // Lo que se habilita o no es la sub-pestaña del buscador.
+  const sub = document.getElementById('tx-subtab-bot');
+  if (sub) sub.style.display = _tbCfg.activo ? '' : 'none';
+}
+
+// Alterna entre el buscador y la calculadora dentro de la pestaña Trixi
+function showTrixiSubtab(cual){
+  const paneles = { bot:'tx-panel-bot', calc:'tx-panel-calc' };
+  const tabs    = { bot:'tx-subtab-bot', calc:'tx-subtab-calc' };
+  Object.entries(paneles).forEach(([k,id])=>{
+    const el=document.getElementById(id); if(el) el.style.display = (k===cual) ? '' : 'none';
+  });
+  Object.entries(tabs).forEach(([k,id])=>{
+    const el=document.getElementById(id); if(!el) return;
+    const on = k===cual;
+    el.style.color = on ? 'var(--gold)' : 'var(--text2)';
+    el.style.borderBottomColor = on ? 'var(--gold)' : 'transparent';
+  });
+  if (cual==='bot') tbAbrir();
+}
+
+async function tbAbrir(){
+  const uid = auth.currentUser?.uid; if (!uid) return;
+
+  const plan = TB_PLANES[_tbCfg.plan] || TB_PLANES.basico;
+  const lim  = _tbCfg.limiteDiario || plan.limite;
+  const badge = document.getElementById('tb-plan-badge');
+  if (badge){
+    const sinTope = (lim === Infinity || lim >= 9999);
+    badge.textContent = 'Plan ' + plan.nombre + (sinTope ? ' · sin límite' : ' · ' + lim + '/día');
+    badge.style.color = plan.color;
+  }
+
+  // Casas desde la configuración del administrador
+  try {
+    const c = await db.collection('admin_config').doc('casas').get();
+    _tbCasas = (c.exists && c.data().lista) || [];
+  } catch(_) { _tbCasas = []; }
+
+  // Enlaces de cada casa, para el botón "abrir ↗" al cargar cuotas
+  try {
+    const t = await db.collection('admin_config').doc('trixibot').get();
+    _tbUrls = (t.exists && t.data().urls) || {};
+  } catch(_) { _tbUrls = {}; }
+  // Restaurar lo que el operador dejó elegido; si nunca eligió, marcar todas
+  if (!tbCargarSel() && !_tbSelec.size) _tbCasas.forEach(c => _tbSelec.add(c));
+  tbPintarChips();
+
+  // Uso de hoy, en fecha Bogotá
+  try {
+    const u = await db.collection('trixibot_uso').doc(uid + '_' + tbHoyBogota()).get();
+    _tbUso = u.exists ? (u.data().busquedas||0) : 0;
+  } catch(_) { _tbUso = 0; }
+  document.getElementById('tb-k-uso').textContent = _tbUso;
+
+  tbCargarMerc();
+  await tbCargarCatalogoLigas();
+  const selDias = document.getElementById('tb-dias');
+  if (selDias && !selDias._tbHook) { selDias._tbHook = true; selDias.addEventListener('change', tbCargarCatalogoLigas); }
+}
+
+
+// ── Catálogo de ligas principales ───────────────────────────────────────────
+// No es "primera división" sino "mercado grande": donde apostar fuerte se ve
+// normal. La primera de Islas Feroe es primera división y no sirve; el
+// Championship inglés es segunda y mueve más que muchas primeras.
+
+// Se descarta antes de mirar nada más: reservas, juveniles, femenino y
+// categorías inferiores, aunque el nombre traiga el de una liga grande
+// ("Liga MX Femenil", "Primera División Reservas").
+const TB_LIGA_EXCLUIR = new RegExp([
+  'reserva', 'reserves', 'sub-?\\d', '\\bu\\d{2}\\b', 'juvenil', 'youth', 'academy',
+  'femenin', 'femenil', 'women', '\\(f\\)', 'damallsvenskan', 'feminin',
+  'amateur', 'next pro', 'primavera', 'segunda', '2\\.?[ªa]? divisi', '\\bii\\b',
+  'primera [bc]\\b', 'ascenso', 'ligue [23]', 'la liga 2', 'superettan',
+  'eerste divisie', 'serie [bcd]\\b', '\\b[23]\\. ?liga', 'league [23]\\b',
+  'regionalliga', 'national [23]', 'virtual|cyber|esoccer|esports',
+  'challenger', 'liga de ascenso', 'torneo federal', '\\bdeild\\b(?! ?karla)'
+].join('|'), 'i');
+
+const TB_LIGA_TOP = new RegExp([
+  // Europa — las cinco grandes y el Championship
+  'premier league', 'la ?liga(?! ?2)', 'serie a\\b', 'bundesliga(?! ?2)', 'ligue 1',
+  'championship',
+  // Europa — segundo escalón con mercado
+  'eredivisie', 'primeira liga', 'pro league', 's[uü]per lig', 'premier liga',
+  'super league', 'superliga', 'allsvenskan(?!.*dam)', 'eliteserien', 'ekstraklasa',
+  'liga i\\b', 'fortuna liga', 'jupiler',
+  // Sudamérica
+  'brasileir', 'liga profesional argentina', 'betplay', 'primera a\\b',
+  'primera divisi[oó]n de chile', 'liga 1\\b', 'ligapro', 'divisi[oó]n profesional',
+  // Norte y Centroamérica
+  'liga mx(?!.*femen)', '\\bmls\\b(?!.*next)', 'promerica', 'liga paname',
+  'liga nacional', 'costa rica primera',
+  // Asia, Oceanía, África
+  'j1', 'k league 1', 'chinese super', 'saudi pro', 'a-?league', 'indian super',
+  'thai league 1', 'egyptian premier', 'botola', '\\bpsl\\b',
+  // Torneos internacionales
+  'champions league', 'europa league', 'conference league', 'libertadores',
+  'sudamericana', 'concacaf', 'mundial', 'eliminatorias', 'copa am[eé]rica',
+  'eurocopa', 'euro \\d', 'nations league', 'recopa',
+  // Copas nacionales grandes
+  'fa cup', 'copa del rey', 'coppa italia', 'dfb', 'copa de francia',
+  'copa do brasil', 'copa argentina', 'copa colombia', 'carabao'
+].join('|'), 'i');
+
+// ── Ligas principales, ahora por PAÍS + nombre ─────────────────────────────
+// Antes se decidía solo por el nombre y eso confundía la Premier League de
+// Inglaterra con la Premier Liga de Rusia, o la Liga Pro de Ecuador con la de
+// Portugal. Con el país que entrega el feed la decisión es exacta.
+//
+// La regla de fondo: si el país NO está en esta tabla, ninguna de sus ligas es
+// principal. Es más seguro dejar por fuera un torneo bueno que meter uno donde
+// apostar 2,5 millones queda marcado.
+const TB_TOP_POR_PAIS_TXT = {
+  // Europa — las cinco grandes
+  'inglaterra':      'premier league|championship|fa cup|efl cup|carabao|community shield',
+  'espana':          'la ?liga|copa del rey|supercopa',
+  'italia':          'serie a|coppa italia|supercoppa',
+  'alemania':        'bundesliga|dfb|copa de alemania|supercopa',
+  'francia':         'ligue 1|copa de francia|coupe de france|trofeo de campeones',
+  // Europa — segundo escalón con mercado real
+  'paises bajos':    'eredivisie|knvb|copa de los paises bajos',
+  'holanda':         'eredivisie|knvb',
+  'portugal':        'primeira liga|liga portugal|ta[cç]a de portugal',
+  'belgica':         'pro league|jupiler|primera divisi',
+  'turquia':         's[uü]per lig|copa de turqu',
+  'rusia':           'premier liga|premier league|copa de rusia',
+  'escocia':         'premiership|copa de escocia',
+  'austria':         'bundesliga|copa de austria',
+  'suiza':           'super league|copa de suiza',
+  'grecia':          'super league|copa de grecia',
+  'dinamarca':       'superliga|copa de dinamarca',
+  'suecia':          'allsvenskan',
+  'noruega':         'eliteserien',
+  'polonia':         'ekstraklasa',
+  'chequia':         'fortuna liga|chance liga|primera liga',
+  'republica checa': 'fortuna liga|chance liga|primera liga',
+  'ucrania':         'premier liga|premier league',
+  'croacia':         'hnl|primera liga',
+  'serbia':          'super ?liga',
+  'rumania':         'superliga|liga i\\b',
+  // Sudamérica
+  'colombia':        'primera a|betplay|copa colombia|liga colombiana',
+  'argentina':       'liga profesional|primera divisi|copa de la liga|copa argentina',
+  'brasil':          'serie a|brasileir|copa do brasil',
+  'chile':           'primera divisi|campeonato nacional|primera chile|copa chile',
+  'peru':            'liga 1\\b|primera divisi',
+  'ecuador':         'liga ?pro|serie a',
+  'uruguay':         'primera divisi|campeonato uruguayo',
+  'paraguay':        'divisi[oó]n profesional|primera divisi',
+  'bolivia':         'divisi[oó]n profesional|primera divisi',
+  'venezuela':       'liga futve|primera divisi',
+  // Norte y Centroamérica
+  'mexico':          'liga mx|copa mx|liga de expansion',
+  'estados unidos':  '\\bmls\\b|major league soccer|us open cup',
+  'costa rica':      'primera divisi|primera division costa rica|promerica',
+  'panama':          'liga paname|\\blpf\\b',
+  'honduras':        'liga nacional',
+  'guatemala':       'liga nacional',
+  // Asia, Oceanía, África
+  'japon':           'j1|j\\.? ?league 1',
+  'corea del sur':   'k league 1',
+  'china':           'super league',
+  'arabia saudita':  'pro league|saudi',
+  'australia':       'a-? ?league(?! ?women)',
+  'india':           'indian super|\\bisl\\b',
+  'tailandia':       'thai league 1',
+  'egipto':          'premier league',
+  'marruecos':       'botola',
+  'sudafrica':       '\\bpsl\\b|premiership|premier division'
+};
+const TB_TOP_POR_PAIS = {};
+Object.entries(TB_TOP_POR_PAIS_TXT).forEach(([p, re]) => { TB_TOP_POR_PAIS[p] = new RegExp(re, 'i'); });
+
+// Torneos que no pertenecen a un país
+const TB_TOP_INTER = new RegExp([
+  'champions league', 'europa league', 'conference league', 'libertadores',
+  'sudamericana', 'recopa', 'concacaf', 'mundial', 'eliminatorias',
+  'copa am[eé]rica', 'eurocopa', 'euro \\d', 'nations league', 'supercopa de europa'
+].join('|'), 'i');
+
+// Quién manda es el captador: él escribe la marca en cada partido y esta
+// función solo la lee. Las reglas de abajo quedan como respaldo para los
+// partidos guardados antes de que existiera la marca; la lista de verdad vive
+// en functions/ligas.js y no hay que mantener dos.
+const _tbLigaMarca = new Map();        // liga → lo que dijo el captador
+
+function tbEsLigaPrincipal(liga, pais) {
+  if (_tbLigaMarca.has(liga)) return _tbLigaMarca.get(liga);
+  const l = String(liga || '');
+  if (!l || l === '—') return false;
+  if (TB_LIGA_EXCLUIR.test(l)) return false;      // femenino, sub-20, reservas, 2ª...
+
+  const p = tbNormPais(pais);
+  if (p) {
+    const re = TB_TOP_POR_PAIS[p];
+    if (re) return re.test(l);
+    // País reconocido pero sin liga de primer nivel en la tabla → fuera.
+    // Es lo que saca Esiliiga, Moçambola, Division 2 NG o Regionsligaen.
+    if (TB_PAIS_ISO[p]) return false;
+    // No es un país: suele ser la agrupación de un torneo internacional
+    return TB_TOP_INTER.test(l) || TB_TOP_INTER.test(p);
+  }
+
+  // Sin país (Wplay no lo publica, o partido viejo) se cae al criterio por
+  // nombre de siempre, que acierta menos pero no deja el filtro ciego.
+  return TB_LIGA_TOP.test(l);
+}
+
+// ── LIGAS ───────────────────────────────────────────────────────────────────
+// Filtrar ligas no es cosmético: montos altos en ligas oscuras es el patrón
+// que las casas usan para detectar arbitrajistas.
+let _tbLigas = [];              // [{liga, n}] presentes en los datos
+let _tbLigasSel = new Set();    // las elegidas
+
+function _tbClaveLigas(){ return 'tb-ligas-' + (auth.currentUser?.uid || 'anon'); }
+
+function tbGuardarLigas(){
+  try{ localStorage.setItem(_tbClaveLigas(), JSON.stringify([..._tbLigasSel])); }catch(_){}
+}
+function tbCargarLigas(){
+  try{
+    const raw = localStorage.getItem(_tbClaveLigas());
+    if (!raw) return false;
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return false;
+    _tbLigasSel = new Set(arr);
+    return true;
+  }catch(_){ return false; }
+}
+function tbLigasTodas(todas){
+  _tbLigasSel = todas ? new Set(_tbLigas.map(l => l.liga)) : new Set();
+  tbGuardarLigas(); tbPintarLigas();
+}
+function tbLigasPrincipales(){
+  _tbLigasSel = new Set(_tbLigas.filter(l => tbEsLigaPrincipal(l.liga, l.pais)).map(l => l.liga));
+  tbGuardarLigas(); tbPintarLigas();
+  toast(_tbLigasSel.size + ' liga(s) principal(es) de ' + _tbLigas.length);
+}
+
+function tbLigasPanel(){
+  const box = document.getElementById('tb-ligas-box');
+  const tog = document.getElementById('tb-ligas-toggle');
+  if (!box) return;
+  const abierto = box.style.display !== 'none';
+  box.style.display = abierto ? 'none' : '';
+  if (tog) tog.textContent = abierto ? '▶ Elegir' : '▼ Cerrar';
+}
+function tbToggleLiga(l){
+  _tbLigasSel.has(l) ? _tbLigasSel.delete(l) : _tbLigasSel.add(l);
+  tbGuardarLigas(); tbPintarLigas();
+}
+
+function tbPintarLigas(){
+  const cont = document.getElementById('tb-ligas-lista');
+  const cnt  = document.getElementById('tb-ligas-cuenta');
+  if (cnt) cnt.textContent = _tbLigasSel.size + ' de ' + _tbLigas.length;
+  // Cuántas primeras divisiones hay, para saber antes de hacer clic
+  const top = document.getElementById('tb-ligas-top');
+  if (top) {
+    const n = _tbLigas.filter(l => tbEsLigaPrincipal(l.liga, l.pais)).length;
+    top.textContent = '⭐ Principales' + (n ? ' (' + n + ')' : '');
+  }
+  if (!cont) return;
+  const q = (document.getElementById('tb-ligas-buscar')?.value || '').toLowerCase();
+  // La búsqueda también encuentra por país: escribir "colombia" filtra todas
+  const vis = _tbLigas.filter(l => !q ||
+    l.liga.toLowerCase().includes(q) || tbNormPais(l.pais).includes(tbNormPais(q)));
+  cont.innerHTML = vis.map(l => {
+    const on = _tbLigasSel.has(l.liga);
+    return `<label onclick="event.preventDefault();tbToggleLiga(${JSON.stringify(l.liga).replace(/"/g,'&quot;')})"
+      style="display:flex;align-items:center;gap:7px;cursor:pointer;user-select:none;padding:5px 8px;border-radius:5px;
+      background:${on?'rgba(53,204,47,.12)':'transparent'};border:1px solid ${on?'rgba(53,204,47,.35)':'var(--border)'}">
+      <span style="width:13px;height:13px;border-radius:3px;flex-shrink:0;border:1px solid ${on?'var(--gold)':'var(--border)'};
+        background:${on?'var(--gold)':'transparent'};color:#fff;font-size:10px;line-height:12px;text-align:center">${on?'✓':''}</span>
+      ${l.pais ? `<span title="${l.pais}" style="font-size:12px;flex-shrink:0;line-height:1">${tbBandera(l.pais)}</span>` : '<span style="width:14px;flex-shrink:0"></span>'}
+      <span style="font-size:11px;color:${on?'var(--gold)':'var(--text2)'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${l.liga}${l.pais?`<span style="opacity:.6"> (${l.pais})</span>`:''}</span>
+      ${tbEsLigaPrincipal(l.liga, l.pais) ? '<span title="Liga principal — primera división" style="font-size:9px;color:var(--green)">⭐</span>' : ''}
+      <span style="font-size:10px;color:var(--text2)">${l.n}</span>
+    </label>`;
+  }).join('') || '<div style="font-size:11px;color:var(--text2);padding:8px">Sin coincidencias</div>';
+}
+
+// Lee las ligas presentes en la ventana de fechas elegida
+// ── Selector de mercados (varios a la vez) ──────────────────────────────────
+// Vacío = todos los habilitados. Una entrada puede ser un mercado completo
+// ('BTTS', 'GOL_OU' = todas las líneas) o una línea suelta ('GOL_OU|2_5').
+let _tbMercSel   = new Set();
+let _tbMercLista = [];
+
+function tbMercClave(){ return 'tb-merc-' + (auth.currentUser?.uid || ''); }
+function tbGuardarMerc(){
+  try { localStorage.setItem(tbMercClave(), JSON.stringify([..._tbMercSel])); } catch(_){}
+}
+function tbCargarMerc(){
+  try {
+    const g = JSON.parse(localStorage.getItem(tbMercClave()) || 'null');
+    if (Array.isArray(g)) { _tbMercSel = new Set(g); return true; }
+  } catch(_){}
+  return false;
+}
+
+// ¿Este mercado pasa el filtro del operador?
+function tbMercPasa(mid, clave){
+  if (!_tbMercSel.size) return true;                  // nada marcado = todos
+  return _tbMercSel.has(mid) || _tbMercSel.has(clave);
+}
+
+function tbMercToggle(v){
+  _tbMercSel.has(v) ? _tbMercSel.delete(v) : _tbMercSel.add(v);
+  tbGuardarMerc(); tbPintarMercPanel();
+}
+function tbMercTodos(si){
+  _tbMercSel = si ? new Set(_tbMercLista.map(m => m.clave)) : new Set();
+  tbGuardarMerc(); tbPintarMercPanel();
+}
+
+function tbMercResumen(){
+  if (!_tbMercSel.size) return 'Todos';
+  const n = _tbMercSel.size;
+  if (n === 1) {
+    const v = [..._tbMercSel][0];
+    const m = _tbMercLista.find(x => x.clave === v);
+    return m ? m.nombre : v;
+  }
+  return n + ' mercados';
+}
+
+function tbPintarMercPanel(){
+  const panel = document.getElementById('tb-merc-panel');
+  const res   = document.getElementById('tb-merc-res');
+  if (!panel) return;
+  const fila = m => {
+    const on = _tbMercSel.has(m.clave);
+    return `<label class="${on?'on':''}" onclick="event.preventDefault();tbMercToggle(${JSON.stringify(m.clave).replace(/"/g,'&quot;')})">
+      <input type="checkbox" ${on?'checked':''} onclick="event.preventDefault()">
+      <span>${m.nombre}</span><span class="cuenta">${m.n}</span></label>`;
+  };
+  const sueltos = _tbMercLista.filter(m => !m.esLinea);
+  const lineas  = _tbMercLista.filter(m => m.esLinea);
+  let html = `<div style="display:flex;gap:6px;margin-bottom:6px">
+    <span onclick="tbMercTodos(true)"  style="cursor:pointer;user-select:none;font-size:11px;padding:3px 10px;border-radius:5px;border:1px solid var(--border);color:var(--text2)">Todos</span>
+    <span onclick="tbMercTodos(false)" style="cursor:pointer;user-select:none;font-size:11px;padding:3px 10px;border-radius:5px;border:1px solid var(--border);color:var(--text2)">Ninguno</span>
+  </div>`;
+  html += sueltos.map(fila).join('');
+  if (lineas.length) html += '<div class="grupo">Goles por línea</div>' + lineas.map(fila).join('');
+  panel.innerHTML = html;
+  if (res) res.textContent = tbMercResumen();
+}
+
+// Cierra el panel al hacer clic afuera
+document.addEventListener('click', e => {
+  const dd = document.getElementById('tb-mercado');
+  if (dd && dd.open && !dd.contains(e.target)) dd.open = false;
+});
+
+// ── Desplegable de mercados ────────────────────────────────────────────────
+// Se arma con lo que el captador realmente encontró y con lo que el
+// administrador habilitó: si esta noche nadie publica la línea de 3.5, no
+// aparece y no confunde.
+function tbPintarMercados(cuenta){
+  const sueltos = [], lineas = [];
+  let totalGoles = 0;
+  Object.entries(cuenta).forEach(([clave, n]) => {
+    const [mid, linea] = clave.split('|');
+    if (!TB_MERCADOS[mid] || !tbMercadoHabilitado(mid)) return;
+    if (linea) { lineas.push({ clave, mid, linea, n, esLinea:true,
+                               nombre:'Más/Menos de ' + tbLinea(linea) }); totalGoles += n; }
+    else       { sueltos.push({ clave, mid, n, esLinea:false, nombre:TB_MERCADOS[mid].nombre }); }
+  });
+  const orden = ['1X2','GOL_OU','BTTS','DC_1X_2','DC_X2_1','DC_12_X'];
+  sueltos.sort((a,b) => orden.indexOf(a.mid) - orden.indexOf(b.mid));
+  lineas.sort((a,b) => parseFloat(tbLinea(a.linea)) - parseFloat(tbLinea(b.linea)));
+
+  // Entrada que cubre todas las líneas de golpe
+  if (lineas.length) sueltos.push({ clave:'GOL_OU', mid:'GOL_OU', n:totalGoles,
+                                    esLinea:false, nombre:'Goles · todas las líneas' });
+
+  _tbMercLista = [...sueltos, ...lineas];
+
+  // Descartar lo guardado que ya no exista, para no filtrar contra fantasmas
+  const validas = new Set(_tbMercLista.map(m => m.clave));
+  const antes = _tbMercSel.size;
+  _tbMercSel = new Set([..._tbMercSel].filter(v => validas.has(v)));
+  if (_tbMercSel.size !== antes) tbGuardarMerc();
+
+  // Con un solo mercado habilitado el selector no aporta nada
+  const wrap = document.getElementById('tb-mercado-wrap');
+  if (wrap) wrap.style.display = (_tbMercLista.length <= 1) ? 'none' : '';
+  tbPintarMercPanel();
+}
+
+async function tbCargarCatalogoLigas(){
+  const uid = auth.currentUser?.uid; if (!uid) return;
+  try{
+    const dias  = parseInt(document.getElementById('tb-dias')?.value || '1', 10);
+    const snap  = await db.collection('trixibot_eventos')
+      .where('fecha','>=',tbHoyBogota()).where('fecha','<=',tbFechaBogota(dias)).get();
+    const cuenta = {};
+    const merc   = {};
+    const paisDe = {};
+  _tbLigaMarca.clear();
+    snap.docs.forEach(d => {
+      const x = d.data();
+      const l = x.liga || '—';
+      cuenta[l] = (cuenta[l]||0)+1;
+      if (x.pais && !paisDe[l]) paisDe[l] = x.pais;
+      if (typeof x.principal === 'boolean') _tbLigaMarca.set(l, x.principal);
+      tbMercadosDeEvento(x).forEach(m => { merc[m.clave] = (merc[m.clave]||0)+1; });
+    });
+    tbPintarMercados(merc);
+    // Ordenadas por país y dentro de cada país por nombre: así el operador
+    // recorre la lista por región en vez de saltar de Estonia a Panamá.
+    _tbLigas = Object.entries(cuenta).map(([liga,n]) => ({ liga, n, pais: paisDe[liga] || '' }))
+                 .sort((a,b) => (a.pais||'zzz').localeCompare(b.pais||'zzz')
+                             || a.liga.localeCompare(b.liga));
+    // Primera vez: todas marcadas
+    // Primera vez: solo principales — apostar fuerte en ligas oscuras delata
+    if (!tbCargarLigas()) _tbLigasSel = new Set(_tbLigas.filter(l => tbEsLigaPrincipal(l.liga, l.pais)).map(l => l.liga));
+    tbPintarLigas();
+  }catch(e){ console.warn('ligas:', e); }
+}
+
+function _tbClaveSel(){ return 'tb-casas-' + (auth.currentUser?.uid || 'anon'); }
+
+function tbGuardarSel(){
+  try{ localStorage.setItem(_tbClaveSel(), JSON.stringify([..._tbSelec])); }catch(_){}
+}
+function tbCargarSel(){
+  try{
+    const raw = localStorage.getItem(_tbClaveSel());
+    if (!raw) return false;
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return false;
+    _tbSelec = new Set(arr.filter(c => _tbCasas.includes(c)));
+    return true;                       // respeta la selección guardada, aunque sea vacía
+  }catch(_){ return false; }
+}
+function tbSelTodas(todas){
+  _tbSelec = todas ? new Set(_tbCasas) : new Set();
+  tbGuardarSel();
+  tbPintarChips();
+}
+
+function tbPintarChips(){
+  const cont = document.getElementById('tb-casas-chips'); if (!cont) return;
+  cont.innerHTML = _tbCasas.map(c => {
+    const on = _tbSelec.has(c);
+    return `<span onclick="tbToggleCasa('${c.replace(/'/g,"\\'")}')" style="cursor:pointer;user-select:none;font-size:11px;padding:5px 11px;border-radius:6px;font-weight:600;
+      background:${on?'rgba(53,204,47,.16)':'var(--bg3)'};color:${on?'var(--gold)':'var(--text2)'};
+      border:1px solid ${on?'rgba(53,204,47,.40)':'var(--border)'}">${c}${on?' ✓':''}</span>`;
+  }).join('');
+  const n=document.getElementById('tb-casas-cuenta');
+  if(n) n.textContent = _tbSelec.size + ' de ' + _tbCasas.length;
+}
+function tbToggleCasa(c){
+  _tbSelec.has(c) ? _tbSelec.delete(c) : _tbSelec.add(c);
+  tbGuardarSel();
+  tbPintarChips();
+}
+
+async function tbBuscar(){
+  const uid = auth.currentUser?.uid; if (!uid) return;
+  const plan  = TB_PLANES[_tbCfg.plan] || TB_PLANES.basico;
+  const lim   = _tbCfg.limiteDiario || plan.limite;
+
+  if (lim < 9999 && _tbUso >= lim){
+    toast(`Llegaste al límite del plan ${plan.nombre}: ${lim} búsqueda${lim>1?'s':''} por día`, 'error');
+    return;
+  }
+  if (_tbSelec.size < 2){
+    toast('Selecciona al menos 2 casas para poder comparar', 'error');
+    return;
+  }
+  if (_tbLigas.length && _tbLigasSel.size === 0){
+    toast('No tienes ninguna liga seleccionada', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('tb-btn-buscar');
+  btn.disabled = true; btn.textContent = '⏳ Buscando...';
+
+  try {
+    // Ventana de fechas en hora Colombia
+    const dias  = parseInt(document.getElementById('tb-dias').value || '1', 10);
+    const desde = tbHoyBogota();
+    const hasta = tbFechaBogota(dias);
+
+    const snap = await db.collection('trixibot_eventos')
+      .where('fecha','>=',desde).where('fecha','<=',hasta).get({source:'server'});
+    _tbEventos = snap.docs.map(d => ({ id:d.id, ...d.data() }));
+
+    const ops = tbEscanear(_tbEventos, {
+      capital:         tbNum('tb-capital'),
+      casasPermitidas: [..._tbSelec],
+      utilidadMinPct:  tbNum('tb-umin'),
+      mercadosSel:     tbMercPasa,
+      soloZonaSegura:  document.getElementById('tb-solo-segura')?.checked,
+      ligasPermitidas: _tbLigas.length ? [..._tbLigasSel] : null
+    });
+
+    // El plan Básico solo revela la mejor oportunidad
+    const visibles = (_tbCfg.plan === 'full') ? ops : ops.slice(0, 1);
+    tbPintarResultados(visibles, ops.length, _tbEventos.length, plan);
+
+    _tbUso++;
+    document.getElementById('tb-k-uso').textContent = _tbUso;
+    await db.collection('trixibot_uso').doc(uid + '_' + tbHoyBogota()).set({
+      uid, fecha: tbHoyBogota(), busquedas: _tbUso,
+      ultima: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge:true });
+
+  } catch(e){
+    toast(cpErrorClaro(e), 'error');
+  }
+  btn.disabled = false; btn.textContent = '🔍 Buscar cuotas';
+}
+
+function tbPintarResultados(ops, totalOps, totalEventos, plan){
+  document.getElementById('tb-k-eventos').textContent = totalEventos;
+  document.getElementById('tb-k-ops').textContent     = totalOps;
+  document.getElementById('tb-k-mejor').textContent   = totalOps ? ops[0].utilidadPct.toFixed(2)+'%' : '—';
+
+  const cont = document.getElementById('tb-resultados');
+  if (!totalEventos){
+    cont.innerHTML = `<div class="empty"><div class="empty-icon">📭</div>
+      <p>No hay cuotas cargadas para esa ventana de fechas.</p>
+      <p style="font-size:12px;color:var(--text2)">Usa <b>＋ Cargar cuotas</b> para ingresar partidos.</p></div>`;
+    return;
+  }
+  if (!totalOps){
+    cont.innerHTML = `<div class="empty"><div class="empty-icon">🔍</div>
+      <p>Revisé ${totalEventos} evento${totalEventos>1?'s':''} y ninguno deja utilidad positiva.</p>
+      <p style="font-size:12px;color:var(--text2)">Prueba bajando la utilidad mínima o agregando más casas.</p></div>`;
+    return;
+  }
+
+  _tbOps = ops;
+  let html = ops.map((o,i) => tbTarjeta(o,i)).join('');
+  const ocultas = totalOps - ops.length;
+  if (ocultas > 0){
+    html += `<div style="background:rgba(53,204,47,.08);border:1px dashed rgba(53,204,47,.40);border-radius:10px;padding:16px;text-align:center;margin-top:12px">
+      <div style="font-weight:700;color:var(--gold);margin-bottom:4px">🔒 ${ocultas} oportunidad${ocultas>1?'es':''} más disponible${ocultas>1?'s':''}</div>
+      <div style="font-size:12px;color:var(--text2)">El plan ${plan.nombre} muestra solo la mejor. Habla con el administrador para pasar a Full.</div>
+    </div>`;
+  }
+  cont.innerHTML = html;
+}
+
+let _tbOps = [];
+function tbTarjeta(o, idx){
+  const ev  = o.evento;
+  const pos = o.utilidadNeta > 0;
+  const col = pos ? 'var(--green)' : 'var(--red)';
+  const filas = o.patas.map(p => `
+    <tr>
+      <td style="padding:6px 0;font-size:12px">${(o.etiquetas[p.via] || p.via) + (o.linea ? ' ' + o.linea : '')}</td>
+      <td style="font-size:12px;font-weight:600">${p.casa}</td>
+      <td style="text-align:right;font-size:12px">${p.cuota.toFixed(2)}</td>
+      <td style="text-align:right;font-size:12px;font-weight:700">${tbPeso(p.stake)}</td>
+      <td style="text-align:right;font-size:11px;color:var(--text2)">${p.metodo ? p.metodo + ' <b style="color:var(--gold)">'+p.comPct+'%</b>' : 'sin comisión'}</td>
+      <td style="text-align:right;font-size:12px;color:var(--green)">+${tbPeso(p.comValor)}</td>
+    </tr>`).join('');
+
+  return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:12px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px">
+      <div style="font-size:15px;font-weight:700">${ev.local} vs ${ev.visitante}</div>
+      <div style="font-size:12px;font-weight:800;color:${col}">${tbPeso(o.utilidadNeta)} · ${o.utilidadPct.toFixed(2)}%</div>
+    </div>
+    <div style="font-size:11px;color:var(--text2);margin-bottom:12px">
+      ${tbLigaConPais(ev.liga||'—', ev.pais)} · ${ev.fecha} ${ev.hora||''} · ${o.mercadoNombre}${o.linea?' '+o.linea:''}
+      ${o.zona==='segura'
+          ? '<span style="color:var(--blue);font-weight:700"> · gana por comisión</span>'
+          : '<span style="color:var(--green);font-weight:700"> · surebet · gana por las dos vías</span>'}
+      ${o.mismaCasa
+          ? '<span style="color:var(--orange);font-weight:700"> · ⚠ todo en una sola casa</span>'
+          : ''}
+    </div>
+    <table style="width:100%;border-collapse:collapse">
+      <tr style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">
+        <td>Resultado</td><td>Casa</td><td style="text-align:right">Cuota</td>
+        <td style="text-align:right">Apostar</td><td style="text-align:right">Método</td><td style="text-align:right">Comisión</td>
+      </tr>
+      ${filas}
+    </table>
+    <div style="border-top:1px solid var(--border);margin-top:10px;padding-top:10px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <div style="font-size:11px;color:var(--text2)">
+        Inviertes ${tbPeso(o.totalStake)} · cobras ${tbPeso(o.retornoMin)} pase lo que pase ·
+        sin comisión sería <span style="color:${o.utilidadPura>=0?'var(--green)':'var(--red)'}">${tbPeso(o.utilidadPura)}</span>
+        ${o.zona==='segura' ? ' · se ve como apuesta normal' : ' · la cuota ya es ganadora sola'}
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span onclick="tbReportar(${idx})" title="Reportar a la administración"
+          style="cursor:pointer;user-select:none;font-size:11px;padding:6px 12px;border-radius:6px;border:1px solid rgba(74,158,255,.45);color:var(--blue)">🚩 Reportar</span>
+        ${chPuedeTransmitir() ? `<span onclick="tbTransmitir(${idx})" title="Envía esto a todos los operadores"
+          style="cursor:pointer;user-select:none;font-size:11px;padding:6px 12px;border-radius:6px;border:1px solid rgba(240,160,80,.5);color:var(--gold)">📢 Enviar a todos</span>` : ''}
+        <button class="btn btn-gold" onclick="tbAjustar(${idx})">🧮 Ajustar y colocar</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+// ── La cuota, dibujada ──────────────────────────────────────────────────────
+// Una surebet en texto obliga a leer cinco renglones y hacer cuentas. En
+// imagen se entiende de un vistazo: qué partido, en qué casa va cada pata,
+// cuánto se pone y cuánto queda. Es el mismo dibujante que el de las
+// combinadas, con la tabla de patas en vez de la lista de opciones.
+
+function tbDibujar(o){
+  if (!o) return null;
+  const ev = o.evento || {};
+  const D = 2, A = 660, MG = 34;                 // doble resolución, no se ve borroso
+  const lienzo = document.createElement('canvas');
+  const g = lienzo.getContext('2d');
+  const F = (px, peso) => `${peso||400} ${px}px -apple-system, "Segoe UI", Roboto, sans-serif`;
+
+  const filas = o.patas.length;
+  const ALTO  = 150 + filas * 34 + 78;
+
+  lienzo.width = A*D; lienzo.height = ALTO*D; g.scale(D, D);
+
+  g.fillStyle = '#12151c'; g.fillRect(0, 0, A, ALTO);
+  g.fillStyle = '#35CC2F'; g.fillRect(0, 0, A, 4);
+
+  // Encabezado
+  const segura = o.zona === 'segura';
+  g.fillStyle = '#8890a8'; g.font = F(11, 600);
+  g.fillText((segura ? 'GANA POR COMISIÓN' : 'SUREBET · GANA POR LAS DOS VÍAS'), MG, 38);
+  g.fillStyle = o.utilidadNeta >= 0 ? '#35CC2F' : '#e05050';
+  g.font = F(28, 700); g.textAlign = 'right';
+  g.fillText(o.utilidadPct.toFixed(2) + '%', A-MG, 44);
+  g.textAlign = 'left';
+
+  g.fillStyle = '#e8eaf0'; g.font = F(17, 700);
+  g.fillText(ev.local + '  vs  ' + ev.visitante, MG, 74);
+  g.fillStyle = '#6b7488'; g.font = F(12, 400);
+  g.fillText((ev.liga || '—') + ' · ' + (ev.fecha || '') + ' ' + (ev.hora || '')
+             + ' · ' + (o.mercadoNombre || '') + (o.linea ? ' ' + o.linea : ''), MG, 94);
+
+  // Cabecera de la tabla
+  const C = [MG, 210, 330, 420, 545];            // resultado, casa, cuota, apostar, comisión
+  g.fillStyle = '#6b7488'; g.font = F(10, 600);
+  ['RESULTADO','CASA','CUOTA','APOSTAR','COMISIÓN'].forEach((t,i) => {
+    if (i >= 2) { g.textAlign = 'right'; g.fillText(t, C[i]+90, 124); g.textAlign = 'left'; }
+    else g.fillText(t, C[i], 124);
+  });
+  g.strokeStyle = 'rgba(255,255,255,.10)'; g.beginPath();
+  g.moveTo(MG, 132); g.lineTo(A-MG, 132); g.stroke();
+
+  let y = 154;
+  o.patas.forEach(p => {
+    g.fillStyle = '#e8eaf0'; g.font = F(13, 500);
+    g.fillText(((o.etiquetas && o.etiquetas[p.via]) || p.via) + (o.linea ? ' ' + o.linea : ''), C[0], y);
+    g.font = F(13, 700); g.fillText(p.casa, C[1], y);
+    g.textAlign = 'right';
+    g.font = F(13, 600); g.fillText(p.cuota.toFixed(2), C[2]+90, y);
+    g.fillStyle = '#e8eaf0'; g.font = F(13, 700);
+    g.fillText(tbPeso(p.stake), C[3]+90, y);
+    g.fillStyle = '#35CC2F'; g.font = F(12, 500);
+    g.fillText('+' + tbPeso(p.comValor), C[4]+90, y);
+    g.textAlign = 'left';
+    y += 34;
+  });
+
+  // Pie
+  g.fillStyle = 'rgba(53,204,47,.08)'; g.fillRect(0, ALTO-72, A, 72);
+  g.fillStyle = '#8890a8'; g.font = F(12, 500);
+  g.fillText('Inviertes ' + tbPeso(o.totalStake) + ' · cobras ' + tbPeso(o.retornoMin) + ' pase lo que pase',
+             MG, ALTO-44);
+  g.fillStyle = '#35CC2F'; g.font = F(20, 700);
+  g.fillText('Utilidad ' + tbPeso(o.utilidadNeta), MG, ALTO-18);
+
+  if (typeof CP_MARCA !== 'undefined' && CP_MARCA.complete && CP_MARCA.naturalWidth) {
+    const hm = 32, am = hm * CP_MARCA.naturalWidth / CP_MARCA.naturalHeight;
+    g.drawImage(CP_MARCA, A-MG-am, ALTO-22-hm, am, hm);
+  }
+  return lienzo;
+}
+
+function tbResumen(o){
+  const ev = o.evento || {};
+  const L = [
+    (o.zona === 'segura' ? 'Gana por comisión' : 'Surebet') + ' · ' + o.utilidadPct.toFixed(2) + '%'
+      + ' · utilidad ' + tbPeso(o.utilidadNeta),
+    ev.local + ' vs ' + ev.visitante + ' — ' + (o.mercadoNombre || '') + (o.linea ? ' ' + o.linea : ''),
+    (ev.liga || '—') + ' · ' + (ev.fecha || '') + ' ' + (ev.hora || '')
+  ];
+  o.patas.forEach(p => {
+    L.push('· ' + ((o.etiquetas && o.etiquetas[p.via]) || p.via)
+      + ' en ' + p.casa + ' @ ' + p.cuota.toFixed(2) + ' — ' + tbPeso(p.stake));
+  });
+  return L.join('\n');
+}
+
+// Mismo tope y misma degradación que en las combinadas: si la imagen no cabe
+// en un documento de Firestore, el reporte sale igual con el texto.
+function tbImagenReporte(o){
+  const lienzo = tbDibujar(o);
+  if (!lienzo) return null;
+  for (const [tipo, cal] of [['image/webp',.85],['image/webp',.7],['image/png',1]]) {
+    try {
+      const d = lienzo.toDataURL(tipo, cal);
+      if (d.startsWith('data:' + tipo) && d.length < 700*1024) return d;
+    } catch(_){}
+  }
+  return null;
+}
+
+function tbReportar(idx){
+  const o = _tbOps[idx];
+  if (!o || !window.AJChat) return;
+  AJChat.reportar({
+    tipo: 'cuota',
+    ref: (o.evento && o.evento.id) || '',
+    resumen: tbResumen(o),
+    imagen: tbImagenReporte(o)
+  });
+}
+
+// Transmitir: igual que en Combinadas Pro, sale como anuncio para todos los
+// operadores en vez de un mensaje privado al administrador.
+async function tbTransmitir(idx){
+  const o = _tbOps[idx];
+  if (!o || !window.AJChat) return;
+  if (!confirm('¿Enviar esta cuota a TODOS los operadores? No es privado, les va a llegar a todos.')) return;
+  try {
+    await AJChat.transmitir({
+      tipo: 'cuota',
+      ref: (o.evento && o.evento.id) || '',
+      resumen: tbResumen(o),
+      imagen: tbImagenReporte(o)
+    });
+    toast('📢 Enviado a todos los operadores', 'success');
+  } catch (e) { toast('No se pudo enviar: ' + e.message, 'error'); }
+}
+
+function tbAjustar(idx){
+  if (_checkLock('colocar cuotas de Trixi')) return;
+  const o=_tbOps[idx]; if(!o) return;
+  const ev=o.evento;
+  // Las vías salen de la oportunidad, no de una lista fija: hay mercados de
+  // dos vías (goles, ambos anotan, doble oportunidad) y de tres (1X2).
+  const V   = o.patas.map(p => p.via);
+  const PAL = ['#e6a23c','#8890a8','#5aa9e6'];
+  const COL = {}; V.forEach((v,i) => COL[v] = PAL[i % PAL.length]);
+  const ROT = v => (o.etiquetas && o.etiquetas[v]) || v;
+  const cel=(f)=>V.map((v,i)=>`<td style="text-align:center;padding:8px 10px">${f(i,v)}</td>`).join('');
+  const IN='background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:7px 9px;font-size:13px;text-align:center';
+
+  const cuerpo=`
+  <div style="background:rgba(76,175,80,.07);border:1px solid rgba(76,175,80,.22);border-radius:8px;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+    <span style="font-size:12px;color:var(--text2);text-transform:uppercase;letter-spacing:.6px">Retorno objetivo</span>
+    <span id="tb-aj-obj" style="font-size:22px;font-weight:800;color:var(--green)">—</span>
+  </div>
+
+  <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">Inversión (retorno a garantizar)</div>
+  <input id="tb-aj-cap" type="text" value="${o.retornoMin.toLocaleString('es-CO')}" oninput="tbFmt(this);tbRecalc()"
+    style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:10px 13px;font-size:16px;font-weight:700;margin-bottom:14px">
+
+  <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px">
+    <input value="${ev.local}" readonly style="flex:1;${IN};text-align:left">
+    <span style="font-size:12px;color:var(--text2);font-weight:700">vs</span>
+    <input value="${ev.visitante}" readonly style="flex:1;${IN};text-align:left">
+  </div>
+
+  <table style="width:100%;border-collapse:collapse">
+    <tr style="background:var(--bg3)">
+      <td style="width:105px"></td>
+      ${V.map(v=>`<td style="text-align:center;padding:10px 8px">
+        <div style="font-size:17px;font-weight:800;color:${COL[v]}">${v}${o.linea?' '+o.linea:''}</div>
+        <div style="font-size:10px;color:var(--text2);margin-top:2px">${ROT(v)}</div></td>`).join('')}
+    </tr>
+    <tr><td style="font-size:11px;color:var(--text2);font-weight:700;padding:8px 4px">CASA</td>
+      ${cel(i=>{
+        const l=(_tbCasas&&_tbCasas.length?_tbCasas.slice():[o.patas[i].casa]);
+        if(!l.includes(o.patas[i].casa)) l.unshift(o.patas[i].casa);
+        return `<select class="tb-aj-casa" data-i="${i}" onchange="tbCambiaCasa(${i})" style="width:100%;max-width:170px;${IN};text-align:left;font-weight:600">
+          ${l.map(c=>`<option${c===o.patas[i].casa?' selected':''}>${c}</option>`).join('')}</select>`;
+      })}</tr>
+    <tr><td style="font-size:11px;color:var(--text2);font-weight:700;padding:8px 4px">MÉTODO</td>
+      ${cel(i=>{
+        const ms=tbMetodosDe(o.patas[i].casa);
+        return `<select class="tb-aj-met" data-i="${i}" onchange="tbCambiaMetodo(${i})" style="width:100%;max-width:170px;${IN};text-align:left;font-size:12px">
+          ${ms.map(m=>`<option value="${m.metodo}" data-pct="${m.pct}"${m.metodo===o.patas[i].metodo?' selected':''}>${m.metodo}</option>`).join('')}
+          <option value="" data-pct="0"${o.patas[i].metodo?'':' selected'}>— sin comisión —</option></select>`;
+      })}</tr>
+    <tr><td style="font-size:11px;color:var(--text2);font-weight:700;padding:8px 4px">CUOTA</td>
+      ${cel(i=>`<input class="tb-aj-c" data-i="${i}" value="${o.patas[i].cuota}" oninput="tbRecalc()" style="width:88px;${IN}">`)}</tr>
+    <tr><td style="font-size:11px;color:var(--text2);font-weight:700;padding:8px 4px">INVERSIÓN</td>
+      ${cel(i=>`<span id="tb-aj-s${i}" style="display:inline-block;min-width:96px;${IN};font-weight:700">—</span>`)}</tr>
+    <tr><td style="font-size:11px;color:var(--text2);font-weight:700;padding:8px 4px">RETORNO</td>
+      ${cel(i=>`<span id="tb-aj-r${i}" style="font-size:13px;font-weight:700;color:var(--green)">—</span>`)}</tr>
+    ${V.map((v,i)=>`<input type="hidden" class="tb-aj-com" data-i="${i}" value="${o.patas[i].comPct}">`).join('')}
+  </table>
+
+  <div id="tb-aj-res" style="background:var(--bg3);border-radius:8px;margin-top:16px;padding:14px"></div>`;
+
+  _tbModal(`${ev.local} vs ${ev.visitante} · ${o.mercadoNombre}${o.linea?' '+o.linea:''}`, cuerpo, ()=>false);
+  const ok=document.getElementById('tb-modal-ok'); if(ok) ok.style.display='none';
+  tbRecalc();
+}
+
+function tbCambiaCasa(i){
+  const c=document.querySelector(`.tb-aj-casa[data-i="${i}"]`);
+  const m=document.querySelector(`.tb-aj-met[data-i="${i}"]`);
+  const k=document.querySelector(`.tb-aj-com[data-i="${i}"]`);
+  if(!c||!m) return;
+  const ms=tbMetodosDe(c.value);
+  m.innerHTML = ms.map(x=>`<option value="${x.metodo}" data-pct="${x.pct}">${x.metodo}</option>`).join('')
+    + `<option value="" data-pct="0"${ms.length?'':' selected'}>— sin comisión —</option>`;
+  if(k) k.value = ms.length ? ms[0].pct : 0;
+  tbRecalc();
+}
+
+function tbCambiaMetodo(i){
+  const m=document.querySelector(`.tb-aj-met[data-i="${i}"]`);
+  const k=document.querySelector(`.tb-aj-com[data-i="${i}"]`);
+  if(m&&k) k.value = m.selectedOptions[0]?.dataset.pct ?? 0;
+  tbRecalc();
+}
+
+// Mismo modelo que Trixi General: se parte del retorno a garantizar
+function tbRecalc(){
+  const R=tbNum('tb-aj-cap');
+  const cuotas=[...document.querySelectorAll('.tb-aj-c')].map(e=>parseFloat((e.value||'').replace(',','.'))||0);
+  const coms  =[...document.querySelectorAll('.tb-aj-com')].map(e=>parseFloat(e.value)||0);
+  if(!R||!cuotas.length||cuotas.some(c=>c<=1)) return;
+
+  const inv=cuotas.map(c=>Math.round(R/c));
+  const total=inv.reduce((a,b)=>a+b,0);
+  const totCom=Math.round(inv.reduce((s,x,i)=>s+x*coms[i]/100,0));
+  const util=R-total+totCom;
+
+  const obj=document.getElementById('tb-aj-obj'); if(obj) obj.textContent=tbPeso(R);
+  inv.forEach((x,i)=>{
+    const a=document.getElementById('tb-aj-s'+i); if(a) a.textContent=tbPeso(x);
+    const b=document.getElementById('tb-aj-r'+i); if(b) b.textContent=tbPeso(Math.round(x*cuotas[i]));
+  });
+
+  const col=util>=0?'var(--green)':'var(--red)';
+  document.getElementById('tb-aj-res').innerHTML=`
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;text-align:center">
+      <div><div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Total apostado</div>
+        <div style="font-size:17px;font-weight:800;color:var(--gold,#e6a23c)">${tbPeso(total)}</div></div>
+      <div><div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Com. ganada</div>
+        <div style="font-size:17px;font-weight:800;color:var(--green)">${tbPeso(totCom)}</div></div>
+      <div><div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Util. neta $</div>
+        <div style="font-size:17px;font-weight:800;color:${col}">${tbPeso(util)}</div></div>
+      <div><div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Util. neta %</div>
+        <div style="font-size:17px;font-weight:800;color:${col}">${util>=0?'+':''}${(util/total*100).toFixed(2)}%</div></div>
+    </div>`;
+}
+
+
+// ── TRIXI BOT · carga de cuotas (fuente desacoplada del motor) ──────────────
+function tbCargarCuotas(){
+  const casas = _tbCasas.length ? _tbCasas : ['WPLAY','BET PLAY','BETSSON','RUSHBET','BETANO'];
+  const hoy   = tbHoyBogota();
+
+  const filas = casas.map(c => `
+    <tr>
+      <td style="font-size:12px;padding:4px 6px 4px 0;white-space:nowrap">${c}</td>
+      <td><input class="tb-cuota" data-casa="${c}" data-via="1" type="text" placeholder="—" style="width:70px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;color:var(--text1);padding:5px;font-size:12px;text-align:right"></td>
+      <td><input class="tb-cuota" data-casa="${c}" data-via="X" type="text" placeholder="—" style="width:70px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;color:var(--text1);padding:5px;font-size:12px;text-align:right"></td>
+      <td><input class="tb-cuota" data-casa="${c}" data-via="2" type="text" placeholder="—" style="width:70px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;color:var(--text1);padding:5px;font-size:12px;text-align:right"></td>
+      <td style="padding-left:6px">${_tbLinkCasa(c)}</td>
+    </tr>`).join('');
+
+  const html = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+      <div><div style="font-size:11px;color:var(--text2);margin-bottom:4px">Local</div>
+        <input id="tb-c-local" type="text" placeholder="Nacional" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:7px 10px;font-size:13px"></div>
+      <div><div style="font-size:11px;color:var(--text2);margin-bottom:4px">Visitante</div>
+        <input id="tb-c-visita" type="text" placeholder="Millonarios" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:7px 10px;font-size:13px"></div>
+      <div><div style="font-size:11px;color:var(--text2);margin-bottom:4px">Liga</div>
+        <input id="tb-c-liga" type="text" placeholder="Liga BetPlay" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:7px 10px;font-size:13px"></div>
+      <div style="display:grid;grid-template-columns:1fr 90px;gap:6px">
+        <div><div style="font-size:11px;color:var(--text2);margin-bottom:4px">Fecha (Colombia)</div>
+          <input id="tb-c-fecha" type="date" value="${hoy}" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:6px 8px;font-size:13px"></div>
+        <div><div style="font-size:11px;color:var(--text2);margin-bottom:4px">Hora</div>
+          <input id="tb-c-hora" type="time" value="19:30" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:6px 8px;font-size:13px"></div>
+      </div>
+    </div>
+    <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin:14px 0 6px">Cuotas 1X2 — deja en blanco las casas que no tengan el partido</div>
+    <table style="width:100%;border-collapse:collapse">
+      <tr style="font-size:10px;color:var(--text2);text-transform:uppercase">
+        <td style="padding-bottom:4px">Casa</td><td style="text-align:right">1</td><td style="text-align:right">X</td><td style="text-align:right">2</td><td></td>
+      </tr>
+      ${filas}
+    </table>`;
+
+  _tbModal('Cargar cuotas de un partido', html, tbGuardarEvento);
+}
+
+function _tbLinkCasa(casa){
+  const url = (_tbUrls && _tbUrls[casa]) || '';
+  return url ? `<a href="${url}" target="_blank" rel="noopener" style="font-size:11px;color:var(--gold);text-decoration:none">abrir ↗</a>` : '';
+}
+
+async function tbGuardarEvento(){
+  const local  = (document.getElementById('tb-c-local')?.value  || '').trim();
+  const visita = (document.getElementById('tb-c-visita')?.value || '').trim();
+  const fecha  = document.getElementById('tb-c-fecha')?.value || tbHoyBogota();
+  if (!local || !visita){ toast('Falta el nombre de los equipos', 'error'); return false; }
+
+  const cuotas = {};
+  document.querySelectorAll('.tb-cuota').forEach(inp => {
+    const v = parseFloat((inp.value||'').replace(',','.'));
+    if (!v || v <= 1) return;
+    const casa = inp.dataset.casa;
+    cuotas[casa] = cuotas[casa] || {};
+    cuotas[casa][inp.dataset.via] = v;
+  });
+
+  const completas = Object.keys(cuotas).filter(c => cuotas[c]['1'] && cuotas[c]['X'] && cuotas[c]['2']);
+  if (completas.length < 2){
+    toast('Necesito el 1, X y 2 completos de al menos 2 casas', 'error');
+    return false;
+  }
+
+  try {
+    await db.collection('trixibot_eventos').add({
+      fecha, hora: document.getElementById('tb-c-hora')?.value || '',
+      deporte: 'Fútbol',
+      liga:  (document.getElementById('tb-c-liga')?.value || '').trim(),
+      local, visitante: visita,
+      cuotas: { '1X2': cuotas },
+      creadoPor: auth.currentUser?.uid || '',
+      creadoEn:  firebase.firestore.FieldValue.serverTimestamp()
+    });
+    toast(`Guardado: ${local} vs ${visita} · ${completas.length} casas`);
+    return true;
+  } catch(e){
+    toast('Error guardando: ' + e.message, 'error');
+    return false;
+  }
+}
+
+// Modal genérico reutilizable
+function _tbModal(titulo, cuerpoHtml, onGuardar){
+  let ov = document.getElementById('tb-modal-ov');
+  if (ov) ov.remove();
+  ov = document.createElement('div');
+  ov.id = 'tb-modal-ov';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9998;display:flex;align-items:center;justify-content:center;padding:20px';
+  ov.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;max-width:640px;width:100%;max-height:88vh;overflow:auto;padding:20px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div style="font-size:16px;font-weight:700">${titulo}</div>
+        <span onclick="document.getElementById('tb-modal-ov').remove()" style="cursor:pointer;font-size:20px;color:var(--text2);line-height:1">×</span>
+      </div>
+      <div id="tb-modal-body">${cuerpoHtml}</div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px">
+        <button class="btn" onclick="document.getElementById('tb-modal-ov').remove()">Cancelar</button>
+        <button class="btn btn-gold" id="tb-modal-ok">Guardar</button>
+      </div>
+    </div>`;
+  document.body.appendChild(ov);
+  document.getElementById('tb-modal-ok').onclick = async () => {
+    const ok = await onGuardar();
+    if (ok !== false) ov.remove();
+  };
+}
+

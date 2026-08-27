@@ -1030,13 +1030,13 @@ select option{background:var(--bg3)}
           <div class="sec-sub">Estado de Situación Financiera — todos los operadores activos</div>
         </div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <select id="esf-ops-oficina" onchange="_esfLastSnap&&_esfRenderVista()" style="padding:7px 10px;font-size:12px;min-width:140px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+          <select id="esf-ops-oficina" onchange="localStorage.setItem('esfOps_oficina',this.value);_esfLastSnap&&_esfRenderVista()" style="padding:7px 10px;font-size:12px;min-width:140px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text)">
             <option value="">Todas las oficinas</option>
           </select>
-          <select id="esf-ops-mes" style="padding:7px 10px;font-size:12px;min-width:160px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text)"></select>
+          <select id="esf-ops-mes" onchange="localStorage.setItem('esfOps_mes',this.value)" style="padding:7px 10px;font-size:12px;min-width:160px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text)"></select>
           <div style="display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden">
-            <button id="esf-btn-cards" class="esf-vista-btn activa" onclick="_esfVista='cards';document.getElementById('esf-btn-cards').classList.add('activa');document.getElementById('esf-btn-tabla').classList.remove('activa');_esfLastSnap&&_esfRenderVista()">🗂 Tarjetas</button>
-            <button id="esf-btn-tabla" class="esf-vista-btn" style="border-left:1px solid var(--border)" onclick="_esfVista='tabla';document.getElementById('esf-btn-tabla').classList.add('activa');document.getElementById('esf-btn-cards').classList.remove('activa');_esfLastSnap&&_esfRenderVista()">📊 Tabla</button>
+            <button id="esf-btn-cards" class="esf-vista-btn activa" onclick="_esfVista='cards';localStorage.setItem('esfOps_vista','cards');document.getElementById('esf-btn-cards').classList.add('activa');document.getElementById('esf-btn-tabla').classList.remove('activa');_esfLastSnap&&_esfRenderVista()">🗂 Tarjetas</button>
+            <button id="esf-btn-tabla" class="esf-vista-btn" style="border-left:1px solid var(--border)" onclick="_esfVista='tabla';localStorage.setItem('esfOps_vista','tabla');document.getElementById('esf-btn-tabla').classList.add('activa');document.getElementById('esf-btn-cards').classList.remove('activa');_esfLastSnap&&_esfRenderVista()">📊 Tabla</button>
           </div>
           <button class="btn btn-purple" onclick="adminESFAll()">⟳ Calcular ESF</button>
         </div>
@@ -5792,6 +5792,23 @@ function initESFOps() {
     sel.innerHTML = opts.join('');
   }
   _esfPoblarOficinas();
+
+  // Recordar la última búsqueda (oficina, mes, vista) para que al cerrar y volver
+  // a entrar quede donde el usuario la dejó, sin tener que rehacerla.
+  const memMes = localStorage.getItem('esfOps_mes');
+  if (memMes && sel && [...sel.options].some(op => op.value === memMes)) sel.value = memMes;
+  const selOf = document.getElementById('esf-ops-oficina');
+  const memOf = localStorage.getItem('esfOps_oficina');
+  if (memOf && selOf && [...selOf.options].some(op => op.value === memOf)) selOf.value = memOf;
+  const memVista = localStorage.getItem('esfOps_vista');
+  if (memVista === 'tabla' || memVista === 'cards') {
+    _esfVista = memVista;
+    document.getElementById('esf-btn-cards')?.classList.toggle('activa', memVista === 'cards');
+    document.getElementById('esf-btn-tabla')?.classList.toggle('activa', memVista === 'tabla');
+  }
+  // Si había una búsqueda guardada, recalcular automático (adminESFAll ya evita
+  // recargar de más si el mes no cambió desde la última vez en esta sesión).
+  if (memMes) adminESFAll();
 }
 
 // Rellena el selector de oficina de "ESF por Operador" con admin_oficinas
@@ -5808,6 +5825,7 @@ function _esfPoblarOficinas() {
 async function adminESFAll() {
   const mesKey = document.getElementById('esf-ops-mes')?.value;
   if (!mesKey) { toast('Selecciona un mes', 'error'); return; }
+  localStorage.setItem('esfOps_mes', mesKey);
   const container = document.getElementById('esf-ops-container');
 
   // Si el mes cambió, cancelar listener anterior y limpiar caches

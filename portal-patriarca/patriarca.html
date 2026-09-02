@@ -2539,6 +2539,199 @@ function auditoriaPintarBanner(){
   app.insertBefore(f, app.firstChild);
 }
 
+// ── AVISO DEL DÍA ─────────────────────────────────────────────────────────
+// Franja fija informativa (no bloquea nada, se puede seguir trabajando y
+// copiando normal). Solo se ve el día que el admin la mandó — se apaga sola
+// al día siguiente porque compara la fecha guardada contra hoy.
+let _avisoDiaMsg = '';
+let _avisoDiaChecklist = [];
+let _avisoDiaFecha = '';
+let _avisoChecklistEstado = {};
+let _avisoChecklistUnsub = null;
+
+function avisoDiaEscuchar(){
+  db.collection('patriarca_config_global').doc('aviso_dia').onSnapshot(doc => {
+    const d = doc.exists ? doc.data() : null;
+    const activo = !!(d && d.fecha === _hoyLocalOp());
+    _avisoDiaMsg = (activo && d.mensaje) ? d.mensaje : '';
+    _avisoDiaChecklist = (activo && Array.isArray(d.checklist)) ? d.checklist : [];
+    _avisoDiaFecha = activo ? d.fecha : '';
+    avisoDiaPintarBanner();
+    avisoDiaMostrarModalSiHaceFalta();
+    avisoChecklistIniciar();
+  }, () => {});
+}
+function avisoDiaPintarBanner(){
+  let f = document.getElementById('aviso-dia-franja');
+  if (!_avisoDiaMsg) { if (f) f.remove(); return; }
+  if (!f) {
+    f = document.createElement('div');
+    f.id = 'aviso-dia-franja';
+    f.style.cssText = 'position:sticky;top:0;z-index:840;background:#1d4ed8;color:#fff;'
+      + 'padding:10px 16px;font-size:13px;font-weight:700;text-align:center;cursor:pointer';
+    f.title = 'Clic para ver el aviso completo';
+    f.onclick = () => { localStorage.removeItem('aviso_modal_visto_' + _avisoDiaFecha); avisoDiaMostrarModalSiHaceFalta(true); };
+    const app = document.getElementById('app') || document.body;
+    app.insertBefore(f, app.firstChild);
+  }
+  f.textContent = '📢 ' + _avisoDiaMsg;
+}
+
+// ─── Modal grande al llegar el aviso — se cierra con X y queda la franja ───
+function avisoDiaMostrarModalSiHaceFalta(forzar){
+  const existente = document.getElementById('aviso-dia-modal');
+  if (!_avisoDiaMsg) { if (existente) existente.remove(); return; }
+  const key = 'aviso_modal_visto_' + _avisoDiaFecha;
+  if (!forzar && localStorage.getItem(key) === '1') return;
+  if (existente) return;
+  const overlay = document.createElement('div');
+  overlay.id = 'aviso-dia-modal';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:950;background:rgba(0,0,0,.6);'
+    + 'display:flex;align-items:center;justify-content:center;padding:20px';
+  const box = document.createElement('div');
+  box.style.cssText = 'background:#1d4ed8;color:#fff;max-width:520px;width:100%;border-radius:12px;'
+    + 'padding:26px 24px;position:relative;box-shadow:0 12px 40px rgba(0,0,0,.4)';
+  const x = document.createElement('button');
+  x.textContent = '✕';
+  x.style.cssText = 'position:absolute;top:8px;right:10px;background:none;border:none;color:#fff;'
+    + 'font-size:22px;cursor:pointer;line-height:1;padding:6px';
+  x.onclick = () => { localStorage.setItem(key, '1'); overlay.remove(); };
+  const icon = document.createElement('div');
+  icon.textContent = '📢';
+  icon.style.cssText = 'font-size:26px;margin-bottom:10px';
+  const msg = document.createElement('div');
+  msg.textContent = _avisoDiaMsg;
+  msg.style.cssText = 'font-size:16px;font-weight:700;line-height:1.55;white-space:pre-wrap';
+  box.appendChild(x); box.appendChild(icon); box.appendChild(msg);
+  overlay.appendChild(box);
+  overlay.onclick = e => { if (e.target === overlay) { localStorage.setItem(key, '1'); overlay.remove(); } };
+  document.body.appendChild(overlay);
+}
+
+// ─── Checklist flotante — no lo pueden cerrar del todo hasta marcar todo ───
+function avisoChecklistIniciar(){
+  if (_avisoChecklistUnsub) { _avisoChecklistUnsub(); _avisoChecklistUnsub = null; }
+  if (!_avisoDiaChecklist.length || !auth.currentUser) {
+    const p = document.getElementById('aviso-checklist-panel');
+    if (p) p.remove();
+    return;
+  }
+  const docId = auth.currentUser.uid + '_' + _avisoDiaFecha;
+  _avisoChecklistUnsub = db.collection('patriarca_aviso_checklist').doc(docId).onSnapshot(doc => {
+    _avisoChecklistEstado = (doc.exists && doc.data().items) ? doc.data().items : {};
+    avisoChecklistPintar();
+  }, () => {});
+}
+function avisoChecklistPintar(){
+  const total = _avisoDiaChecklist.length;
+  if (!total) { const p = document.getElementById('aviso-checklist-panel'); if (p) p.remove(); return; }
+  const hechos = _avisoDiaChecklist.filter((_, i) => _avisoChecklistEstado[i]).length;
+  let p = document.getElementById('aviso-checklist-panel');
+  if (!p) {
+    p = document.createElement('div');
+    p.id = 'aviso-checklist-panel';
+    p.style.cssText = 'position:fixed;bottom:16px;left:16px;z-index:895;background:#111827;color:#fff;'
+      + 'border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.35);width:280px;font-size:13px;overflow:hidden';
+    document.body.appendChild(p);
+  }
+  p.innerHTML = '';
+  if (hechos >= total) {
+    const done = document.createElement('div');
+    done.style.cssText = 'padding:12px 14px;font-weight:700;background:#059669';
+    done.textContent = '✅ Cierre del día completado';
+    p.appendChild(done);
+    setTimeout(() => { const el = document.getElementById('aviso-checklist-panel'); if (el) el.remove(); }, 6000);
+    return;
+  }
+  const head = document.createElement('div');
+  head.style.cssText = 'padding:10px 14px;font-weight:700;background:#b91c1c;display:flex;'
+    + 'justify-content:space-between;align-items:center;cursor:pointer';
+  const headL = document.createElement('span');
+  headL.textContent = `⚠ Pasos de cierre — ${hechos}/${total}`;
+  const headR = document.createElement('span');
+  headR.id = 'aviso-checklist-toggle';
+  headR.textContent = '▾';
+  head.appendChild(headL); head.appendChild(headR);
+  const body = document.createElement('div');
+  body.id = 'aviso-checklist-body';
+  body.style.cssText = 'padding:8px 14px 12px';
+  _avisoDiaChecklist.forEach((item, i) => {
+    const row = document.createElement('label');
+    row.style.cssText = 'display:flex;align-items:flex-start;gap:8px;padding:5px 0;cursor:pointer';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = !!_avisoChecklistEstado[i];
+    cb.style.cssText = 'margin-top:3px';
+    const txt = document.createElement('span');
+    txt.textContent = item;
+    txt.style.cssText = cb.checked ? 'text-decoration:line-through;opacity:.6' : '';
+    cb.onchange = () => avisoChecklistMarcar(i, cb.checked);
+    row.appendChild(cb); row.appendChild(txt);
+    body.appendChild(row);
+  });
+  p.appendChild(head); p.appendChild(body);
+  head.onclick = () => {
+    const colapsado = body.style.display === 'none';
+    body.style.display = colapsado ? '' : 'none';
+    headR.textContent = colapsado ? '▾' : '▸';
+  };
+}
+async function avisoChecklistMarcar(i, val){
+  if (!auth.currentUser) return;
+  _avisoChecklistEstado[i] = val;
+  const docId = auth.currentUser.uid + '_' + _avisoDiaFecha;
+  try {
+    await db.collection('patriarca_aviso_checklist').doc(docId).set({
+      uid: auth.currentUser.uid, fecha: _avisoDiaFecha,
+      items: _avisoChecklistEstado,
+      actualizadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+  } catch(e) { console.warn('checklist:', e.message); }
+}
+// Recordatorio: si queda algo sin marcar, cada 10 min se despliega y agita el panel.
+setInterval(() => {
+  const total = _avisoDiaChecklist.length;
+  if (!total) return;
+  const hechos = _avisoDiaChecklist.filter((_, i) => _avisoChecklistEstado[i]).length;
+  if (hechos >= total) return;
+  const p = document.getElementById('aviso-checklist-panel');
+  if (!p) return;
+  const body = document.getElementById('aviso-checklist-body');
+  if (body) body.style.display = '';
+  const toggle = document.getElementById('aviso-checklist-toggle');
+  if (toggle) toggle.textContent = '▾';
+  p.animate(
+    [{ transform: 'translateX(0)' }, { transform: 'translateX(-6px)' },
+     { transform: 'translateX(6px)' }, { transform: 'translateX(0)' }],
+    { duration: 400 }
+  );
+}, 10 * 60 * 1000);
+
+// ─── Auto-detectar nueva versión (para que no dependan de refrescar manualmente) ───
+let _appEtag = null;
+async function _checkAppUpdate(){
+  try {
+    const res = await fetch(location.pathname, { method: 'HEAD', cache: 'no-store' });
+    const et = res.headers.get('etag') || res.headers.get('last-modified');
+    if (!et) return;
+    if (_appEtag === null) { _appEtag = et; return; }
+    if (et !== _appEtag) _mostrarAvisoActualizacion();
+  } catch(e) {}
+}
+function _mostrarAvisoActualizacion(){
+  if (document.getElementById('app-update-banner')) return;
+  const b = document.createElement('div');
+  b.id = 'app-update-banner';
+  b.style.cssText = 'position:fixed;bottom:16px;right:16px;z-index:900;background:#059669;color:#fff;'
+    + 'padding:10px 16px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;'
+    + 'box-shadow:0 4px 12px rgba(0,0,0,.3)';
+  b.textContent = '🔄 Nueva actualización — clic para actualizar';
+  b.onclick = () => location.reload();
+  document.body.appendChild(b);
+}
+setInterval(_checkAppUpdate, 5 * 60 * 1000);
+setTimeout(_checkAppUpdate, 5000);
+
 // ──────────────────── AUTH ────────────────────
 // Correos que NO pueden entrar al portal de operador (son solo cajeros)
 const CAJERO_ONLY_EMAILS = ['paola@aj16.com'];
@@ -2596,6 +2789,7 @@ auth.onAuthStateChanged(async user => {
     _suscribirMesCerrado(); // verificar si el mes activo está cerrado
     tbInit(); // Trixi Bot — muestra la pestaña solo si el admin la habilitó
     auditoriaEscucharOperador();
+    avisoDiaEscuchar();
     if (window.AJChat) AJChat.iniciarUsuario({
       db, auth, uid: user.uid,
       nombre: operadorNombre, rol: operadorRol || 'operador',
@@ -2652,12 +2846,28 @@ async function loadConfig() {
   db.collection('patriarca_config').doc(opId).onSnapshot(doc => {
     if (doc.exists) {
       const d = doc.data();
-      // Normalizar cupos_cajero con normMetodo para deduplicar aliases (ej "Saldo Clientes" → "SALDO CLIENTES ANTERIOR")
-      // NO filtrar por METODOS_CAJA para no descartar métodos válidos que aún no hayan cargado (ej CUENTA BANCARIA)
-      const cuposCajeroRaw = d.cupos_cajero || {};
       const NO_SON_METODOS = new Set(['CUPO TOTAL', 'CUPO TOTAL ASIGNADO', 'CUPO_RESIDUAL', 'COM_MES_ANT', 'LIQ_POR_PAGAR', 'CLI_MES_ANT']);
+
+      // mesKey del mes ACTIVO del operador (config.mes) — determina qué snapshot
+      // mensual usar. Sin esto, "cupo" quedaba leyendo un campo compartido
+      // (cupos_cajero, sin mes) que administrador sobreescribe cada vez que
+      // alguien guarda el Cupo Inicial de CUALQUIER mes — así que un operador
+      // viendo un mes ya cerrado terminaba mostrando el cupo del mes siguiente.
+      const mesKey = (()=>{
+        const { num, año } = _parseMesLabel(d.mes);
+        return (num && año) ? `${año}-${String(num).padStart(2,'0')}` : null;
+      })();
+
+      // Cupos "de este mes": prioridad al snapshot mensual (cupos_por_mes[mesKey]);
+      // solo cae al campo plano legacy si ese mes nunca se guardó por el sistema
+      // nuevo (operador migrado antes de que existiera cupos_por_mes).
+      const hayCuposPorMes = !!(mesKey && d.cupos_por_mes);
+      const cuposDelMesRaw = hayCuposPorMes ? (d.cupos_por_mes[mesKey] || {}) : (d.cupos_cajero || {});
+
+      // Normalizar con normMetodo para deduplicar aliases (ej "Saldo Clientes" → "SALDO CLIENTES ANTERIOR")
+      // NO filtrar por METODOS_CAJA para no descartar métodos válidos que aún no hayan cargado (ej CUENTA BANCARIA)
       const cuposCajero = {};
-      Object.entries(cuposCajeroRaw).forEach(([k, v]) => {
+      Object.entries(cuposDelMesRaw).forEach(([k, v]) => {
         if (NO_SON_METODOS.has(k)) return; // Filtrar CUPO TOTAL ANTES de normalizar
         const norm = normMetodo(k);
         if (!norm) return;
@@ -2667,7 +2877,7 @@ async function loadConfig() {
       const totalCajero = Object.entries(cuposCajero)
         .reduce((a, [, v]) => a + v, 0);
 
-      // Si cajero asignó cupos, usar esa suma (incluso si es 0); si no hay cupos de cajero, usar config.cupo
+      // Si hay cupos para este mes, usar esa suma (incluso si es 0); si no hay nada, usar config.cupo
       const hayCuposCajero = Object.keys(cuposCajero).length > 0;
       config = {
         cupo:                 hayCuposCajero ? totalCajero : (d.cupo || 8000000),
@@ -2681,16 +2891,8 @@ async function loadConfig() {
         interes_capital:      d.interes_capital   ?? 5,
         interes_diario:       d.interes_diario    ?? 0.2,
         cupos_iniciales: (()=>{
-          // Calcular mesKey del mes activo
-          const mesKey = (()=>{
-            const parts = (d.mes||'').trim().toLowerCase().split(/\s+/);
-            if (parts.length < 2) return null;
-            const num = {enero:1,febrero:2,marzo:3,abril:4,mayo:5,junio:6,julio:7,agosto:8,septiembre:9,octubre:10,noviembre:11,diciembre:12}[parts[0]];
-            const año = parseInt(parts[1]);
-            return (num && año) ? `${año}-${String(num).padStart(2,'0')}` : null;
-          })();
           // Prioridad 1: cupos_por_mes[mesKey] si existe (guardado por admin/cajero o cierre)
-          if (mesKey && d.cupos_por_mes && d.cupos_por_mes[mesKey]) {
+          if (hayCuposPorMes && d.cupos_por_mes[mesKey]) {
             const merged = {};
             Object.entries(d.cupos_por_mes[mesKey]).forEach(([k,v]) => {
               if (NO_SON_METODOS.has(k)) return; // Filtrar CUPO TOTAL (NO_SON_METODOS ya se definió arriba)
@@ -2701,7 +2903,7 @@ async function loadConfig() {
           }
           // Prioridad 2: si cupos_por_mes YA existe como campo (sistema migrado)
           // pero no tiene datos para este mes → mes nuevo = $0
-          if (mesKey && d.cupos_por_mes) return {};
+          if (hayCuposPorMes) return {};
           // Prioridad 3: legacy — cupos_por_mes no existe aún (antes del primer guardado post-deploy)
           // Usar cupos_cajero + cupos_iniciales como antes
           const merged = {};
@@ -2713,7 +2915,12 @@ async function loadConfig() {
           return merged;
         })(),
         cupos_cajero: cuposCajero,
-        permisos: d.permisos || {}
+        permisos: d.permisos || {},
+        // Snapshot fijo que guarda el admin en Cupo Inicial por Operador (LIQ_POR_PAGAR,
+        // CUPO_RESIDUAL, etc.) — es la fuente autorizada para Pasivo y Cupo Residual del
+        // ESF en vivo, en vez de recalcularlos con datos de movimientos que pueden
+        // desviarse del cierre real.
+        esf_inicial: (mesKey && d.esf_inicial_por_mes?.[mesKey]) || null
       };
       aplicarPermisos();
       document.getElementById('mes-badge').textContent = config.mes;
@@ -2883,18 +3090,7 @@ async function loadAllData() {
 // ──────────────────── CONFIG DESDE ADMIN (Firestore) ────────────────────
 async function loadAdminConfig() {
   try {
-    // 1. Cargar métodos desde admin_config/metodos
-    const metSnap = await db.collection('admin_config').doc('metodos').get();
-    if (metSnap.exists) {
-      const lista = metSnap.data().lista || [];
-      if (lista.length) {
-        // Usar exactamente los métodos que el admin tiene definidos
-        METODOS_CAJA = lista.map(m => m.nombre);
-        METODOS_MV   = lista.map(m => m.nombre);
-      }
-    }
-
-    // 2. Cargar casas de apuestas desde admin_config/casas
+    // Cargar casas de apuestas desde admin_config/casas
     const casasSnap = await db.collection('admin_config').doc('casas').get();
     if (casasSnap.exists && (casasSnap.data().lista || []).length) {
       CASAS = casasSnap.data().lista;
@@ -2906,7 +3102,8 @@ async function loadAdminConfig() {
       populateStaticSelects();
     });
 
-    // 3. Cargar comisiones según la oficina del operador
+    // Resolver primero la oficina del operador — los métodos dependen de ella,
+    // así que hay que saberla antes de cargarlos.
     const opSnap = await db.collection('patriarca_operadores').doc(opId).get();
     let oficina = opSnap.exists ? opSnap.data().oficina : null;
 
@@ -2933,6 +3130,29 @@ async function loadAdminConfig() {
         .set({ oficina }, { merge: true });
     }
 
+    // Cargar métodos propios de esta oficina (admin_config_metodos/{oficina}).
+    // Antes venían de un solo documento global compartido por todas las
+    // oficinas — Golden veía los métodos de Unity. "oficina" aquí es el mismo
+    // id de admin_oficinas que ya usa admin_comisiones más abajo. Si esta
+    // oficina todavía no tiene su propio documento (típicamente Unity antes
+    // de la migración), se usa el documento legacy como respaldo.
+    async function _aplicarMetodosOperador(lista) {
+      if (!lista.length) return;
+      METODOS_CAJA = lista.map(m => m.nombre);
+      METODOS_MV   = lista.map(m => m.nombre);
+      populateStaticSelects();
+    }
+    let metLista = [];
+    if (oficina) {
+      const metSnap = await db.collection('admin_config_metodos').doc(oficina).get();
+      metLista = metSnap.exists ? (metSnap.data().lista || []) : [];
+    }
+    if (!metLista.length) {
+      const legacy = await db.collection('admin_config').doc('metodos').get();
+      metLista = legacy.exists ? (legacy.data().lista || []) : [];
+    }
+    await _aplicarMetodosOperador(metLista);
+
     if (oficina) {
       COMISIONES_OFICINA = oficina;
       const comSnap = await db.collection('admin_comisiones').doc(oficina).get();
@@ -2953,14 +3173,19 @@ async function loadAdminConfig() {
     }
 
     // Escuchar cambios en tiempo real para que si admin actualiza, se refleje
-    db.collection('admin_config').doc('metodos').onSnapshot(snap => {
-      if (!snap.exists) return;
-      const lista = snap.data().lista || [];
-      if (!lista.length) return;
-      METODOS_CAJA = lista.map(m => m.nombre);
-      METODOS_MV   = lista.map(m => m.nombre);
-      populateStaticSelects();
-    });
+    // — mismo documento oficina-consciente que la carga inicial de arriba.
+    if (oficina) {
+      db.collection('admin_config_metodos').doc(oficina).onSnapshot(async snap => {
+        const lista = snap.exists ? (snap.data().lista || []) : [];
+        if (lista.length) { await _aplicarMetodosOperador(lista); return; }
+        const legacy = await db.collection('admin_config').doc('metodos').get();
+        if (legacy.exists) await _aplicarMetodosOperador(legacy.data().lista || []);
+      });
+    } else {
+      db.collection('admin_config').doc('metodos').onSnapshot(snap => {
+        if (snap.exists) _aplicarMetodosOperador(snap.data().lista || []);
+      });
+    }
 
     if (oficina) {
       db.collection('admin_comisiones').doc(oficina).onSnapshot(snap => {
@@ -3374,13 +3599,22 @@ function _mesKeyToLabel(mk) {
   const [y, m] = mk.split('-').map(Number);
   return (_MESES_ES_INV[m] || '') + ' ' + y;
 }
+// Extrae {num, año} de una etiqueta de mes en español sin importar el formato
+// exacto ("Agosto 2026", "Agosto de 2026", etc.) — antes se asumía por posición
+// (parts[0]/parts[1]) y una palabra de más como "de" rompía el cálculo (bug
+// real: los operadores de Golden Bets tienen su campo `mes` guardado como
+// "Agosto de 2026", lo que dejaba mesKey en null y ocultaba Clientes Mes
+// Anterior / Cupo Residual / Liquidación por Pagar en el ESF).
+function _parseMesLabel(str) {
+  const s = (str || '').trim().toLowerCase();
+  const mm = s.match(/enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre/);
+  const ym = s.match(/\d{4}/);
+  return { num: mm ? _MESES_ES[mm[0]] : undefined, año: ym ? parseInt(ym[0]) : undefined };
+}
 function _mesKey(mesStr) {
   // "Junio 2026" → "2026-06"
   if (!mesStr) return null;
-  const parts = mesStr.trim().toLowerCase().split(/\s+/);
-  if (parts.length < 2) return null;
-  const num = _MESES_ES[parts[0]];
-  const año = parseInt(parts[1]);
+  const { num, año } = _parseMesLabel(mesStr);
   if (!num || !año) return null;
   return año + '-' + String(num).padStart(2,'0');
 }
@@ -7892,6 +8126,13 @@ async function renderESF() {
     }
   } catch(e) { console.warn('esf: saldo_inicial:', e); }
 
+  // Si el admin guardó un snapshot fijo en Cupo Inicial por Operador (Liquidación
+  // por Pagar autoritativa), usarlo como punto de partida en vez del valor calculado
+  // desde movimientos — evita que el Pasivo se desvíe de lo que el admin ya cuadró.
+  if (config.esf_inicial && config.esf_inicial.LIQ_POR_PAGAR !== undefined) {
+    gananciaMesAnt = Math.round(config.esf_inicial.LIQ_POR_PAGAR || 0);
+  }
+
   // Restar pagos ya aprobados en la liquidación del mes anterior
   let _liqPrevDocs = [];
   try {
@@ -8119,6 +8360,13 @@ async function renderESF() {
     const _totalPat = Math.round(totalActivos) - Math.round(totalPasivos);
     cupoEnCajas    = _totalPat - Math.round(clientesMesAnt) - Math.round(utilidad) + Math.round(totalGastos) - Math.round(totalComisiones);
     cupoRedondeado = _totalPat - Math.round(utilidad) + Math.round(totalGastos) - Math.round(totalComisiones);
+    // Si el admin guardó el Cupo Residual autoritativo (Cupo Asignado − Clientes
+    // Mes Ant.) en Cupo Inicial por Operador, mostrar ESE valor fijo en vez del
+    // calculado desde cajas reales — es el que el admin y el operador consideran
+    // correcto, y evita que aparezcan dos "Cupo Residual" distintos en pantalla.
+    if (config.esf_inicial && config.esf_inicial.CUPO_RESIDUAL !== undefined) {
+      cupoEnCajas = Math.round(config.esf_inicial.CUPO_RESIDUAL || 0);
+    }
     if (cupoLabelEl) cupoLabelEl.textContent = 'Cupo Residual';
   } else {
     cupoRedondeado = Math.round(config.cupo);

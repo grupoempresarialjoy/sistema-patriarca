@@ -1223,7 +1223,10 @@
         <div class="cont-tab-content" id="ctab-content-catalogo">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
             <p style="font-size:12px;color:var(--text-muted)">Las cuentas marcadas como <span class="cat-badge-new">NUEVA</span> fueron agregadas desde el portal y pueden eliminarse. Las demás son del catálogo base.</p>
-            <button class="btn btn-primary" onclick="openModalAgregarCuenta()">+ Agregar Cuenta</button>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-secondary" onclick="openModalPegarCatalogo()">📋 Pegar desde Excel</button>
+              <button class="btn btn-primary" onclick="openModalAgregarCuenta()">+ Agregar Cuenta</button>
+            </div>
           </div>
           <div id="cat-container"></div>
         </div>
@@ -1659,6 +1662,32 @@
       <button class="btn btn-ghost" onclick="closeModal('modal-pegar-movs')">Cancelar</button>
       <button class="btn btn-secondary" onclick="previewPegarMovs()">👁 Previsualizar</button>
       <button class="btn btn-primary" id="btn-guardar-pegar" onclick="guardarPegarMovs()">✅ Guardar movimientos</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Pegar Catálogo de Cuentas desde Excel -->
+<div class="modal-overlay" id="modal-pegar-catalogo">
+  <div class="modal" style="max-width:780px;width:95%">
+    <div class="modal-header">
+      <h3>📋 Pegar Cuentas desde Excel</h3>
+      <button class="modal-close" onclick="closeModal('modal-pegar-catalogo')">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px">
+        Copia las celdas de Excel (incluyendo o no el encabezado) y pégalas aquí. Se agregan al catálogo de esta oficina.<br>
+        Columnas esperadas en orden: <strong>TIPO · SUBCUENTA</strong> (o <strong>TIPO · GRUPO · SUBCUENTA</strong> si incluyes el grupo).<br>
+        TIPO debe ser uno de: <strong>ACTIVOS · PASIVOS · PATRIMONIO · INGRESOS</strong>. Las líneas en blanco se ignoran.
+      </p>
+      <textarea id="pegar-cat-txt"
+        style="width:100%;height:260px;background:var(--bg-card2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:10px;font-family:monospace;font-size:11px;resize:vertical"
+        placeholder="Pega aquí los datos copiados desde Excel..."></textarea>
+      <div id="pegar-cat-preview" style="margin-top:10px;font-size:12px;color:var(--text-muted)"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-pegar-catalogo')">Cancelar</button>
+      <button class="btn btn-secondary" onclick="previewPegarCatalogo()">👁 Previsualizar</button>
+      <button class="btn btn-primary" id="btn-guardar-pegar-cat" onclick="guardarPegarCatalogo()">✅ Guardar cuentas</button>
     </div>
   </div>
 </div>
@@ -2159,10 +2188,12 @@ function goTo(page) {
   const esGolden = page.endsWith('-golden');
   const real = esGolden ? page.replace(/-golden$/, '') : page;
   const idGolden = esGolden ? _oficinaIdPorNombre(/golden/i) : '';
+  const idUnity  = _oficinaIdPorNombre(/unity/i);
 
-  // Contador todavía no filtra por oficina — mostrar el libro real de Unity
-  // bajo el nombre de Golden sería un error, así que se avisa en su lugar.
-  const idPagina = (esGolden && real === 'contador') ? 'golden-pendiente' : real;
+  // El Contador ya filtra por oficina (cont_movimientos/cont_catalogo llevan
+  // el campo oficina) — Golden abre su propio libro, vacío hasta que registren
+  // movimientos, en vez del aviso de construcción.
+  const idPagina = real;
 
   const p = document.getElementById('page-' + idPagina);
   if(p) p.classList.add('active');
@@ -2172,7 +2203,7 @@ function goTo(page) {
   document.getElementById('topbar-title').textContent = (titulos[real] || real) + (esGolden ? ' — Golden' : '');
 
   if(idPagina==='administradores')     loadAdministradores();
-  if(idPagina==='contador')            loadContador();
+  if(idPagina==='contador')            loadContador(esGolden ? idGolden : idUnity);
   if(idPagina==='solicitudes')         loadSolicitudes();
   if(idPagina==='participacion')       initParticipacion(esGolden ? idGolden : '');
   if(idPagina==='resultados')          initResultados(esGolden ? idGolden : '');
@@ -3107,9 +3138,18 @@ async function postearCierreResultados() {
   const btn = document.getElementById('res-btn-cerrar');
   btn.disabled = true; btn.textContent = '⏳ Generando…';
   try {
-    // Borrar cierre previo del mismo mes (si existe) antes de crear el nuevo
+    // Oficina activa en Estado de Resultados (vacío = Unity, por convención
+    // de cargarResultados/initResultados). El asiento de cierre se ata a esa
+    // misma oficina para no cruzar el libro de Golden con el de Unity.
+    const oficinaRes = document.getElementById('res-oficina')?.value || _oficinaIdPorNombre(/unity/i);
+
+    // Borrar cierre previo del mismo mes y oficina (si existe) antes de crear el nuevo.
+    // Sin where('oficina',..) en el server (evita índice compuesto) — se filtra en
+    // cliente, tratando los cierres viejos sin oficina como de Unity.
+    const idUnityRes = _oficinaIdPorNombre(/unity/i);
     const prevSnap = await db.collection('cont_movimientos').where('origen','==','cierre_resultados').get();
-    const prevDocs = prevSnap.docs.filter(d => (d.data().fecha||'').startsWith(_resMesKey));
+    const prevDocs = prevSnap.docs.filter(d =>
+      (d.data().fecha||'').startsWith(_resMesKey) && (d.data().oficina || idUnityRes) === oficinaRes);
     for (let i = 0; i < prevDocs.length; i += 400) {
       const b = db.batch();
       prevDocs.slice(i, i+400).forEach(d => b.delete(d.ref));
@@ -3118,8 +3158,11 @@ async function postearCierreResultados() {
 
     const [yy, mm] = _resMesKey.split('-').map(Number);
     const fechaCierre = `${_resMesKey}-${String(new Date(yy, mm, 0).getDate()).padStart(2,'0')}`;
-    const opSnap = await db.collection('cont_movimientos').orderBy('op','desc').limit(1).get();
-    const op = opSnap.empty ? 1 : ((Number(opSnap.docs[0].data().op) || 0) + 1);
+    // Sin where/orderBy en el server — se filtra y calcula el máximo en cliente
+    // (mismo criterio: sin oficina = Unity).
+    const opSnapAll = await db.collection('cont_movimientos').get();
+    const opDocsOficina = opSnapAll.docs.filter(d => (d.data().oficina || idUnityRes) === oficinaRes);
+    const op = opDocsOficina.length ? (Math.max(...opDocsOficina.map(d => Number(d.data().op) || 0)) + 1) : 1;
     const desc = `Cierre de resultados · ${_parMesLabel(_resMesKey)}`;
     const notas = 'Asiento automático — distribución de utilidad a cuentas por pagar';
 
@@ -3127,14 +3170,14 @@ async function postearCierreResultados() {
     batch.set(db.collection('cont_movimientos').doc(), {
       op, fecha: fechaCierre, cuenta: 'PATRIMONIO', subcuenta: 'Producido',
       debito: c.totalDistribuido, credito: 0,
-      descripcion: desc, notas, origen: 'cierre_resultados',
+      descripcion: desc, notas, origen: 'cierre_resultados', oficina: oficinaRes,
       creadoPor: currentUser?.uid || '', creadoEn: firebase.firestore.FieldValue.serverTimestamp(),
     });
     lineas.forEach(([k, v]) => {
       batch.set(db.collection('cont_movimientos').doc(), {
         op, fecha: fechaCierre, cuenta: 'PASIVOS', subcuenta: RES_CONCEPTO_CUENTA[k],
         debito: 0, credito: v,
-        descripcion: desc, notas, origen: 'cierre_resultados',
+        descripcion: desc, notas, origen: 'cierre_resultados', oficina: oficinaRes,
         creadoPor: currentUser?.uid || '', creadoEn: firebase.firestore.FieldValue.serverTimestamp(),
       });
     });
@@ -3644,7 +3687,10 @@ function switchContTab(tab) {
     else if(tab === 'catalogo') { btn.textContent = '+ Agregar Cuenta'; btn.onclick = openModalAgregarCuenta; btn.style.display=''; }
     else if(tab === 'esf-ops') { btn.style.display = 'none'; }
   }
-  if(tab === 'catalogo')    { loadCatalogo(); setTimeout(renderCatalogo, 200); }
+  // Se reusa la oficina que ya está viendo el Contador (_contOficinaActual) —
+  // sin esto, cambiar de pestaña dentro del Contador reseteaba la oficina del
+  // catálogo a "ninguna" y las cuentas nuevas quedaban mal etiquetadas.
+  if(tab === 'catalogo')    { loadCatalogo(_contOficinaActual); setTimeout(renderCatalogo, 200); }
   if(tab === 'movs')        renderMovimientos();
   if(tab === 'esf-ops')     initEsfConsolidado();
   if(tab === 'variaciones') renderVariaciones();
@@ -3795,8 +3841,12 @@ async function recalcularEsfCeo() {
       db.collection('admin_usuarios').where('rol','==','operador').get(),
       db.collection('admin_config').doc('metodos').get(),
     ]);
+    // No filtrar por tipo==='cajero': "Efectivo Operador", "Be Movil Caja" y "Cuenta
+    // Bancaria" son tipo:"interno" en el catálogo pero sí son cajas reales del operador
+    // (igual que en patriarca.html/admin.html). Se excluye por nombre en vez de por tipo.
+    const METODOS_VIRTUALES_ESF = new Set(['BONIFICACION','SIN COMISION','FREE','BIENVENIDA','REJUEGO','DESCUENTO IVA','BONO IVA','T PAGA','COSTO DE SERVICIOS','SALDO CLIENTES ANTERIOR']);
     const metCajeroList = (metSnap.exists ? (metSnap.data().lista || []) : [])
-      .filter(m => m.tipo === 'cajero' && (m.nombre||'').trim().toUpperCase() !== 'SALDO CLIENTES ANTERIOR')
+      .filter(m => !METODOS_VIRTUALES_ESF.has((m.nombre||'').trim().toUpperCase()))
       .map(m => (m.nombre||'').trim().toUpperCase());
     const metCajeroSet = new Set(metCajeroList);
 
@@ -4088,22 +4138,35 @@ function _renderEsfConsolidado(ops, mesKey) {
     return n < 0 ? `-${s}` : s;
   };
 
-  // Recolectar todos los métodos de caja y comisiones únicos entre todos los operadores
-  const allCajas = new Set();
+  // Cajas: usar el catálogo maestro completo (no solo lo que algún operador haya
+  // reportado ese mes) para que una cuenta con actividad cero en TODOS los operadores
+  // no desaparezca de la tabla — antes se armaba con un Set dinámico y una cuenta como
+  // "Efectivo Operador" podía faltar entero un mes en vez de mostrar $0.
+  const cajasArr = (CUENTAS_CAT.ACTIVOS['5 · Efectivo Operadores'] || [])
+    .filter(m => m !== 'Invertido - Mes Actual'); // esa ya tiene su propia fila aparte
+  // El catálogo usa nombres tipo "Wplay Unity" pero cada operador guarda el método
+  // en su `cajas` tal cual lo escribió el cajero (MAYÚSCULAS, y a veces con otra
+  // separación de palabras: "Supergiros Maquina" del catálogo vs "SUPER GIROS MAQUINA"
+  // real). SF_A_ESF_G5 ya es la tabla de traducción oficial entre ambos — se reutiliza
+  // aquí para no comparar nombres que nunca van a coincidir letra a letra.
+  const cajaKeyDe = label => (SF_A_ESF_G5[label] || label).toUpperCase();
+  // Comisiones sigue siendo dinámico: los métodos de comisión varían más y no hay
+  // catálogo maestro fijo para ellos.
   const allComs  = new Set();
   ops.forEach(op => {
-    (op.cajas || op.cajasResult || []).forEach(c => allCajas.add(c.metodo));
     Object.keys(op.comByMetodo || {}).forEach(m => allComs.add(m));
   });
-  const cajasArr = [...allCajas].sort();
   const comsArr  = [...allComs].sort();
 
   // Calcular totales por fila
   const sum = key => ops.reduce((s, op) => s + (op[key] || 0), 0);
-  const sumCaja = metodo => ops.reduce((s, op) => {
-    const c = (op.cajas || op.cajasResult || []).find(x => x.metodo === metodo);
-    return s + (c ? c.valor : 0);
-  }, 0);
+  const sumCaja = metodoLabel => {
+    const key = cajaKeyDe(metodoLabel);
+    return ops.reduce((s, op) => {
+      const c = (op.cajas || op.cajasResult || []).find(x => (x.metodo || '').toUpperCase() === key);
+      return s + (c ? c.valor : 0);
+    }, 0);
+  };
   const sumCom = metodo => ops.reduce((s, op) => s + ((op.comByMetodo || {})[metodo] || 0), 0);
 
   const totalActivos   = ops.reduce((s, op) => s + (op.totalActivos || 0), 0);
@@ -4201,14 +4264,16 @@ function _renderEsfConsolidado(ops, mesKey) {
   if (ops.some(op => op.comisionesMesAnt > 0))
     html += fila('Com. Mes Anterior', ops.map(op => op.comisionesMesAnt || 0), sum('comisionesMesAnt'), fmtOrange);
   cajasArr.forEach(metodo => {
-    const vals = ops.map(op => (op.cajas || op.cajasResult || []).find(c => c.metodo === metodo)?.valor || 0);
+    const key = cajaKeyDe(metodo);
+    const vals = ops.map(op => (op.cajas || op.cajasResult || []).find(c => (c.metodo || '').toUpperCase() === key)?.valor || 0);
     html += fila(metodo, vals, sumCaja(metodo));
   });
   html += filaTotal('TOTAL ACTIVOS', ops.map(op => op.totalActivos), totalActivos);
 
-  // Publicar cajas, clientes e invertido al SF grupo 5
+  // Publicar cajas, clientes e invertido al SF grupo 5 — con la MISMA clave (mayúsculas)
+  // que usa _esfValG5/SF_A_ESF_G5 para leerlas, no la etiqueta bonita del catálogo.
   const newCajas = {};
-  cajasArr.forEach(m => { newCajas[m] = sumCaja(m); });
+  cajasArr.forEach(m => { newCajas[cajaKeyDe(m)] = sumCaja(m); });
   const newClientes  = sum('totalClientes');
   const newInvertido = sum('invertido');
   const cajasCambiaron = JSON.stringify(newCajas) !== JSON.stringify(_sfCajasMesActual)
@@ -4350,19 +4415,30 @@ let contListener = null;
 let contMovs = [];
 let movLineCount = 0;
 let movShowOpen = false;
+// Oficina que está mostrando ahora mismo el Contador (id de admin_oficinas).
+// Todo lo que se escriba nuevo en cont_movimientos/cont_catalogo se etiqueta
+// con esta oficina — así el libro de Golden nunca se mezcla con el de Unity.
+let _contOficinaActual = null;
+let _catOficinaActual = null;
 
 // ── Catálogo dinámico ──
 let customCuentas = [];
 let catListener2 = null;
 
 function rebuildSubcuentaIdx() {
-  // 1. Reset al catálogo base hardcoded
+  // 1. Reset al catálogo base hardcoded — SOLO para Unity. CUENTAS_CAT son
+  // cuentas propias de Unity (nombres de personas, cuentas específicas); para
+  // cualquier otra oficina (Golden, etc.) el índice arranca vacío y se llena
+  // solo con lo que esa oficina tenga en su propio cont_catalogo.
   Object.keys(SUBCUENTA_IDX).forEach(k => delete SUBCUENTA_IDX[k]);
-  Object.entries(CUENTAS_CAT).forEach(([tipo, grupos]) => {
-    Object.entries(grupos).forEach(([grupo, subs]) => {
-      subs.forEach(s => { SUBCUENTA_IDX[s] = {tipo, grupo}; });
+  const esOficinaUnity = _catOficinaActual === _oficinaIdPorNombre(/unity/i);
+  if (esOficinaUnity) {
+    Object.entries(CUENTAS_CAT).forEach(([tipo, grupos]) => {
+      Object.entries(grupos).forEach(([grupo, subs]) => {
+        subs.forEach(s => { SUBCUENTA_IDX[s] = {tipo, grupo}; });
+      });
     });
-  });
+  }
   // 2. Aplicar entradas con 'replaces': mapear nombre antiguo al nuevo grupo
   customCuentas.filter(c => c.replaces).forEach(c => {
     SUBCUENTA_IDX[c.replaces]   = {tipo: c.tipo, grupo: c.grupo}; // nombre viejo → nuevo grupo
@@ -4374,11 +4450,18 @@ function rebuildSubcuentaIdx() {
   });
 }
 
-function loadCatalogo() {
-  if(catListener2) return;
+function loadCatalogo(oficinaId) {
+  if(catListener2 && _catOficinaActual === oficinaId) return; // ya escuchando esta oficina
+  if(catListener2) { catListener2(); catListener2 = null; }
+  _catOficinaActual = oficinaId;
+  const idUnityCat = _oficinaIdPorNombre(/unity/i);
   catListener2 = db.collection('cont_catalogo')
     .onSnapshot(snap => {
-      customCuentas = snap.docs.map(d => ({id:d.id, ...d.data()}));
+      // Igual que en loadContador: sin índice compuesto, se filtra en cliente
+      // y las cuentas viejas sin oficina se tratan como de Unity.
+      customCuentas = snap.docs
+        .map(d => ({id:d.id, ...d.data()}))
+        .filter(c => (c.oficina || idUnityCat) === oficinaId);
       rebuildSubcuentaIdx();
       renderCatalogo();
       renderSituacionFinanciera();
@@ -4390,14 +4473,20 @@ function getMergedCatalog() {
   const replacedNames = new Set(customCuentas.filter(c=>c.replaces).map(c=>c.replaces));
 
   const merged = {};
-  Object.entries(CUENTAS_CAT).forEach(([tipo, grupos]) => {
-    merged[tipo] = {};
-    Object.entries(grupos).forEach(([g, subs]) => {
-      merged[tipo][g] = subs
-        .filter(s => !replacedNames.has(s))           // ocultar los reemplazados
-        .map(s => ({name:s, isNew:false, id:null, replaces:null}));
+  // CUENTAS_CAT es el catálogo fijo de Unity — solo se mezcla cuando se está
+  // viendo el Contador de Unity. Otra oficina (Golden, etc.) parte de un
+  // catálogo vacío y arma el suyo desde cero con "+ Subcuenta".
+  const esOficinaUnityMC = _catOficinaActual === _oficinaIdPorNombre(/unity/i);
+  if (esOficinaUnityMC) {
+    Object.entries(CUENTAS_CAT).forEach(([tipo, grupos]) => {
+      merged[tipo] = {};
+      Object.entries(grupos).forEach(([g, subs]) => {
+        merged[tipo][g] = subs
+          .filter(s => !replacedNames.has(s))           // ocultar los reemplazados
+          .map(s => ({name:s, isNew:false, id:null, replaces:null}));
+      });
     });
-  });
+  }
   customCuentas.forEach(c => {
     if(!merged[c.tipo]) merged[c.tipo] = {};
     if(!merged[c.tipo][c.grupo]) merged[c.tipo][c.grupo] = [];
@@ -4410,7 +4499,8 @@ function getMergedCatalog() {
 
 // Override the existing subcuentasTipo to also include custom
 function subcuentasTipo(tipo) {
-  const hard = Object.values(CUENTAS_CAT[tipo]||{}).flat();
+  const esOficinaUnitySt = _catOficinaActual === _oficinaIdPorNombre(/unity/i);
+  const hard = esOficinaUnitySt ? Object.values(CUENTAS_CAT[tipo]||{}).flat() : [];
   const custom = customCuentas.filter(c=>c.tipo===tipo).map(c=>c.subcuenta);
   return [...new Set([...hard, ...custom])];
 }
@@ -4483,7 +4573,7 @@ async function saveCatSubcuenta() {
   if(!nombre) { toast('Escribe el nombre de la subcuenta','error'); return; }
   try {
     await db.collection('cont_catalogo').add({
-      tipo, grupo, subcuenta: nombre,
+      tipo, grupo, subcuenta: nombre, oficina: _catOficinaActual || _oficinaIdPorNombre(/unity/i),
       creadoPor: currentUser?.uid||'', creadoEn: firebase.firestore.FieldValue.serverTimestamp()
     });
     toast(`✅ Subcuenta "${nombre}" agregada`);
@@ -4554,6 +4644,7 @@ async function saveEditCuenta() {
       }
       await db.collection('cont_catalogo').add({
         tipo, grupo, subcuenta: nombre, replaces: original,
+        oficina: _catOficinaActual || _oficinaIdPorNombre(/unity/i),
         creadoPor: currentUser?.uid||'',
         creadoEn: firebase.firestore.FieldValue.serverTimestamp()
       });
@@ -4561,6 +4652,101 @@ async function saveEditCuenta() {
     toast('✅ Subcuenta actualizada');
     closeModal('modal-edit-cuenta');
   } catch(e) { toast('Error: '+e.message, 'error'); }
+}
+
+// ============================================================
+// CATÁLOGO — PEGAR CUENTAS DESDE EXCEL
+// ============================================================
+let _pegarCatLineas = [];
+const TIPOS_VALIDOS = new Set(['ACTIVOS','PASIVOS','PATRIMONIO','INGRESOS']);
+
+function openModalPegarCatalogo() {
+  document.getElementById('pegar-cat-txt').value = '';
+  document.getElementById('pegar-cat-preview').innerHTML = '';
+  _pegarCatLineas = [];
+  openModal('modal-pegar-catalogo');
+}
+
+function _parsePegarCatalogo(txt) {
+  const SKIP = new Set(['tipo','grupo','subcuenta','cuenta']);
+  const lineas = txt.split('\n').map(l => l.trimEnd()).filter(l => l.trim());
+  const result = [];
+  let grupoActual = ''; // se recuerda entre líneas si algunas vienen sin grupo
+  for (const linea of lineas) {
+    const cols = (linea.includes('\t') ? linea.split('\t') : linea.split(';')).map(c => c.trim());
+    if (!cols.length || !cols[0]) continue;
+    const c0 = cols[0].toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+    if (SKIP.has(c0)) continue; // encabezado
+    const tipo = cols[0].toUpperCase();
+    if (!TIPOS_VALIDOS.has(tipo)) continue; // línea que no arranca con un tipo válido — se ignora
+
+    let grupo, subcuenta;
+    if (cols.length >= 3 && cols[2]) {
+      grupo = cols[1]; subcuenta = cols[2];
+    } else {
+      // Solo TIPO · SUBCUENTA — sin grupo, se agrupan bajo "Sin clasificar"
+      grupo = 'Sin clasificar'; subcuenta = cols[1];
+    }
+    if (!subcuenta) continue;
+    result.push({ tipo, grupo: grupo || 'Sin clasificar', subcuenta });
+  }
+  return result;
+}
+
+function previewPegarCatalogo() {
+  const txt = document.getElementById('pegar-cat-txt').value;
+  _pegarCatLineas = _parsePegarCatalogo(txt);
+  const el = document.getElementById('pegar-cat-preview');
+  if (!_pegarCatLineas.length) {
+    el.innerHTML = '<span style="color:#ef4444">⚠ No se detectaron cuentas válidas. Revisa que cada línea empiece con ACTIVOS, PASIVOS, PATRIMONIO o INGRESOS.</span>';
+    return;
+  }
+  const muestra = _pegarCatLineas.slice(0, 8).map(l =>
+    `<tr><td style="padding:3px 6px;font-size:10px">${l.tipo}</td>
+      <td style="padding:3px 6px;color:var(--text-muted)">${l.grupo}</td>
+      <td style="padding:3px 6px">${l.subcuenta}</td></tr>`
+  ).join('');
+  el.innerHTML = `
+    <div style="color:var(--green-primary);font-weight:700;margin-bottom:6px">✓ ${_pegarCatLineas.length} cuenta(s) detectada(s)${_pegarCatLineas.length > 8 ? ' (mostrando primeras 8)' : ''}:</div>
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">
+      <thead><tr style="color:var(--text-muted);font-size:9px;font-weight:800"><th style="padding:3px 6px;text-align:left">TIPO</th><th style="padding:3px 6px;text-align:left">GRUPO</th><th style="padding:3px 6px;text-align:left">SUBCUENTA</th></tr></thead>
+      <tbody>${muestra}</tbody>
+    </table></div>`;
+}
+
+async function guardarPegarCatalogo() {
+  if (!_pegarCatLineas.length) {
+    previewPegarCatalogo();
+    if (!_pegarCatLineas.length) return;
+  }
+  const btn = document.getElementById('btn-guardar-pegar-cat');
+  btn.disabled = true; btn.textContent = 'Guardando...';
+  try {
+    const oficinaCat = _catOficinaActual || _oficinaIdPorNombre(/unity/i);
+    // No duplicar: si ya existe una cuenta con ese nombre en esta oficina, se salta.
+    const existentes = new Set(customCuentas.filter(c => (c.oficina||'') === oficinaCat).map(c => c.subcuenta));
+    const nuevas = _pegarCatLineas.filter(l => !existentes.has(l.subcuenta));
+    const omitidas = _pegarCatLineas.length - nuevas.length;
+
+    const chunks = [];
+    for (let i = 0; i < nuevas.length; i += 490) chunks.push(nuevas.slice(i, i + 490));
+    for (const chunk of chunks) {
+      const batch = db.batch();
+      chunk.forEach(l => {
+        const ref = db.collection('cont_catalogo').doc();
+        batch.set(ref, { ...l, oficina: oficinaCat, creadoPor: currentUser?.uid || '', creadoEn: firebase.firestore.FieldValue.serverTimestamp() });
+      });
+      await batch.commit();
+    }
+    toast(`✅ ${nuevas.length} cuenta(s) agregadas${omitidas ? ` (${omitidas} ya existían y se omitieron)` : ''}`, 'success');
+    closeModal('modal-pegar-catalogo');
+    _pegarCatLineas = [];
+  } catch(e) {
+    toast('Error: ' + e.message, 'error');
+    console.error(e);
+  } finally {
+    btn.disabled = false; btn.textContent = '✅ Guardar cuentas';
+  }
 }
 
 // ── SOCIOS E INVERSIONISTAS ──────────────────────────────────
@@ -5727,19 +5913,65 @@ async function compararConCajero() {
   }
 }
 
-function loadContador() {
+// Limpieza única: marca con oficina:Unity los documentos viejos de
+// cont_movimientos y cont_catalogo que no tienen ese campo (anteriores a este
+// cambio). No es indispensable — loadContador/loadCatalogo ya tratan lo que
+// no tiene oficina como Unity — pero deja los datos ordenados en Firestore.
+// Se corre una sola vez desde la consola: backfillOficinaContador()
+async function backfillOficinaContador() {
+  const idUnity = _oficinaIdPorNombre(/unity/i);
+  if (!idUnity) { console.warn('No se encontró la oficina Unity'); return; }
+  let totalMovs = 0, totalCat = 0;
+
+  const movs = await db.collection('cont_movimientos').get();
+  const movsSinOficina = movs.docs.filter(d => !d.data().oficina);
+  for (let i = 0; i < movsSinOficina.length; i += 400) {
+    const batch = db.batch();
+    movsSinOficina.slice(i, i+400).forEach(d => batch.update(d.ref, { oficina: idUnity }));
+    await batch.commit();
+    totalMovs += Math.min(400, movsSinOficina.length - i);
+  }
+
+  const cat = await db.collection('cont_catalogo').get();
+  const catSinOficina = cat.docs.filter(d => !d.data().oficina);
+  for (let i = 0; i < catSinOficina.length; i += 400) {
+    const batch = db.batch();
+    catSinOficina.slice(i, i+400).forEach(d => batch.update(d.ref, { oficina: idUnity }));
+    await batch.commit();
+    totalCat += Math.min(400, catSinOficina.length - i);
+  }
+
+  console.log(`Backfill listo — cont_movimientos: ${totalMovs} actualizados, cont_catalogo: ${totalCat} actualizados`);
+  return { totalMovs, totalCat };
+}
+
+function loadContador(oficinaId) {
+  oficinaId = oficinaId || _oficinaIdPorNombre(/unity/i);
   _cmpMesInit();
-  if(contListener) return; // ya escuchando
-  loadCatalogo(); // arranca también el listener del catálogo
-  loadAportesHistorial();
-  loadSocios();
-  loadValidacionCapital(); // tiempo real
-  initEsfConsolidado(); // pre-cargar ESF Consolidado en background
+  if(contListener && _contOficinaActual === oficinaId) return; // ya escuchando esta oficina
+  if(contListener) { contListener(); contListener = null; }
+  _contOficinaActual = oficinaId;
+  loadCatalogo(oficinaId); // arranca también el listener del catálogo, mismo filtro
+  // Aportes/Socios/Validación Capital son módulos de Unity todavía no
+  // separados por oficina — solo se cargan cuando se ve el Contador de Unity,
+  // para no mostrar datos de Unity dentro del Contador de Golden.
+  const esUnity = oficinaId === _oficinaIdPorNombre(/unity/i);
+  if (esUnity) {
+    loadAportesHistorial();
+    loadSocios();
+    loadValidacionCapital(); // tiempo real
+    initEsfConsolidado(); // pre-cargar ESF Consolidado en background
+  }
+  const idUnityBackfill = _oficinaIdPorNombre(/unity/i);
   contListener = db.collection('cont_movimientos')
     .onSnapshot(snap => {
-      // Sin índice compuesto — ordenamos en cliente
+      // Sin filtro de oficina en el server (sin índice compuesto) — se filtra
+      // en cliente, y los movimientos viejos sin campo oficina (previos a este
+      // cambio) se tratan como de Unity, para no perderlos de vista mientras
+      // se hace el backfill real en Firestore.
       contMovs = snap.docs
         .map(d => ({id:d.id, ...d.data()}))
+        .filter(m => (m.oficina || idUnityBackfill) === oficinaId)
         .sort((a,b) => {
           if((a.op||0) !== (b.op||0)) return (a.op||0) - (b.op||0);
           const at = a.creadoEn?.seconds || 0;
@@ -5934,8 +6166,11 @@ function renderSituacionFinanciera() {
 
   // Activos
   const gruposA = agruparPorTipoGrupo(saldos, 'ACTIVOS');
-  // Incluir grupos del catálogo aunque no tengan movimientos (para mostrar estructura)
-  const catA = Object.keys(CUENTAS_CAT.ACTIVOS);
+  // Incluir grupos del catálogo aunque no tengan movimientos (para mostrar estructura).
+  // Unión con Object.keys(gruposA): en Unity ya están todos en CUENTAS_CAT, pero en
+  // otra oficina (Golden, etc.) los grupos propios no están ahí y sin esto sus filas
+  // quedaban invisibles aunque sí sumaran en el total de arriba.
+  const catA = [...new Set([...Object.keys(CUENTAS_CAT.ACTIVOS), ...Object.keys(gruposA)])];
   let htmlA = '';
   catA.forEach(g => {
     const filas = gruposA[g] || [];
@@ -6027,7 +6262,7 @@ function renderSituacionFinanciera() {
 
   // Pasivos
   const gruposP = agruparPorTipoGrupo(saldos, 'PASIVOS');
-  const catP = Object.keys(CUENTAS_CAT.PASIVOS);
+  const catP = [...new Set([...Object.keys(CUENTAS_CAT.PASIVOS), ...Object.keys(gruposP)])];
   let htmlP = `<div class="sf-section-title sf-title-pasivo"><span>PASIVOS</span><span>${fmt(totalP)}</span></div>`;
   catP.forEach(g => {
     const filas = gruposP[g] || [];
@@ -6046,7 +6281,7 @@ function renderSituacionFinanciera() {
   // Patrimonio (incluye INGRESOS neto en resultados)
   const gruposT = agruparPorTipoGrupo(saldos, 'PATRIMONIO');
   const gruposI = agruparPorTipoGrupo(saldos, 'INGRESOS');
-  const catT = Object.keys(CUENTAS_CAT.PATRIMONIO);
+  const catT = [...new Set([...Object.keys(CUENTAS_CAT.PATRIMONIO), ...Object.keys(gruposT)])];
   let htmlT = '';
   catT.forEach(g => {
     const filas = [...(gruposT[g]||[])];
@@ -6528,9 +6763,10 @@ async function saveMovimiento() {
 
   try {
     const batch = db.batch();
+    const oficinaMov = _contOficinaActual || _oficinaIdPorNombre(/unity/i);
     lines.forEach(line => {
       const ref = db.collection('cont_movimientos').doc();
-      batch.set(ref, {...line, creadoPor: currentUser?.uid || '', creadoEn: firebase.firestore.FieldValue.serverTimestamp()});
+      batch.set(ref, {...line, oficina: oficinaMov, creadoPor: currentUser?.uid || '', creadoEn: firebase.firestore.FieldValue.serverTimestamp()});
     });
     await batch.commit();
     toast(`✅ Operación #${op} registrada (${lines.length} líneas)`, 'success');
@@ -7072,8 +7308,15 @@ function _parsePegarMovs(txt) {
   const parseMonto = (v) => {
     if (!v && v !== 0) return 0;
     if (typeof v === 'number') return v;
-    const s = String(v).replace(/[$\s]/g,'').replace(/\./g,'').replace(',','.');
-    return parseFloat(s) || 0;
+    let s = String(v).trim();
+    // Formato contable "(1.234,56)" = negativo — sin esto parseFloat se
+    // detiene en el paréntesis y el monto queda en 0 (la línea se descarta
+    // por "sin débito ni crédito").
+    const negParen = /^\(.*\)$/.test(s);
+    s = s.replace(/[()$\s]/g,'').replace(/\./g,'').replace(',','.');
+    let n = parseFloat(s) || 0;
+    if (negParen) n = -Math.abs(n);
+    return n;
   };
 
   const lineas = txt.split('\n').map(l => l.trimEnd()).filter(l => l.trim());
@@ -7142,13 +7385,14 @@ async function guardarPegarMovs() {
   const btn = document.getElementById('btn-guardar-pegar');
   btn.disabled = true; btn.textContent = 'Guardando...';
   try {
+    const oficinaPegar = _contOficinaActual || _oficinaIdPorNombre(/unity/i);
     const chunks = [];
     for (let i = 0; i < _pegarMovsLineas.length; i += 490) chunks.push(_pegarMovsLineas.slice(i, i + 490));
     for (const chunk of chunks) {
       const batch = db.batch();
       chunk.forEach(line => {
         const ref = db.collection('cont_movimientos').doc();
-        batch.set(ref, { ...line, creadoPor: currentUser?.uid || '', creadoEn: firebase.firestore.FieldValue.serverTimestamp() });
+        batch.set(ref, { ...line, oficina: oficinaPegar, creadoPor: currentUser?.uid || '', creadoEn: firebase.firestore.FieldValue.serverTimestamp() });
       });
       await batch.commit();
     }
@@ -7231,8 +7475,13 @@ async function importarMovimientos(input) {
       const parseMonto = (v) => {
         if (!v && v !== 0) return 0;
         if (typeof v === 'number') return v;
-        const s = String(v).replace(/[$\s]/g,'').replace(/\./g,'').replace(',','.');
-        return parseFloat(s) || 0;
+        let s = String(v).trim();
+        // Formato contable "(1.234,56)" = negativo (ver mismo fix en _parsePegarMovs).
+        const negParen = /^\(.*\)$/.test(s);
+        s = s.replace(/[()$\s]/g,'').replace(/\./g,'').replace(',','.');
+        let n = parseFloat(s) || 0;
+        if (negParen) n = -Math.abs(n);
+        return n;
       };
 
       // Construir líneas válidas
@@ -7263,13 +7512,14 @@ async function importarMovimientos(input) {
 
       // Guardar en batches de 490 (límite Firestore = 500)
       toast(`Guardando ${lines.length} líneas…`, 'info');
+      const oficinaImport = _contOficinaActual || _oficinaIdPorNombre(/unity/i);
       const chunks = [];
       for (let i = 0; i < lines.length; i += 490) chunks.push(lines.slice(i, i + 490));
       for (const chunk of chunks) {
         const batch = db.batch();
         chunk.forEach(line => {
           const ref = db.collection('cont_movimientos').doc();
-          batch.set(ref, { ...line, creadoPor: currentUser?.uid || '', creadoEn: firebase.firestore.FieldValue.serverTimestamp() });
+          batch.set(ref, { ...line, oficina: oficinaImport, creadoPor: currentUser?.uid || '', creadoEn: firebase.firestore.FieldValue.serverTimestamp() });
         });
         await batch.commit();
       }

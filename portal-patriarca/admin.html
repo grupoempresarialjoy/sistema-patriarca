@@ -442,19 +442,25 @@ select option{background:var(--bg3)}
     <!-- MÉTODOS -->
     <div class="section" id="sec-metodos">
       <div class="sec-header">
-        <div><div class="sec-title">Métodos de Caja</div><div class="sec-sub">Lista centralizada que usan cajero y operadores</div></div>
+        <div><div class="sec-title">Métodos de Caja</div><div class="sec-sub">Cada oficina tiene su propia lista</div></div>
         <button class="btn btn-purple" onclick="openAddMetodo()">+ Agregar método</button>
       </div>
+
+      <!-- Selector de oficina -->
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+        <span style="font-size:12px;color:var(--text2);font-weight:600">OFICINA:</span>
+        <div id="met-oficina-tabs" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+        <button class="btn btn-ghost btn-sm" onclick="copiarMetodos()" style="margin-left:auto" title="Copiar métodos de otra oficina">📋 Copiar de...</button>
+        <button class="btn btn-ghost btn-sm" onclick="saveMetodos()">💾 Guardar orden</button>
+      </div>
+
       <div class="panel">
         <div class="panel-header">
-          <span class="panel-title">Métodos activos</span>
-          <div style="display:flex;gap:8px">
-            <span class="badge badge-purple" id="mets-count">0 métodos</span>
-            <button class="btn btn-ghost btn-sm" onclick="saveMetodos()">💾 Guardar orden</button>
-          </div>
+          <span class="panel-title" id="met-panel-title">Selecciona una oficina</span>
+          <span class="badge badge-purple" id="mets-count">0 métodos</span>
         </div>
         <div class="panel-body">
-          <div class="hint" style="margin-bottom:12px">Estos métodos aparecen en el cajero (pestañas de Cajas) y en el formulario de movimientos del operador. Puedes reordenarlos.</div>
+          <div class="hint" style="margin-bottom:12px">Estos métodos aparecen en el cajero (pestañas de Cajas) y en el formulario de movimientos del operador de esta oficina. Puedes reordenarlos.</div>
           <div class="drag-list" id="metodos-list"></div>
         </div>
       </div>
@@ -553,6 +559,26 @@ select option{background:var(--bg3)}
         <div><div class="sec-title">💬 Mensajes</div>
           <div class="sec-sub">Anuncios al ecosistema y conversación privada con cada operador y cajero</div></div>
       </div>
+      <div class="panel" style="margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:10px;flex-wrap:wrap">
+          <div>
+            <div style="font-weight:700;font-size:14px">📢 Aviso del día</div>
+            <div style="font-size:11px;color:var(--text2)">Franja fija arriba del portal del operador — solo se ve hoy, desaparece sola mañana.</div>
+          </div>
+          <span id="aviso-dia-estado" style="font-size:11px;color:var(--text2)">Cargando…</span>
+        </div>
+        <textarea id="aviso-dia-texto" rows="3" placeholder="Ej: Hoy es cierre de mes — envía tu cierre antes de las 11pm."
+          style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:13px;resize:vertical;box-sizing:border-box"></textarea>
+        <div style="font-size:11px;color:var(--text2);margin-top:10px;margin-bottom:4px">
+          Checklist (opcional) — un paso por línea. Le sale flotante al operador y no lo suelta hasta que marque todo.
+        </div>
+        <textarea id="aviso-dia-checklist" rows="4" placeholder="Retirar todo el saldo posible de clientes&#10;No dejar inversiones abiertas&#10;Cerrar todos los eventos abiertos&#10;Cuadrar los métodos (pagar lo que debas)"
+          style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:13px;resize:vertical;box-sizing:border-box"></textarea>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button class="btn btn-purple" onclick="enviarAvisoDia()">📢 Enviar aviso de hoy</button>
+          <button class="btn" onclick="quitarAvisoDia()" id="aviso-dia-quitar-btn" style="display:none">✕ Quitar aviso de hoy</button>
+        </div>
+      </div>
       <div id="ch-montar"></div>
     </div>
 
@@ -564,8 +590,15 @@ select option{background:var(--bg3)}
           <div class="sec-sub">Saldo inicial asignado a cada operador por método</div>
         </div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <input type="month" id="ci-sel-mes" onchange="loadCupoInicialAdmin()"
+          <select id="ci-sel-mes" onchange="loadCupoInicialAdmin()"
             style="padding:6px 10px;font-size:12px;background:var(--bg3);border:1px solid var(--gold);border-radius:6px;color:var(--text);min-width:150px">
+            <option value="2026-01">Enero 2026</option><option value="2026-02">Febrero 2026</option>
+            <option value="2026-03">Marzo 2026</option><option value="2026-04">Abril 2026</option>
+            <option value="2026-05">Mayo 2026</option><option value="2026-06">Junio 2026</option>
+            <option value="2026-07">Julio 2026</option><option value="2026-08">Agosto 2026</option>
+            <option value="2026-09">Septiembre 2026</option><option value="2026-10">Octubre 2026</option>
+            <option value="2026-11">Noviembre 2026</option><option value="2026-12">Diciembre 2026</option>
+          </select>
           <select id="ci-sel-oficina" onchange="loadCupoInicialAdmin()" style="padding:7px 10px;font-size:12px;min-width:150px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text)">
             <option value="">Todas las oficinas</option>
           </select>
@@ -705,6 +738,17 @@ select option{background:var(--bg3)}
           <span style="font-size:11px;color:var(--text2)">Al aceptar, los saldos pasan a Caja General del mes siguiente</span>
         </div>
         <div class="panel-body" id="cierres-caj-list">
+          <div style="text-align:center;color:var(--text2);padding:20px">⏳ Cargando...</div>
+        </div>
+      </div>
+
+      <!-- Cierres de Corresponsal/Efecty — solo registro, no requieren aprobación -->
+      <div class="panel" style="margin-bottom:16px">
+        <div class="panel-header">
+          <span class="panel-title">💱 Cierres de Corresponsal / Efecty</span>
+          <span style="font-size:11px;color:var(--text2)">Cierra el cajero mismo — aquí solo queda el registro</span>
+        </div>
+        <div class="panel-body" id="cierres-corr-list">
           <div style="text-align:center;color:var(--text2);padding:20px">⏳ Cargando...</div>
         </div>
       </div>
@@ -1817,6 +1861,56 @@ function initAdmin() {
   // Mostrar mes actual en el badge del header
   document.getElementById('admin-mes-badge').textContent = '📅 ' + _adminMesLabel(_adminMes);
   auditoriaEscuchar();
+  initAvisoDia();
+}
+
+// ── AVISO DEL DÍA ─────────────────────────────────────────────────────────
+// Franja fija arriba del portal del operador (igual que la de auditoría, pero
+// no bloquea nada, es solo un recordatorio). Se apaga sola: se guarda con la
+// fecha de hoy, y el operador solo la ve si esa fecha == hoy en su pantalla —
+// no hace falta que nadie la quite mañana.
+function _hoyLocalAdmin() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function initAvisoDia() {
+  db.collection('patriarca_config_global').doc('aviso_dia').onSnapshot(doc => {
+    const d = doc.exists ? doc.data() : null;
+    const activo = !!(d && d.fecha === _hoyLocalAdmin() && d.mensaje);
+    const estado = document.getElementById('aviso-dia-estado');
+    const quitarBtn = document.getElementById('aviso-dia-quitar-btn');
+    const txt = document.getElementById('aviso-dia-texto');
+    const chk = document.getElementById('aviso-dia-checklist');
+    if (estado) estado.textContent = activo ? `✅ Activo hoy — enviado por ${d.actualizadoPor || '—'}` : 'Sin aviso activo hoy';
+    if (quitarBtn) quitarBtn.style.display = activo ? '' : 'none';
+    if (activo && txt && document.activeElement !== txt) txt.value = d.mensaje;
+    if (activo && chk && document.activeElement !== chk) chk.value = (d.checklist || []).join('\n');
+  }, e => console.warn('aviso_dia:', e.message));
+}
+async function enviarAvisoDia() {
+  const msg = document.getElementById('aviso-dia-texto')?.value.trim();
+  if (!msg) { toast('Escribe el mensaje primero', 'error'); return; }
+  const checklist = (document.getElementById('aviso-dia-checklist')?.value || '')
+    .split('\n').map(l => l.trim()).filter(Boolean);
+  try {
+    await db.collection('patriarca_config_global').doc('aviso_dia').set({
+      mensaje: msg, fecha: _hoyLocalAdmin(), checklist,
+      actualizadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+      actualizadoPor: auth.currentUser?.email || 'admin',
+    });
+    toast('✅ Aviso enviado — los operadores lo verán hoy', 'success');
+  } catch(e) { toast('❌ ' + e.message, 'error'); }
+}
+async function quitarAvisoDia() {
+  if (!confirm('¿Quitar el aviso de hoy? Deja de verse en los portales de inmediato.')) return;
+  try {
+    await db.collection('patriarca_config_global').doc('aviso_dia').set({ mensaje: '', fecha: '', checklist: [] });
+    const txt = document.getElementById('aviso-dia-texto');
+    const chk = document.getElementById('aviso-dia-checklist');
+    if (txt) txt.value = '';
+    if (chk) chk.value = '';
+    toast('✅ Aviso quitado', 'success');
+  } catch(e) { toast('❌ ' + e.message, 'error'); }
 }
 
 // ── MODO AUDITORÍA ───────────────────────────────────────────────────────────
@@ -1936,6 +2030,7 @@ function showTab(name) {
   }
 
   if (name === 'comisiones') renderComOficinas();
+  if (name === 'metodos') renderMetOficinas();
   if (name === 'cupo-inicial') initCupoInicialAdmin();
   if (name === 'saldo-inicial') initSaldoInicialAdmin();
   if (name === 'correcciones') initCorreccionesAdmin();
@@ -2001,7 +2096,8 @@ async function initCupoInicialAdmin() {
   loadCupoInicialAdmin();
 }
 
-let ciPozo = {}; // cajero_config/main.cupo_pozo
+let ciPozo = {}; // cajero_config_pozo/{oficinaId}.cupo_pozo
+let ciPozoSugerido = false; // true si ciPozo viene de un cierre de cajero sin guardar todavía
 
 async function loadCupoInicialAdmin() {
   const oficina = document.getElementById('ci-sel-oficina').value;
@@ -2018,17 +2114,59 @@ async function loadCupoInicialAdmin() {
       .filter(d => d.data().estado !== 'inactivo')
       .map(d => ({ docId: d.id, uid: d.data().uid || d.id, nombre: d.data().nombre || d.data().email || d.id }));
 
-    // Métodos desde admin_config
-    const metSnap = await db.collection('admin_config').doc('metodos').get();
-    ciMetodos = (metSnap.exists ? (metSnap.data().lista || []) : []).map(m => m.nombre);
+    // Métodos propios de esta oficina (admin_config_metodos/{oficinaId}), con
+    // respaldo en el documento legacy admin_config/metodos si esta oficina
+    // (típicamente Unity, antes de la migración) todavía no tiene el suyo.
+    const oficObj = oficinas.find(o => o.nombre === oficina);
+    let metLista = [];
+    if (oficObj) {
+      const metSnap = await db.collection('admin_config_metodos').doc(oficObj.id).get();
+      metLista = metSnap.exists ? (metSnap.data().lista || []) : [];
+    }
+    if (!metLista.length) {
+      const legacy = await db.collection('admin_config').doc('metodos').get();
+      metLista = legacy.exists ? (legacy.data().lista || []) : [];
+    }
+    ciMetodos = metLista.map(m => m.nombre);
 
-    // Cupo pozo general — leer por mes; si cupo_por_mes existe pero no tiene el mes → $0
-    const pozoSnap = await db.collection('cajero_config').doc('main').get();
-    const pozoData = pozoSnap.exists ? pozoSnap.data() : {};
+    // Cupo pozo general — propio de esta oficina (cajero_config_pozo/{oficinaId}),
+    // con respaldo en el doc legacy compartido (cajero_config/main) si esta
+    // oficina (típicamente Unity, antes de la migración) todavía no tiene el suyo.
+    let pozoData = {};
+    if (oficObj) {
+      const pozoSnap = await db.collection('cajero_config_pozo').doc(oficObj.id).get();
+      pozoData = pozoSnap.exists ? pozoSnap.data() : {};
+    }
+    if (!pozoData.cupo_pozo && !pozoData.cupo_por_mes) {
+      const legacy = await db.collection('cajero_config').doc('main').get();
+      pozoData = legacy.exists ? legacy.data() : {};
+    }
+    // leer por mes; si cupo_por_mes existe pero no tiene el mes → $0
     if (pozoData.cupo_por_mes) {
       ciPozo = pozoData.cupo_por_mes[mesSel] || {};
     } else {
       ciPozo = pozoData.cupo_pozo || {}; // legacy fallback (antes del primer guardado)
+    }
+
+    // Si este mes todavía no tiene Caja General guardada, precargar (sin
+    // guardar todavía) con el saldo físico del último cierre de cajero
+    // aceptado que apunte a este mes — así el admin ve números reales en vez
+    // de campos en blanco y puede corregirlos antes de guardar, en lugar de
+    // guardar $0 sin querer y borrar el saldo real (el bug que causó que se
+    // perdiera el saldo inicial de agosto y septiembre de Unity).
+    ciPozoSugerido = false;
+    if (!Object.values(ciPozo).some(v => v)) {
+      try {
+        const cierreQ = await db.collection('cajero_cierres')
+          .where('oficina', '==', oficina)
+          .where('mesSiguiente', '==', mesSel)
+          .where('estado', '==', 'aceptado')
+          .get();
+        if (!cierreQ.empty) {
+          ciPozo = cierreQ.docs[0].data().saldos || {};
+          ciPozoSugerido = true;
+        }
+      } catch(e) { console.warn('sugerir cupo pozo desde cierre:', e); }
     }
 
     // Cupo existente por operador — misma lógica
@@ -2042,10 +2180,20 @@ async function loadCupoInicialAdmin() {
         } else {
           cupoData[op.uid] = d.cupos_cajero || {}; // legacy fallback
         }
-        // CUPO TOTAL: usar el guardado en cupos_por_mes si existe, sino capital_propio + capital_asignado
-        const cupoTotalGuardado = cupoData[op.uid]?.['CUPO TOTAL'];
+        // COM_MES_ANT no vive en cupos_por_mes (para no sumarlo como si fuera un
+        // método de caja más) — se guarda aparte en esf_inicial_por_mes. Sin este
+        // merge, el campo siempre aparecía en 0 al recargar aunque se hubiera
+        // guardado bien.
+        const esfGuardado = d.esf_inicial_por_mes?.[mesSel];
+        if (esfGuardado && esfGuardado.COM_MES_ANT !== undefined) {
+          cupoData[op.uid] = { ...cupoData[op.uid], COM_MES_ANT: esfGuardado.COM_MES_ANT };
+        }
+        // CUPO TOTAL ASIGNADO: se guarda en esf_inicial_por_mes[mesSel].CUPO_ASIGNADO
+        // (no en cupos_por_mes, mismo motivo que COM_MES_ANT), así que hay que leerlo
+        // de ahí — si no, cada vez que el admin lo guardaba desaparecía al recargar.
+        const cupoTotalGuardado = esfGuardado?.CUPO_ASIGNADO;
         const cupoTotalCalc     = (parseFloat(d.capital_propio) || 0) + (parseFloat(d.capital_asignado) || 0);
-        cupoTotalData[op.uid]   = cupoTotalGuardado || cupoTotalCalc || 0;
+        cupoTotalData[op.uid]   = (cupoTotalGuardado !== undefined ? cupoTotalGuardado : null) ?? cupoTotalCalc ?? 0;
       })
     ));
 
@@ -2076,7 +2224,13 @@ function renderCupoInicialAdmin(cupoData, cupoTotalData = {}) {
   });
   const totDiff = ciMetodos.reduce((s,m) => s + diffPorMetodo[m], 0);
 
-  let html = '<table style="min-width:600px"><thead><tr><th>MÉTODO</th>';
+  const avisoSugerido = ciPozoSugerido
+    ? `<div style="background:rgba(230,180,50,.12);border:1px solid var(--gold);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:var(--gold)">
+        💡 La Caja General de este mes está vacía — precargué los valores del último cierre de cajero aceptado.
+        Revísalos y corrígelos si hubo ajustes manuales (ej. capital extra) antes de guardar.
+      </div>`
+    : '';
+  let html = avisoSugerido + '<table style="min-width:600px"><thead><tr><th>MÉTODO</th>';
   html += `<th style="text-align:right;min-width:160px;color:var(--gold)">🏦 CAJA GENERAL</th>`;
   ciOps.forEach(op => { html += `<th style="text-align:right;min-width:150px">${op.nombre}</th>`; });
   html += `<th style="text-align:right;min-width:140px;color:var(--purple)">⚖️ DIFERENCIA</th>`;
@@ -2102,7 +2256,12 @@ function renderCupoInicialAdmin(cupoData, cupoTotalData = {}) {
     const mk = m.replace(/ /g,'_');
     const pv = ciPozo[m] || 0;
     const dv = diffPorMetodo[m];
-    html += `<tr><td style="font-weight:600;min-width:180px">${m}</td>`;
+    const btnAutoSaldos = m === 'SALDO CLIENTES ANTERIOR'
+      ? ` <button onclick="ciAutocompletarSaldos()" title="Rellenar saldos de clientes y métodos con los del cierre aceptado del mes anterior"
+          style="background:none;border:1px solid var(--gold);border-radius:4px;color:var(--gold);cursor:pointer;padding:1px 6px;font-size:10px;margin-left:4px;opacity:0.75"
+          onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.75'">🔄 Auto</button>`
+      : '';
+    html += `<tr><td style="font-weight:600;min-width:180px">${m}${btnAutoSaldos}</td>`;
     html += `<td style="text-align:right"><input class="ci-inp" style="border-color:var(--gold)" type="text" id="ci-pozo-${mk}" value="${pv ? ciNumToCOP(pv) : ''}" placeholder="0" oninput="ciFormatInput(this)"></td>`;
     ciOps.forEach(op => {
       const v = cupoData[op.uid]?.[m] || 0;
@@ -2143,13 +2302,19 @@ function renderCupoInicialAdmin(cupoData, cupoTotalData = {}) {
 
   // Comisiones por Cobrar Mes Anterior
   html += `<tr style="background:rgba(76,175,80,.03)">
-    <td style="padding-left:20px;font-size:12px">Comisiones por Cobrar Mes Ant.</td>
-    <td style="text-align:right;color:var(--text2);font-size:11px">—</td>`;
+    <td style="padding-left:20px;font-size:12px">Comisiones por Cobrar Mes Ant.
+      <button onclick="ciAutocompletarComisiones()" title="Rellenar con las comisiones del cierre aceptado del mes anterior"
+        style="background:none;border:1px solid var(--gold);border-radius:4px;color:var(--gold);cursor:pointer;padding:1px 6px;font-size:10px;margin-left:6px;opacity:0.75"
+        onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.75'">🔄 Auto</button>
+    </td>
+    <td style="text-align:right"><input class="ci-inp-manual" type="text" id="ci-pozo-COM_MES_ANT"
+        value="${ciNumToCOP(ciPozo['COM_MES_ANT'] || '')}" placeholder="0"
+        style="width:100%;text-align:right;border-color:var(--gold)" oninput="ciFormatInput(this)"></td>`;
   ciOps.forEach(op => {
     const val = ciNumToCOP(cupoData[op.uid]?.['COM_MES_ANT'] || '');
     html += `<td style="text-align:right;min-width:150px"><input class="ci-inp-manual" type="text" id="ci-${op.uid}-COM_MES_ANT" value="${val}" placeholder="0" style="width:100%;text-align:right" oninput="ciUpdateTotals()"></td>`;
   });
-  html += `<td style="text-align:right;color:var(--text2)">—</td></tr>`;
+  html += `<td id="ci-diff-COM_MES_ANT" style="text-align:right;font-weight:600">—</td></tr>`;
 
   // TOTAL ACTIVOS (métodos + comisiones mes ant.)
   html += `<tr style="background:rgba(76,175,80,.12)">
@@ -2158,7 +2323,7 @@ function renderCupoInicialAdmin(cupoData, cupoTotalData = {}) {
   ciOps.forEach(op => {
     html += `<td id="ci-tota-${op.uid}" style="text-align:right;color:#4caf50;font-weight:800;padding:6px">—</td>`;
   });
-  html += `<td style="text-align:right;color:var(--text2)">—</td></tr>`;
+  html += `<td id="ci-suma-tota" style="text-align:right;color:#4caf50;font-weight:800">—</td></tr>`;
 
   // ── PASIVOS ──
   html += `<tr style="background:rgba(244,67,54,.08);border-top:2px solid rgba(244,67,54,.3)">
@@ -2176,7 +2341,7 @@ function renderCupoInicialAdmin(cupoData, cupoTotalData = {}) {
   ciOps.forEach(op => {
     html += `<td id="ci-${op.uid}-LIQ_POR_PAGAR" style="text-align:right;min-width:150px;padding:6px 8px;color:var(--text2)" title="Total Activos − Cupo Total Asignado">—</td>`;
   });
-  html += `<td style="text-align:right;color:var(--text2)">—</td></tr>`;
+  html += `<td id="ci-suma-liq" style="text-align:right;font-weight:600;color:var(--text2)">—</td></tr>`;
 
   // TOTAL PASIVOS
   html += `<tr style="background:rgba(244,67,54,.12)">
@@ -2185,7 +2350,7 @@ function renderCupoInicialAdmin(cupoData, cupoTotalData = {}) {
   ciOps.forEach(op => {
     html += `<td id="ci-totp-${op.uid}" style="text-align:right;color:#f44336;font-weight:800;padding:6px">—</td>`;
   });
-  html += `<td style="text-align:right;color:var(--text2)">—</td></tr>`;
+  html += `<td id="ci-suma-totp" style="text-align:right;color:#f44336;font-weight:800">—</td></tr>`;
 
   // ── PATRIMONIO ──
   html += `<tr style="background:rgba(74,158,255,.08);border-top:2px solid rgba(74,158,255,.30)">
@@ -2203,7 +2368,7 @@ function renderCupoInicialAdmin(cupoData, cupoTotalData = {}) {
   ciOps.forEach(op => {
     html += `<td id="ci-${op.uid}-CLI_MES_ANT" style="text-align:right;min-width:150px;padding:6px 8px;color:var(--text2)" title="Fila SALDO CLIENTES ANTERIOR">—</td>`;
   });
-  html += `<td style="text-align:right;color:var(--text2)">—</td></tr>`;
+  html += `<td id="ci-suma-cli" style="text-align:right;font-weight:600;color:var(--text2)">—</td></tr>`;
 
   // Cupo Residual
   html += `<tr style="background:rgba(74,158,255,.04)">
@@ -2212,7 +2377,7 @@ function renderCupoInicialAdmin(cupoData, cupoTotalData = {}) {
   ciOps.forEach(op => {
     html += `<td id="ci-${op.uid}-CUPO_RESIDUAL" style="text-align:right;min-width:150px;padding:6px 8px;color:var(--text2)" title="Cupo Total Asignado − Clientes Mes Anterior">—</td>`;
   });
-  html += `<td style="text-align:right;color:var(--text2)">—</td></tr>`;
+  html += `<td id="ci-suma-resid" style="text-align:right;font-weight:600;color:var(--text2)">—</td></tr>`;
 
   // TOTAL PATRIMONIO (clientes mes ant. + cupo residual)
   html += `<tr style="background:rgba(74,158,255,.12)">
@@ -2221,7 +2386,7 @@ function renderCupoInicialAdmin(cupoData, cupoTotalData = {}) {
   ciOps.forEach(op => {
     html += `<td id="ci-totq-${op.uid}" style="text-align:right;color:var(--blue);font-weight:800;padding:6px">—</td>`;
   });
-  html += `<td style="text-align:right;color:var(--text2)">—</td></tr>`;
+  html += `<td id="ci-suma-totq" style="text-align:right;color:var(--blue);font-weight:800">—</td></tr>`;
 
   // ══════════════════════════════════════════════════════════════════════════
   // VERIFICACIÓN: TOTAL ACTIVOS = TOTAL PASIVOS + TOTAL PATRIMONIO
@@ -2232,11 +2397,80 @@ function renderCupoInicialAdmin(cupoData, cupoTotalData = {}) {
   ciOps.forEach(op => {
     html += `<td id="ci-verif-${op.uid}" style="text-align:center;font-weight:800;padding:6px">—</td>`;
   });
-  html += `<td style="text-align:right;color:var(--text2)">—</td></tr>`;
+  html += `<td id="ci-suma-verif" style="text-align:center;font-weight:800">—</td></tr>`;
 
   html += '</tfoot></table>';
   wrap.innerHTML = html;
   ciUpdateTotals();
+}
+
+async function ciAutocompletarComisiones() {
+  const mesSel = document.getElementById('ci-sel-mes').value ||
+    (() => { const n = new Date(); return n.getFullYear() + '-' + String(n.getMonth()+1).padStart(2,'0'); })();
+  try {
+    const snap = await db.collection('patriarca_cierres')
+      .where('mesSiguiente', '==', mesSel)
+      .where('estado', '==', 'aceptado')
+      .get();
+    const porOp = {};
+    snap.docs.forEach(d => {
+      const x = d.data();
+      if (x.operadorId) porOp[x.operadorId] = x.ganancia?.totalComisiones || 0;
+    });
+    let n = 0;
+    ciOps.forEach(op => {
+      const el = document.getElementById(`ci-${op.uid}-COM_MES_ANT`);
+      if (!el || porOp[op.uid] === undefined) return;
+      const v = porOp[op.uid];
+      el.value = v ? ciNumToCOP(v) : '';
+      n++;
+    });
+    ciUpdateTotals();
+    toast(`✅ ${n} operador(es) rellenados con las comisiones de su cierre anterior — revisa y guarda`, 'success');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+// Rellena "SALDO CLIENTES ANTERIOR" y el resto de métodos con lo que el cierre
+// aceptado del mes anterior dice que REALMENTE quedó (saldosClientes sumado +
+// saldosMetodos), no con lo que haya en el ESF en vivo — que puede haber
+// quedado desactualizado si el cierre se corrigió después de aceptado.
+async function ciAutocompletarSaldos() {
+  const mesSel = document.getElementById('ci-sel-mes').value ||
+    (() => { const n = new Date(); return n.getFullYear() + '-' + String(n.getMonth()+1).padStart(2,'0'); })();
+  try {
+    const snap = await db.collection('patriarca_cierres')
+      .where('mesSiguiente', '==', mesSel)
+      .where('estado', '==', 'aceptado')
+      .get();
+    const porOp = {};
+    snap.docs.forEach(d => {
+      const x = d.data();
+      if (!x.operadorId) return;
+      let sumCli = 0;
+      Object.values(x.saldosClientes || {}).forEach(porMetodo => {
+        Object.values(porMetodo || {}).forEach(v => { sumCli += (parseFloat(v) || 0); });
+      });
+      porOp[x.operadorId] = { cli: sumCli, metodos: x.saldosMetodos || {} };
+    });
+    let n = 0;
+    ciOps.forEach(op => {
+      const d = porOp[op.uid];
+      if (!d) return;
+      const elCli = document.getElementById(`ci-${op.uid}-SALDO_CLIENTES_ANTERIOR`);
+      if (elCli) { elCli.value = d.cli ? ciNumToCOP(d.cli) : ''; elCli.dataset.explicitZero = 'true'; }
+      ciMetodos.forEach(m => {
+        if (m === 'SALDO CLIENTES ANTERIOR' || d.metodos[m] === undefined) return;
+        const mk = m.replace(/ /g,'_');
+        const el = document.getElementById(`ci-${op.uid}-${mk}`);
+        // Marcar como intencional (aunque quede en 0) — viene del cierre real,
+        // así que debe sobreescribir el valor existente en vez de conservarlo.
+        if (el) { el.value = d.metodos[m] ? ciNumToCOP(d.metodos[m]) : ''; el.dataset.explicitZero = 'true'; }
+      });
+      n++;
+    });
+    ciUpdateTotals();
+    toast(`✅ ${n} operador(es) rellenados con los saldos reales de su cierre anterior — revisa y guarda`, 'success');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
 }
 
 function ciSetExplicitZero(uid, mk) {
@@ -2316,6 +2550,7 @@ function ciUpdateTotals() {
   //   Cupo Residual    = Cupo Total Asignado − Clientes Mes Ant.
   //   Liquidación x Pagar = TOTAL ACTIVOS − Cupo Total Asignado
   //   TOTAL PATRIMONIO = Cupo Total Asignado   → el cuadre se cumple por construcción
+  let sumaCom = 0, sumaActivos = 0, sumaCli = 0, sumaResid = 0, sumaPasivos = 0, sumaPatrimonio = 0;
   ciOps.forEach(op => {
     let totMetodos = 0;
     ciMetodos.forEach(m => {
@@ -2345,7 +2580,35 @@ function ciUpdateTotals() {
       tdV.textContent = dif === 0 ? '✓ OK' : '✗ ' + ciPesos(dif);
       tdV.style.color = dif === 0 ? '#4caf50' : '#ff6b6b';
     }
+
+    sumaCom += com; sumaActivos += activos; sumaCli += cli;
+    sumaResid += cupoResidual; sumaPasivos += pasivos; sumaPatrimonio += patrimonio;
   });
+
+  // Fila "Comisiones por Cobrar Mes Ant.": Caja General (manual) − suma operadores
+  const pozoCom  = ciParseCOP(document.getElementById('ci-pozo-COM_MES_ANT')?.value || '');
+  const diffCom  = pozoCom - sumaCom;
+  const tdDiffCom = document.getElementById('ci-diff-COM_MES_ANT');
+  if (tdDiffCom) {
+    tdDiffCom.textContent = ciPesos(diffCom);
+    tdDiffCom.style.color = diffCom < 0 ? 'var(--red)' : 'var(--text2)';
+  }
+
+  // Totalización de toda la sección Activos/Pasivos/Patrimonio (suma de todos los operadores)
+  const setSuma = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = ciPesos(val); };
+  setSuma('ci-suma-tota', sumaActivos);
+  setSuma('ci-suma-liq',  sumaPasivos);
+  setSuma('ci-suma-totp', sumaPasivos);
+  setSuma('ci-suma-cli',  sumaCli);
+  setSuma('ci-suma-resid',sumaResid);
+  setSuma('ci-suma-totq', sumaPatrimonio);
+
+  const difEmpresa = Math.round(sumaActivos - (sumaPasivos + sumaPatrimonio));
+  const tdVE = document.getElementById('ci-suma-verif');
+  if (tdVE) {
+    tdVE.textContent = difEmpresa === 0 ? '✓ OK' : '✗ ' + ciPesos(difEmpresa);
+    tdVE.style.color = difEmpresa === 0 ? '#4caf50' : '#ff6b6b';
+  }
 }
 
 function ciNumToCOP(n) {
@@ -2371,6 +2634,8 @@ async function saveCupoInicialAdmin() {
   const btn = document.getElementById('ci-save-btn');
   const mesSel = document.getElementById('ci-sel-mes').value ||
     (new Date().getFullYear() + '-' + String(new Date().getMonth()+1).padStart(2,'0'));
+  const oficinaCI = document.getElementById('ci-sel-oficina').value;
+  const oficObjCI = oficinas.find(o => o.nombre === oficinaCI);
   btn.disabled = true; btn.textContent = '⏳ Guardando...';
   try {
     // Guardar cupo pozo (caja general) — guardar TODOS los métodos (incluido 0) para borrar viejos
@@ -2380,12 +2645,18 @@ async function saveCupoInicialAdmin() {
       const v = ciParseCOP(document.getElementById(`ci-pozo-${mk}`)?.value || '');
       cupo_pozo[m] = v; // incluir 0 para sobreescribir valores viejos
     });
-    // Guardar plano (backward compat) + por mes
-    const pozoRef = db.collection('cajero_config').doc('main');
-    const pozoUpdate = { cupo_pozo };
+    // Caja General manual para "Comisiones por Cobrar Mes Ant." (no es un método de caja)
+    cupo_pozo['COM_MES_ANT'] = ciParseCOP(document.getElementById('ci-pozo-COM_MES_ANT')?.value || '');
+    // Guardar plano (backward compat) + por mes — SIEMPRE en el doc propio de
+    // esta oficina (cajero_config_pozo/{oficinaId}); antes se guardaba en un
+    // único doc global compartido por todas las oficinas.
+    const pozoRef = oficObjCI
+      ? db.collection('cajero_config_pozo').doc(oficObjCI.id)
+      : db.collection('cajero_config').doc('main');
+    const pozoUpdate = { cupo_pozo, oficinaNombre: oficinaCI || '' };
     pozoUpdate[`cupo_por_mes.${mesSel}`] = cupo_pozo;
     try { await pozoRef.update(pozoUpdate); }
-    catch(_) { await pozoRef.set({ cupo_pozo, cupo_por_mes: { [mesSel]: cupo_pozo } }, { merge: true }); }
+    catch(_) { await pozoRef.set({ cupo_pozo, oficinaNombre: oficinaCI || '', cupo_por_mes: { [mesSel]: cupo_pozo } }, { merge: true }); }
 
     // Guardar cupo por operador — leer existente primero para no sobrescribir con 0 accidentalmente
     await Promise.all(ciOps.map(async op => {
@@ -2415,14 +2686,31 @@ async function saveCupoInicialAdmin() {
       const cliMesAnt    = ciParseCOP(document.getElementById(`ci-${op.uid}-SALDO_CLIENTES_ANTERIOR`)?.value || '');
       const totMetodos   = Object.values(cupos).reduce((s,v) => s + (parseFloat(v)||0), 0);
 
+      // Liquidación por Pagar REAL: viene del cierre aceptado del mes anterior
+      // (ganancia.total — lo mismo que usa Participación de Operadores en el CEO),
+      // no de una resta derivada (métodos+comisiones−cupo), que se desvía del
+      // cierre real cada vez que los montos por método no cuadran centavo a centavo.
+      let liqPorPagar = (totMetodos + comMesAnt) - cupoAsignado; // fallback si no hay cierre
+      try {
+        const cierrePrev = await db.collection('patriarca_cierres')
+          .where('operadorId', '==', op.uid)
+          .where('mesSiguiente', '==', mesSel)
+          .where('estado', '==', 'aceptado')
+          .get();
+        if (!cierrePrev.empty) {
+          const real = cierrePrev.docs[0].data().ganancia?.total;
+          if (real !== undefined) liqPorPagar = real;
+        }
+      } catch(_) {}
+
       const esfInicial = {
         CUPO_ASIGNADO:  cupoAsignado,
         COM_MES_ANT:    comMesAnt,
         CLI_MES_ANT:    cliMesAnt,
         CUPO_RESIDUAL:  cupoAsignado - cliMesAnt,
-        LIQ_POR_PAGAR:  (totMetodos + comMesAnt) - cupoAsignado,
+        LIQ_POR_PAGAR:  liqPorPagar,
         TOTAL_ACTIVOS:  totMetodos + comMesAnt,
-        TOTAL_PASIVOS:  (totMetodos + comMesAnt) - cupoAsignado,
+        TOTAL_PASIVOS:  liqPorPagar,
         TOTAL_PATRIMONIO: cupoAsignado
       };
 
@@ -3894,36 +4182,86 @@ async function desactivarUsuario(docId, nombre) {
   toast('Usuario desactivado', 'info');
 }
 
-// ────────────────────── MÉTODOS ──────────────────────
-async function loadMetodos() {
-  const snap = await db.collection('admin_config').doc('metodos').get();
+// ────────────────────── MÉTODOS (por oficina) ──────────────────────
+// Antes vivían en un solo documento global (admin_config/metodos), compartido
+// por todas las oficinas — Golden terminaba viendo los métodos de Unity sin
+// poder tener los suyos propios. Ahora cada oficina tiene su documento en
+// admin_config_metodos/{oficinaId}. admin_config/metodos se conserva sin
+// tocar como respaldo legacy: si una oficina (típicamente Unity, la primera)
+// todavía no tiene su documento nuevo, se lee de ahí — así no hace falta
+// correr ninguna migración a mano.
+let metOficinaId = null;
+
+const METODOS_DEFAULT = [
+  {nombre:'SALDO CLIENTES ANTERIOR', tipo:'cajero'},
+  {nombre:'EFECTIVO OPERADOR',       tipo:'interno'},
+  {nombre:'BE MOVIL CAJA',           tipo:'interno'},
+  {nombre:'PTM PROPIO',              tipo:'cajero'},
+  {nombre:'BE MOVIL MASTER',         tipo:'cajero'},
+  {nombre:'MEGA RED',                tipo:'cajero'},
+  {nombre:'PUNTO RED UNITY',         tipo:'cajero'},
+  {nombre:'BET RED',                 tipo:'cajero'},
+  {nombre:'WPLAY UNITY',             tipo:'cajero'},
+  {nombre:'SUPER GIROS UNITY',       tipo:'cajero'},
+  {nombre:'EFECTY 1 DE MAYO',        tipo:'cajero'},
+  {nombre:'SUPER GIROS MAQUINA',     tipo:'cajero'},
+  {nombre:'CORRESPONSAL EL PARAMO',  tipo:'cajero'},
+  {nombre:'EASY CHANGER',            tipo:'cajero'},
+  {nombre:'COSTO DE SERVICIOS',      tipo:'cajero'},
+  {nombre:'BONIFICACION',            tipo:'interno'},
+  {nombre:'CUENTA BANCARIA',         tipo:'interno'},
+];
+
+function loadMetodos() {
+  renderMetOficinas();
+  if (metOficinaId) cargarMetOficina(metOficinaId);
+}
+
+function renderMetOficinas() {
+  const tabsEl = document.getElementById('met-oficina-tabs');
+  if (!tabsEl) return;
+  if (!oficinas.length) {
+    tabsEl.innerHTML = '<span style="color:var(--text2);font-size:12px">Crea una oficina primero</span>';
+    return;
+  }
+  tabsEl.innerHTML = oficinas.map(o => {
+    const isActive = o.id === metOficinaId;
+    return `<button class="com-tab${isActive?' active':''}"
+      style="${isActive?`background:${o.color};border-color:${o.color};color:#fff`:''}"
+      onclick="cargarMetOficina('${o.id}')">${o.nombre}</button>`;
+  }).join('');
+}
+
+async function cargarMetOficina(ofId) {
+  metOficinaId = ofId;
+  renderMetOficinas();
+  const ofic = oficinas.find(o => o.id === ofId);
+  const esUnity = /unity/i.test(ofic?.nombre || '');
+  document.getElementById('met-panel-title').textContent = `Métodos — ${ofic?.nombre || ofId}`;
+
+  const snap = await db.collection('admin_config_metodos').doc(ofId).get();
   if (snap.exists) {
     metodos = snap.data().lista || [];
+  } else if (esUnity) {
+    // Unity antes de su primer guardado con el esquema nuevo — leer del doc legacy.
+    const legacy = await db.collection('admin_config').doc('metodos').get();
+    metodos = legacy.exists && (legacy.data().lista||[]).length ? legacy.data().lista : [...METODOS_DEFAULT];
   } else {
-    // Primera vez: inicializar con los métodos actuales
-    metodos = [
-      {nombre:'SALDO CLIENTES ANTERIOR', tipo:'cajero'},
-      {nombre:'EFECTIVO OPERADOR',       tipo:'interno'},
-      {nombre:'BE MOVIL CAJA',           tipo:'interno'},
-      {nombre:'PTM PROPIO',              tipo:'cajero'},
-      {nombre:'BE MOVIL MASTER',         tipo:'cajero'},
-      {nombre:'MEGA RED',                tipo:'cajero'},
-      {nombre:'PUNTO RED UNITY',         tipo:'cajero'},
-      {nombre:'BET RED',                 tipo:'cajero'},
-      {nombre:'WPLAY UNITY',             tipo:'cajero'},
-      {nombre:'SUPER GIROS UNITY',       tipo:'cajero'},
-      {nombre:'EFECTY 1 DE MAYO',        tipo:'cajero'},
-      {nombre:'SUPER GIROS MAQUINA',     tipo:'cajero'},
-      {nombre:'CORRESPONSAL EL PARAMO',  tipo:'cajero'},
-      {nombre:'EASY CHANGER',            tipo:'cajero'},
-      {nombre:'COSTO DE SERVICIOS',      tipo:'cajero'},
-      {nombre:'BONIFICACION',            tipo:'interno'},
-      {nombre:'CUENTA BANCARIA',         tipo:'interno'},
-    ];
-    await db.collection('admin_config').doc('metodos').set({ lista: metodos });
+    // Oficina nueva sin métodos propios: arranca como copia editable de Unity.
+    const unityOf = oficinas.find(o => /unity/i.test(o.nombre || ''));
+    let base = [];
+    if (unityOf) {
+      const us = await db.collection('admin_config_metodos').doc(unityOf.id).get();
+      base = us.exists ? (us.data().lista || []) : [];
+    }
+    if (!base.length) {
+      const legacy = await db.collection('admin_config').doc('metodos').get();
+      base = legacy.exists ? (legacy.data().lista || []) : [];
+    }
+    metodos = base.map(m => ({...m}));
+    if (metodos.length) toast(`📋 ${ofic?.nombre} arrancó con una copia editable de los métodos de Unity — ajústalos y guarda`, 'info');
   }
   renderMetodos();
-  document.getElementById('kpi-mets').textContent = metodos.filter(m => m.tipo === 'cajero').length;
 }
 
 function renderMetodos() {
@@ -3936,7 +4274,12 @@ function renderMetodos() {
   list.innerHTML = metodos.map((m, i) => `
     <div class="drag-item" style="flex-wrap:wrap;gap:6px">
       <span class="drag-handle">⠿</span>
-      <span class="drag-item-name" style="flex:1;min-width:120px">${m.nombre}</span>
+      <input class="drag-item-name" style="flex:1;min-width:120px;background:transparent;border:1px solid transparent;border-radius:5px;padding:3px 6px;font:inherit;color:inherit"
+        value="${m.nombre}"
+        onfocus="this.style.borderColor='var(--border)'" onblur="this.style.borderColor='transparent'"
+        onchange="metodos[${i}].nombre = this.value.trim().toUpperCase(); this.value = metodos[${i}].nombre;"
+        onkeydown="if(event.key==='Enter'){this.blur();saveMetodos();}"
+        title="Clic para renombrar">
       <span class="badge ${m.tipo==='interno'?'badge-blue':'badge-green'}" onclick="toggleTipoMetodo(${i})" title="Clic para cambiar tipo" style="cursor:pointer">${m.tipo==='interno'?'I-OP':'C-OP'}</span>
       <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text2);margin:0" title="Límite diario de recarga (0 = sin límite)">
         🔒&nbsp;Lím/día
@@ -3952,6 +4295,7 @@ function renderMetodos() {
 }
 
 function openAddMetodo() {
+  if (!metOficinaId) { toast('⚠ Selecciona una oficina primero', 'error'); return; }
   document.getElementById('add-metodo-panel').style.display = 'block';
   document.getElementById('met-nombre').value = '';
   document.getElementById('met-nombre').focus();
@@ -3962,6 +4306,7 @@ function closeAddMetodo() {
 }
 
 async function addMetodo() {
+  if (!metOficinaId) { toast('⚠ Selecciona una oficina primero', 'error'); return; }
   const nombre = document.getElementById('met-nombre').value.trim().toUpperCase();
   const tipo   = document.getElementById('met-tipo').value;
   if (!nombre) { toast('⚠ Escribe el nombre del método', 'error'); return; }
@@ -3983,6 +4328,7 @@ async function toggleTipoMetodo(i) {
 }
 
 async function saveMetodos() {
+  if (!metOficinaId) { toast('⚠ Selecciona una oficina', 'error'); return; }
   // Leer limite_diario desde los inputs actuales antes de guardar
   document.querySelectorAll('#metodos-list .drag-item').forEach((row, i) => {
     const inp = row.querySelector('input[type="number"]');
@@ -3993,9 +4339,32 @@ async function saveMetodos() {
     if (m.limite_diario) obj.limite_diario = m.limite_diario;
     return obj;
   });
-  await db.collection('admin_config').doc('metodos').set({ lista });
+  const ofic = oficinas.find(o => o.id === metOficinaId);
+  await db.collection('admin_config_metodos').doc(metOficinaId).set({
+    lista, oficinaNombre: ofic?.nombre || '',
+    actualizadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+  });
   renderMetodos();
-  toast('✅ Métodos guardados', 'success');
+  toast(`✅ Métodos de ${ofic?.nombre || ''} guardados`, 'success');
+}
+
+async function copiarMetodos() {
+  if (!metOficinaId) { toast('⚠ Selecciona la oficina destino primero', 'error'); return; }
+  if (oficinas.length < 2) { toast('Solo hay una oficina', 'info'); return; }
+
+  const origen = oficinas.find(o => o.id !== metOficinaId);
+  if (!origen) return;
+
+  const snap = await db.collection('admin_config_metodos').doc(origen.id).get();
+  const listaOrigen = snap.exists ? (snap.data().lista || []) : [];
+  if (!listaOrigen.length) { toast(`${origen.nombre} no tiene métodos para copiar`, 'info'); return; }
+
+  const ofic = oficinas.find(o => o.id === metOficinaId);
+  if (!confirm(`¿Copiar métodos de "${origen.nombre}" a "${ofic?.nombre}"? Se reemplazan los actuales.`)) return;
+
+  metodos = listaOrigen.map(m => ({...m}));
+  renderMetodos();
+  toast(`📋 Copiados ${metodos.length} métodos desde ${origen.nombre}. Guarda para confirmar.`, 'success');
 }
 
 // ────────────────────── CASAS DE APUESTAS ──────────────────────
@@ -6172,9 +6541,15 @@ async function _esfCalcOp(uid, nombre, mesKey) {
     const clientes     = cliSnap.docs.map(d => ({id:d.id,...d.data()}));
 
     // ── Lista de métodos cajero (físicos) — usar el array global 'metodos' de admin ──
-    // Esto evita incluir campos especiales como "SALDO CLIENTES ANTERIOR"
+    // OJO: no filtrar por tipo==='cajero' — "Efectivo Operador", "Be Movil Caja" y
+    // "Cuenta Bancaria" están marcados tipo:"interno" en admin_config/metodos pero SÍ
+    // son cajas reales del operador (así las trata patriarca.html, la fuente canónica).
+    // Filtrar por tipo dejaba esas 3 cuentas afuera del cálculo — nunca mostraban saldo
+    // aunque el operador tuviera movimientos ahí. Se excluye por nombre, igual que
+    // METODOS_VIRTUALES en patriarca.html, para no perder esas 3 cuentas reales.
+    const METODOS_VIRTUALES_ESF = new Set(['BONIFICACION','SIN COMISION','FREE','BIENVENIDA','REJUEGO','DESCUENTO IVA','BONO IVA','T PAGA','COSTO DE SERVICIOS','SALDO CLIENTES ANTERIOR']);
     const metCajeroList = (typeof metodos !== 'undefined' ? metodos : [])
-      .filter(m => m.tipo === 'cajero' && (m.nombre||'').trim().toUpperCase() !== 'SALDO CLIENTES ANTERIOR')
+      .filter(m => !METODOS_VIRTUALES_ESF.has((m.nombre||'').trim().toUpperCase()))
       .map(m => (m.nombre||'').trim().toUpperCase());
     const metCajeroSet = new Set(metCajeroList);
 
@@ -7460,13 +7835,68 @@ function initCierresCajero() {
           ${pend ? `<div style="display:flex;gap:8px;margin-top:12px">
             <button class="btn btn-purple btn-sm" onclick="aceptarCierreCajero('${c.id}')">✅ Aceptar</button>
             <button class="btn btn-ghost btn-sm" onclick="rechazarCierreCajero('${c.id}')">❌ Rechazar</button>
-          </div>` : c.estado === 'aceptado' ? `<div style="margin-top:12px">
+          </div>` : c.estado === 'aceptado' ? `<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn btn-ghost btn-sm" onclick="aceptarCierreCajero('${c.id}')" title="Vuelve a escribir los saldos en la Caja General">🔄 Volver a aplicar</button>
+            <button class="btn btn-sm" style="background:${c.autorizado?'var(--orange)':'transparent'};border:1px solid var(--orange);color:${c.autorizado?'#000':'var(--orange)'}"
+              onclick="toggleAutorizarCierreCajero('${c.id}', ${!c.autorizado})"
+              title="${c.autorizado ? 'Vuelve a bloquear la Caja General de este mes en el cajero' : 'Permite que el cajero edite la Caja General de este mes ya cerrado'}">
+              ${c.autorizado ? '🔓 Autorizado — clic para bloquear' : '🔒 Autorizar edición al cajero'}
+            </button>
           </div>` : ''}
         </div>`;
       }).join('');
     }, e => {
       console.warn('cierres cajero:', e);
+      list.innerHTML = '<div style="text-align:center;color:var(--red);padding:20px">⚠ Error al cargar</div>';
+    });
+}
+
+// ── CIERRES DE CORRESPONSAL / EFECTY ────────────────────────────────────────
+// Solo registro: el cajero cierra el mes desde su portal (autoservicio), esto
+// no requiere aprobación — es la constancia de que se cerró y de qué quedó guardado.
+let _cierresCorrListener = null;
+
+function initCierresCorr() {
+  if (_cierresCorrListener) return;
+  const list = document.getElementById('cierres-corr-list');
+  if (!list) return;
+
+  _cierresCorrListener = db.collection('corresponsal_caja_cierres')
+    .orderBy('ts', 'desc')
+    .onSnapshot(snap => {
+      const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      if (!docs.length) {
+        list.innerHTML = '<div style="text-align:center;color:var(--text2);padding:20px">Sin cierres de corresponsal/efecty</div>';
+        return;
+      }
+      const pesoF = v => '$' + Math.round(v||0).toLocaleString('es-CO');
+
+      list.innerHTML = docs.map(c => {
+        const saldos = Object.entries(c.saldos || {});
+        const total = saldos.reduce((a,[,v]) => a + (parseFloat(v)||0), 0);
+        const fecha = c.ts?.seconds ? new Date(c.ts.seconds*1000).toLocaleString('es-CO') : '—';
+        const saldosHtml = saldos.map(([caja,v]) =>
+          `<div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0">
+             <span style="color:var(--text2)">${caja}</span>
+             <span style="font-weight:600;color:${v<0?'var(--red)':'var(--text)'}">${pesoF(v)}</span>
+           </div>`).join('');
+
+        return `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <div>
+              <div style="font-weight:700">${c.oficina || '—'} · ${c.mesKey || '—'}</div>
+              <div style="font-size:11px;color:var(--text2)">Cerrado por ${c.cerradoPor || '—'} · ${fecha}</div>
+            </div>
+            <span style="font-weight:800;color:${total<0?'var(--red)':'var(--green)'}">${pesoF(total)}</span>
+          </div>
+          <details style="margin-top:8px">
+            <summary style="cursor:pointer;font-size:11px;color:var(--text2)">Ver saldo por caja (${saldos.length})</summary>
+            <div style="margin-top:8px;padding:8px;background:var(--bg);border-radius:6px">${saldosHtml}</div>
+          </details>
+        </div>`;
+      }).join('');
+    }, e => {
+      console.warn('cierres corresponsal:', e);
       list.innerHTML = '<div style="text-align:center;color:var(--red);padding:20px">⚠ Error al cargar</div>';
     });
 }
@@ -7484,16 +7914,25 @@ async function aceptarCierreCajero(id) {
   )) return;
 
   try {
+    // Doc de Caja General propio de la oficina del cierre (cajero_config_pozo/
+    // {oficinaId}); si no se puede resolver la oficina, cae al doc legacy
+    // compartido (comportamiento anterior).
+    const oficObjAC = oficinas.find(o => o.nombre === d.oficina);
+    const pozoRefAC = oficObjAC
+      ? db.collection('cajero_config_pozo').doc(oficObjAC.id)
+      : db.collection('cajero_config').doc('main');
+
     // Objeto anidado + merge → conserva los demás meses.
     // (con set() una llave "cupo_por_mes.2026-08" se guardaría literal, no como ruta)
-    await db.collection('cajero_config').doc('main').set({
+    await pozoRefAC.set({
+      oficinaNombre: d.oficina || '',
       cupo_por_mes: { [d.mesSiguiente]: d.saldos || {} }
     }, { merge: true });
 
     // Limpiar el campo basura que dejó la versión anterior: un campo de primer nivel
     // llamado literalmente "cupo_por_mes.2026-08". FieldPath evita interpretar el punto.
     try {
-      await db.collection('cajero_config').doc('main').update(
+      await pozoRefAC.update(
         new firebase.firestore.FieldPath(`cupo_por_mes.${d.mesSiguiente}`),
         firebase.firestore.FieldValue.delete()
       );
@@ -7522,6 +7961,20 @@ async function rechazarCierreCajero(id) {
   } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
 }
 
+// Permite (o vuelve a bloquear) que el cajero edite la Caja General de un mes
+// que ya fue cerrado y aceptado — el cajero.html lee este mismo campo
+// (autorizado) para mostrar el candado y bloquear los inputs.
+async function toggleAutorizarCierreCajero(id, autorizar) {
+  try {
+    await db.collection('cajero_cierres').doc(id).update({
+      autorizado: autorizar,
+      autorizadoPor: autorizar ? (auth.currentUser?.email || 'admin') : firebase.firestore.FieldValue.delete(),
+      autorizadoTs:  autorizar ? firebase.firestore.FieldValue.serverTimestamp() : firebase.firestore.FieldValue.delete()
+    });
+    toast(autorizar ? '🔓 Cajero autorizado a editar este mes' : '🔒 Mes bloqueado de nuevo', 'success');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
 // Cache de nombres de clientes por operador — para reconstruir el desglose del cierre
 const _cacheNomClientes = {};
 async function _nombresClientes(opId) {
@@ -7544,6 +7997,7 @@ let _cierresListener = null;
 
 function initCierres() {
   initCierresCajero();
+  initCierresCorr();
   if (_cierresListener) return;
   const list  = document.getElementById('cierres-list');
   const badge = document.getElementById('cierres-pending-badge');
@@ -7749,12 +8203,24 @@ const _ESF_A_CUPO = {
   'PTM PROPIO':'PTM PROPIO','BE MOVIL MASTER':'BE MOVIL MASTER','PUNTO RED UNITY':'PUNTO RED UNITY','BET RED':'BET RED',
 };
 
+// Extrae {num, año} de una etiqueta de mes en español sin importar el formato
+// exacto ("Agosto 2026", "Agosto de 2026", etc.) — antes se asumía por posición
+// (parts[0]/parts[1]) y una palabra de más como "de" rompía el cálculo (bug
+// real: los operadores de Golden Bets tienen su campo `mes` guardado como
+// "Agosto de 2026", lo que dejaba mesKey en null en todos estos puntos).
+function _parseMesLabel(str) {
+  const s = (str || '').trim().toLowerCase();
+  const MESES = {enero:1,febrero:2,marzo:3,abril:4,mayo:5,junio:6,julio:7,agosto:8,septiembre:9,octubre:10,noviembre:11,diciembre:12};
+  const mm = s.match(/enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre/);
+  const ym = s.match(/\d{4}/);
+  return { num: mm ? MESES[mm[0]] : undefined, año: ym ? parseInt(ym[0]) : undefined };
+}
+
 // Arma el saldo inicial del mes siguiente a partir del ESF del mes cerrado.
 // El ESF es la única fuente confiable: siempre descuenta la liquidación pagada.
 async function _saldosParaMesSiguiente(data) {
-  const M = {enero:1,febrero:2,marzo:3,abril:4,mayo:5,junio:6,julio:7,agosto:8,septiembre:9,octubre:10,noviembre:11,diciembre:12};
-  const p = (data.mes||'').trim().toLowerCase().split(/\s+/);
-  const mesKey = (M[p[0]] && parseInt(p[1])) ? `${parseInt(p[1])}-${String(M[p[0]]).padStart(2,'0')}` : null;
+  const { num: _mN, año: _mY } = _parseMesLabel(data.mes);
+  const mesKey = (_mN && _mY) ? `${_mY}-${String(_mN).padStart(2,'0')}` : null;
 
   let cajas = [], totalClientes = null;
   if (mesKey) {
@@ -7882,6 +8348,107 @@ async function _asentarVariacionMetodos(operadorId, operadorNombre, mesKey, fech
   return n;
 }
 
+// Genera SOLO los asientos de comisiones por cobrar de un cierre ya aceptado,
+// para cuando aceptarCierre() no los generó porque el ESF no estaba listo en
+// ese momento. Usa la foto fija que quedó guardada en el cierre (ganancia.comisiones),
+// NO el ESF en vivo — el ESF puede haber seguido cambiando después de aceptado el
+// cierre, y eso ya no es lo que se aprobó. No duplica: si ya existen, no hace nada
+// (salvo forzar=true, que los borra y recrea con la foto fija actual del cierre).
+async function _asentarComisionesCierre(cierreId, operadorNombre, mesKey, fechaCierre, desc, uid, opForzado, forzar) {
+  const cierreSnap = await db.collection('patriarca_cierres').doc(cierreId).get();
+  if (!cierreSnap.exists) return 0;
+  const comisiones = (cierreSnap.data().ganancia && cierreSnap.data().ganancia.comisiones) || {};
+
+  const todos = await db.collection('cont_movimientos').get();
+  const existentes = todos.docs.filter(d => {
+    const x = d.data();
+    return (x.notas||'') === 'Asiento automático de cierre'
+      && (x.fecha||'').startsWith(mesKey)
+      && (x.descripcion||'').includes(operadorNombre);
+  });
+  if (existentes.length && !forzar) return 0;
+  if (existentes.length && forzar) {
+    for (let i = 0; i < existentes.length; i += 400) {
+      const b = db.batch();
+      existentes.slice(i, i+400).forEach(d => b.delete(d.ref));
+      await b.commit();
+    }
+  }
+  if (!Object.keys(comisiones).length) return 0;
+
+  let op = opForzado;
+  if (!op) {
+    const contSnap = await db.collection('cont_movimientos').orderBy('op','desc').limit(1).get();
+    op = contSnap.empty ? 1 : ((Number(contSnap.docs[0].data().op) || 0) + 1);
+  }
+
+  const batch = db.batch();
+  let n = 0;
+  Object.entries(comisiones).forEach(([metodo, monto]) => {
+    const m = Math.round(monto || 0);
+    if (m <= 0) return;
+    n++;
+    batch.set(db.collection('cont_movimientos').doc(), {
+      op, fecha: fechaCierre, cuenta: 'ACTIVOS',
+      subcuenta: `Cuenta Por Cobrar comisiones ${metodo} Operadores`,
+      debito: m, credito: 0,
+      descripcion: desc, notas: 'Asiento automático de cierre',
+      creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    batch.set(db.collection('cont_movimientos').doc(), {
+      op, fecha: fechaCierre, cuenta: 'PATRIMONIO', subcuenta: 'Ganancias Operadores',
+      debito: 0, credito: m,
+      descripcion: desc, notas: 'Asiento automático de cierre',
+      creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  });
+  if (n) await batch.commit();
+  return n;
+}
+
+// Corrige la foto fija de un cierre (patriarca_cierres.ganancia y, si existe,
+// patriarca_variaciones.gananciaNeta) cuando le apareció una comisión nueva
+// después de aceptado — para que el histórico que ve el operador quede igual
+// a lo que ya está bien en el libro de Movimientos. No toca el libro.
+async function _corregirGananciaCierre(cierreId, comisionesNuevas, totalComisionesNuevo, totalNuevo, varDocId, gananciaNetaNueva, quitarMetodos) {
+  const upd = {};
+  Object.entries(comisionesNuevas || {}).forEach(([k, v]) => { upd['ganancia.comisiones.' + k] = v; });
+  (quitarMetodos || []).forEach(k => { upd['ganancia.comisiones.' + k] = firebase.firestore.FieldValue.delete(); });
+  upd['ganancia.totalComisiones'] = totalComisionesNuevo;
+  upd['ganancia.total'] = totalNuevo;
+  await db.collection('patriarca_cierres').doc(cierreId).update(upd);
+  if (varDocId) {
+    await db.collection('patriarca_variaciones').doc(varDocId).update({ gananciaNeta: gananciaNetaNueva });
+  }
+  return true;
+}
+
+// Corrige comisionesPorMetodo/totalComisiones en patriarca_variaciones —
+// este doc se llena UNA VEZ desde el ESF en vivo al momento de aceptar el
+// cierre, así que si el ESF traía una comisión de otro mes (bug de mezcla
+// de meses), queda congelada aquí aunque luego se corrija patriarca_cierres.
+// Reemplaza el objeto completo (no merge) para poder quitar métodos colados.
+async function _corregirVariacionesComisiones(varDocId, comisionesNuevas, totalComisionesNuevo) {
+  await db.collection('patriarca_variaciones').doc(varDocId).update({
+    comisionesPorMetodo: comisionesNuevas || {},
+    totalComisiones: totalComisionesNuevo,
+  });
+  return true;
+}
+
+// Borra líneas puntuales de cont_movimientos por id explícito — para corregir
+// un asiento mal generado (p.ej. una comisión de otro mes que se coló en el
+// mes equivocado). Solo borra los ids que se le pasan, uno por uno, nunca por
+// consulta amplia.
+async function _borrarMovimientosPorId(ids) {
+  let n = 0;
+  for (const id of (ids || [])) {
+    await db.collection('cont_movimientos').doc(id).delete();
+    n++;
+  }
+  return n;
+}
+
 // ── Revisar / regenerar asientos de cierres ya aceptados ────────────────────
 let _rgPendientes = [];
 
@@ -7910,15 +8477,18 @@ async function analizarAsientos() {
     const cierres = (await db.collection('patriarca_cierres').where('estado','==','aceptado').get())
       .docs.map(d => ({id:d.id, ...d.data()}))
       .filter(c => {
-        const M = {enero:1,febrero:2,marzo:3,abril:4,mayo:5,junio:6,julio:7,agosto:8,septiembre:9,octubre:10,noviembre:11,diciembre:12};
-        const p = (c.mes||'').trim().toLowerCase().split(/\s+/);
-        return M[p[0]] === m && parseInt(p[1]) === y;
+        const { num: _cN, año: _cY } = _parseMesLabel(c.mes);
+        return _cN === m && _cY === y;
       });
 
     // Asientos existentes del mes
     const movs = (await db.collection('cont_movimientos').get()).docs.map(d => d.data())
       .filter(x => (x.fecha||'').startsWith(mk));
     const tieneMetodo = new Set(movs.filter(x => x.origen==='cierre_metodo')
+      .map(x => (x.descripcion||'').replace(/^Cierre [^—]*—\s*/,'')));
+    const tieneComisiones = new Set(movs.filter(x => x.cuenta==='ACTIVOS'
+        && (x.subcuenta||'').startsWith('Cuenta Por Cobrar comisiones ')
+        && (x.subcuenta||'').endsWith(' Operadores'))
       .map(x => (x.descripcion||'').replace(/^Cierre [^—]*—\s*/,'')));
 
     // Liquidaciones del mes anterior
@@ -7931,9 +8501,12 @@ async function analizarAsientos() {
     // Ganancia del ESF y lo ya asentado, por operador → detectar descuadres
     const esfSnap = await db.collection('patriarca_esf_resumen').where('mesKey','==',mk).get();
     const ganPorOp = {};
+    const comPorOp = {};
     esfSnap.docs.map(d=>d.data()).forEach(r => {
       const g = Math.round((r.totalActivos||0)-(r.totalPasivos||0)-(r.clientesMesAnt||0)-(r.cupoEnCajas||0));
       if (g > 0 && r.uid) ganPorOp[r.uid] = g;
+      const tc = Object.values(r.comByMetodo||{}).reduce((s,v)=>s+(Math.round(v)||0),0);
+      if (tc > 0 && r.uid) comPorOp[r.uid] = tc;
     });
     const asentado = {};
     movs.filter(x => x.cuenta==='PATRIMONIO' && x.subcuenta==='Ganancias Operadores').forEach(x => {
@@ -7947,13 +8520,16 @@ async function analizarAsientos() {
       const tieneMet = tieneMetodo.has(c.operadorNombre);
       if (!tieneMet) faltas.push('variación de métodos');
 
+      const tieneCom = tieneComisiones.has(c.operadorNombre);
+      if (!tieneCom && (comPorOp[c.operadorId]||0) > 0) faltas.push('comisiones por cobrar');
+
       // Descuadre: la ganancia del ESF no coincide con lo asentado
       const g = ganPorOp[c.operadorId] || 0;
       const d = g ? Math.round(g - (asentado[c.operadorNombre]||0)) : 0;
       const desajustado = tieneMet && !faltas.length && Math.abs(d) > 100;
       if (desajustado) faltas.push(`descuadre ${fmtM(d)} — rehacer métodos`);
 
-      if (faltas.length) _rgPendientes.push({ cierre: c, faltas, liq: L, descuadre: d, rehacer: desajustado });
+      if (faltas.length) _rgPendientes.push({ cierre: c, faltas, liq: liqPorOp[c.operadorId] || 0, descuadre: d, rehacer: desajustado });
     });
 
     if (!_rgPendientes.length) {
@@ -7994,7 +8570,7 @@ async function ejecutarRegenerar() {
   const ultimoDia = new Date(y, m, 0).getDate();
   const fechaCierre = `${mk}-${String(ultimoDia).padStart(2,'0')}`;
   const uid = auth.currentUser?.uid || '';
-  let nMet = 0;
+  let nMet = 0, nCom = 0;
 
   try {
     for (const p of _rgPendientes) {
@@ -8004,8 +8580,12 @@ async function ejecutarRegenerar() {
         const n = await _asentarVariacionMetodos(c.operadorId, c.operadorNombre, mk, fechaCierre, desc, uid, !!p.rehacer);
         if (n) nMet++;
       }
+      if (p.faltas.includes('comisiones por cobrar')) {
+        const nc = await _asentarComisionesCierre(c.id, c.operadorNombre, mk, fechaCierre, desc, uid);
+        if (nc) nCom++;
+      }
     }
-    toast(`✅ ${nMet} asiento(s) de variación de métodos generados`, 'success');
+    toast(`✅ ${nMet} cierre(s) con variación generada · ${nCom} con comisiones generadas`, 'success');
     await analizarAsientos();
   } catch(e) {
     toast('⚠ ' + e.message, 'error');
@@ -8022,9 +8602,7 @@ async function aceptarCierre(cierreId) {
   // Calcular mesSiguiente si no fue guardado correctamente (bug versiones anteriores)
   let mesSig = data.mesSiguiente || '';
   if (!mesSig && data.mes) {
-    const _ME = {enero:1,febrero:2,marzo:3,abril:4,mayo:5,junio:6,julio:7,agosto:8,septiembre:9,octubre:10,noviembre:11,diciembre:12};
-    const p = data.mes.trim().toLowerCase().split(/\s+/);
-    const num = _ME[p[0]], año = parseInt(p[1]);
+    const { num, año } = _parseMesLabel(data.mes);
     if (num && año) {
       const mk = `${año}-${String(num).padStart(2,'0')}`;
       const [y, m] = mk.split('-').map(Number);
@@ -8076,14 +8654,8 @@ async function aceptarCierre(cierreId) {
     await batch.commit();
 
     // 4. Asientos contables automáticos: comisiones del mes → cont_movimientos
-    const MESES_ES = {enero:1,febrero:2,marzo:3,abril:4,mayo:5,junio:6,julio:7,agosto:8,septiembre:9,octubre:10,noviembre:11,diciembre:12};
-    const partes = (data.mes || '').trim().toLowerCase().split(/\s+/);
-    let mesKey = null;
-    if (partes.length >= 2) {
-      const num = MESES_ES[partes[0]];
-      const año = parseInt(partes[1]);
-      if (num && año) mesKey = `${año}-${String(num).padStart(2,'0')}`;
-    }
+    const { num: _acN, año: _acY } = _parseMesLabel(data.mes);
+    let mesKey = (_acN && _acY) ? `${_acY}-${String(_acN).padStart(2,'0')}` : null;
 
     if (mesKey) {
       // Leer ESF del operador (nuevo formato uid_mesKey, luego fallback a uid)
@@ -8778,6 +9350,70 @@ async function _renderLiqAdmin(txs, mesKey) {
   container.innerHTML = html;
 }
 
+// Cuentas Corresponsal del SF (Contador) → cuenta real que usa la cajera en el
+// módulo Corresponsal de cajero.html. Solo estas 2 pasan por Corresponsal —
+// cualquier otro método/destino de liquidación no genera nada aquí.
+const CORRESPONSAL_SF_A_CAJERO = {
+  'CORRESPONSAL EL PARAMO':          'Caja Corresponsal Operadores 1 de Mayo',
+  'CORRESPONSAL EFECTY 1 DE MAYO':   'Academia Aj1.6',
+};
+// Arma (sin escribir todavía) los 2 movimientos de corresponsal_movimientos —
+// egreso e ingreso — que corresponden a un pago de liquidación tipo "saldo".
+// Devuelve [] si el método/destino de ese pago no es una cuenta de Corresponsal.
+async function _asientosCorresponsalLiq(tx, email) {
+  if (tx.tipo !== 'saldo') return [];
+  const origen  = CORRESPONSAL_SF_A_CAJERO[(tx.metodo||'').trim().toUpperCase()];
+  const destino = CORRESPONSAL_SF_A_CAJERO[(tx.destino||'').trim().toUpperCase()];
+  if (!origen || !destino) return [];
+  const opSnap = await db.collection('admin_usuarios').where('uid','==',tx.operadorId).limit(1).get();
+  const oficinaNombre = opSnap.empty ? '' : (opSnap.docs[0].data().oficinaNombre || '');
+  if (!oficinaNombre) return [];
+  const desc = `Liquidación ${tx.mesKey} — ${tx.operadorNombre}`;
+  const base = {
+    oficina: oficinaNombre, fecha: tx.fecha, monto: tx.monto, descripcion: desc,
+    especialista: email, mesKey: (tx.fecha||'').slice(0,7),
+    ts: firebase.firestore.FieldValue.serverTimestamp(),
+  };
+  return [
+    { ...base, cuenta: origen,  movimiento: 'Egresos' },
+    { ...base, cuenta: destino, movimiento: 'Ingresos' },
+  ];
+}
+
+// Repone el asiento de corresponsal_movimientos de un pago de liquidación ya
+// aprobado que se quedó sin generarlo (p.ej. porque el admin_usuarios del
+// operador no tenía oficinaNombre). Recibe la oficina a mano en vez de
+// buscarla, y no duplica si ya existe un asiento con ese mismo monto/cuenta/fecha.
+async function _reponerAsientoCorresponsalLiq(txId, oficinaNombre, email) {
+  const txSnap = await db.collection('patriarca_liquidacion_txs').doc(txId).get();
+  if (!txSnap.exists) return 0;
+  const tx = txSnap.data();
+  if (tx.tipo !== 'saldo') return 0;
+  const origen  = CORRESPONSAL_SF_A_CAJERO[(tx.metodo||'').trim().toUpperCase()];
+  const destino = CORRESPONSAL_SF_A_CAJERO[(tx.destino||'').trim().toUpperCase()];
+  if (!origen || !destino) return 0;
+
+  const monto = Math.round(parseFloat(tx.monto) || 0);
+  const existentes = await db.collection('corresponsal_movimientos')
+    .where('cuenta','==',origen).where('movimiento','==','Egresos').get();
+  const yaExiste = existentes.docs.some(d => Math.round(parseFloat(d.data().monto)||0) === monto);
+  if (yaExiste) return 0;
+
+  const desc = `Liquidación ${tx.mesKey} — ${tx.operadorNombre}`;
+  const base = {
+    oficina: oficinaNombre, fecha: tx.fecha, monto: tx.monto, descripcion: desc,
+    especialista: email, mesKey: (tx.fecha||'').slice(0,7),
+    ts: firebase.firestore.FieldValue.serverTimestamp(),
+  };
+  const corrSnap = await db.collection('corresponsal_movimientos').orderBy('op','desc').limit(1).get();
+  let nextOp = corrSnap.empty ? 1 : ((Number(corrSnap.docs[0].data().op) || 0) + 1);
+  const batch = db.batch();
+  batch.set(db.collection('corresponsal_movimientos').doc(), { ...base, cuenta: origen,  movimiento: 'Egresos',  op: nextOp++ });
+  batch.set(db.collection('corresponsal_movimientos').doc(), { ...base, cuenta: destino, movimiento: 'Ingresos', op: nextOp++ });
+  await batch.commit();
+  return 2;
+}
+
 // Aprobar UN solo pago — genera su propio OP contable
 async function aprobarPagoLiq(txId) {
   const uid   = auth.currentUser?.uid || '';
@@ -8826,6 +9462,16 @@ async function aprobarPagoLiq(txId) {
         creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
       });
     }
+
+    // Si el pago es entre cuentas de Corresponsal, además del asiento contable
+    // se registran el egreso e ingreso reales que verá la cajera en cajero.html.
+    const asientosCorr = await _asientosCorresponsalLiq(tx, email);
+    if (asientosCorr.length) {
+      const corrSnap = await db.collection('corresponsal_movimientos').orderBy('op','desc').limit(1).get();
+      let nextCorrOp = corrSnap.empty ? 1 : ((Number(corrSnap.docs[0].data().op) || 0) + 1);
+      asientosCorr.forEach(a => { batch.set(db.collection('corresponsal_movimientos').doc(), { ...a, op: nextCorrOp++ }); });
+    }
+
     batch.update(db.collection('patriarca_liquidacion_txs').doc(txId), {
       estado: 'aprobado', aprobadoPor: email,
       aprobadoEn: firebase.firestore.FieldValue.serverTimestamp(),
@@ -8922,6 +9568,19 @@ async function aprobarLiquidacionCompleta(operadorId, mesKey) {
         opContable: nextOp
       });
     });
+
+    // Igual que en aprobarPagoLiq: si algún pago de saldo es entre cuentas de
+    // Corresponsal, se registran también el egreso/ingreso reales de cajero.html.
+    const asientosCorrTodos = [];
+    for (const tx of txs) {
+      const asientos = await _asientosCorresponsalLiq(tx, email);
+      asientosCorrTodos.push(...asientos);
+    }
+    if (asientosCorrTodos.length) {
+      const corrSnap = await db.collection('corresponsal_movimientos').orderBy('op','desc').limit(1).get();
+      let nextCorrOp = corrSnap.empty ? 1 : ((Number(corrSnap.docs[0].data().op) || 0) + 1);
+      asientosCorrTodos.forEach(a => { batch.set(db.collection('corresponsal_movimientos').doc(), { ...a, op: nextCorrOp++ }); });
+    }
 
     await batch.commit();
     toast(`✅ Liquidación aprobada — OP#${nextOp} con ${txs.length} pago(s)`);
@@ -9095,9 +9754,7 @@ async function fixSaldoInicialDesdesCierre(operadorId, mesLabel, mesSigKey) {
 // comByMetodo del patriarca_esf_resumen.
 // ──────────────────────────────────────────────────────────────
 async function backfillVariaciones(mesLabel) {
-  const MESES = {enero:1,febrero:2,marzo:3,abril:4,mayo:5,junio:6,julio:7,agosto:8,septiembre:9,octubre:10,noviembre:11,diciembre:12};
-  const partes = mesLabel.trim().toLowerCase().split(/\s+/);
-  const num = MESES[partes[0]], año = parseInt(partes[1]);
+  const { num, año } = _parseMesLabel(mesLabel);
   if (!num || !año) { console.error('[backfill] Formato inválido. Usa: "Junio 2026"'); return; }
   const mesKey = `${año}-${String(num).padStart(2,'0')}`;
   console.log(`[backfill] Procesando cierres de ${mesLabel} (mesKey: ${mesKey})...`);

@@ -211,6 +211,11 @@ select option{background:var(--bg3)}
       <button class="btn-logout" onclick="doLogout()">Salir</button>
     </div>
   </header>
+  <!-- Banner mes de Caja General cerrado — visible cuando el admin ya aceptó el cierre de este mes -->
+  <div id="banner-caj-cerrado" style="display:none;background:#7f1d1d;color:#fca5a5;padding:10px 20px;font-size:13px;font-weight:600;text-align:center;border-bottom:2px solid #dc2626">
+    🔒 MES CERRADO — El administrador ya aceptó el cierre de este mes. La Caja General no se puede volver a editar.
+    <span id="banner-caj-autorizado" style="display:none;color:#fde68a"> · ✅ Autorizado para editar por el administrador</span>
+  </div>
   <nav id="nav-amc">
     <div class="tab active" onclick="showTab('dashboard')">📊 Dashboard</div>
     <div class="tab" onclick="showTab('operadores')">👥 Operadores</div>
@@ -300,6 +305,7 @@ select option{background:var(--bg3)}
           <button class="btn btn-ghost btn-sm btn-importar" onclick="abrirImportCajas()">⬆ Importar</button>
           <button class="btn btn-ghost btn-sm" onclick="abrirModalCaja()">+ Caja</button>
           <button class="btn btn-ghost btn-sm" onclick="abrirSaldoInicialCajas()">⚙️ Saldo Inicial</button>
+          <button class="btn btn-ghost btn-sm" onclick="cerrarMesCajas()" title="Guarda el Saldo Final real de cada caja de este mes, para traerlo exacto el mes siguiente">🔒 Cerrar mes</button>
         </div>
       </div>
 
@@ -1172,24 +1178,43 @@ select option{background:var(--bg3)}
 
 <!-- MODAL MOVIMIENTO CORRESPONSAL -->
 <div class="modal-overlay" id="modal-corr-mov">
-  <div class="modal" style="max-width:440px">
+  <div class="modal" style="max-width:480px">
     <h3 id="cmv-title" style="margin-bottom:16px">📝 Registrar Movimiento</h3>
     <input type="hidden" id="cmv-edit-id">
-    <div class="form-grid">
-      <div class="form-group"><label>Fecha</label><input type="date" id="cmv-fecha"></div>
-      <div class="form-group"><label>Monto</label>
-        <input type="text" id="cmv-monto" inputmode="numeric" placeholder="0"
-          oninput="const s=this.selectionStart,l=this.value.length;this.value=formatCOP(this.value);this.setSelectionRange(s+this.value.length-l,s+this.value.length-l)"
-          style="text-align:right;font-weight:700;color:var(--gold)"></div>
-    </div>
-    <div class="form-group"><label>Cuenta</label><select id="cmv-cuenta"></select></div>
+    <div class="form-group"><label>Fecha</label><input type="date" id="cmv-fecha"></div>
     <div class="form-group"><label>Movimiento</label>
       <div style="display:flex;gap:8px">
         <button type="button" id="cmv-btn-in" class="btn btn-ghost" style="flex:1" onclick="setCorrTipo('Ingresos')">⬆ Ingresos</button>
         <button type="button" id="cmv-btn-eg" class="btn btn-ghost" style="flex:1" onclick="setCorrTipo('Egresos')">⬇ Egresos</button>
+        <button type="button" id="cmv-btn-tr" class="btn btn-ghost" style="flex:1" onclick="setCorrTipo('Transferencia')">🔁 Transferencia</button>
       </div>
       <input type="hidden" id="cmv-tipo" value="Ingresos">
     </div>
+
+    <div id="cmv-simple">
+      <div class="form-grid">
+        <div class="form-group"><label>Monto</label>
+          <input type="text" id="cmv-monto" inputmode="numeric" placeholder="0"
+            oninput="const s=this.selectionStart,l=this.value.length;this.value=formatCOP(this.value);this.setSelectionRange(s+this.value.length-l,s+this.value.length-l)"
+            style="text-align:right;font-weight:700;color:var(--gold)"></div>
+      </div>
+      <div class="form-group"><label>Cuenta</label><select id="cmv-cuenta"></select></div>
+    </div>
+
+    <div id="cmv-transfer" style="display:none">
+      <div class="form-group">
+        <label>Sale de</label>
+        <div id="cmv-tr-egresos"></div>
+        <button type="button" class="btn btn-ghost" style="font-size:12px;padding:4px 10px" onclick="_corrTrAgregarFila('egresos')">+ Agregar cuenta</button>
+      </div>
+      <div class="form-group">
+        <label>Entra a</label>
+        <div id="cmv-tr-ingresos"></div>
+        <button type="button" class="btn btn-ghost" style="font-size:12px;padding:4px 10px" onclick="_corrTrAgregarFila('ingresos')">+ Agregar cuenta</button>
+      </div>
+      <div id="cmv-tr-balance" style="font-size:12px;text-align:right;margin-top:2px"></div>
+    </div>
+
     <div class="form-group"><label>Descripción</label>
       <input type="text" id="cmv-desc" placeholder="Motivo del movimiento"></div>
     <div class="modal-footer" style="margin-top:16px">
@@ -1794,34 +1819,79 @@ function normMetodo(m) {
   return METODO_ALIAS[(m||'').trim().toUpperCase()] || (m||'').trim().toUpperCase();
 }
 
-// Cargar métodos (y límites diarios incluidos) desde Firestore en tiempo real
-db.collection('admin_config').doc('metodos').onSnapshot(snap => {
-  if (!snap.exists) return;
-  const lista = snap.data().lista || [];
-  if (!lista.length) return;
-  // Poblar límites diarios desde el mismo documento (campo limite_diario por método)
-  LIMITES_DIARIOS = {};
-  lista.forEach(m => {
-    if (m.nombre && m.limite_diario) LIMITES_DIARIOS[normMetodo(m.nombre)] = m.limite_diario;
-  });
-  METODOS = lista.map(m => m.nombre);
-  populateMetodoSelects();
-  // Re-renderizar todas las vistas que dependen de los métodos
-  if (operadores.length) {
+// Cargar métodos (y límites diarios incluidos) desde Firestore en tiempo real.
+// Antes esto era un solo documento global (admin_config/metodos) compartido
+// por todas las oficinas — Golden veía los métodos de Unity sin poder tener
+// los suyos. Ahora cada oficina tiene su propio doc en admin_config_metodos,
+// identificado por el campo oficinaNombre (mismo valor que cajeroOficina).
+// No se puede registrar este listener aquí arriba, a nivel de script, porque
+// cajeroOficina todavía no se conoce hasta que termina el login — por eso es
+// una función que se llama desde auth.onAuthStateChanged.
+let _unsubMetodosCajero = null;
+function _cargarMetodosCajero() {
+  if (_unsubMetodosCajero) { _unsubMetodosCajero(); _unsubMetodosCajero = null; }
+  const aplicarMetodos = (lista) => {
+    if (!lista.length) return;
+    LIMITES_DIARIOS = {};
+    lista.forEach(m => {
+      if (m.nombre && m.limite_diario) LIMITES_DIARIOS[normMetodo(m.nombre)] = m.limite_diario;
+    });
+    METODOS = lista.map(m => m.nombre);
+    populateMetodoSelects();
+    if (operadores.length) {
+      renderCupoInicial();
+      renderCupoActual();
+      renderSaldoCajas();
+      renderDashboard();
+      if (document.getElementById('sec-mapa-capital')?.classList.contains('active')) renderMapaCapital();
+    }
+    if (document.getElementById('sec-cajas')?.classList.contains('active')) renderCajas();
+    if (hojaOpUid) renderHojaOp();
+  };
+  _unsubMetodosCajero = db.collection('admin_config_metodos').where('oficinaNombre','==', cajeroOficina || '')
+    .onSnapshot(async snap => {
+      if (!snap.empty) { aplicarMetodos(snap.docs[0].data().lista || []); return; }
+      // Respaldo legacy: esta oficina (típicamente Unity antes de la migración,
+      // o cualquiera sin métodos propios todavía) no tiene documento aparte.
+      try {
+        const legacy = await db.collection('admin_config').doc('metodos').get();
+        if (legacy.exists) aplicarMetodos(legacy.data().lista || []);
+      } catch(e) { console.warn('metodos legacy:', e); }
+    }, err => console.warn('metodos config:', err));
+}
+
+// ── CAJA GENERAL (cupo_pozo) por oficina ────────────────────────────────────
+// Antes vivía en un único doc global (cajero_config/main) compartido por
+// TODAS las oficinas — el mismo problema que tenían los métodos: Golden Bets
+// y Unity terminaban leyendo/pisando el mismo saldo de Caja General.
+// cajero_config_pozo/{oficinaId} replica el patrón de admin_config_metodos.
+function _cargarCupoPozo() {
+  if (_unsubCupoPozo) { _unsubCupoPozo(); _unsubCupoPozo = null; }
+  const aplicarPozo = (d) => {
+    d = d || {};
+    window._cajeroConfigRaw = d; // guardar para cambiarMes
+    cupoPozo = d.cupo_por_mes ? (d.cupo_por_mes[mesActivo] || {}) : (d.cupo_pozo || {});
     renderCupoInicial();
-    renderCupoActual();
-    renderSaldoCajas();
     renderDashboard();
-    if (document.getElementById('sec-mapa-capital')?.classList.contains('active')) renderMapaCapital();
-  }
-  if (document.getElementById('sec-cajas')?.classList.contains('active')) renderCajas();
-  if (hojaOpUid) renderHojaOp();
-}, err => console.warn('metodos config:', err));
+    renderSaldoCajas();
+  };
+  _unsubCupoPozo = db.collection('cajero_config_pozo').where('oficinaNombre','==', cajeroOficina || '')
+    .onSnapshot(async snap => {
+      if (!snap.empty) { aplicarPozo(snap.docs[0].data()); return; }
+      // Respaldo legacy: esta oficina (típicamente Unity antes de la migración,
+      // o cualquiera sin Caja General propia todavía) no tiene documento aparte.
+      try {
+        const legacy = await db.collection('cajero_config').doc('main').get();
+        aplicarPozo(legacy.exists ? legacy.data() : {});
+      } catch(e) { console.warn('cupo pozo legacy:', e); }
+    }, err => console.warn('cupo pozo:', err));
+}
 
 // ── STATE ──
 let opId = null;
 let opNombre = '';
 let cajeroOficina = '';   // oficina del cajero logueado (ej. 'Unity')
+let cajeroOficinaId = ''; // id del doc admin_oficinas (para escrituras en colecciones por-id, ej. cajero_config_pozo)
 let cajeroPermisos = {};  // permisos asignados por el admin
 let _permisosListos = false;   // ya llegó la config desde Firestore
 let _oficinaLista   = false;   // ya sabemos a qué oficina pertenece el cajero
@@ -1906,11 +1976,14 @@ auth.onAuthStateChanged(async user => {
     opId = user.uid;
     opNombre = cajDoc.nombre || user.displayName || user.email;
     cajeroOficina = cajDoc.oficinaNombre || '';
+    cajeroOficinaId = cajDoc.oficina || '';
     _oficinaLista = true;
     document.getElementById('auth-overlay').style.display = 'none';
     document.getElementById('app').style.display = 'flex';
     document.getElementById('hdr-user').textContent = cajeroOficina ? opNombre + ' · ' + cajeroOficina : opNombre;
+    _cargarMetodosCajero();
     initMesSelect();
+    _suscribirCierreCajero();
 
     // Permisos configurados por el admin — en tiempo real
     db.collection('patriarca_config').doc(user.uid).onSnapshot(snap => {
@@ -1999,28 +2072,16 @@ function loadCupoInicial() {
       }));
     if (!operadores.length) operadores = [{ uid: opId, docId: opId, nombre: opNombre }];
     cupoAsignado = {};
+    // Los movimientos/gastos ya pueden haber llegado antes que operadores
+    // (loadCajas/loadGastosGlobal corren en paralelo) — re-filtrar ahora que
+    // sabemos qué opId pertenecen a esta oficina.
+    _refiltrarCajasPorOficina();
 
-    // Garantizar que METODOS esté cargado antes de renderizar
-    // (el listener global puede haberse registrado antes del login y fallado)
-    if (!METODOS.length) {
-      try {
-        const ms = await db.collection('admin_config').doc('metodos').get();
-        if (ms.exists) {
-          METODOS = (ms.data().lista || []).map(m => m.nombre);
-          populateMetodoSelects();
-        }
-      } catch(e) { console.warn('loadMetodos fallback:', e); }
-    }
+    // METODOS ahora lo carga _cargarMetodosCajero() (ya oficina-consciente),
+    // llamado apenas se conoce cajeroOficina — no hace falta un fallback aquí.
 
-    // Listener en tiempo real para CAJA GENERAL
-    _unsubCupoPozo = db.collection('cajero_config').doc('main').onSnapshot(snap => {
-      const d = snap.exists ? snap.data() : {};
-      window._cajeroConfigRaw = d; // guardar para cambiarMes
-      cupoPozo = d.cupo_por_mes ? (d.cupo_por_mes[mesActivo] || {}) : (d.cupo_pozo || {});
-      renderCupoInicial();
-      renderDashboard();
-      renderSaldoCajas();
-    });
+    // Listener en tiempo real para CAJA GENERAL (oficina-consciente)
+    _cargarCupoPozo();
 
     // Listener en tiempo real para cada operador
     operadores.forEach(op => {
@@ -2150,10 +2211,16 @@ async function saveCupoInicial() {
   });
   try {
     const batch = db.batch();
-    // Guardar plano (backward compat) + por mes
-    const pozoUpd = { cupo_pozo: newPozo };
+    // Guardar plano (backward compat) + por mes — en el doc de Caja General
+    // PROPIO de esta oficina (cajero_config_pozo/{oficinaId}); si el cajero
+    // no tiene oficina asignada (ej. corresponsal neutral), cae al doc legacy
+    // compartido, igual que antes.
+    const pozoUpd = { cupo_pozo: newPozo, oficinaNombre: cajeroOficina || '' };
     pozoUpd[`cupo_por_mes.${mesActivo}`] = newPozo;
-    batch.set(db.collection('cajero_config').doc('main'), pozoUpd, { merge: true });
+    const pozoRef = cajeroOficinaId
+      ? db.collection('cajero_config_pozo').doc(cajeroOficinaId)
+      : db.collection('cajero_config').doc('main');
+    batch.set(pozoRef, pozoUpd, { merge: true });
     operadores.forEach(op => {
       const opUpd = { cupos_cajero: newAsig[op.uid] };
       opUpd[`cupos_por_mes.${mesActivo}`] = newAsig[op.uid];
@@ -2213,16 +2280,10 @@ function loadIntercambios() {
   if (unsubIX) unsubIX();
   // Sin orderBy: Firestore excluye documentos con ts nulo; ordenamos en JS
   const _onData = snap => {
-    ixGlobal = snap.docs
+    _ixRaw = snap.docs
       .map(d => ({id: d.id, ...d.data()}))
       .sort(_ixSortFn);
-    intercambios = ixGlobal.filter(ix => ix.estado === 'completado'); // para calcNetIX
-    renderIntercambios();
-    renderDashboard();
-    cajPintarAvisosNav();
-    renderCupoActual();
-    renderSaldoCajas();
-    if (document.getElementById('sec-mapa-capital')?.classList.contains('active')) renderMapaCapital();
+    _refiltrarCajasPorOficina(); // filtra por oficina y dispara los renders
   };
   unsubIX = db.collection('patriarca_ix_global').onSnapshot(_onData, () => {
     db.collection('patriarca_ix_global').get().then(_onData);
@@ -3326,8 +3387,51 @@ function showSubSection(name) {
 }
 
 // ── CAJAS ──
+// allMovsGlobal / allGastosGlobal SIEMPRE contienen solo los datos de la
+// oficina de este cajero. Antes se cargaba TODA la colección sin filtro —
+// funcionaba mientras solo existía Unity, pero al copiarse los mismos
+// nombres de método a Golden Bets, la Caja "CORRESPONSAL EL PARAMO" (u otra
+// compartida) mezclaba movimientos reales de ambas oficinas en un mismo
+// cajero. _allMovsRaw/_allGastosRaw guardan la colección completa tal cual
+// llega de Firestore; _refiltrarCajasPorOficina() recalcula las versiones
+// filtradas cada vez que cambian los datos crudos O la lista de operadores
+// (que es la fuente de verdad de "qué opId pertenece a esta oficina").
+let _allMovsRaw = [];
+let _allGastosRaw = [];
+let _ixRaw = [];
 let allMovsGlobal = [];
 let allGastosGlobal = [];
+
+function _refiltrarCajasPorOficina() {
+  // Cajero sin oficina asignada (ej. corresponsal neutral) → sin filtro,
+  // comportamiento legado.
+  if (!cajeroOficina) {
+    allMovsGlobal = _allMovsRaw;
+    allGastosGlobal = _allGastosRaw;
+    ixGlobal = _ixRaw;
+  } else {
+    const ids = new Set(operadores.map(o => o.uid));
+    allMovsGlobal = _allMovsRaw.filter(mv => ids.has(mv.opId));
+    allGastosGlobal = _allGastosRaw.filter(g => ids.has(g.opId));
+    // Un intercambio pertenece a esta oficina si CUALQUIERA de los dos
+    // operadores involucrados es de aquí (op1 siempre lo es; op2 solo existe
+    // en los cruzados) — antes se cargaban TODOS los intercambios del
+    // sistema sin filtrar, así que un cajero veía pendientes de otra oficina
+    // (ej. Neiver de Golden apareciéndole a Paola en Unity).
+    ixGlobal = _ixRaw.filter(ix => ids.has(ix.op1_uid) || (ix.op2_uid && ids.has(ix.op2_uid)));
+  }
+  intercambios = ixGlobal.filter(ix => ix.estado === 'completado'); // para calcNetIX
+  renderIntercambios();
+  if (document.getElementById('sec-dashboard')?.classList.contains('active')) renderDashboard();
+  if (document.getElementById('sec-cajas')?.classList.contains('active')) renderCajas();
+  if (_corrInit) { renderCorrCuentas(); try { renderParamo(); } catch(e) {} }
+  if (_cajaInit) { try { renderGeneralEfecty(); } catch(e) {} }
+  renderCupoActual();
+  renderSaldoCajas();
+  cajPintarAvisosNav();
+  if (hojaOpUid) renderHojaOp();
+  if (document.getElementById('sec-mapa-capital')?.classList.contains('active')) renderMapaCapital();
+}
 let cajasMetodo = null;
 let cajasFilter = { operador:'', tipo:'', estado:'', fechaDesde:'', fechaHasta:'', cliente:'' };
 let _cajasSearchTimeout = null;
@@ -3377,10 +3481,51 @@ function ixDelMes() {
   return ixGlobal.filter(ix => ix.estado === 'completado' && getMesKey(ix) === mesActivo);
 }
 
+// ── Control de mes de Caja General cerrado ──────────────────────────────────
+// Cuando el administrador acepta un cierre de cajero (cajero_cierres, estado
+// 'aceptado') para el mes que se está viendo, la Caja General de ESE mes ya
+// no se puede volver a editar/cerrar desde aquí — igual que ya se hace con
+// los operadores (patriarca_meses_cerrados), salvo que el admin lo autorice
+// explícitamente marcando `autorizado: true` en el mismo doc del cierre.
+let _cajCierreDoc = null;    // {id, ...data} del cierre aceptado para el mes activo, o null
+let _cajCierreUnsub = null;
+
+function _cajCierreLocked() {
+  return !!_cajCierreDoc && _cajCierreDoc.autorizado !== true;
+}
+
+function _pintarBannerCajCerrado() {
+  const banner = document.getElementById('banner-caj-cerrado');
+  const autSpan = document.getElementById('banner-caj-autorizado');
+  if (!banner) return;
+  if (_cajCierreDoc) {
+    banner.style.display = '';
+    if (autSpan) autSpan.style.display = _cajCierreDoc.autorizado === true ? '' : 'none';
+  } else {
+    banner.style.display = 'none';
+  }
+}
+
+function _suscribirCierreCajero() {
+  if (_cajCierreUnsub) { _cajCierreUnsub(); _cajCierreUnsub = null; }
+  _cajCierreDoc = null;
+  _pintarBannerCajCerrado();
+  if (!mesActivo) return;
+  let q = db.collection('cajero_cierres')
+    .where('mes', '==', mesActivo)
+    .where('estado', '==', 'aceptado');
+  if (cajeroOficina) q = q.where('oficina', '==', cajeroOficina);
+  _cajCierreUnsub = q.onSnapshot(snap => {
+    _cajCierreDoc = snap.empty ? null : { id: snap.docs[0].id, ...snap.docs[0].data() };
+    _pintarBannerCajCerrado();
+  }, err => console.warn('cierre cajero mes activo:', err));
+}
+
 function cambiarMes() {
   mesActivo = document.getElementById('sel-mes').value;
   _scData = null; _scOpUid = null; // invalidar cache de saldo clientes al cambiar mes
   _allScData = {};                  // invalidar cache de todos los operadores
+  _suscribirCierreCajero();
 
   // Recalcular cupos por mes desde datos cacheados
   const rawPozo = window._cajeroConfigRaw || {};
@@ -3410,28 +3555,23 @@ function cambiarMes() {
     _cargarSICorr();
     try { renderParamo(); } catch(e) {}
   }
+  if (_cajaInit) { try { initCorrCajas(); } catch(e) {} }
 }
 
 function loadCajas() {
   // Sin orderBy: Firestore excluye documentos con ts nulo; ordenamos en JS
   db.collection('patriarca_movimientos').onSnapshot(snap => {
-    allMovsGlobal = snap.docs.map(d => ({id: d.id, ...d.data()}))
+    _allMovsRaw = snap.docs.map(d => ({id: d.id, ...d.data()}))
       .filter(mv => !mv.eliminado)   // excluir movimientos eliminados (soft delete)
       .sort((a,b) => (a.ts?.seconds||0) - (b.ts?.seconds||0));
-    if (document.getElementById('sec-cajas')?.classList.contains('active')) renderCajas();
-    if (_corrInit) { renderCorrCuentas(); try { renderParamo(); } catch(e) {} }
-    if (_cajaInit) { try { renderGeneralEfecty(); } catch(e) {} }
-    renderCupoActual();
-    cajPintarAvisosNav();
-    if (hojaOpUid) renderHojaOp();
-    if (document.getElementById('sec-mapa-capital')?.classList.contains('active')) renderMapaCapital();
+    _refiltrarCajasPorOficina();
   }, err => console.warn('cajas global:', err));
 }
 
 function loadGastosGlobal() {
   db.collection('patriarca_gastos').onSnapshot(snap => {
-    allGastosGlobal = snap.docs.map(d => ({id: d.id, ...d.data()}));
-    if (document.getElementById('sec-mapa-capital')?.classList.contains('active')) renderMapaCapital();
+    _allGastosRaw = snap.docs.map(d => ({id: d.id, ...d.data()}));
+    _refiltrarCajasPorOficina();
   }, err => console.warn('gastos global:', err));
 }
 
@@ -5464,11 +5604,61 @@ async function borrarCuenta(id) {
 }
 
 // ── CRUD movimientos ──
+let _corrTrFilas = { egresos: [], ingresos: [] }; // transferencia: [{cuenta, monto}]
+
 function setCorrTipo(t) {
   document.getElementById('cmv-tipo').value = t;
-  const a = document.getElementById('cmv-btn-in'), b = document.getElementById('cmv-btn-eg');
+  const a = document.getElementById('cmv-btn-in'), b = document.getElementById('cmv-btn-eg'), c = document.getElementById('cmv-btn-tr');
   a.style.cssText = 'flex:1;' + (t==='Ingresos' ? 'background:var(--green);color:#fff;border-color:var(--green)' : '');
   b.style.cssText = 'flex:1;' + (t==='Egresos'  ? 'background:var(--red);color:#fff;border-color:var(--red)' : '');
+  c.style.cssText = 'flex:1;' + (t==='Transferencia' ? 'background:var(--gold);color:#fff;border-color:var(--gold)' : '');
+  const esTransfer = t === 'Transferencia';
+  document.getElementById('cmv-simple').style.display   = esTransfer ? 'none' : '';
+  document.getElementById('cmv-transfer').style.display = esTransfer ? '' : 'none';
+  if (esTransfer) {
+    if (!_corrTrFilas.egresos.length)  _corrTrFilas.egresos.push({cuenta:'', monto:0});
+    if (!_corrTrFilas.ingresos.length) _corrTrFilas.ingresos.push({cuenta:'', monto:0});
+    _corrTrRender();
+  }
+}
+
+function _corrTrAgregarFila(lado) {
+  _corrTrFilas[lado].push({cuenta:'', monto:0});
+  _corrTrRender();
+}
+function _corrTrQuitarFila(lado, idx) {
+  _corrTrFilas[lado].splice(idx, 1);
+  _corrTrRender();
+}
+function _corrTrCambiar(lado, idx, campo, valor) {
+  _corrTrFilas[lado][idx][campo] = campo === 'monto' ? parseCOP(valor) : valor;
+  _corrTrBalance();
+}
+function _corrTrRender() {
+  const opts = sel => _corrCuentas.map(c => `<option value="${c.nombre}" ${c.nombre===sel?'selected':''}>${c.nombre}</option>`).join('');
+  ['egresos','ingresos'].forEach(lado => {
+    const cont = document.getElementById(lado==='egresos' ? 'cmv-tr-egresos' : 'cmv-tr-ingresos');
+    cont.innerHTML = _corrTrFilas[lado].map((f, i) => `
+      <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center">
+        <select style="flex:1" onchange="_corrTrCambiar('${lado}',${i},'cuenta',this.value)">
+          <option value="">Cuenta…</option>${opts(f.cuenta)}
+        </select>
+        <input type="text" value="${f.monto ? formatCOP(String(Math.round(f.monto))) : ''}" placeholder="0" inputmode="numeric"
+          style="width:110px;text-align:right"
+          oninput="const s=this.selectionStart,l=this.value.length;this.value=formatCOP(this.value);this.setSelectionRange(s+this.value.length-l,s+this.value.length-l);_corrTrCambiar('${lado}',${i},'monto',this.value)">
+        <button type="button" class="btn btn-ghost" style="padding:4px 8px" onclick="_corrTrQuitarFila('${lado}',${i})">✕</button>
+      </div>`).join('');
+  });
+  _corrTrBalance();
+}
+function _corrTrBalance() {
+  const el = document.getElementById('cmv-tr-balance');
+  if (!el) return;
+  const totE = _corrTrFilas.egresos.reduce((s,f)=>s+(f.monto||0),0);
+  const totI = _corrTrFilas.ingresos.reduce((s,f)=>s+(f.monto||0),0);
+  const diff = totI - totE;
+  el.innerHTML = `Sale ${_cPeso(totE)} · Entra ${_cPeso(totI)} · ` +
+    (diff === 0 ? `<span style="color:var(--green)">✓ cuadra</span>` : `<span style="color:var(--red)">Diferencia ${_cPeso(diff)}</span>`);
 }
 
 function abrirModalCorrMov() {
@@ -5478,6 +5668,7 @@ function abrirModalCorrMov() {
   document.getElementById('cmv-fecha').value = _hoyLocal();
   document.getElementById('cmv-monto').value = '';
   document.getElementById('cmv-desc').value  = '';
+  _corrTrFilas = { egresos: [], ingresos: [] };
   setCorrTipo('Ingresos');
   openModal('modal-corr-mov');
 }
@@ -5498,17 +5689,45 @@ function editarCorrMov(id) {
 async function guardarCorrMov() {
   const id     = document.getElementById('cmv-edit-id').value;
   const fecha  = document.getElementById('cmv-fecha').value;
+  const tipo   = document.getElementById('cmv-tipo').value;
+  const desc   = document.getElementById('cmv-desc').value.trim();
+  if (!fecha) { toast('⚠ Selecciona la fecha', 'error'); return; }
+
+  if (tipo === 'Transferencia') {
+    if (id) { toast('⚠ Una transferencia no se edita — bórrala y créala de nuevo', 'error'); return; }
+    const filasE = _corrTrFilas.egresos.filter(f => f.cuenta && f.monto);
+    const filasI = _corrTrFilas.ingresos.filter(f => f.cuenta && f.monto);
+    if (!filasE.length || !filasI.length) { toast('⚠ Agrega al menos una cuenta de salida y una de entrada', 'error'); return; }
+    const totE = filasE.reduce((s,f)=>s+f.monto,0);
+    const totI = filasI.reduce((s,f)=>s+f.monto,0);
+    if (totE !== totI) { toast('⚠ Lo que sale y lo que entra debe sumar igual', 'error'); return; }
+    try {
+      const op = _corrMovs.reduce((mx,m)=>Math.max(mx, m.op||0), 0) + 1;
+      const base = {
+        oficina: cajeroOficina || '', fecha, descripcion: desc,
+        especialista: opNombre || '', mesKey: fecha.slice(0,7),
+        ts: firebase.firestore.FieldValue.serverTimestamp(), op,
+      };
+      const batch = db.batch();
+      filasE.forEach(f => batch.set(db.collection('corresponsal_movimientos').doc(), { ...base, cuenta: f.cuenta, monto: f.monto, movimiento: 'Egresos' }));
+      filasI.forEach(f => batch.set(db.collection('corresponsal_movimientos').doc(), { ...base, cuenta: f.cuenta, monto: f.monto, movimiento: 'Ingresos' }));
+      await batch.commit();
+      closeModal('modal-corr-mov');
+      toast('✅ Transferencia guardada', 'success');
+    } catch(e) { toast('⚠ ' + e.message, 'error'); }
+    return;
+  }
+
   const cuenta = document.getElementById('cmv-cuenta').value;
   const monto  = parseCOP(document.getElementById('cmv-monto').value);
-  if (!fecha)  { toast('⚠ Selecciona la fecha', 'error'); return; }
   if (!cuenta) { toast('⚠ Selecciona la cuenta', 'error'); return; }
   if (!monto)  { toast('⚠ Ingresa el monto', 'error'); return; }
 
   const data = {
     oficina:      cajeroOficina || '',
         fecha, cuenta, monto,
-    movimiento:  document.getElementById('cmv-tipo').value,
-    descripcion: document.getElementById('cmv-desc').value.trim(),
+    movimiento:  tipo,
+    descripcion: desc,
     especialista: opNombre || '',
     mesKey:      fecha.slice(0,7),
     ts: firebase.firestore.FieldValue.serverTimestamp(),
@@ -6540,6 +6759,18 @@ async function traerCierreCajasMesAnterior() {
   const prev = (m===1 ? (y-1)+'-12' : y+'-'+String(m-1).padStart(2,'0'));
   const of = _corrPunto();
   try {
+    // 1) Preferir el cierre guardado con "🔒 Cerrar mes" — es el Saldo Final real,
+    //    calculado igual que en pantalla (incluye Cuadre Diario y AMC, no solo corresponsal_caja_movs).
+    const cierreDoc = await db.collection('corresponsal_caja_cierres').doc(`${of||'global'}_${prev}`).get();
+    if (cierreDoc.exists && cierreDoc.data().saldos && Object.keys(cierreDoc.data().saldos).length) {
+      _pintarSICajas(cierreDoc.data().saldos);
+      toast(`↩ Traído el cierre real de ${prev}`, 'success');
+      return;
+    }
+    // 2) Legacy: sin cierre guardado — recalcular solo con corresponsal_caja_movs.
+    //    OJO: esto NO incluye movimientos de cajas tipo "público" (Cuadre Diario) ni
+    //    "enlazada" a AMC, así que para esas cajas puede quedar desactualizado.
+    //    Ciérralo con "🔒 Cerrar mes" antes de avanzar de mes para un valor exacto.
     const iniDoc = await db.collection('corresponsal_caja_inicial').doc(`${of||'global'}_${prev}`).get();
     const base = iniDoc.exists ? (iniDoc.data().saldos || {}) : {};
     const snap = await db.collection('corresponsal_caja_movs')
@@ -6553,7 +6784,44 @@ async function traerCierreCajasMesAnterior() {
     });
     if (!Object.keys(cierre).length) { toast(`⚠ Sin datos de ${prev}`, 'error'); return; }
     _pintarSICajas(cierre);
-    toast(`↩ Traído el cierre de ${prev}`, 'success');
+    toast(`↩ Traído un estimado de ${prev} — ciérralo con 🔒 para un valor exacto`, 'info');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+// Guarda una foto fija del Saldo Final real de cada caja del mes activo,
+// calculado con la MISMA fórmula que la tabla General Efecty (incluye Cuadre
+// Diario para la caja pública y los totales del AMC para las enlazadas).
+// Así "Traer del mes anterior" del mes siguiente trae el valor exacto.
+async function cerrarMesCajas() {
+  if (!_cajas.length) { toast('⚠ No hay cajas para cerrar', 'error'); return; }
+  const of = _corrPunto();
+  const acc = {};
+  _cajaMovsMes.forEach(m => {
+    if (!m.caja) return;
+    if (m.estado === 'Cancelada' || m.estado === 'No Encontrado') return;
+    if (!acc[m.caja]) acc[m.caja] = { rec:0, pag:0 };
+    const v = parseFloat(m.monto) || 0;
+    if (_CAJA_ENTRADA.has(m.opcion)) acc[m.caja].rec += v; else acc[m.caja].pag += v;
+  });
+  const delCuadre = _cqTotalMes();
+  const delAMC = _cajaTotalesAMC;
+  const saldos = {};
+  _cajas.forEach(c => {
+    const ant = parseFloat(_cajaSI[c.nombre]) || 0;
+    const d   = c.tipo === 'publico' ? delCuadre
+              : (c.tipo === 'enlazada' && c.origen === 'amc') ? delAMC(c.enlace)
+              : (acc[c.nombre] || { rec:0, pag:0 });
+    const ix  = d.ix || 0;
+    saldos[c.nombre] = ant - d.rec + d.pag + ix;
+  });
+  if (!confirm(`¿Cerrar ${mesActivo}? Esto guarda el Saldo Final de hoy de cada caja para traerlo al mes siguiente. Puedes volver a cerrarlo después si algo cambia.`)) return;
+  try {
+    await db.collection('corresponsal_caja_cierres').doc(`${of||'global'}_${mesActivo}`).set({
+      oficina: of || '', mesKey: mesActivo, saldos,
+      cerradoPor: (typeof cajeroNombre !== 'undefined' && cajeroNombre) || (auth.currentUser && auth.currentUser.email) || '',
+      ts: firebase.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    toast('🔒 Mes cerrado — saldos guardados para ' + mesActivo, 'success');
   } catch(e) { toast('⚠ ' + e.message, 'error'); }
 }
 
@@ -7560,6 +7828,9 @@ async function abrirCierreCajero() {
   if (cajeroPermisos.cerrarMes === false) {
     toast('⚠ No tienes permiso para cerrar el mes', 'error'); return;
   }
+  if (_cajCierreLocked()) {
+    toast('🔒 Este mes ya fue cerrado por el administrador', 'info'); return;
+  }
   if (!_cruceData.length) { toast('⚠ Aún no hay saldos calculados', 'error'); return; }
 
   const mesSig = _mesSiguienteKey(mesActivo);
@@ -7664,6 +7935,7 @@ async function enviarCierreCajero() {
 function ajustarColsFijas() {}
 
 function _guardarFisico(idx, val) {
+  if (_cajCierreLocked()) { toast('🔒 Este mes ya fue cerrado por el administrador — no se puede editar', 'error'); return; }
   const metodo = _cruceData[idx]?.metodo;
   if (metodo !== undefined) {
     _cruceFisicoValues[metodo] = val;
@@ -7673,9 +7945,15 @@ function _guardarFisico(idx, val) {
 }
 
 function _copiarSistema(idx) {
+  if (_cajCierreLocked()) { toast('🔒 Este mes ya fue cerrado por el administrador — no se puede editar', 'error'); return; }
   const row = _cruceData[idx];
   if (!row) return;
-  const raw = String(row.sistema);
+  // Redondear a pesos enteros: row.sistema puede traer ruido de coma flotante
+  // (ej. 9840652.2299999998 en vez de 9840652.23) cuando el saldo inicial
+  // tiene centavos — al convertir ese número crudo a texto con muchos
+  // decimales, _parsePesosInput lo interpreta como si el "." fuera separador
+  // de miles y arma un número gigante sin sentido.
+  const raw = String(Math.round(row.sistema));
   _cruceFisicoValues[row.metodo] = raw;
   _cruceSaveLS();
   _cruceSaveFirestore();
@@ -7685,10 +7963,12 @@ function _copiarSistema(idx) {
 }
 
 function _copiarTodo() {
+  if (_cajCierreLocked()) { toast('🔒 Este mes ya fue cerrado por el administrador — no se puede editar', 'error'); return; }
   _cruceData.forEach((row, i) => {
-    _cruceFisicoValues[row.metodo] = String(row.sistema);
+    const raw = String(Math.round(row.sistema));
+    _cruceFisicoValues[row.metodo] = raw;
     const inp = document.getElementById('cruce-inp-'+i);
-    if (inp) inp.value = String(row.sistema);
+    if (inp) inp.value = raw;
   });
   _cruceSaveLS();
   _cruceSaveFirestore();
@@ -7696,6 +7976,7 @@ function _copiarTodo() {
 }
 
 function limpiarCruce() {
+  if (_cajCierreLocked()) { toast('🔒 Este mes ya fue cerrado por el administrador — no se puede editar', 'error'); return; }
   _cruceFisicoValues = {};
   _cruceSaveLS();
   _cruceSaveFirestore();
@@ -7769,7 +8050,11 @@ function _actualizarCruce() {
       return;
     }
     totFis += fis;
-    const dif = fis - sis;
+    // Redondear: sis puede traer centavos residuales (ruido de coma flotante,
+    // o un saldo inicial con centavos reales como 26.211.333,23) — el físico
+    // siempre se cuenta en pesos enteros, así que comparar centavo a centavo
+    // marcaba "diferencia" (ej. "$-0") en filas que en la práctica cuadran.
+    const dif = Math.round(fis - sis);
     if (dif === 0) {
       celDif.textContent = '✅ CORRECTO';
       celDif.style.color = 'var(--green)';
@@ -7821,7 +8106,7 @@ function _actualizarCruce() {
   }
   totFisEl.textContent = pesos(totFis);
   totFisEl.style.color = 'var(--text)';
-  const totDif = totFis - totSis;
+  const totDif = Math.round(totFis - totSis);
   if (totDif === 0) {
     totDifEl.textContent = '✅ CORRECTO';
     totDifEl.style.color = 'var(--green)';

@@ -753,6 +753,17 @@ select option{background:var(--bg3)}
         </div>
       </div>
 
+      <!-- Cierres de Registro de Efectivo — solo registro, no requieren aprobación -->
+      <div class="panel" style="margin-bottom:16px">
+        <div class="panel-header">
+          <span class="panel-title">💵 Cierres de Registro de Efectivo</span>
+          <span style="font-size:11px;color:var(--text2)">Cierra el cajero mismo — aquí solo queda el registro</span>
+        </div>
+        <div class="panel-body" id="cierres-ef-list">
+          <div style="text-align:center;color:var(--text2);padding:20px">⏳ Cargando...</div>
+        </div>
+      </div>
+
       <div class="panel">
         <div class="panel-header"><span class="panel-title">👤 Cierres de Operadores</span></div>
         <div class="panel-body" id="cierres-list">
@@ -2057,16 +2068,6 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.navgrp').forEach(g => g.classList.remove('open'));
   });
 });
-
-// ── Badge de pendientes en el tab del grupo (Gestión) ──
-function _syncGrpBadge() {
-  const grp = document.getElementById('grp-gestion');
-  if (!grp) return;
-  const tab = grp.querySelector('.tab');
-  const hayPend = [...grp.querySelectorAll('.navgrp-item')]
-    .some(i => /\(\d+\)/.test(i.textContent));
-  tab.textContent = hayPend ? '📋 Gestión •' : '📋 Gestión';
-}
 
 // ── CUPO INICIAL ADMIN ──────────────────────────────────────────────────────
 let ciOps = [], ciMetodos = [], ciInitDone = false;
@@ -7479,7 +7480,6 @@ function _updateSolBadge() {
       invBadge.style.display = 'none';
     }
   }
-  _syncGrpBadge();
 }
 
 function initSolicitudes() {
@@ -7901,6 +7901,67 @@ function initCierresCorr() {
     });
 }
 
+// ── CIERRES DE REGISTRO DE EFECTIVO ─────────────────────────────────────────
+// Solo registro: el cajero cierra el mes desde su portal (autoservicio).
+let _cierresEfListener = null;
+let _cierresEfNombres  = null; // cache uid → nombre
+
+async function _cierresEfMapaNombres() {
+  if (_cierresEfNombres) return _cierresEfNombres;
+  _cierresEfNombres = {};
+  try {
+    const snap = await db.collection('admin_usuarios').where('rol','==','operador').get();
+    snap.docs.forEach(d => { const u = d.data(); _cierresEfNombres[u.uid || d.id] = u.nombre || u.email || d.id; });
+  } catch(e) { console.warn('cierres ef nombres:', e); }
+  return _cierresEfNombres;
+}
+
+async function initCierresEf() {
+  if (_cierresEfListener) return;
+  const list = document.getElementById('cierres-ef-list');
+  if (!list) return;
+  const nombres = await _cierresEfMapaNombres();
+
+  _cierresEfListener = db.collection('patriarca_efectivo_cierres')
+    .orderBy('ts', 'desc')
+    .onSnapshot(snap => {
+      const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      if (!docs.length) {
+        list.innerHTML = '<div style="text-align:center;color:var(--text2);padding:20px">Sin cierres de efectivo</div>';
+        return;
+      }
+      const pesoF = v => '$' + Math.round(v||0).toLocaleString('es-CO');
+
+      list.innerHTML = docs.map(c => {
+        const saldos = Object.entries(c.saldos || {});
+        const total = saldos.reduce((a,[,v]) => a + (parseFloat(v)||0), 0);
+        const fecha = c.ts?.seconds ? new Date(c.ts.seconds*1000).toLocaleString('es-CO') : '—';
+        const saldosHtml = saldos.map(([uid,v]) =>
+          `<div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0">
+             <span style="color:var(--text2)">${nombres[uid] || uid}</span>
+             <span style="font-weight:600;color:${v<0?'var(--red)':'var(--text)'}">${pesoF(v)}</span>
+           </div>`).join('');
+
+        return `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <div>
+              <div style="font-weight:700">${c.oficina || '—'} · ${c.mesKey || '—'}</div>
+              <div style="font-size:11px;color:var(--text2)">Cerrado por ${c.cerradoPor || '—'} · ${fecha}</div>
+            </div>
+            <span style="font-weight:800;color:${total<0?'var(--red)':'var(--green)'}">${pesoF(total)}</span>
+          </div>
+          <details style="margin-top:8px">
+            <summary style="cursor:pointer;font-size:11px;color:var(--text2)">Ver saldo por operador (${saldos.length})</summary>
+            <div style="margin-top:8px;padding:8px;background:var(--bg);border-radius:6px">${saldosHtml}</div>
+          </details>
+        </div>`;
+      }).join('');
+    }, e => {
+      console.warn('cierres efectivo:', e);
+      list.innerHTML = '<div style="text-align:center;color:var(--red);padding:20px">⚠ Error al cargar</div>';
+    });
+}
+
 async function aceptarCierreCajero(id) {
   const snap = await db.collection('cajero_cierres').doc(id).get();
   if (!snap.exists) { toast('⚠ Cierre no encontrado', 'error'); return; }
@@ -7998,6 +8059,7 @@ let _cierresListener = null;
 function initCierres() {
   initCierresCajero();
   initCierresCorr();
+  initCierresEf();
   if (_cierresListener) return;
   const list  = document.getElementById('cierres-list');
   const badge = document.getElementById('cierres-pending-badge');
@@ -8033,7 +8095,6 @@ function initCierres() {
         if (!tabEl.querySelector('.nav-aviso')) tabEl.textContent = '📅 Cierres';
         badge.style.display = 'none';
       }
-      _syncGrpBadge();
 
       if (!docs.length) {
         list.innerHTML = '<div style="text-align:center;color:var(--text2);padding:32px">Sin solicitudes de cierre registradas</div>';

@@ -180,6 +180,19 @@ select option{background:var(--bg3)}
 .cajas-kpi-value{font-size:18px;font-weight:700}
 .badge-yellow{background:rgba(240,160,80,.15);color:var(--orange)}
 @media(max-width:600px){.form-grid{grid-template-columns:1fr}.form-group.span2{grid-column:span 1}.kpi-grid{grid-template-columns:repeat(2,1fr)}}
+
+/* ── Modo informe: se activa un instante mientras se genera la imagen del
+   informe del cajero. Oculta lo que solo tiene sentido interactivo (botones,
+   lápices, íconos de borrar) y deja los inputs con pinta de texto plano, para
+   que la foto se vea como un reporte y no como el formulario editable. ── */
+body.informe-capturando .btn,
+body.informe-capturando .btn-icon,
+body.informe-capturando .btn-importar,
+body.informe-capturando button { visibility:hidden !important }
+body.informe-capturando input {
+  border:none !important; background:transparent !important; box-shadow:none !important;
+  color:inherit !important; -webkit-text-fill-color:currentColor;
+}
 </style>
 </head>
 <body>
@@ -205,6 +218,7 @@ select option{background:var(--bg3)}
       <select id="sel-mes" onchange="cambiarMes()" style="background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--text2);font-size:11px;cursor:pointer;outline:none;font-family:inherit;padding:2px 6px"></select>
     </div>
     <div class="header-right">
+      <button class="btn-theme" id="btn-enviar-informe" onclick="enviarInforme()" title="Generar y enviar el informe del día" style="font-size:11px;padding:4px 10px">📤 Informe</button>
       <button class="btn-theme" id="btn-cambiar-modulo" onclick="abrirSelectorModulo()" title="Cambiar de módulo" style="font-size:11px;padding:4px 10px;display:none">🔀 Módulo</button>
       <span class="header-user" id="hdr-user"></span>
       <button class="btn-theme" id="btn-theme" onclick="toggleTheme()" title="Cambiar tema">☀️</button>
@@ -713,6 +727,7 @@ select option{background:var(--bg3)}
         <div style="display:flex;gap:8px">
           <button class="btn btn-ghost btn-sm" onclick="abrirSaldoInicialEf()">⚙️ Saldo Inicial</button>
           <button class="btn btn-ghost btn-sm btn-importar" onclick="abrirModalImportar()">⬆ Importar Excel</button>
+          <button class="btn btn-ghost btn-sm" onclick="cerrarMesEfectivo()" title="Guarda el Físico (Registro) real de cada operador de este mes, para traerlo exacto el mes siguiente">🔒 Cerrar mes</button>
           <button class="btn btn-gold btn-sm" onclick="abrirModalEfectivo()">+ Registrar</button>
         </div>
       </div>
@@ -1785,6 +1800,7 @@ select option{background:var(--bg3)}
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="chat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script>
 // ── CONFIG ──
 const firebaseConfig = {
@@ -2326,7 +2342,10 @@ function renderIntercambios() {
                 · ${fmtDate(ix.fecha)}
               </div>
             </div>
-            ${!needsOp2?`<button class="btn btn-gold btn-sm" onclick="confirmarIX('${ix.id}')">Confirmar ✅</button>`:'<span style="font-size:11px;color:var(--orange)">Esperando aceptación del Op2</span>'}
+            <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">
+              ${!needsOp2?`<button class="btn btn-gold btn-sm" onclick="confirmarIX('${ix.id}')">Confirmar ✅</button>`:'<span style="font-size:11px;color:var(--orange)">Esperando aceptación del Op2</span>'}
+              <button class="btn btn-ghost btn-sm" style="color:var(--red);border-color:var(--red)" onclick="rechazarIX('${ix.id}')">❌ Rechazar</button>
+            </div>
           </div>
         </div>`;
       }).join('');
@@ -2497,6 +2516,34 @@ async function confirmarIX(globalId) {
     }
     await batch.commit();
     toast('✅ Intercambio confirmado y completado', 'success');
+  } catch(e) { toast('⚠ Error: '+e.message,'error'); }
+}
+
+// Rechaza un intercambio que aún está pendiente (no se ha aplicado a ninguna
+// caja todavía, así que rechazar es seguro — no hay nada que revertir).
+// El operador que lo envió tiene que corregirlo o volver a mandarlo.
+async function rechazarIX(globalId) {
+  if (!confirm('¿Rechazar este intercambio? El operador tendrá que corregirlo o volver a enviarlo. Esta acción no se puede deshacer desde aquí.')) return;
+  try {
+    const ref  = db.collection('patriarca_ix_global').doc(globalId);
+    const snap = await ref.get();
+    const g    = snap.data();
+    const ts   = firebase.firestore.FieldValue.serverTimestamp();
+
+    const batch = db.batch();
+    batch.set(ref, {
+      estado: 'cancelado',
+      rechazado_cajera_at: ts,
+      rechazado_por: (auth.currentUser && auth.currentUser.email) || '',
+    }, { merge: true });
+
+    for (const docId of [g.op1_doc_id, g.op2_doc_id].filter(Boolean)) {
+      const docRef  = db.collection('patriarca_intercambios').doc(docId);
+      const docSnap = await docRef.get();
+      if (docSnap.exists) batch.update(docRef, { estado: 'cancelado' });
+    }
+    await batch.commit();
+    toast('❌ Intercambio rechazado', 'success');
   } catch(e) { toast('⚠ Error: '+e.message,'error'); }
 }
 
@@ -8529,7 +8576,10 @@ function renderEfectivo() {
     let sFis=0, sSis=0;
     const html = filas.map(r => {
       const fis = r.ini + r.in - r.eg;   // saldo inicial + movimientos del mes
-      const dif = fis - r.sist;
+      // Redondear: puede traer centavos residuales de coma flotante (o saldos
+      // con centavos reales) — comparar centavo a centavo marca "diferencia"
+      // en filas que en la práctica cuadran (ver el mismo fix en Cruce de Cajas).
+      const dif = Math.round(fis - r.sist);
       sFis += fis; sSis += r.sist; totIni += r.ini;
       const difTxt = dif === 0
         ? '<span style="color:var(--green);font-weight:700">✅ CORRECTO</span>'
@@ -8544,7 +8594,7 @@ function renderEfectivo() {
         <td style="text-align:right">${difTxt}</td>
       </tr>`;
     }).join('');
-    const difTot = sFis - sSis;
+    const difTot = Math.round(sFis - sSis);
     tbC.innerHTML = filas.length ? html + `<tr style="background:var(--bg3);font-weight:800;border-top:2px solid var(--border)">
         <td>TOTAL</td>
         <td style="text-align:right">${pesos(totIni)}</td>
@@ -8709,7 +8759,21 @@ async function traerCierreMesAnterior() {
   const prev = (m===1 ? (y-1)+'-12' : y+'-'+String(m-1).padStart(2,'0'));
   const of = cajeroOficina || '';
   try {
-    // Saldo inicial del mes anterior
+    // 1) Preferir el cierre guardado con "🔒 Cerrar mes" — es la foto fija real,
+    //    no se recalcula (y por lo tanto no cambia si alguien edita/borra un
+    //    movimiento del mes pasado después de haberlo cerrado).
+    const cierreDoc = await db.collection('patriarca_efectivo_cierres')
+      .doc(`${prev}_${of || 'global'}`).get();
+    if (cierreDoc.exists && cierreDoc.data().saldos && Object.keys(cierreDoc.data().saldos).length) {
+      _pintarSaldoIniEf(cierreDoc.data().saldos);
+      toast(`↩ Traído el cierre real de ${prev}`, 'success');
+      return;
+    }
+
+    // 2) Legacy: sin cierre guardado — recalcular desde saldo inicial + movimientos.
+    //    OJO: si algo del mes anterior se edita después de traer este valor, el
+    //    número puede quedar desactualizado. Ciérralo con "🔒 Cerrar mes" para
+    //    dejarlo fijo.
     const iniDoc = await db.collection('patriarca_efectivo_inicial')
       .doc(`${prev}_${of || 'global'}`).get();
     const iniPrev = iniDoc.exists ? (iniDoc.data().saldos || {}) : {};
@@ -8731,8 +8795,380 @@ async function traerCierreMesAnterior() {
     const n = Object.values(cierre).filter(v => v).length;
     if (!n) { toast(`⚠ No hay movimientos de efectivo en ${prev}`, 'error'); return; }
     _pintarSaldoIniEf(cierre);
-    toast(`↩ Traído el cierre de ${prev} — ${n} operador(es)`, 'success');
+    toast(`↩ Traído un estimado de ${prev} — ciérralo con 🔒 para un valor exacto`, 'info');
   } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+// Guarda una foto fija del Físico (Registro) real de cada operador del mes activo
+// (saldo inicial + ingresa - egresa), tal como se ve en la tabla. Así "Traer del
+// mes anterior" del mes siguiente trae el valor exacto, sin recalcular.
+async function cerrarMesEfectivo() {
+  const uids = new Set([...Object.keys(_efSistemaPorOp || {}), ...Object.keys(_efSaldoIni || {}),
+    ..._efMovs.map(m => m.opUid)].filter(Boolean));
+  if (!uids.size) { toast('⚠ No hay datos de efectivo para cerrar', 'error'); return; }
+
+  const porOp = {};
+  uids.forEach(uid => { porOp[uid] = parseFloat(_efSaldoIni[uid]) || 0; });
+  _efMovs.forEach(m => {
+    if (!m.opUid) return;
+    const v = parseFloat(m.cantidad) || 0;
+    porOp[m.opUid] = (porOp[m.opUid] || 0) + (m.operacion === 'EGRESA' ? -v : v);
+  });
+
+  if (!confirm(`¿Cerrar ${mesActivo} de Registro de Efectivo? Esto guarda el Físico (Registro) de hoy de cada operador para traerlo al mes siguiente. Puedes volver a cerrarlo después si algo cambia.`)) return;
+  try {
+    await db.collection('patriarca_efectivo_cierres').doc(`${mesActivo}_${cajeroOficina || 'global'}`).set({
+      mesKey: mesActivo, oficina: cajeroOficina || '', saldos: porOp,
+      cerradoPor: (auth.currentUser && auth.currentUser.email) || '',
+      ts: firebase.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    toast('🔒 Mes cerrado — saldos guardados para ' + mesActivo, 'success');
+  } catch(e) { toast('⚠ ' + e.message, 'error'); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// INFORME DEL CAJERO — arma una imagen con los datos ya en pantalla, la
+// guarda en cajero_informes (una foto por oficina/fecha), la postea al chat
+// interno sola (AJChat.enviarAutomatico) y ofrece compartirla por WhatsApp.
+// No recalcula nada por su cuenta: captura los mismos paneles que el cajero
+// ya ve, así que si algo cambia en la pantalla cambia igual en el informe.
+// ═══════════════════════════════════════════════════════════════════════
+
+function _informeHoy() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+async function _informeCapturarEl(el, opts) {
+  if (!el) return null;
+  try {
+    return await html2canvas(el, Object.assign({
+      backgroundColor: '#ffffff', scale: 1.4, useCORS: true, logging: false,
+    }, opts || {}));
+  } catch (e) { console.warn('informe: no se pudo capturar', el?.id, e); return null; }
+}
+
+// Arma la hoja de Pendientes a mano (no es una captura de una pantalla ya
+// existente): intercambios sin confirmar + movimientos sin aprobar del mes.
+async function _informeCanvasPendientes() {
+  const pend = (ixGlobal || []).filter(ix => ix.estado === 'pendiente_cajera' || ix.estado === 'pendiente_op2');
+  const movsPend = movsDelMes().filter(mv => mv.canal !== 'I-OP' && (!mv.estado_cajero || mv.estado_cajero === 'Pendiente'));
+  const nombreOp = uid => (operadores.find(o => o.uid === uid) || {}).nombre || uid || '—';
+
+  const filaIx = ix => `<tr>
+    <td style="padding:6px 10px;border-bottom:1px solid #e5e5e5">${ix.tipo==='C'?'Cruzado':'Interno'}</td>
+    <td style="padding:6px 10px;border-bottom:1px solid #e5e5e5">${ix.op1_nombre||'—'}</td>
+    <td style="padding:6px 10px;border-bottom:1px solid #e5e5e5;color:#c0392b">${ix.op1_egresa||'—'}</td>
+    <td style="padding:6px 10px;border-bottom:1px solid #e5e5e5;color:#1e8449">${ix.op1_ingresa||'—'}</td>
+    <td style="padding:6px 10px;border-bottom:1px solid #e5e5e5;text-align:right">${pesos(ix.monto)}</td>
+  </tr>`;
+  const filaMov = mv => `<tr>
+    <td style="padding:6px 10px;border-bottom:1px solid #e5e5e5">${nombreOp(mv.opId)}</td>
+    <td style="padding:6px 10px;border-bottom:1px solid #e5e5e5">${mv.metodo||'—'}</td>
+    <td style="padding:6px 10px;border-bottom:1px solid #e5e5e5">${mv.tipo||'—'}</td>
+    <td style="padding:6px 10px;border-bottom:1px solid #e5e5e5;text-align:right">${pesos(mv.monto)}</td>
+    <td style="padding:6px 10px;border-bottom:1px solid #e5e5e5">${mv.fecha||'—'}</td>
+  </tr>`;
+
+  const html = `
+    <div style="font-family:system-ui,-apple-system,sans-serif;background:#fff;color:#1a1a1a;width:900px;padding:20px">
+      <div style="font-weight:800;font-size:16px;color:#b5860a;margin-bottom:10px">🔄 Intercambios pendientes (${pend.length})</div>
+      ${pend.length ? `<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:22px">
+        <thead><tr style="background:#f2f2f2">
+          <th style="padding:6px 10px;text-align:left">Tipo</th><th style="padding:6px 10px;text-align:left">Operador</th>
+          <th style="padding:6px 10px;text-align:left">Sale</th><th style="padding:6px 10px;text-align:left">Entra</th>
+          <th style="padding:6px 10px;text-align:right">Monto</th>
+        </tr></thead><tbody>${pend.map(filaIx).join('')}</tbody></table>`
+        : `<div style="color:#888;font-size:13px;margin-bottom:22px">Sin intercambios pendientes ✅</div>`}
+
+      <div style="font-weight:800;font-size:16px;color:#b5860a;margin-bottom:10px">📋 Movimientos sin aprobar (${movsPend.length})</div>
+      ${movsPend.length ? `<table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr style="background:#f2f2f2">
+          <th style="padding:6px 10px;text-align:left">Operador</th><th style="padding:6px 10px;text-align:left">Método</th>
+          <th style="padding:6px 10px;text-align:left">Tipo</th><th style="padding:6px 10px;text-align:right">Monto</th>
+          <th style="padding:6px 10px;text-align:left">Fecha</th>
+        </tr></thead><tbody>${movsPend.map(filaMov).join('')}</tbody></table>`
+        : `<div style="color:#888;font-size:13px">Sin movimientos pendientes de aprobar ✅</div>`}
+    </div>`;
+
+  const cont = document.createElement('div');
+  cont.style.cssText = 'position:fixed;left:-99999px;top:0;z-index:-1';
+  cont.innerHTML = html;
+  document.body.appendChild(cont);
+  await new Promise(r => setTimeout(r, 30));
+  let canvas = null;
+  try { canvas = await html2canvas(cont.firstElementChild, { backgroundColor:'#ffffff', scale:1.4, useCORS:true, logging:false }); }
+  catch (e) { console.warn('informe: pendientes', e); }
+  finally { cont.remove(); }
+  return canvas;
+}
+
+// Apila varios canvases uno debajo del otro, con un título general arriba y
+// un subtítulo antes de cada bloque, en un único canvas final.
+function _informeApilar(bloques, tituloGeneral) {
+  const PAD = 24, GAP = 26, TITH = 40, HEADH = 56;
+  const anchoMax = Math.max(...bloques.map(b => b.canvas.width));
+  let alto = HEADH + PAD;
+  bloques.forEach(b => { alto += TITH + b.canvas.height + GAP; });
+
+  const out = document.createElement('canvas');
+  out.width = anchoMax + PAD * 2;
+  out.height = alto;
+  const ctx = out.getContext('2d');
+  ctx.fillStyle = '#f7f7f9';
+  ctx.fillRect(0, 0, out.width, out.height);
+
+  ctx.fillStyle = '#b5860a';
+  ctx.font = '700 24px system-ui, -apple-system, sans-serif';
+  ctx.fillText(tituloGeneral, PAD, 36);
+
+  let y = HEADH + PAD;
+  bloques.forEach(b => {
+    ctx.fillStyle = '#555';
+    ctx.font = '700 15px system-ui, -apple-system, sans-serif';
+    ctx.fillText(b.titulo, PAD, y + 16);
+    y += TITH;
+    ctx.drawImage(b.canvas, PAD, y);
+    y += b.canvas.height + GAP;
+  });
+
+  return out;
+}
+
+// Comprime el canvas final igual que cpImagenReporte() en patriarca.html:
+// prueba WebP con calidad decreciente antes de caer a PNG, para quedar bien
+// por debajo del límite de 1 MiB por documento de Firestore.
+function _informeComprimir(canvas) {
+  const TOPE = 900 * 1024;
+  for (const [tipoImg, cal] of [['image/webp',.85], ['image/webp',.7], ['image/webp',.55], ['image/png',1]]) {
+    try {
+      const d = canvas.toDataURL(tipoImg, cal);
+      if (d.startsWith('data:'+tipoImg) && d.length < TOPE) return d;
+    } catch(_) {}
+  }
+  return null;
+}
+
+async function _informeGuardar(tipo, canvasFinal) {
+  const dataUrl = _informeComprimir(canvasFinal);
+  if (!dataUrl) { toast('⚠ La imagen quedó muy pesada, no se pudo generar', 'error'); return null; }
+  const fecha = _informeHoy();
+  // Id fijo por día/oficina/tipo: si el cajero le da "Informe" dos veces el
+  // mismo día, la segunda REEMPLAZA a la primera (no queda un duplicado) —
+  // así en el archivo de administrador cada día muestra un solo informe,
+  // siempre el más reciente. "reenvios" cuenta cuántas veces se regeneró.
+  try {
+    const docId = `${fecha}_${cajeroOficina || 'sin-oficina'}_${tipo}`;
+    const ref = db.collection('cajero_informes').doc(docId);
+    await ref.set({
+      oficina: cajeroOficina || '', tipo, mesKey: mesActivo, fecha,
+      cajeroNombre: opNombre || (auth.currentUser && auth.currentUser.email) || '',
+      ts: firebase.firestore.FieldValue.serverTimestamp(),
+      reenvios: firebase.firestore.FieldValue.increment(1),
+    }, { merge: true });
+    await ref.collection('imagen').doc('img').set({ datos: dataUrl });
+    return { id: ref.id, dataUrl, fecha };
+  } catch (e) { toast('⚠ No se pudo guardar el informe: ' + e.message, 'error'); return null; }
+}
+
+async function _informePostearChat(tipo, dataUrl) {
+  if (!window.AJChat || !AJChat.enviarAutomatico) return;
+  const etiqueta = tipo === 'amc' ? 'informeAmc' : 'informeCorr';
+  const nombreInforme = tipo === 'amc' ? 'AMC' : 'Corresponsal';
+  try {
+    await AJChat.enviarAutomatico(`📤 Informe ${nombreInforme} — ${mesActivo}`, { tipo: etiqueta, imagen: dataUrl });
+  } catch (e) { console.warn('informe -> chat:', e); }
+}
+
+// Ofrece compartir por WhatsApp: usa el share sheet nativo si el navegador
+// lo soporta con archivos (la cajera escoge el grupo y confirma el envío);
+// si no, descarga la imagen y abre WhatsApp Web para adjuntarla a mano.
+async function _informeCompartirWhatsApp(dataUrl, nombreArchivo) {
+  try {
+    const blob = await (await fetch(dataUrl)).blob();
+    const file = new File([blob], nombreArchivo, { type: blob.type });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: nombreArchivo });
+      return;
+    }
+  } catch (e) { console.warn('informe: share nativo no disponible', e); }
+  const a = document.createElement('a');
+  a.href = dataUrl; a.download = nombreArchivo;
+  document.body.appendChild(a); a.click(); a.remove();
+  window.open('https://web.whatsapp.com/', '_blank');
+  toast('📥 Imagen descargada — ábrela en WhatsApp y adjúntala al grupo', 'info');
+}
+
+function enviarInforme() {
+  if (_modulo === 'corresponsal') { enviarInformeCorresponsal(); return; }
+  enviarInformeAMC();
+}
+
+// Busca la fecha del último informe de este tipo/oficina ya guardado, para
+// saber desde dónde traer "lo que no se ha enviado" (si nunca se ha enviado
+// uno, o si el último fue hace varios días — ej. no se envió el domingo —
+// el informe de hoy trae todo lo que falta, no solo el día de hoy).
+async function _informeFechaDesdeUltimo(tipo) {
+  try {
+    const snap = await db.collection('cajero_informes')
+      .where('oficina','==', cajeroOficina || '').where('tipo','==', tipo).get();
+    let ultima = '';
+    snap.docs.forEach(d => { const f = d.data().fecha || ''; if (f > ultima) ultima = f; });
+    if (!ultima) return _informeHoy();
+    const d = new Date(ultima + 'T12:00:00');
+    d.setDate(d.getDate() + 1);
+    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+  } catch (e) { console.warn('informe: fecha desde último', e); return _informeHoy(); }
+}
+
+// Reemplaza temporalmente las filas de Movimientos del Corresponsal Bancario
+// por solo las de fechaDesde en adelante (mismo formato de fila que
+// renderBancoMovs(), sin los botones de editar/eliminar). Devuelve una
+// función para restaurar la tabla real después de capturar.
+function _informeFiltrarBancoMovsDesde(fechaDesde) {
+  const tb = document.getElementById('cb-movs-tbody');
+  if (!tb) return () => {};
+  const original = tb.innerHTML;
+  const lista = (_bancoMovs || []).filter(m => !fechaDesde || (m.fecha||'') >= fechaDesde);
+  tb.innerHTML = lista.length ? lista.map(m => {
+    const eg = m.movimiento === 'Egresos';
+    return `<tr>
+      <td style="white-space:nowrap">${m.fecha||'—'}</td>
+      <td style="font-weight:600">${m.metodo||'—'}</td>
+      <td style="text-align:right;font-weight:600">${_cPeso(m.monto)}</td>
+      <td><span class="badge ${eg?'badge-red':'badge-green'}">${m.movimiento}</span></td>
+      <td style="font-size:11px;color:var(--text2)">${(m.cajero||'').split(' ')[0]}</td>
+      <td style="font-size:11px;color:var(--text2);max-width:240px">${m.descripcion||''}</td>
+      <td></td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="7" style="text-align:center;color:var(--text2);padding:24px">Sin movimientos desde ${fechaDesde}</td></tr>`;
+  return () => { tb.innerHTML = original; };
+}
+
+// Oculta todas las filas del Cuadre Diario menos la de "fecha", para que el
+// informe muestre solo el cuadre del día que se está reportando.
+function _informeAislarFilaCuadre(fecha) {
+  const tbody = document.getElementById('cq-tbody');
+  const filaHoy = document.getElementById('cq-monto-'+fecha)?.closest('tr');
+  if (!tbody || !filaHoy) return () => {};
+  const otras = [...tbody.querySelectorAll('tr')].filter(tr => tr !== filaHoy);
+  otras.forEach(tr => { tr.style.display = 'none'; });
+  return () => { otras.forEach(tr => { tr.style.display = ''; }); };
+}
+
+async function enviarInformeCorresponsal() {
+  const btn = document.getElementById('btn-enviar-informe');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Generando...'; }
+  const temaOriginal = document.documentElement.getAttribute('data-theme');
+  document.documentElement.setAttribute('data-theme', 'light');
+  document.body.classList.add('informe-capturando');
+  let restaurarMovs = () => {};
+  let restaurarCuadre = () => {};
+  try {
+    await new Promise(r => setTimeout(r, 60));
+
+    // 1) Corresponsal Bancario — Balance + Cruce de Métodos + Movimientos
+    // (solo desde el último informe enviado, para no repetir días ya reportados)
+    showTab('corr-banco'); initCorrBanco();
+    await new Promise(r => setTimeout(r, 350));
+    const fechaDesde = await _informeFechaDesdeUltimo('corresponsal');
+    restaurarMovs = _informeFiltrarBancoMovsDesde(fechaDesde);
+    await new Promise(r => setTimeout(r, 60));
+    const c1 = await _informeCapturarEl(document.getElementById('sec-corr-banco'));
+    restaurarMovs();
+
+    // 2) Efecty — Balance Efecty + conteo físico + General Efecty + Cuadre
+    // Diario (solo la fila de hoy)
+    showTab('corr-cajas'); initCorrCajas();
+    await new Promise(r => setTimeout(r, 400));
+    const cqBody = document.getElementById('cq-body');
+    if (cqBody) cqBody.style.display = '';
+    restaurarCuadre = _informeAislarFilaCuadre(_informeHoy());
+    await new Promise(r => setTimeout(r, 60));
+    const c2 = await _informeCapturarEl(document.getElementById('sec-corr-cajas'));
+    restaurarCuadre();
+
+    // 3) Cuentas del Corresponsal
+    showTab('corr-cuentas'); initCorrCuentas();
+    await new Promise(r => setTimeout(r, 300));
+    const c3 = await _informeCapturarEl(document.getElementById('sec-corr-cuentas'));
+
+    const bloques = [
+      { titulo: '🏦 Corresponsal Bancario',    canvas: c1 },
+      { titulo: '🏧 Efecty',                   canvas: c2 },
+      { titulo: '📒 Cuentas del Corresponsal', canvas: c3 },
+    ].filter(b => b.canvas);
+
+    if (!bloques.length) { toast('⚠ No se pudo generar el informe', 'error'); return; }
+
+    const final = _informeApilar(bloques, `Informe Corresponsal · ${cajeroOficina||'—'} · ${mesActivo}`);
+    const guardado = await _informeGuardar('corresponsal', final);
+    if (!guardado) return;
+    await _informePostearChat('corresponsal', guardado.dataUrl);
+    toast('✅ Informe Corresponsal generado y enviado al chat', 'success');
+    _informeCompartirWhatsApp(guardado.dataUrl, `informe-corresponsal-${guardado.fecha}.png`);
+  } catch (e) {
+    console.error(e);
+    toast('⚠ Error generando el informe: ' + e.message, 'error');
+  } finally {
+    restaurarMovs(); restaurarCuadre();
+    document.body.classList.remove('informe-capturando');
+    if (temaOriginal) document.documentElement.setAttribute('data-theme', temaOriginal);
+    else document.documentElement.removeAttribute('data-theme');
+    showTab('corr-banco');
+    if (btn) { btn.disabled = false; btn.textContent = '📤 Informe'; }
+  }
+}
+
+async function enviarInformeAMC() {
+  const btn = document.getElementById('btn-enviar-informe');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Generando...'; }
+  const temaOriginal = document.documentElement.getAttribute('data-theme');
+  document.documentElement.setAttribute('data-theme', 'light');
+  document.body.classList.add('informe-capturando');
+  try {
+    await new Promise(r => setTimeout(r, 60));
+
+    showTab('dashboard');
+    await new Promise(r => setTimeout(r, 280));
+    const c1 = await _informeCapturarEl(document.getElementById('dash-cruce-panel'));
+
+    showTabGroup('cupo-actual');
+    await renderCupoActual();
+    await new Promise(r => setTimeout(r, 280));
+    const c2 = await _informeCapturarEl(document.getElementById('sec-cupo-actual'));
+
+    showTab('efectivo'); initEfectivo();
+    await new Promise(r => setTimeout(r, 400));
+    const c3 = await _informeCapturarEl(document.getElementById('sec-efectivo'));
+
+    const c4 = await _informeCanvasPendientes();
+
+    const bloques = [
+      { titulo: '⚖️ Cruce de Cajas',         canvas: c1 },
+      { titulo: '📈 Cupo Actual',            canvas: c2 },
+      { titulo: '💵 Registro de Efectivo',   canvas: c3 },
+      { titulo: '⏳ Pendientes',              canvas: c4 },
+    ].filter(b => b.canvas);
+
+    if (!bloques.length) { toast('⚠ No se pudo generar el informe', 'error'); return; }
+
+    const final = _informeApilar(bloques, `Informe AMC · ${cajeroOficina||'—'} · ${mesActivo}`);
+    const guardado = await _informeGuardar('amc', final);
+    if (!guardado) return;
+    await _informePostearChat('amc', guardado.dataUrl);
+    toast('✅ Informe AMC generado y enviado al chat', 'success');
+    _informeCompartirWhatsApp(guardado.dataUrl, `informe-amc-${guardado.fecha}.png`);
+  } catch (e) {
+    console.error(e);
+    toast('⚠ Error generando el informe: ' + e.message, 'error');
+  } finally {
+    document.body.classList.remove('informe-capturando');
+    if (temaOriginal) document.documentElement.setAttribute('data-theme', temaOriginal);
+    else document.documentElement.removeAttribute('data-theme');
+    showTab('dashboard');
+    if (btn) { btn.disabled = false; btn.textContent = '📤 Informe'; }
+  }
 }
 
 async function guardarSaldoInicialEf() {

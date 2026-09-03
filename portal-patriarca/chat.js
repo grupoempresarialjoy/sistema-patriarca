@@ -255,6 +255,8 @@ const CTX_TITULO = {
   movimiento: 'Movimiento de caja',
   cierre:     'Cierre',
   evento:     'Evento',
+  informeAmc: 'Informe AMC',
+  informeCorr:'Informe Corresponsal',
   otro:       'Referencia'
 };
 
@@ -1065,6 +1067,13 @@ global.AJChat = {
      no hay vuelta atrás. Devuelve una promesa para poder mostrar el toast
      de éxito/error desde donde se llamó. */
   transmitir(ctx) { return transmitir(ctx); },
+
+  /* Manda un mensaje directo al propio hilo, SIN pasar por el compositor
+     manual (a diferencia de reportar(), que solo deja el contexto listo
+     para que la persona escriba y le dé enviar). Pensado para cosas que el
+     portal genera y envía solas, como el informe diario del cajero.
+       AJChat.enviarAutomatico('texto...', { tipo:'informeAmc', imagen })  */
+  enviarAutomatico(texto, contexto) { return enviar(CH.uid, texto, contexto); },
 
   // Ver la imagen en grande — un cupón en miniatura no se alcanza a leer
   ampliar(src) {

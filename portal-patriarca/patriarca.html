@@ -7297,16 +7297,28 @@ async function eliminarIntercambio(docId, globalId, esCompletado = false) {
     const batch = db.batch();
     // 1. Eliminar doc local de Op1
     batch.delete(db.collection('patriarca_intercambios').doc(docId));
-    // 2. Eliminar global
+    // 2. Si es cruzado (tipo C), el Op2 tiene SU PROPIO doc local aparte —
+    //    hay que borrarlo también o queda huérfano mostrando "Aprobado" para
+    //    siempre en el portal del Op2, aunque el intercambio ya no exista.
+    if (globalId) {
+      try {
+        const gSnap = await db.collection('patriarca_ix_global').doc(globalId).get();
+        const g = gSnap.exists ? gSnap.data() : {};
+        [g.op1_doc_id, g.op2_doc_id].filter(Boolean).forEach(id => {
+          if (id !== docId) batch.delete(db.collection('patriarca_intercambios').doc(id));
+        });
+      } catch(e) { console.warn('eliminarIntercambio: doc del otro operador:', e); }
+    }
+    // 3. Eliminar global
     if (globalId) batch.delete(db.collection('patriarca_ix_global').doc(globalId));
-    // 3. Eliminar incoming del Op2 (por global_id)
+    // 4. Eliminar incoming del Op2 (por global_id)
     if (globalId) {
       const incSnap = await db.collection('patriarca_ix_incoming')
         .where('global_id', '==', globalId).get();
       incSnap.docs.forEach(d => batch.delete(d.ref));
     }
     await batch.commit();
-    toast('🗑 Intercambio eliminado y notificación cancelada', 'info');
+    toast('🗑 Intercambio eliminado en ambos lados', 'info');
   } catch(e) { toast('⚠ Error al eliminar: ' + e.message, 'error'); }
 }
 
@@ -7333,8 +7345,24 @@ async function saveDeleteRequest() {
   const btn = document.getElementById('del-ix-submit');
   btn.disabled = true; btn.textContent = 'Enviando...';
   try {
+    // Si es cruzado (tipo C), el Op2 tiene su propio doc local aparte — hay que
+    // incluir sus IDs para que el admin, al aprobar, lo borre también y no
+    // quede huérfano mostrando "Aprobado" en el portal del otro operador.
+    let op1DocId = '', op2DocId = '';
+    if (globalId) {
+      try {
+        const gSnap = await db.collection('patriarca_ix_global').doc(globalId).get();
+        if (gSnap.exists) {
+          const g = gSnap.data();
+          op1DocId = g.op1_doc_id || '';
+          op2DocId = g.op2_doc_id || '';
+        }
+      } catch(e) { console.warn('saveDeleteRequest: doc global:', e); }
+    }
     await db.collection('patriarca_ix_delete_requests').add({
       docId, globalId,
+      op1_doc_id:  op1DocId,
+      op2_doc_id:  op2DocId,
       ix_id:       ix.ix_id || '',
       monto:       ix.monto || 0,
       fecha:       ix.fecha || '',

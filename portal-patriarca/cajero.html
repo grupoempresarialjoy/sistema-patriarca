@@ -238,7 +238,7 @@ body.informe-capturando input {
     <div class="tab" onclick="showTab('saldo-cajas')">🏦 Saldo Cajas</div>
     <div class="tab" id="tab-cajas" onclick="showTab('cajas')">📋 Cajas</div>
     <div class="tab" onclick="showTab('efectivo');initEfectivo()">💵 Efectivo</div>
-    <div class="tab" id="tab-mensajes" onclick="showTab('mensajes')">💬 Mensajes</div>
+    <div class="tab" id="tab-mensajes" onclick="showTab('mensajes')">💬 Chat</div>
   </nav>
   <nav id="nav-corr" style="display:none;align-items:center">
     <div class="tab tab-corr active" onclick="showTab('corr-banco');initCorrBanco()">🏦 Corresponsal</div>
@@ -1135,7 +1135,7 @@ body.informe-capturando input {
     <!-- MENSAJES -->
     <div class="section" id="sec-mensajes">
       <div class="sec-header">
-        <div><div class="sec-title">💬 Mensajes</div>
+        <div><div class="sec-title">💬 Chat</div>
           <div class="sec-sub">Anuncios del ecosistema y tu conversación privada con la administración</div></div>
       </div>
       <div id="ch-montar"></div>
@@ -1801,6 +1801,7 @@ body.informe-capturando input {
 <script src="chat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
 // ── CONFIG ──
 const firebaseConfig = {
@@ -2574,9 +2575,22 @@ function renderCorrecciones() {
   const wrap = document.getElementById('caj-correcciones-wrap');
   const list = document.getElementById('caj-correcciones-list');
   if (!wrap || !list) return;
-  if (!allCorrecciones.length) { wrap.style.display = 'none'; return; }
+
+  // La query trae TODAS las correcciones pendientes del sistema — el
+  // documento nunca guardó de qué oficina era. Igual que ya se hace con
+  // ixGlobal en _refiltrarCajasPorOficina(), se cruza el uid del
+  // solicitante contra los operadores de ESTA oficina. Sin este filtro, una
+  // solicitud de un operador de otra oficina (ej. Golden) se le mostraba a
+  // un cajero de otra (ej. AMC/Unity) — el mismo bug que ya se había
+  // corregido para intercambios, pero que nunca se replicó aquí.
+  const idsOficina = new Set(operadores.map(o => o.uid));
+  const propias = cajeroOficina
+    ? allCorrecciones.filter(c => idsOficina.has(c.solicitante_uid))
+    : allCorrecciones;
+
+  if (!propias.length) { wrap.style.display = 'none'; return; }
   wrap.style.display = '';
-  list.innerHTML = allCorrecciones.map(c => {
+  list.innerHTML = propias.map(c => {
     const va = c.valoresActuales   || {};
     const vp = c.valoresPropuestos || {};
     const hayCambios = Object.keys(vp).length > 0;
@@ -3469,6 +3483,7 @@ function _refiltrarCajasPorOficina() {
   }
   intercambios = ixGlobal.filter(ix => ix.estado === 'completado'); // para calcNetIX
   renderIntercambios();
+  renderCorrecciones();   // idem: se recalcula ahora que ya se conoce `operadores`
   if (document.getElementById('sec-dashboard')?.classList.contains('active')) renderDashboard();
   if (document.getElementById('sec-cajas')?.classList.contains('active')) renderCajas();
   if (_corrInit) { renderCorrCuentas(); try { renderParamo(); } catch(e) {} }
@@ -8935,6 +8950,74 @@ function _informeApilar(bloques, tituloGeneral) {
   return out;
 }
 
+// Arma un PDF con UNA PÁGINA POR BLOQUE — a diferencia de _informeApilar()
+// (que aplasta todo en una sola imagen larga, donde tablas con muchas
+// columnas quedan diminutas), acá cada sección se dibuja a su propio tamaño
+// de página, legible de verdad. Pensado para descargar/compartir por
+// WhatsApp; el chat interno solo sabe mostrar imágenes, así que ahí se sigue
+// mandando la versión apilada de siempre.
+// Las fuentes base de PDF (helvetica) no traen glifos de emoji — al toparse
+// con uno no solo lo pinta como un cuadro vacío, sino que descuadra el ancho
+// calculado para TODA la línea (por eso "🏦 Corresponsal Bancario" salía con
+// las letras regadas). En pantalla y en el chat los títulos se ven con su
+// emoji normal; para el PDF se le quita justo antes de escribirlo.
+function _quitarEmoji(s) {
+  return String(s || '')
+    .replace(/[\u{1F1E6}-\u{1F1FF}\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}\u{200D}]/gu, '')
+    .trim();
+}
+
+function _informeArmarPDF(bloques, tituloGeneral, calidad) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'letter' });
+  const MARGEN = 28, ALTO_CAB = 44;
+  tituloGeneral = _quitarEmoji(tituloGeneral);
+
+  bloques.forEach((b, i) => {
+    if (i > 0) doc.addPage();
+    const anchoPag = doc.internal.pageSize.getWidth();
+    const altoPag  = doc.internal.pageSize.getHeight();
+    const titulo = _quitarEmoji(b.titulo);
+
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
+    doc.setTextColor(150, 130, 20);
+    doc.text(tituloGeneral, MARGEN, MARGEN);
+    doc.setFontSize(15); doc.setTextColor(40, 40, 40);
+    doc.text(titulo, MARGEN, MARGEN + 20);
+    doc.setDrawColor(225, 225, 225);
+    doc.line(MARGEN, MARGEN + 28, anchoPag - MARGEN, MARGEN + 28);
+
+    // La imagen se escala para llenar la página sin deformarse ni recortarse
+    const wDisp = anchoPag - MARGEN * 2;
+    const hDisp = altoPag - MARGEN - ALTO_CAB - 24;
+    const escala = Math.min(wDisp / b.canvas.width, hDisp / b.canvas.height);
+    const w = b.canvas.width * escala, h = b.canvas.height * escala;
+    const x = MARGEN + (wDisp - w) / 2;
+    const y = MARGEN + ALTO_CAB;
+    doc.addImage(b.canvas.toDataURL('image/jpeg', calidad || 0.85), 'JPEG', x, y, w, h);
+
+    doc.setFontSize(9); doc.setTextColor(160, 160, 160);
+    doc.text(`${i + 1} / ${bloques.length}`, anchoPag - MARGEN - 30, altoPag - 14);
+  });
+
+  return doc;
+}
+
+// Igual que _informeComprimir() pero para el PDF completo: si con buena
+// calidad de imagen por página queda muy pesado para el límite de 1 MiB por
+// documento de Firestore, se vuelve a armar con menos calidad hasta que quepa.
+function _informeArmarPDFComprimido(bloques, tituloGeneral) {
+  const TOPE = 900 * 1024;
+  let ultimo = null;
+  for (const calidad of [0.85, 0.65, 0.5, 0.35]) {
+    const doc = _informeArmarPDF(bloques, tituloGeneral, calidad);
+    const datos = doc.output('datauristring');
+    ultimo = { doc, datos };
+    if (datos.length < TOPE) return ultimo;
+  }
+  return ultimo;   // se guarda igual aunque quede pesado — mejor eso que nada
+}
+
 // Comprime el canvas final igual que cpImagenReporte() en patriarca.html:
 // prueba WebP con calidad decreciente antes de caer a PNG, para quedar bien
 // por debajo del límite de 1 MiB por documento de Firestore.
@@ -8971,6 +9054,16 @@ async function _informeGuardar(tipo, canvasFinal) {
   } catch (e) { toast('⚠ No se pudo guardar el informe: ' + e.message, 'error'); return null; }
 }
 
+// Guarda el PDF de varias páginas en el MISMO documento del informe (junto a
+// la imagen apilada que ya se manda al chat) — así queda disponible para
+// quien lo quiera abrir página por página más adelante, sin depender del chat.
+async function _informeGuardarPDF(docId, datosPdf) {
+  try {
+    await db.collection('cajero_informes').doc(docId)
+      .collection('pdf').doc('doc').set({ datos: datosPdf });
+  } catch (e) { console.warn('informe: no se pudo guardar el PDF', e); }
+}
+
 async function _informePostearChat(tipo, dataUrl) {
   if (!window.AJChat || !AJChat.enviarAutomatico) return;
   const etiqueta = tipo === 'amc' ? 'informeAmc' : 'informeCorr';
@@ -8997,6 +9090,25 @@ async function _informeCompartirWhatsApp(dataUrl, nombreArchivo) {
   document.body.appendChild(a); a.click(); a.remove();
   window.open('https://web.whatsapp.com/', '_blank');
   toast('📥 Imagen descargada — ábrela en WhatsApp y adjúntala al grupo', 'info');
+}
+
+// Mismo mecanismo que _informeCompartirWhatsApp() pero para el PDF de varias
+// páginas — WhatsApp lo manda como documento, y quien lo reciba lo puede
+// pasar página por página en vez de ver una sola imagen larga.
+async function _informeCompartirPDF(blob, nombreArchivo) {
+  try {
+    const file = new File([blob], nombreArchivo, { type: 'application/pdf' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: nombreArchivo });
+      return;
+    }
+  } catch (e) { console.warn('informe: share de PDF no disponible', e); }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = nombreArchivo;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  toast('📥 PDF descargado — ábrelo en WhatsApp y adjúntalo al grupo', 'info');
 }
 
 function enviarInforme() {
@@ -9101,12 +9213,18 @@ async function enviarInformeCorresponsal() {
 
     if (!bloques.length) { toast('⚠ No se pudo generar el informe', 'error'); return; }
 
-    const final = _informeApilar(bloques, `Informe Corresponsal · ${cajeroOficina||'—'} · ${mesActivo}`);
+    const tituloGen = `Informe Corresponsal · ${cajeroOficina||'—'} · ${mesActivo}`;
+    const final = _informeApilar(bloques, tituloGen);
     const guardado = await _informeGuardar('corresponsal', final);
     if (!guardado) return;
     await _informePostearChat('corresponsal', guardado.dataUrl);
+
+    // El PDF de varias páginas es lo que de verdad se pasa página por
+    // página — la imagen apilada de arriba solo sirve para el vistazo en chat.
+    const { doc: pdfDoc, datos: pdfDatos } = _informeArmarPDFComprimido(bloques, tituloGen);
+    await _informeGuardarPDF(guardado.id, pdfDatos);
     toast('✅ Informe Corresponsal generado y enviado al chat', 'success');
-    _informeCompartirWhatsApp(guardado.dataUrl, `informe-corresponsal-${guardado.fecha}.png`);
+    _informeCompartirPDF(pdfDoc.output('blob'), `informe-corresponsal-${guardado.fecha}.pdf`);
   } catch (e) {
     console.error(e);
     toast('⚠ Error generando el informe: ' + e.message, 'error');
@@ -9153,12 +9271,18 @@ async function enviarInformeAMC() {
 
     if (!bloques.length) { toast('⚠ No se pudo generar el informe', 'error'); return; }
 
-    const final = _informeApilar(bloques, `Informe AMC · ${cajeroOficina||'—'} · ${mesActivo}`);
+    const tituloGen = `Informe AMC · ${cajeroOficina||'—'} · ${mesActivo}`;
+    const final = _informeApilar(bloques, tituloGen);
     const guardado = await _informeGuardar('amc', final);
     if (!guardado) return;
     await _informePostearChat('amc', guardado.dataUrl);
+
+    // El PDF de varias páginas es lo que de verdad se pasa página por
+    // página — la imagen apilada de arriba solo sirve para el vistazo en chat.
+    const { doc: pdfDoc, datos: pdfDatos } = _informeArmarPDFComprimido(bloques, tituloGen);
+    await _informeGuardarPDF(guardado.id, pdfDatos);
     toast('✅ Informe AMC generado y enviado al chat', 'success');
-    _informeCompartirWhatsApp(guardado.dataUrl, `informe-amc-${guardado.fecha}.png`);
+    _informeCompartirPDF(pdfDoc.output('blob'), `informe-amc-${guardado.fecha}.pdf`);
   } catch (e) {
     console.error(e);
     toast('⚠ Error generando el informe: ' + e.message, 'error');

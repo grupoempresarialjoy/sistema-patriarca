@@ -118,6 +118,21 @@ service cloud.firestore {
       }
     }
 
+    // El canal de Trixi Bot: un documento por oportunidad, que arma solo la
+    // vigilancia automática (SDK de administrador, no pasa por estas
+    // reglas). Todo el que tenga sesión lo lee — quién lo ve de verdad ya lo
+    // decide el propio portal según patriarca_config/{uid}.trixibot.activo—,
+    // pero nadie desde el navegador puede fabricar o borrar una oportunidad.
+    match /patriarca_chat_trixi/{id} {
+      allow read:  if request.auth != null;
+      allow write: if esAdmin();
+
+      match /imagenes/{img} {
+        allow read:  if request.auth != null;
+        allow write: if esAdmin();
+      }
+    }
+
     // ── ESTADO DEL BOT ────────────────────────────────────────────────────
     // Acá vive, entre otras cosas, la tabla de rendimiento: el resultado de
     // analizar 113.155 apuestas. Antes estaba escrita en el portal y cualquiera
@@ -142,6 +157,7 @@ service cloud.firestore {
       allow read: if request.auth != null
         && !(col in ['patriarca_chat_hilos',
                      'patriarca_chat_anuncios',
+                     'patriarca_chat_trixi',
                      'patriarca_chat_archivo']);
 
       // Ver, siempre. Escribir, no si el candado de auditoría está puesto —
@@ -149,6 +165,7 @@ service cloud.firestore {
       allow write: if request.auth != null
         && !(col in ['patriarca_chat_hilos',
                      'patriarca_chat_anuncios',
+                     'patriarca_chat_trixi',
                      'patriarca_chat_archivo'])
         && (esAdmin() || !auditoriaActiva() || permitidoEnAuditoria());
     }

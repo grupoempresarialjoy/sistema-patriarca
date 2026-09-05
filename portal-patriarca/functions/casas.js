@@ -214,11 +214,69 @@ async function leerYaJuegos() {
 }
 
 // ── WPLAY (HTML del servidor, sin API) ─────────────────────────────────────
+// Antes solo 4 rutas (3 ligas + el hub general). Wplay solo pinta el 1X2 en
+// la página de la liga — los demás mercados viven detrás de "Número de
+// mercados", en la página de cada partido, así que ampliar a más mercados
+// significaría una petición por partido, no por liga. Eso queda para después.
+// Por ahora se amplía lo barato: más ligas, la misma pata (1X2), calcado del
+// listado de "ligas principales" de ligas.js para no traer basura de ligas
+// juveniles/femeninas/reservas que igual se descartarían más adelante.
 const LIGAS_WPLAY = [
-  '/es/t/19311/Colombia-Primera-A',
-  '/es/t/19462/Copa-Libertadores',
-  '/es/t/19348/Copa-Sudamericana',
-  '/es/s/FOOT/F%C3%BAtbol'
+  { ruta: '/es/t/19311/Colombia-Primera-A', liga: 'Liga BetPlay Dimayor' },
+  { ruta: '/es/t/29698/Colombia-Copa-Colombia', liga: 'Copa Colombia' },
+  { ruta: '/es/t/19462/Copa-Libertadores', liga: 'Copa Libertadores' },
+  { ruta: '/es/t/19348/Copa-Sudamericana', liga: 'Copa Sudamericana' },
+  { ruta: '/es/t/19296/Argentina-Liga-Profesional', liga: 'Liga Profesional Argentina' },
+  { ruta: '/es/t/19303/Chile-Primera-Divisi%C3%B3n', liga: 'Primera Chile' },
+  { ruta: '/es/t/2400790/Brasil-Serie-A', liga: 'Brasileirao Serie A' },
+  { ruta: '/es/t/2434894/Liga-MX', liga: 'Liga MX' },
+  { ruta: '/es/t/19302/USA-MLS', liga: 'MLS' },
+  { ruta: '/es/t/19373/Ecuador-Primera-A', liga: 'Liga Pro' },
+  { ruta: '/es/t/19398/Uruguay-Primera-Divisi%C3%B3n', liga: 'Campeonato Uruguayo' },
+  { ruta: '/es/t/19359/Paraguay-Primera-Divisi%C3%B3n', liga: 'Division Profesional' },
+  { ruta: '/es/t/19340/Per%C3%BA-Primera-Divisi%C3%B3n', liga: 'Liga 1' },
+  { ruta: '/es/t/20080/Venezuela-Primera-Divisi%C3%B3n', liga: 'Liga FUTVE' },
+  { ruta: '/es/t/19402/Costa-Rica-Primera-Divisi%C3%B3n', liga: 'Primera Division Costa Rica' },
+  { ruta: '/es/t/19786/Bolivia-Liga-de-F%C3%BAtbol-Profesional', liga: 'Division Profesional Bolivia' },
+  { ruta: '/es/t/27598/Panama-Liga-Panamena', liga: 'Liga Panameña de Fútbol' },
+  { ruta: '/es/t/19469/Honduras-Liga-Nacional', liga: 'Liga Nacional Honduras' },
+  { ruta: '/es/t/19919/Guatemala-Liga-Nacional', liga: 'Liga Nacional Guatemala' },
+  { ruta: '/es/t/19161/UEFA-Champions-League', liga: 'Champions League' },
+  { ruta: '/es/t/19162/UEFA-Liga-Europa', liga: 'Europa League' },
+  { ruta: '/es/t/413776/UEFA-Europa-Conference-League', liga: 'Conference League' },
+  { ruta: '/es/t/19160/La-Liga', liga: 'La Liga' },
+  { ruta: '/es/t/19157/Inglaterra-Premier-League', liga: 'Premier League' },
+  { ruta: '/es/t/19156/Inglaterra-Championship', liga: 'Championship' },
+  { ruta: '/es/t/19207/Inglaterra-FA-Cup', liga: 'FA Cup' },
+  { ruta: '/es/t/19163/Inglaterra-EFL-Cup', liga: 'EFL Cup' },
+  { ruta: '/es/t/19208/Escocia-Premiership', liga: 'Premiership Escocia' },
+  { ruta: '/es/t/19159/Serie-A', liga: 'Serie A' },
+  { ruta: '/es/t/19328/Serie-B', liga: 'Serie B' },
+  { ruta: '/es/t/19327/Ligue-1', liga: 'Ligue 1' },
+  { ruta: '/es/t/19405/Ligue-2', liga: 'Ligue 2' },
+  { ruta: '/es/t/19158/Bundesliga-1', liga: 'Bundesliga' },
+  { ruta: '/es/t/19358/Holanda-Eredivisie', liga: 'Eredivisie' },
+  { ruta: '/es/t/19211/Portugal-Primeira-Liga', liga: 'Primeira Liga' },
+  { ruta: '/es/t/19372/B%C3%A9lgica-1ra-Divisi%C3%B3n-A', liga: 'Jupiler Pro League' },
+  { ruta: '/es/t/19363/-Turqu%C3%ADa-Superliga', liga: 'Süper Lig' },
+  { ruta: '/es/t/19209/Grecia-Super-League', liga: 'Super League Grecia' },
+  { ruta: '/es/t/19347/Austria-Bundesliga', liga: 'Bundesliga Austria' },
+  { ruta: '/es/t/19305/Suiza-Super-Liga', liga: 'Super League Suiza' },
+  { ruta: '/es/t/19299/Dinamarca-Superliga', liga: 'Superligaen' },
+  { ruta: '/es/t/19472/Noruega-Eliteserien', liga: 'Eliteserien' },
+  { ruta: '/es/t/19308/Suecia-Allsvenskan', liga: 'Allsvenskan' },
+  { ruta: '/es/t/19336/Polonia-Ekstraklasa', liga: 'Ekstraklasa' },
+  { ruta: '/es/t/19403/Rep%C3%BAblica-Checa-1ra-Liga', liga: 'Fortuna Liga' },
+  { ruta: '/es/t/19390/Croatia-HNL', liga: 'HNL' },
+  { ruta: '/es/t/19386/Serbia-Super-Liga', liga: 'Super Liga Serbia' },
+  { ruta: '/es/t/46019/Ruman%C3%ADa-Liga-1', liga: 'Liga I' },
+  { ruta: '/es/t/19383/Ucrania-Premier-League', liga: 'Premier League Ucrania' },
+  { ruta: '/es/t/19485/China-Super-Liga', liga: 'Super League China' },
+  { ruta: '/es/t/19378/Jap%C3%B3n-Liga-J', liga: 'J1-League' },
+  { ruta: '/es/t/19306/COREA-DEL-SUR-K-LEAGUE-1', liga: 'K League 1' },
+  { ruta: '/es/t/19361/Arabia-Saudita-Professional-League', liga: 'Saudi Pro League' },
+  { ruta: '/es/t/19421/Qatar-Stars-League', liga: 'Qatar Stars League' },
+  { ruta: '/es/s/FOOT/F%C3%BAtbol', liga: '' }
 ];
 
 // Wplay entrega la hora aparte, en un contenedor .ev-<id> con .time y .date.
@@ -255,7 +313,7 @@ function fechaWplay(hora, fecha, offset) {
   return new Date(ms).toISOString();
 }
 
-function parsearWplay(html, cheerio) {
+function parsearWplay(html, cheerio, liga) {
   const $ = cheerio.load(html);
   const off = offsetWplay($);
 
@@ -297,21 +355,37 @@ function parsearWplay(html, cheerio) {
     if (!X || otros.length !== 2) return;   // sin empate identificable → se descarta
     if (envivo.has(g.ev) || !horas[g.ev]) return;   // en vivo o sin hora → fuera
     out.push({ casa: 'WPLAY', local: otros[0].nombre, visita: otros[1].nombre,
-               inicio: horas[g.ev], liga: '',
+               inicio: horas[g.ev], liga: liga || '',
                c: { '1': otros[0].cuota, 'X': X.cuota, '2': otros[1].cuota } });
   });
   return out;
 }
 
+// Antes esto era un for..of secuencial con 4 rutas — con ~50 ahora, uno por
+// uno se hubiera vuelto lento y arriesgaba el timeout del captador. Pero
+// tampoco se disparan las 50 a la vez: un estallido de peticiones simultáneas
+// al mismo sitio parece un bot y puede terminar bloqueado, que sería peor que
+// como estaba. CUPO limita cuántas viajan al tiempo; una liga que falle
+// (try/catch) no tumba a las demás.
+const WPLAY_CUPO = 6;
+
 async function leerWplay(cheerio) {
   const todos = [];
-  for (const ruta of LIGAS_WPLAY) {
-    try {
-      const html = await traer('https://apuestas.wplay.co' + ruta);
-      todos.push(...parsearWplay(html, cheerio));
-    } catch (e) { /* una liga que falle no tumba las demás */ }
+  const cola = LIGAS_WPLAY.slice();
+
+  async function trabajador() {
+    let item;
+    while ((item = cola.shift())) {
+      try {
+        const html = await traer('https://apuestas.wplay.co' + item.ruta);
+        todos.push(...parsearWplay(html, cheerio, item.liga));
+      } catch (e) { /* una liga que falle no tumba las demás */ }
+    }
   }
-  // Deduplicar por partido
+
+  await Promise.all(Array.from({ length: WPLAY_CUPO }, trabajador));
+
+  // Deduplicar por partido — el hub general y las ligas puntuales se pisan
   const vistos = new Set(), out = [];
   todos.forEach(x => { const k = x.local + '|' + x.visita;
     if (!vistos.has(k)) { vistos.add(k); out.push(x); } });

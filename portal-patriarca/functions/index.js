@@ -21,6 +21,7 @@ const { normEquipo, lineaDe, actualizarFicha,
 const { agrupar } = require('./emparejar');
 const { archivar } = require('./chat');
 const { analizarCombinadas, calcularTablaRendimiento } = require('./analisis');
+const { vigilarTrixiBot } = require('./trixibot');
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -807,5 +808,25 @@ exports.captadorNoche = onSchedule(
 // Para dispararlo a mano y ver el resultado
 exports.captarAhora = onRequest(async (req, res) => {
   try { res.json(await capturar()); }
+  catch (e) { res.status(500).json({ ok: false, error: String(e && e.message || e) }); }
+});
+
+// ── Vigilancia de Trixi Bot: busca sola, sin que nadie le dé clic ───────────
+// Corre un poco después del captador (que deja las cuotas frescas) para no
+// escanear datos de la corrida anterior. Mismo horario día/noche que el
+// captador, un poco menos seguido porque no hace falta tanta frecuencia.
+exports.vigilarTrixi = onSchedule(
+  { schedule: '*/5 8-22 * * *', timeZone: 'America/Bogota' },
+  async () => { const r = await vigilarTrixiBot(db); console.log('vigilarTrixi', JSON.stringify(r)); }
+);
+
+exports.vigilarTrixiNoche = onSchedule(
+  { schedule: '*/15 23,0-7 * * *', timeZone: 'America/Bogota' },
+  async () => { const r = await vigilarTrixiBot(db); console.log('vigilarTrixi noche', JSON.stringify(r)); }
+);
+
+// Para dispararla a mano y ver el resultado
+exports.vigilarTrixiAhora = onRequest(async (req, res) => {
+  try { res.json(await vigilarTrixiBot(db)); }
   catch (e) { res.status(500).json({ ok: false, error: String(e && e.message || e) }); }
 });

@@ -42,6 +42,7 @@
 
 const COL_HILOS    = 'patriarca_chat_hilos';
 const COL_ANUNCIOS = 'patriarca_chat_anuncios';
+const COL_TRIXI    = 'patriarca_chat_trixi';   // canal único de oportunidades de Trixi Bot
 const COL_ARCHIVO  = 'patriarca_chat_archivo';
 const MAX_MENSAJES = 200;   // cuántos trae el hilo vivo de una vez
 
@@ -53,9 +54,12 @@ const CH = {
   hiloUid: '',              // de quién es el hilo abierto (lado admin)
   mensajes: [],
   anuncios: [],
+  trixi: [],                // el canal de oportunidades de Trixi Bot
+  trixibotActivo: false,    // lado operador: ¿este uid tiene el canal habilitado?
   hilos: [],                // lado admin: todos los hilos
   personas: [],             // lado admin: usuarios activos, para el "X de Y"
-  vista: 'chat',            // lado admin: 'chat' | 'anuncios'
+  vista: 'chat',            // lado admin: 'chat' | 'anuncios' | 'trixi'
+  vistaU: 'chat',           // lado operador: 'chat' | 'anuncios' | 'trixi'
   contexto: null,           // adjunto pendiente de enviar
   abierto: false,           // ¿la pantalla de mensajes está a la vista?
   _off: []                  // suscripciones para poder soltarlas
@@ -257,6 +261,7 @@ const CTX_TITULO = {
   evento:     'Evento',
   informeAmc: 'Informe AMC',
   informeCorr:'Informe Corresponsal',
+  trixiOportunidad: 'Oportunidad de Trixi Bot',
   otro:       'Referencia'
 };
 
@@ -278,9 +283,12 @@ function pintarContexto(c, coleccion, docId) {
   if (c.imagenRef) {
     const clave = coleccion + '/' + docId + '/' + c.imagenRef;
     const cache = _imgCache.get(clave);
+    // tipo/ref/claveMercado viajan como data-* para que un click sepa, sin
+    // volver a tocar el servidor, si esta tarjeta se puede montar en Trixi.
+    const datos = `data-tipo="${esc(c.tipo||'')}" data-ref="${esc(c.ref||'')}" data-clave="${esc(c.claveMercado||'')}"`;
     const cuerpo = cache
-      ? `<img class="ch-img" src="${cache}" alt="${titulo}" onclick="AJChat.ampliar(this.src)">`
-      : `<div class="ch-img-cargando" data-img="${esc(c.imagenRef)}"
+      ? `<img class="ch-img" src="${cache}" alt="${titulo}" ${datos} onclick="AJChat.tocarTarjeta(this)">`
+      : `<div class="ch-img-cargando" data-img="${esc(c.imagenRef)}" ${datos}
            data-col="${esc(coleccion)}" data-doc="${esc(docId||'')}">Cargando imagen…</div>`;
     const linea = String(c.resumen || '').split('\n')[0];
     return `<div class="ch-ctx ch-ctx-img">`
@@ -308,7 +316,8 @@ function cargarImagenes() {
       _imgCache.set(clave, datos);
       const img = document.createElement('img');
       img.className = 'ch-img'; img.src = datos;
-      img.onclick = () => AJChat.ampliar(datos);
+      img.dataset.tipo = el.dataset.tipo || ''; img.dataset.ref = el.dataset.ref || ''; img.dataset.clave = el.dataset.clave || '';
+      img.onclick = () => AJChat.tocarTarjeta(img);
       el.replaceWith(img);
     } catch (e) { el.textContent = 'No se pudo cargar la imagen'; }
   });
@@ -374,6 +383,39 @@ function escucharAnuncios(publicos, alPintar) {
         .filter(a => !publicos || publicos.includes(a.publico || 'todos'));
       alPintar();
     }, e => console.warn('anuncios:', e.message));
+}
+
+// El canal de Trixi Bot: un documento por oportunidad, lo escribe solo la
+// función de vigilancia (nunca una persona), así que aquí no hay nada que
+// publicar — solo escuchar.
+function escucharTrixi(alPintar) {
+  return CH.db.collection(COL_TRIXI).orderBy('ts', 'desc').limit(60)
+    .onSnapshot(snap => {
+      CH.trixi = snap.docs.map(d => ({ id:d.id, ...d.data() }));
+      alPintar();
+    }, e => console.warn('trixi:', e.message));
+}
+
+// Feed de solo lectura, compartido por el canal de Trixi Bot en los dos
+// lados (operador y administrador) y por la vista de Anuncios del operador.
+// Es la misma tarjeta '.ch-an' que ya se usaba para anuncios, sin el pie de
+// "leído por X de Y" que solo tiene sentido cuando quien la ve es el propio
+// administrador que la publicó.
+function pintarFeed(contenedorId, lista, coleccion, vacio) {
+  const c = document.getElementById(contenedorId); if (!c) return;
+  if (!lista.length) {
+    c.innerHTML = `<div class="ch-vacio"><div class="ch-vacio-ico">📭</div><div>${esc(vacio)}</div></div>`;
+    return;
+  }
+  c.innerHTML = lista.map(a => `<div class="ch-an">
+    <div class="ch-an-cab">
+      ${a.fijado ? '<span class="ch-an-pub">📌 Importante</span>' : ''}
+      <span class="ch-an-fec">${esc(hace(a.ts))}</span>
+    </div>
+    ${pintarContexto(a.contexto, coleccion, a.id)}
+    ${a.texto ? `<div class="ch-an-txt">${esc(a.texto).replace(/\n/g,'<br>')}</div>` : ''}
+  </div>`).join('');
+  cargarImagenes();
 }
 
 /* ── envío ─────────────────────────────────────────────────────────────── */
@@ -460,41 +502,110 @@ let _primeraTanda = true;   // la primera vez sí se muestran todos
 
 const Usuario = {
 
+  // La lista de la izquierda ahora es una lista de conversaciones de verdad
+  // (como la del administrador), no un panel fijo. Administración siempre
+  // está; Anuncios también; Trixi Bot solo aparece si este uid lo tiene
+  // habilitado — el operador ni se entera de que existe si no le toca.
   montar(sel) {
     const cont = document.querySelector(sel);
     if (!cont) return;
     cont.innerHTML = `
       <div class="ch-wrap">
         <div class="ch-lista">
-          <div class="ch-lista-cab">📢 Anuncios del ecosistema</div>
-          <div class="ch-lista-scroll" id="ch-anuncios" style="padding:10px"></div>
+          <div class="ch-lista-cab">Conversaciones</div>
+          <div class="ch-lista-scroll" id="ch-u-lista"></div>
         </div>
-        <div class="ch-panel">
-          <div class="ch-cab">
-            <div class="ch-ava">A</div>
-            <div>
-              <div class="ch-cab-nom">Administración</div>
-              <div class="ch-cab-sub">Conversación privada — solo tú y el administrador</div>
-            </div>
-          </div>
-          <div class="ch-cuerpo" id="ch-cuerpo"></div>
-          <div class="ch-pie">
-            <div id="ch-ctx-prev"></div>
-            <div class="ch-fila">
-              <textarea class="ch-txt" id="ch-txt" rows="1" placeholder="Escribe tu mensaje o reporte…"></textarea>
-              <button class="ch-env" id="ch-env" title="Enviar">➤</button>
-            </div>
-          </div>
+        <div class="ch-panel" id="ch-panel"></div>
+      </div>`;
+    CH.vistaU = 'chat';
+    Usuario.pintarLista();
+    Usuario.verAdministracion();
+  },
+
+  pintarLista() {
+    const c = document.getElementById('ch-u-lista'); if (!c) return;
+    const nAdmin = (CH.hilo || {}).noLeidosUsuario || 0;
+    const filas = [
+      { key:'chat', icono:'A', fondo:'', nombre:'Administración', sub:'Conversación privada', badge:nAdmin },
+      { key:'anuncios', icono:'📢', fondo:'background:linear-gradient(135deg,#f0a050,#d88020)', nombre:'Anuncios del ecosistema', sub:'Avisos de la administración', badge:0 }
+    ];
+    if (CH.trixibotActivo) filas.push({ key:'trixi', icono:'🎰', fondo:'background:linear-gradient(135deg,#35CC2F,#24BF62)', nombre:'Trixi Bot', sub:'Oportunidades detectadas', badge:0 });
+    c.innerHTML = filas.map(f => `<div class="ch-item ${CH.vistaU===f.key?'act':''}" onclick="AJChat.verUsuario('${f.key}')">
+      <div class="ch-ava" style="${f.fondo}">${f.icono}</div>
+      <div class="ch-item-txt">
+        <div class="ch-item-nom"><span>${esc(f.nombre)}</span></div>
+        <div class="ch-item-ult">${f.badge>0 ? `<span class="ch-glob">${f.badge>99?'99+':f.badge}</span> ` : ''}${esc(f.sub)}</div>
+      </div>
+    </div>`).join('');
+  },
+
+  ver(vista) {
+    if (vista === 'trixi' && !CH.trixibotActivo) return;
+    if (vista === 'anuncios') Usuario.verAnuncios();
+    else if (vista === 'trixi') Usuario.verTrixiPanel();
+    else Usuario.verAdministracion();
+  },
+
+  verAdministracion() {
+    CH.vistaU = 'chat';
+    Usuario.pintarLista();
+    const p = document.getElementById('ch-panel'); if (!p) return;
+    p.innerHTML = `
+      <div class="ch-cab">
+        <div class="ch-ava">A</div>
+        <div>
+          <div class="ch-cab-nom">Administración</div>
+          <div class="ch-cab-sub">Conversación privada — solo tú y el administrador</div>
+        </div>
+      </div>
+      <div class="ch-cuerpo" id="ch-cuerpo"></div>
+      <div class="ch-pie">
+        <div id="ch-ctx-prev"></div>
+        <div class="ch-fila">
+          <textarea class="ch-txt" id="ch-txt" rows="1" placeholder="Escribe tu mensaje o reporte…"></textarea>
+          <button class="ch-env" id="ch-env" title="Enviar">➤</button>
         </div>
       </div>`;
 
-    const txt = cont.querySelector('#ch-txt');
+    const txt = p.querySelector('#ch-txt');
     const crecer = () => { txt.style.height='auto'; txt.style.height = Math.min(txt.scrollHeight,130)+'px'; };
     txt.addEventListener('input', crecer);
     txt.addEventListener('keydown', e => {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); Usuario.enviar(); }
     });
-    cont.querySelector('#ch-env').onclick = () => Usuario.enviar();
+    p.querySelector('#ch-env').onclick = () => Usuario.enviar();
+    Usuario.pintarCtx();
+    Usuario.pintarMensajes();
+    if (CH.abierto) marcarLeido(CH.uid);
+  },
+
+  verAnuncios() {
+    CH.vistaU = 'anuncios';
+    Usuario.pintarLista();
+    const p = document.getElementById('ch-panel'); if (!p) return;
+    p.innerHTML = `
+      <div class="ch-cab">
+        <div class="ch-ava" style="background:linear-gradient(135deg,#f0a050,#d88020)">📢</div>
+        <div><div class="ch-cab-nom">Anuncios del ecosistema</div>
+          <div class="ch-cab-sub">Avisos de la administración para todo el equipo</div></div>
+      </div>
+      <div class="ch-cuerpo" id="ch-feed-anuncios"></div>`;
+    Usuario.pintarAnunciosFeed();
+  },
+
+  verTrixiPanel() {
+    if (!CH.trixibotActivo) return;
+    CH.vistaU = 'trixi';
+    Usuario.pintarLista();
+    const p = document.getElementById('ch-panel'); if (!p) return;
+    p.innerHTML = `
+      <div class="ch-cab">
+        <div class="ch-ava" style="background:linear-gradient(135deg,#35CC2F,#24BF62)">🎰</div>
+        <div><div class="ch-cab-nom">Trixi Bot</div>
+          <div class="ch-cab-sub">Oportunidades que el bot va encontrando — toca una para editarla</div></div>
+      </div>
+      <div class="ch-cuerpo" id="ch-feed-trixi"></div>`;
+    Usuario.pintarTrixiFeed();
   },
 
   async enviar() {
@@ -524,6 +635,7 @@ const Usuario = {
   },
 
   pintarMensajes() {
+    if (CH.vistaU !== 'chat') return;
     const c = document.getElementById('ch-cuerpo'); if (!c) return;
     if (!CH.mensajes.length) {
       c.innerHTML = `<div class="ch-vacio"><div class="ch-vacio-ico">💬</div>
@@ -550,25 +662,28 @@ const Usuario = {
     cargarImagenes();
   },
 
-  pintarAnuncios() {
-    const c = document.getElementById('ch-anuncios'); if (!c) return;
-    if (!CH.anuncios.length) {
-      c.innerHTML = `<div style="color:var(--text2);font-size:12px;text-align:center;padding:20px 8px">
-        Todavía no hay anuncios.</div>`;
-    } else {
-      c.innerHTML = CH.anuncios.map(a => `<div class="ch-an">
-        <div class="ch-an-cab">
-          ${a.fijado ? '<span class="ch-an-pub">📌 Importante</span>' : ''}
-          ${a.origenOperador ? `<span class="ch-an-pub">📢 ${esc(a.autorNombre || 'Un compañero')}</span>` : ''}
-          <span class="ch-an-fec">${esc(hace(a.ts))}</span>
-        </div>
-        ${pintarContexto(a.contexto, COL_ANUNCIOS, a.id)}
-        ${a.texto ? `<div class="ch-an-txt">${esc(a.texto).replace(/\n/g,'<br>')}</div>` : ''}
-      </div>`).join('');
-      cargarImagenes();
-    }
+  pintarAnunciosFeed() {
+    pintarFeed('ch-feed-anuncios', CH.anuncios, COL_ANUNCIOS, 'Todavía no hay anuncios.');
+  },
+
+  pintarTrixiFeed() {
+    pintarFeed('ch-feed-trixi', CH.trixi, COL_TRIXI, 'Trixi Bot no ha encontrado oportunidades todavía.');
+  },
+
+  // Se llama en cada cambio del canal de anuncios, se esté mirando esa
+  // pantalla o no: la franja fijada y la ventana emergente son un aviso de
+  // todo el portal, no solo de la pestaña de Chat.
+  alCambiarAnuncios() {
     Usuario.pintarFranja();
     Usuario.pintarModal();
+    if (CH.vistaU === 'anuncios') Usuario.pintarAnunciosFeed();
+  },
+
+  // El canal de Trixi Bot es puramente informativo — sin franja ni ventana
+  // emergente. Con el bot corriendo cada pocos minutos, interrumpir cada vez
+  // que aparece algo sería peor que el spam que se quiso evitar en el chat.
+  alCambiarTrixi() {
+    if (CH.vistaU === 'trixi') Usuario.pintarTrixiFeed();
   },
 
   // ── La ventana flotante ───────────────────────────────────────────────
@@ -683,12 +798,12 @@ const Usuario = {
     if (global.AJChatGlobo) global.AJChatGlobo(n);
     const t = document.getElementById('tab-mensajes');
     if (t) {
-      const base = '💬 Mensajes';
+      const base = '💬 Chat';
       t.innerHTML = n > 0 ? `${base}<span class="ch-nav-glob">${n > 99 ? '99+' : n}</span>` : base;
     }
   },
 
-  pintar() { Usuario.pintarMensajes(); Usuario.pintarGlobo(); }
+  pintar() { Usuario.pintarMensajes(); Usuario.pintarGlobo(); Usuario.pintarLista(); }
 };
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -710,6 +825,13 @@ const Admin = {
               <div class="ch-item-txt">
                 <div class="ch-item-nom">Anuncios del ecosistema</div>
                 <div class="ch-item-ult">Publicar un aviso a todos</div>
+              </div>
+            </div>
+            <div class="ch-item" id="ch-item-trixi" onclick="AJChat.verTrixi()">
+              <div class="ch-ava" style="background:linear-gradient(135deg,#35CC2F,#24BF62)">🎰</div>
+              <div class="ch-item-txt">
+                <div class="ch-item-nom">Trixi Bot</div>
+                <div class="ch-item-ult">Oportunidades detectadas — un solo canal, no por operador</div>
               </div>
             </div>
             <div id="ch-hilos"></div>
@@ -825,6 +947,29 @@ const Admin = {
     }).join('');
     if (pegado) c.scrollTop = c.scrollHeight;
     cargarImagenes();
+  },
+
+  /* ── canal de Trixi Bot ── */
+  // Solo lectura para el administrador también: lo escribe la vigilancia
+  // automática, nadie compone nada aquí. Es el mismo feed que ve el
+  // operador, para que quede claro que ya no hay una copia por persona.
+
+  verTrixi() {
+    CH.vista = 'trixi'; CH.hiloUid = ''; Admin.soltarHilo();
+    const p = document.getElementById('ch-panel');
+    p.innerHTML = `
+      <div class="ch-cab">
+        <div class="ch-ava" style="background:linear-gradient(135deg,#35CC2F,#24BF62)">🎰</div>
+        <div><div class="ch-cab-nom">Trixi Bot</div>
+          <div class="ch-cab-sub">Oportunidades que el bot va encontrando — un solo canal para todos</div></div>
+      </div>
+      <div class="ch-cuerpo" id="ch-feed-trixi"></div>`;
+    Admin.pintarTrixi();
+  },
+
+  pintarTrixi() {
+    if (CH.vista !== 'trixi') return;
+    pintarFeed('ch-feed-trixi', CH.trixi, COL_TRIXI, 'Trixi Bot no ha encontrado oportunidades todavía.');
   },
 
   /* ── anuncios ── */
@@ -977,7 +1122,7 @@ const Admin = {
   pintarGlobo() {
     const n = CH.hilos.reduce((s,h) => s + (h.noLeidosAdmin || 0), 0);
     const t = document.getElementById('tab-mensajes');
-    if (t) t.innerHTML = n > 0 ? `💬 Mensajes<span class="ch-nav-glob">${n>99?'99+':n}</span>` : '💬 Mensajes';
+    if (t) t.innerHTML = n > 0 ? `💬 Chat<span class="ch-nav-glob">${n>99?'99+':n}</span>` : '💬 Chat';
     if (global.AJChatGlobo) global.AJChatGlobo(n);
   }
 };
@@ -993,7 +1138,8 @@ global.AJChat = {
     inyectarEstilos();
     Object.assign(CH, {
       db:o.db, auth:o.auth, uid:o.uid, nombre:o.nombre || '',
-      rol:o.rol || 'operador', oficina:o.oficina || '', esAdmin:false
+      rol:o.rol || 'operador', oficina:o.oficina || '', esAdmin:false,
+      vistaU:'chat', trixibotActivo:false, trixi:[]
     });
     if (o.montarEn) Usuario.montar(o.montarEn);
 
@@ -1006,8 +1152,19 @@ global.AJChat = {
     CH._off = [
       escucharHilo(CH.uid, Usuario.pintar),
       escucharMensajes(CH.uid, Usuario.pintar),
-      escucharAnuncios(publicos, Usuario.pintarAnuncios)
+      escucharAnuncios(publicos, Usuario.alCambiarAnuncios)
     ];
+
+    // El canal de Trixi Bot solo se conecta si de verdad le toca — ni
+    // siquiera se piden los datos si el operador no lo tiene habilitado.
+    // Los cajeros nunca lo tienen, así que ni se consulta.
+    if (CH.rol !== 'cajero') {
+      CH.db.collection('patriarca_config').doc(CH.uid).get().then(s => {
+        CH.trixibotActivo = !!(s.exists && s.data().trixibot && s.data().trixibot.activo);
+        if (CH.trixibotActivo) CH._off.push(escucharTrixi(Usuario.alCambiarTrixi));
+        Usuario.pintarLista();
+      }).catch(() => {});
+    }
   },
 
   // Administrador
@@ -1029,6 +1186,7 @@ global.AJChat = {
       }, e => console.warn('hilos:', e.message)),
 
       escucharAnuncios(null, Admin.pintarAnuncios),
+      escucharTrixi(() => Admin.pintarTrixi()),
 
       // Los destinatarios posibles, para el contador "leído por X de Y"
       CH.db.collection('admin_usuarios').onSnapshot(snap => {
@@ -1054,8 +1212,10 @@ global.AJChat = {
        AJChat.reportar({ tipo:'cupon', ref:id, resumen:'...' })            */
   reportar(ctx) {
     CH.contexto = ctx || null;
+    // Si estaba mirando Anuncios o Trixi Bot, «Reportar» siempre debe volver
+    // a la conversación con administración — es la única que se compone.
+    if (!CH.esAdmin) Usuario.verAdministracion();
     if (global.AJChatIrAMensajes) global.AJChatIrAMensajes();
-    Usuario.pintarCtx();
     setTimeout(() => { const t = document.getElementById('ch-txt'); if (t) t.focus(); }, 120);
   },
 
@@ -1074,6 +1234,19 @@ global.AJChat = {
      portal genera y envía solas, como el informe diario del cajero.
        AJChat.enviarAutomatico('texto...', { tipo:'informeAmc', imagen })  */
   enviarAutomatico(texto, contexto) { return enviar(CH.uid, texto, contexto); },
+
+  // Click sobre la tarjeta de una oportunidad de Trixi Bot: en vez de solo
+  // ampliar la imagen, la monta en la calculadora del portal (si esa función
+  // existe en la página, p. ej. patriarca.html) para que quede editable con
+  // cuotas frescas. Cualquier otro tipo de tarjeta se comporta como siempre.
+  tocarTarjeta(el) {
+    const tipo = el.dataset.tipo, ref = el.dataset.ref, clave = el.dataset.clave;
+    if (tipo === 'trixiOportunidad' && ref && clave && typeof window.tbMontarDesdeChat === 'function') {
+      window.tbMontarDesdeChat(ref, clave);
+      return;
+    }
+    AJChat.ampliar(el.src);
+  },
 
   // Ver la imagen en grande — un cupón en miniatura no se alcanza a leer
   ampliar(src) {
@@ -1104,10 +1277,15 @@ global.AJChat = {
 
   abrirHilo: uid => Admin.abrirHilo(uid),
   verAnuncios: () => Admin.verAnuncios(),
+  verTrixi: () => Admin.verTrixi(),
   verQuien: id => Admin.verQuien(id),
   publicar: () => Admin.publicar(),
   borrarAnuncio: id => Admin.borrarAnuncio(id),
   verArchivo: uid => Admin.verArchivo(uid),
+
+  // Lado operador: cambia entre Administración / Anuncios / Trixi Bot en su
+  // propia lista de conversaciones.
+  verUsuario: vista => Usuario.ver(vista),
 
   soltar() {
     (CH._off || []).forEach(f => { try { f(); } catch(_){} });

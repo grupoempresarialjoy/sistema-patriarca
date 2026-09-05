@@ -146,6 +146,20 @@ service cloud.firestore {
       allow write: if esAdmin();
     }
 
+    // ── CUADRE DIARIO POR OFICINA ─────────────────────────────────────────
+    // Lo escribe solo la función programada (SDK de administrador, no pasa
+    // por estas reglas) o el administrador a mano si hace falta corregir
+    // algo. Cualquiera con sesión lo lee: el operador necesita saber si su
+    // oficina está bloqueada, y el cajero necesita ver su propio estado.
+    match /patriarca_cuadre_estado/{oficina} {
+      allow read:  if request.auth != null;
+      allow write: if esAdmin();
+    }
+    match /patriarca_cuadre_historial/{doc} {
+      allow read:  if request.auth != null;
+      allow write: if esAdmin();
+    }
+
     // ── EL RESTO DEL SISTEMA ──────────────────────────────────────────────
     // Queda como estaba, salvo por el candado de auditoría en la escritura.
     // En Firestore basta con que UNA regla permita el acceso, así que este
@@ -162,11 +176,15 @@ service cloud.firestore {
 
       // Ver, siempre. Escribir, no si el candado de auditoría está puesto —
       // salvo que sea el administrador o esa persona tenga la excepción.
+      // El cuadre por oficina tampoco entra aquí: ese solo lo escribe la
+      // función programada o el administrador (regla propia arriba).
       allow write: if request.auth != null
         && !(col in ['patriarca_chat_hilos',
                      'patriarca_chat_anuncios',
                      'patriarca_chat_trixi',
-                     'patriarca_chat_archivo'])
+                     'patriarca_chat_archivo',
+                     'patriarca_cuadre_estado',
+                     'patriarca_cuadre_historial'])
         && (esAdmin() || !auditoriaActiva() || permitidoEnAuditoria());
     }
   }

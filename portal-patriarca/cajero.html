@@ -230,6 +230,9 @@ body.informe-capturando input {
     🔒 MES CERRADO — El administrador ya aceptó el cierre de este mes. La Caja General no se puede volver a editar.
     <span id="banner-caj-autorizado" style="display:none;color:#fde68a"> · ✅ Autorizado para editar por el administrador</span>
   </div>
+  <!-- Banner de cuadre atrasado — lo prende/apaga cuadrePintarBannerCajero() según
+       patriarca_cuadre_estado/{oficina}, que arma sola la función programada. -->
+  <div id="banner-cuadre" style="display:none;padding:12px 20px;font-size:13px;font-weight:700;text-align:center;border-bottom:2px solid #dc2626"></div>
   <nav id="nav-amc">
     <div class="tab active" onclick="showTab('dashboard')">📊 Dashboard</div>
     <div class="tab" onclick="showTab('operadores')">👥 Operadores</div>
@@ -1540,6 +1543,22 @@ body.informe-capturando input {
   </div>
 </div>
 
+<!-- MODAL DE CUADRE ATRASADO — se abre solo, la primera vez que se detecta
+     atraso en esta sesión (ver cuadreAbrirModal() en el script). Se puede
+     cerrar, pero el banner de arriba (#banner-cuadre) se queda hasta que
+     el cajero de verdad se ponga al día. -->
+<div class="modal-overlay" id="modal-cuadre">
+  <div class="modal" style="max-width:520px;text-align:center">
+    <div id="cuadre-modal-icono" style="font-size:42px;margin-bottom:6px">⏰</div>
+    <h3 id="cuadre-modal-titulo" style="margin-bottom:10px">Te quedaron operaciones sin cuadrar</h3>
+    <p id="cuadre-modal-texto" style="font-size:13px;color:var(--text2);line-height:1.7;margin-bottom:6px;text-align:left"></p>
+    <p id="cuadre-modal-mes" style="font-size:11px;color:var(--text2);opacity:.8;margin-bottom:16px"></p>
+    <div class="modal-footer" style="justify-content:center">
+      <button class="btn btn-gold" onclick="closeModal('modal-cuadre')">Entendido, voy a cuadrar</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL CIERRE DE MES — CAJERO -->
 <div class="modal-overlay" id="modal-cierre-caj">
   <div class="modal" style="max-width:560px">
@@ -1971,6 +1990,85 @@ function auditoriaPintarBanner(){
   app.insertBefore(f, app.firstChild);
 }
 
+// ── CUADRE ATRASADO ──────────────────────────────────────────────────────
+// La función programada del servidor (functions/cuadre.js) revisa una vez al
+// día si esta oficina dejó operaciones sin resolver. Un día de atraso avisa
+// (modal pedagógico + banner); dos días bloquea: además del banner, aquí se
+// le cierra el paso a generar Informe y a Cerrar Mes — las dos cosas que le
+// interesa entregarle al administrador — hasta que resuelva sus pendientes
+// (Intercambios, Operadores, Pagos/Retiros siguen abiertos: son justo por
+// donde se cuadra).
+let _cuadreEstadoCaj = 'ok';
+let _cuadreDiasCaj = 0;
+let _cuadreMesIncumplidos = 0;
+let _cuadreUltimoVisto = null;
+
+function cuadreBloqueadoCajero(){ return _cuadreEstadoCaj === 'bloqueado'; }
+
+function cuadreEscucharCajero(){
+  if (!cajeroOficina) return;
+
+  db.collection('patriarca_cuadre_estado').doc(cajeroOficina).onSnapshot(doc => {
+    const d = doc.exists ? doc.data() : {};
+    const nuevo = d.estado || 'ok';
+    _cuadreEstadoCaj = nuevo;
+    _cuadreDiasCaj   = d.diasAtraso || 0;
+    cuadrePintarBannerCajero();
+    if (nuevo !== 'ok' && nuevo !== _cuadreUltimoVisto) cuadreAbrirModal();
+    _cuadreUltimoVisto = nuevo;
+  }, () => {});
+
+  const ahora = new Date();
+  const mesKey = ahora.getFullYear() + '-' + String(ahora.getMonth()+1).padStart(2,'0');
+  db.collection('patriarca_cuadre_historial').doc(`${cajeroOficina}_${mesKey}`)
+    .onSnapshot(doc => {
+      _cuadreMesIncumplidos = doc.exists ? (doc.data().diasIncumplidos || 0) : 0;
+      cuadrePintarBannerCajero();
+    }, () => {});
+}
+
+function cuadrePintarBannerCajero(){
+  const b = document.getElementById('banner-cuadre');
+  if (!b) return;
+  if (_cuadreEstadoCaj === 'ok') { b.style.display = 'none'; return; }
+  b.style.display = '';
+  const conteoMes = _cuadreMesIncumplidos
+    ? ` · ${_cuadreMesIncumplidos} día(s) incumplido(s) este mes`
+    : '';
+  if (_cuadreEstadoCaj === 'bloqueado') {
+    b.style.background = '#7f1d1d'; b.style.color = '#fca5a5';
+    b.textContent = `🔒 SISTEMA BLOQUEADO — llevas ${_cuadreDiasCaj} días sin cuadrar. No puedes generar Informe ni Cerrar Mes hasta que resuelvas tus pendientes.${conteoMes}`;
+  } else {
+    b.style.background = '#7c4a03'; b.style.color = '#fde68a';
+    b.textContent = `⚠️ Tienes operaciones sin cuadrar desde ayer. Si no cuadras hoy, mañana el sistema se bloquea.${conteoMes}`;
+  }
+}
+
+function cuadreAbrirModal(){
+  const icono  = document.getElementById('cuadre-modal-icono');
+  const titulo = document.getElementById('cuadre-modal-titulo');
+  const texto  = document.getElementById('cuadre-modal-texto');
+  const mesEl  = document.getElementById('cuadre-modal-mes');
+  if (!icono || !titulo || !texto) return;
+
+  if (_cuadreEstadoCaj === 'bloqueado') {
+    icono.textContent = '🔒';
+    titulo.textContent = 'El sistema quedó bloqueado';
+    texto.innerHTML = `Van <strong>${_cuadreDiasCaj} días</strong> con operaciones sin resolver (movimientos, intercambios, correcciones, pagos o retiros pendientes).<br><br>
+      Mientras no los resuelvas, no vas a poder generar el <strong>Informe</strong> ni <strong>Cerrar Mes</strong>. Los operadores de tu oficina también están viendo un aviso de esto.<br><br>
+      Ve a Intercambios y a Operadores, resuelve lo pendiente, y el bloqueo se cae solo al otro día.`;
+  } else {
+    icono.textContent = '⏰';
+    titulo.textContent = 'Te quedaron operaciones sin cuadrar';
+    texto.innerHTML = `Ayer quedaron movimientos, intercambios, correcciones, pagos o retiros <strong>sin resolver</strong>.<br><br>
+      Esto es solo un aviso — todavía puedes trabajar normal. Pero si mañana sigues sin cuadrarlos, <strong>el sistema se bloqueará</strong>: no vas a poder generar el Informe ni Cerrar Mes hasta que te pongas al día.`;
+  }
+  if (mesEl) mesEl.textContent = _cuadreMesIncumplidos
+    ? `Llevas ${_cuadreMesIncumplidos} día(s) incumplido(s) este mes.`
+    : '';
+  openModal('modal-cuadre');
+}
+
 // ── AUTH ──
 auth.onAuthStateChanged(async user => {
   if (user) {
@@ -2017,6 +2115,8 @@ auth.onAuthStateChanged(async user => {
       _audActiva = !!(doc.exists && doc.data().activo);
       auditoriaPintarBanner();
     }, () => {});
+
+    cuadreEscucharCajero();
 
     if (window.AJChat) AJChat.iniciarUsuario({
       db, auth, uid: user.uid, nombre: opNombre,
@@ -7956,6 +8056,10 @@ async function abrirCierreCajero() {
 }
 
 async function enviarCierreCajero() {
+  if (cuadreBloqueadoCajero()) {
+    toast('🔒 No puedes Cerrar Mes: tienes operaciones sin cuadrar. Resuélvelas en Intercambios/Operadores primero.', 'error');
+    return;
+  }
   const btn = document.getElementById('cc-btn');
   btn.disabled = true; btn.textContent = 'Enviando…';
 
@@ -8967,11 +9071,40 @@ function _quitarEmoji(s) {
     .trim();
 }
 
-function _informeArmarPDF(bloques, tituloGeneral, calidad) {
+// El mismo isotipo verde de AJ1.6 que ya se usa en la pantalla de login (línea
+// del <img> de arriba), pero en PNG: jsPDF no sabe dibujar SVG con addImage.
+// Se convierte una sola vez (con un canvas invisible) y se guarda en caché;
+// de ahí en adelante cada informe reutiliza el mismo PNG ya listo.
+const _LOGO_SVG_DATAURL = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTI5LjgiIGhlaWdodD0iMTM2LjYiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgdmlld0JveD0iMCAwIDEyOS44MCAxMzYuNjAiIHJvbGU9ImltZyIgYXJpYS1sYWJlbD0iQUoxLjYgQWNhZGVtaWEiPjxkZWZzPjxjbGlwUGF0aCBpZD0iYzciPjxwYXRoIGQ9Ik0gMzAyIDM1NCBMIDMzOSAzNTQgTCAzMzkgMzc5LjU0Njg3NSBMIDMwMiAzNzkuNTQ2ODc1IFogTSAzMDIgMzU0ICIvPjwvY2xpcFBhdGg+PC9kZWZzPjxnIHRyYW5zZm9ybT0idHJhbnNsYXRlKC0yNDMuNzAsLTMyMy45MCkiPjxwYXRoIGZpbGw9IiMzNUNDMkYiIGQ9Ik0gMzcyLjMyODEyNSAzNTguNzg1MTU2IEwgMzQ1LjkyOTY4OCAzNTguNzg1MTU2IEMgMzQ1LjkyOTY4OCAzNTguNzg1MTU2IDM0NS41MzUxNTYgMzg2LjM5ODQzOCAzNDUuMDMxMjUgMzk1LjY4NzUgQyAzNDQuMzE2NDA2IDQwOC44MjQyMTkgMzM0LjIzMDQ2OSA0MjcuNDg0Mzc1IDMwNy41MzEyNSA0MzEuOTg0Mzc1IEMgMjk1Ljg0NzY1NiA0MzMuOTUzMTI1IDI3MS44MzU5MzggNDMwLjEwOTM3NSAyNjAuMTMyODEyIDQzMS45ODQzNzUgQyAyNTEuMTIxMDk0IDQzMy40MjU3ODEgMjQ1Ljc1MzkwNiA0NDAuNjgzNTk0IDI0My45NTMxMjUgNDU4LjY4MzU5NCBDIDI0My45NTMxMjUgNDU4LjY4MzU5NCAyOTMuNzY5NTMxIDQ1OS4zMTI1IDMxMy4yMzA0NjkgNDU4LjA4MjAzMSBDIDMzNC41MTE3MTkgNDU2LjczODI4MSAzNjUuMzc1IDQ1MS44ODI4MTIgMzcyLjMyODEyNSAzOTYuNTg1OTM4IEMgMzczLjUwNzgxMiAzODcuMjEwOTM4IDM3Mi4zMjgxMjUgMzU4Ljc4NTE1NiAzNzIuMzI4MTI1IDM1OC43ODUxNTYiLz48ZyBjbGlwLXBhdGg9InVybCgjYzcpIj48cGF0aCBmaWxsPSIjMjRCRjYyIiBkPSJNIDMxNS45NTcwMzEgNDYwLjUyMzQzOCBDIDMxNS45Mjk2ODggNDU5Ljc2NTYyNSAzMTUuODgyODEyIDQ1OS4wMTE3MTkgMzE1Ljg4MjgxMiA0NTguMjUzOTA2IEMgMzE1Ljg3ODkwNiA0NTAuNDU3MDMxIDMxNS44ODI4MTIgNDQyLjY2NDA2MiAzMTUuODc4OTA2IDQzNC44NjcxODggQyAzMTUuODc1IDQyOC4yOTI5NjkgMzE1Ljg1NTQ2OSA0MjEuNzE4NzUgMzE1Ljg1MTU2MiA0MTUuMTQwNjI1IEMgMzE1Ljg0NzY1NiA0MDguNTY2NDA2IDMxNS44NTE1NjIgNDAxLjk4ODI4MSAzMTUuODUxNTYyIDM5NS40MTQwNjIgQyAzMTUuODUxNTYyIDM5MC4zMTY0MDYgMzE1Ljg0Mzc1IDM4NS4yMjI2NTYgMzE1LjgzOTg0NCAzODAuMTI1IEMgMzE1LjgzOTg0NCAzNzkuOTQ5MjE5IDMxNS44MjAzMTIgMzc5Ljc3MzQzOCAzMTUuODA0Njg4IDM3OS41NTg1OTQgQyAzMTEuMzM5ODQ0IDM3OS41NjI1IDMwNi45MTAxNTYgMzc5LjU2MjUgMzAyLjMyNDIxOSAzNzkuNTY2NDA2IEMgMzA4LjM1MTU2MiAzNzEuMTE3MTg4IDMxNC4zMDQ2ODggMzYyLjc2NTYyNSAzMjAuMzE2NDA2IDM1NC4zMzU5MzggQyAzMjYuMzI0MjE5IDM2Mi43MzQzNzUgMzMyLjI4NTE1NiAzNzEuMDcwMzEyIDMzOC4zMjAzMTIgMzc5LjUwMzkwNiBDIDMzMy43ODkwNjIgMzc5LjUwNzgxMiAzMjkuMzUxNTYyIDM3OS41MTE3MTkgMzI0LjgzNTkzOCAzNzkuNTE1NjI1IEMgMzI0LjgzNTkzOCAzODAuMjA3MDMxIDMyNC44MzU5MzggMzgwLjgyMDMxMiAzMjQuODM1OTM4IDM4MS40MzM1OTQgQyAzMjQuODQzNzUgMzg1LjYzMjgxMiAzMjQuODUxNTYyIDM4OS44MjgxMjUgMzI0Ljg1NTQ2OSAzOTQuMDI3MzQ0IEMgMzI0Ljg1NTQ2OSAzOTguMjIyNjU2IDMyNC44NTE1NjIgNDAyLjQyMTg3NSAzMjQuODU1NDY5IDQwNi42MTcxODggQyAzMjQuODU5Mzc1IDQxMC44MTY0MDYgMzI0Ljg3MTA5NCA0MTUuMDExNzE5IDMyNC44NzEwOTQgNDE5LjIxMDkzOCBDIDMyNC44NzUgNDIzLjQwNjI1IDMyNC44NzEwOTQgNDI3LjYwNTQ2OSAzMjQuODc1IDQzMS44MDA3ODEgQyAzMjQuODc1IDQzNiAzMjQuODg2NzE5IDQ0MC4xOTUzMTIgMzI0Ljg5MDYyNSA0NDQuMzk0NTMxIEMgMzI0Ljg5NDUzMSA0NDguNTg5ODQ0IDMyNC44ODY3MTkgNDUyLjc4OTA2MiAzMjQuODk0NTMxIDQ1Ni45ODQzNzUgQyAzMjQuODk0NTMxIDQ1OC4xNjAxNTYgMzI0LjkzMzU5NCA0NTkuMzM5ODQ0IDMyNC45NTMxMjUgNDYwLjUxNTYyNSBaIE0gMzE1Ljk1NzAzMSA0NjAuNTIzNDM4Ii8+PC9nPjxwYXRoIGZpbGw9IiMyNEJGNjIiIGQ9Ik0gMzU0LjM0Mzc1IDMyNC45NDkyMTkgQyAzNTQuMzQzNzUgMzI0Ljk0OTIxOSAzMTUuNTgyMDMxIDMyMy45Mjk2ODggMjk1LjAzMTI1IDMyNC45NDkyMTkgQyAyNzQuNzk2ODc1IDMyNS45NTMxMjUgMjQ3LjM1OTM3NSAzMzYuNjQ4NDM4IDI0My42OTUzMTIgMzg3LjY0NDUzMSBMIDI0My42OTUzMTIgNDE5LjgwODU5NCBMIDMxMC40ODQzNzUgNDE5LjgwODU5NCBDIDMxMC40ODQzNzUgNDE5LjgwODU5NCAzMzAuMTI4OTA2IDQxOS40NDUzMTIgMzMxLjE3NTc4MSAzOTQuMjQ2MDk0IEwgMzMwLjY3OTY4OCAzNzguMzQ3NjU2IEwgMzA5LjE3MTg3NSAzNzguMDQ2ODc1IEwgMzA5LjE3MTg3NSAzOTguNDQ1MzEyIEwgMjY2Ljc0MjE4OCAzOTguNDQ1MzEyIEMgMjY2Ljc0MjE4OCAzOTguNDQ1MzEyIDI2MC40NjA5MzggMzc5LjA0Mjk2OSAyNzQuNzgxMjUgMzYxLjY2Nzk2OSBDIDI3OC41MjM0MzggMzU3LjEzMjgxMiAyODYuMDAzOTA2IDM0OC40MDYyNSAzMDAuMjgxMjUgMzQ1LjM0NzY1NiBMIDM0NS4xNjQwNjIgMzQ1LjM0NzY1NiBDIDM0NS4xNjQwNjIgMzQ1LjM0NzY1NiAzNTMuNTU4NTk0IDM0Ni4yNDYwOTQgMzU0LjM0Mzc1IDMyNC45NDkyMTkiLz48L2c+PC9zdmc+';
+let _logoPngCache = null;
+function _obtenerLogoPNG() {
+  if (_logoPngCache) return Promise.resolve(_logoPngCache);
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const esc = 4; // más resolución que el tamaño final para que no se vea pixelado
+        const c = document.createElement('canvas');
+        c.width = img.width * esc; c.height = img.height * esc;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0, c.width, c.height);
+        _logoPngCache = c.toDataURL('image/png');
+      } catch (e) { _logoPngCache = null; }
+      resolve(_logoPngCache);
+    };
+    img.onerror = () => resolve(null);
+    img.src = _LOGO_SVG_DATAURL;
+  });
+}
+
+function _informeArmarPDF(bloques, tituloGeneral, calidad, logoPng) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'letter' });
   const MARGEN = 28, ALTO_CAB = 44;
   tituloGeneral = _quitarEmoji(tituloGeneral);
+  // Proporción real del isotipo (129.8 x 136.6) para no deformarlo
+  const LOGO_W = 25, LOGO_H = 26.3;
+  const TXT_X = logoPng ? MARGEN + LOGO_W + 10 : MARGEN;
 
   bloques.forEach((b, i) => {
     if (i > 0) doc.addPage();
@@ -8979,11 +9112,14 @@ function _informeArmarPDF(bloques, tituloGeneral, calidad) {
     const altoPag  = doc.internal.pageSize.getHeight();
     const titulo = _quitarEmoji(b.titulo);
 
+    if (logoPng) {
+      try { doc.addImage(logoPng, 'PNG', MARGEN, MARGEN - 14, LOGO_W, LOGO_H); } catch (e) {}
+    }
     doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
     doc.setTextColor(150, 130, 20);
-    doc.text(tituloGeneral, MARGEN, MARGEN);
+    doc.text(tituloGeneral, TXT_X, MARGEN);
     doc.setFontSize(15); doc.setTextColor(40, 40, 40);
-    doc.text(titulo, MARGEN, MARGEN + 20);
+    doc.text(titulo, TXT_X, MARGEN + 20);
     doc.setDrawColor(225, 225, 225);
     doc.line(MARGEN, MARGEN + 28, anchoPag - MARGEN, MARGEN + 28);
 
@@ -9006,11 +9142,12 @@ function _informeArmarPDF(bloques, tituloGeneral, calidad) {
 // Igual que _informeComprimir() pero para el PDF completo: si con buena
 // calidad de imagen por página queda muy pesado para el límite de 1 MiB por
 // documento de Firestore, se vuelve a armar con menos calidad hasta que quepa.
-function _informeArmarPDFComprimido(bloques, tituloGeneral) {
+async function _informeArmarPDFComprimido(bloques, tituloGeneral) {
+  const logoPng = await _obtenerLogoPNG();
   const TOPE = 900 * 1024;
   let ultimo = null;
   for (const calidad of [0.85, 0.65, 0.5, 0.35]) {
-    const doc = _informeArmarPDF(bloques, tituloGeneral, calidad);
+    const doc = _informeArmarPDF(bloques, tituloGeneral, calidad, logoPng);
     const datos = doc.output('datauristring');
     ultimo = { doc, datos };
     if (datos.length < TOPE) return ultimo;
@@ -9073,6 +9210,20 @@ async function _informePostearChat(tipo, dataUrl) {
   } catch (e) { console.warn('informe -> chat:', e); }
 }
 
+// El respaldo real: además de la imagen apilada de arriba (que solo sirve
+// para un vistazo rápido), el PDF paginado también queda en el chat interno
+// con el administrador — así aunque el WhatsApp se comparta o no desde este
+// dispositivo, el sistema ya se quedó con su propia copia enviada sola.
+async function _informePostearChatPDF(tipo, pdfDataUrl, nombreArchivo) {
+  if (!window.AJChat || !AJChat.enviarAutomatico) return;
+  const nombreInforme = tipo === 'amc' ? 'AMC' : 'Corresponsal';
+  try {
+    await AJChat.enviarAutomatico(`📄 PDF del Informe ${nombreInforme} — ${mesActivo}`, {
+      tipo: 'informePdf', imagen: pdfDataUrl, nombreArchivo
+    });
+  } catch (e) { console.warn('informe pdf -> chat:', e); }
+}
+
 // Ofrece compartir por WhatsApp: usa el share sheet nativo si el navegador
 // lo soporta con archivos (la cajera escoge el grupo y confirma el envío);
 // si no, descarga la imagen y abre WhatsApp Web para adjuntarla a mano.
@@ -9112,6 +9263,10 @@ async function _informeCompartirPDF(blob, nombreArchivo) {
 }
 
 function enviarInforme() {
+  if (cuadreBloqueadoCajero()) {
+    toast('🔒 No puedes generar el Informe: tienes operaciones sin cuadrar. Resuélvelas en Intercambios/Operadores primero.', 'error');
+    return;
+  }
   if (_modulo === 'corresponsal') { enviarInformeCorresponsal(); return; }
   enviarInformeAMC();
 }
@@ -9221,10 +9376,12 @@ async function enviarInformeCorresponsal() {
 
     // El PDF de varias páginas es lo que de verdad se pasa página por
     // página — la imagen apilada de arriba solo sirve para el vistazo en chat.
-    const { doc: pdfDoc, datos: pdfDatos } = _informeArmarPDFComprimido(bloques, tituloGen);
+    const { doc: pdfDoc, datos: pdfDatos } = await _informeArmarPDFComprimido(bloques, tituloGen);
     await _informeGuardarPDF(guardado.id, pdfDatos);
+    const nombrePdf = `informe-corresponsal-${guardado.fecha}.pdf`;
+    await _informePostearChatPDF('corresponsal', pdfDatos, nombrePdf);
     toast('✅ Informe Corresponsal generado y enviado al chat', 'success');
-    _informeCompartirPDF(pdfDoc.output('blob'), `informe-corresponsal-${guardado.fecha}.pdf`);
+    _informeCompartirPDF(pdfDoc.output('blob'), nombrePdf);
   } catch (e) {
     console.error(e);
     toast('⚠ Error generando el informe: ' + e.message, 'error');
@@ -9279,10 +9436,12 @@ async function enviarInformeAMC() {
 
     // El PDF de varias páginas es lo que de verdad se pasa página por
     // página — la imagen apilada de arriba solo sirve para el vistazo en chat.
-    const { doc: pdfDoc, datos: pdfDatos } = _informeArmarPDFComprimido(bloques, tituloGen);
+    const { doc: pdfDoc, datos: pdfDatos } = await _informeArmarPDFComprimido(bloques, tituloGen);
     await _informeGuardarPDF(guardado.id, pdfDatos);
+    const nombrePdf = `informe-amc-${guardado.fecha}.pdf`;
+    await _informePostearChatPDF('amc', pdfDatos, nombrePdf);
     toast('✅ Informe AMC generado y enviado al chat', 'success');
-    _informeCompartirPDF(pdfDoc.output('blob'), `informe-amc-${guardado.fecha}.pdf`);
+    _informeCompartirPDF(pdfDoc.output('blob'), nombrePdf);
   } catch (e) {
     console.error(e);
     toast('⚠ Error generando el informe: ' + e.message, 'error');

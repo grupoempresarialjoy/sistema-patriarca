@@ -2462,6 +2462,10 @@ function _checkLock(accion) {
     toast(`🔒 Sistema en auditoría. No se puede ${accion} — contacta al administrador si es urgente.`, 'error');
     return true; // bloqueado
   }
+  if (cuadreBloqueado()) {
+    toast(`🔒 El cajero de ${operadorOficina} no ha cuadrado. No se puede ${accion} hasta que cuadre.`, 'error');
+    return true; // bloqueado
+  }
   if (!_isMesLocked()) return false; // no bloqueado
   toast(`🔒 Este mes está cerrado. Pide al administrador que autorice la edición para ${accion}.`, 'error');
   return true; // bloqueado
@@ -2537,6 +2541,42 @@ function auditoriaPintarBanner(){
   f.textContent = '🔒 Sistema en auditoría — solo puedes ver. Si necesitas hacer un cambio, contacta al administrador.';
   const app = document.getElementById('app') || document.body;
   app.insertBefore(f, app.firstChild);
+}
+
+// ── CUADRE DEL CAJERO ────────────────────────────────────────────────────
+// Cada oficina (Golden, Unity, ...) tiene su propio cajero, y su propio
+// estado de cuadre: lo arma sola la función programada del servidor (ver
+// functions/cuadre.js) y aquí solo se escucha en vivo. Un día de atraso
+// avisa (no bloquea); dos días, bloquea el envío de operaciones nuevas —
+// es la presión para que el cajero se ponga al día.
+let _cuadreEstadoOf = 'ok';
+let _cuadreDiasOf = 0;
+function cuadreBloqueado(){ return _cuadreEstadoOf === 'bloqueado'; }
+
+function cuadreEscucharOperador(){
+  if (!operadorOficina) return;
+  db.collection('patriarca_cuadre_estado').doc(operadorOficina).onSnapshot(doc => {
+    const d = doc.exists ? doc.data() : {};
+    _cuadreEstadoOf = d.estado || 'ok';
+    _cuadreDiasOf   = d.diasAtraso || 0;
+    cuadrePintarBanner();
+  }, () => {});
+}
+
+function cuadrePintarBanner(){
+  let f = document.getElementById('cuadre-franja');
+  if (_cuadreEstadoOf === 'ok') { if (f) f.remove(); return; }
+  if (!f) {
+    f = document.createElement('div');
+    f.id = 'cuadre-franja';
+    f.style.cssText = 'position:sticky;top:0;z-index:851;background:#c0392b;color:#fff;'
+      + 'padding:10px 16px;font-size:13px;font-weight:700;text-align:center';
+    const app = document.getElementById('app') || document.body;
+    app.insertBefore(f, app.firstChild);
+  }
+  f.textContent = _cuadreEstadoOf === 'bloqueado'
+    ? `🔒 El cajero de ${operadorOficina} no ha cuadrado hace ${_cuadreDiasOf} días — el sistema está bloqueado hasta que cuadre.`
+    : `⚠️ El cajero de ${operadorOficina} tiene operaciones sin cuadrar de ayer. Si no cuadra hoy, el sistema se bloqueará mañana.`;
 }
 
 // ── AVISO DEL DÍA ─────────────────────────────────────────────────────────
@@ -2789,6 +2829,7 @@ auth.onAuthStateChanged(async user => {
     _suscribirMesCerrado(); // verificar si el mes activo está cerrado
     tbInit(); // Trixi Bot — muestra la pestaña solo si el admin la habilitó
     auditoriaEscucharOperador();
+    cuadreEscucharOperador();
     avisoDiaEscuchar();
     if (window.AJChat) AJChat.iniciarUsuario({
       db, auth, uid: user.uid,

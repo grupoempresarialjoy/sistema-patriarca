@@ -176,6 +176,8 @@ const CSS = `
 .ch-ctx-img{padding:7px 8px 8px}
 .ch-img{display:block;width:100%;max-width:330px;border-radius:6px;margin-top:5px;cursor:zoom-in;border:1px solid var(--border)}
 .ch-img-cargando{margin-top:5px;padding:26px 10px;text-align:center;font-size:11px;color:var(--text2);background:var(--bg2);border-radius:6px}
+.ch-pdf-link{display:flex;align-items:center;gap:8px;margin-top:5px;padding:10px 12px;border-radius:6px;border:1px solid var(--border);background:var(--bg2);color:var(--text);text-decoration:none;font-size:12px;font-weight:600}
+.ch-pdf-link:hover{border-color:#4a9eff}
 .ch-lupa{position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.88);display:flex;align-items:center;justify-content:center;padding:26px;cursor:zoom-out}
 .ch-lupa img{max-width:100%;max-height:100%;border-radius:8px;box-shadow:0 18px 60px rgba(0,0,0,.6)}
 
@@ -261,9 +263,15 @@ const CTX_TITULO = {
   evento:     'Evento',
   informeAmc: 'Informe AMC',
   informeCorr:'Informe Corresponsal',
+  informePdf: 'Informe (PDF)',
   trixiOportunidad: 'Oportunidad de Trixi Bot',
   otro:       'Referencia'
 };
+
+// Tipos de contexto cuyo "imagenRef" en realidad guarda un PDF (dataURI
+// application/pdf) en vez de una imagen — se pintan como enlace de descarga,
+// no como <img>.
+const CTX_ES_PDF = { informePdf: true };
 
 // Las imágenes no viajan dentro del mensaje: irían en cada instantánea del
 // hilo y se pagarían una y otra vez. Van en un documento aparte y se traen
@@ -283,13 +291,19 @@ function pintarContexto(c, coleccion, docId) {
   if (c.imagenRef) {
     const clave = coleccion + '/' + docId + '/' + c.imagenRef;
     const cache = _imgCache.get(clave);
+    const esPdf = !!CTX_ES_PDF[c.tipo];
     // tipo/ref/claveMercado viajan como data-* para que un click sepa, sin
     // volver a tocar el servidor, si esta tarjeta se puede montar en Trixi.
     const datos = `data-tipo="${esc(c.tipo||'')}" data-ref="${esc(c.ref||'')}" data-clave="${esc(c.claveMercado||'')}"`;
-    const cuerpo = cache
-      ? `<img class="ch-img" src="${cache}" alt="${titulo}" ${datos} onclick="AJChat.tocarTarjeta(this)">`
-      : `<div class="ch-img-cargando" data-img="${esc(c.imagenRef)}" ${datos}
-           data-col="${esc(coleccion)}" data-doc="${esc(docId||'')}">Cargando imagen…</div>`;
+    let cuerpo;
+    if (cache) {
+      cuerpo = esPdf
+        ? `<a class="ch-pdf-link" href="${cache}" target="_blank" download="${esc(c.nombreArchivo||'informe.pdf')}">📄 Abrir / descargar PDF</a>`
+        : `<img class="ch-img" src="${cache}" alt="${titulo}" ${datos} onclick="AJChat.tocarTarjeta(this)">`;
+    } else {
+      cuerpo = `<div class="ch-img-cargando" data-img="${esc(c.imagenRef)}" ${datos}
+           data-col="${esc(coleccion)}" data-doc="${esc(docId||'')}" data-pdf="${esPdf?'1':''}" data-nombre="${esc(c.nombreArchivo||'informe.pdf')}">Cargando ${esPdf?'PDF':'imagen'}…</div>`;
+    }
     const linea = String(c.resumen || '').split('\n')[0];
     return `<div class="ch-ctx ch-ctx-img">`
          + `<div class="ch-ctx-tit">${titulo}</div>${cuerpo}`
@@ -312,14 +326,23 @@ function cargarImagenes() {
     try {
       const d = await CH.db.collection(col).doc(doc).collection('imagenes').doc(ref).get();
       const datos = d.exists ? d.data().datos : '';
-      if (!datos) { el.textContent = 'La imagen ya no está disponible'; return; }
+      if (!datos) { el.textContent = `El ${el.dataset.pdf === '1' ? 'archivo' : 'imagen'} ya no está disponible`; return; }
       _imgCache.set(clave, datos);
+      if (el.dataset.pdf === '1') {
+        const a = document.createElement('a');
+        a.className = 'ch-pdf-link';
+        a.href = datos; a.target = '_blank';
+        a.download = el.dataset.nombre || 'informe.pdf';
+        a.textContent = '📄 Abrir / descargar PDF';
+        el.replaceWith(a);
+        return;
+      }
       const img = document.createElement('img');
       img.className = 'ch-img'; img.src = datos;
       img.dataset.tipo = el.dataset.tipo || ''; img.dataset.ref = el.dataset.ref || ''; img.dataset.clave = el.dataset.clave || '';
       img.onclick = () => AJChat.tocarTarjeta(img);
       el.replaceWith(img);
-    } catch (e) { el.textContent = 'No se pudo cargar la imagen'; }
+    } catch (e) { el.textContent = 'No se pudo cargar el archivo'; }
   });
 }
 

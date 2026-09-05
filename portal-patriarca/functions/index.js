@@ -22,6 +22,7 @@ const { agrupar } = require('./emparejar');
 const { archivar } = require('./chat');
 const { analizarCombinadas, calcularTablaRendimiento } = require('./analisis');
 const { vigilarTrixiBot } = require('./trixibot');
+const { vigilarCuadre } = require('./cuadre');
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -828,5 +829,20 @@ exports.vigilarTrixiNoche = onSchedule(
 // Para dispararla a mano y ver el resultado
 exports.vigilarTrixiAhora = onRequest(async (req, res) => {
   try { res.json(await vigilarTrixiBot(db)); }
+  catch (e) { res.status(500).json({ ok: false, error: String(e && e.message || e) }); }
+});
+
+// ── Cuadre diario por oficina ────────────────────────────────────────────
+// Una vez al día, temprano, antes de que arranque la operación: revisa si
+// cada oficina (Golden, Unity, ...) dejó pendientes sin resolver de un día
+// para otro. Un día de atraso avisa, dos días bloquea — ver functions/cuadre.js.
+exports.vigilarCuadreDiario = onSchedule(
+  { schedule: '0 7 * * *', timeZone: 'America/Bogota' },
+  async () => { const r = await vigilarCuadre(db); console.log('cuadre', JSON.stringify(r)); }
+);
+
+// Para dispararla a mano y ver el resultado
+exports.vigilarCuadreAhora = onRequest(async (req, res) => {
+  try { res.json(await vigilarCuadre(db)); }
   catch (e) { res.status(500).json({ ok: false, error: String(e && e.message || e) }); }
 });

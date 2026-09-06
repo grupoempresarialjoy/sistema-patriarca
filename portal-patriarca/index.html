@@ -3701,6 +3701,7 @@ function switchContTab(tab) {
 // ============================================================
 let _esfConsListener = null;
 let _esfConsMesKey   = null;
+let _esfConsOficinaKey = null; // oficina para la que está filtrada la caché actual
 let _esfExcluidos    = new Set(JSON.parse(localStorage.getItem('esf-excluidos') || '[]'));
 let _mesCerradoMap   = {}; // { docId: {autorizado, cerradoPor} } para el mes activo del ESF
 let _sfGananciaMesActual  = 0; // Utilidad derivada del ESF CONSOLIDADO → fluye a SF grupo 15
@@ -4037,20 +4038,44 @@ function initEsfConsolidado() {
   loadEsfConsolidado();
 }
 
+// uid → oficinaId de cada operador, según patriarca_operadores (mismo catálogo
+// maestro que ya usa Participación para este mismo cruce). Se trae una sola
+// vez y se reutiliza — si un operador cambia de oficina en medio de la
+// sesión, un refresh de página vuelve a traerlo fresco.
+let _esfOperadoresCache = null; // Map(uid -> oficinaId)
+async function _esfUidsDeOficina(oficinaId) {
+  if (!oficinaId) return null; // sin oficina seleccionada: no filtrar
+  if (!_esfOperadoresCache) {
+    const snap = await db.collection('patriarca_operadores').get();
+    _esfOperadoresCache = new Map();
+    snap.docs.forEach(d => {
+      const o = d.data();
+      _esfOperadoresCache.set(o.uid || d.id, o.oficina || '');
+    });
+  }
+  const uids = new Set();
+  _esfOperadoresCache.forEach((of, uid) => { if (of === oficinaId) uids.add(uid); });
+  return uids;
+}
+
 function loadEsfConsolidado() {
   const mesKey = document.getElementById('esf-cons-mes')?.value;
   if (!mesKey) return;
 
-  // Si cambió el mes, cancelar listener anterior
-  if (_esfConsListener && _esfConsMesKey !== mesKey) {
+  // Si cambió el mes O la oficina que tiene abierta el Contador, hay que
+  // recalcular desde cero — reusar la caché de otra oficina fue justo lo que
+  // hacía que, al cambiar de Golden a Unity sin cambiar de mes, se siguiera
+  // viendo la lista de operadores de la oficina anterior.
+  if (_esfConsListener && (_esfConsMesKey !== mesKey || _esfConsOficinaKey !== _contOficinaActual)) {
     _esfConsListener();
     _esfConsListener = null;
   }
   _esfConsMesKey = mesKey;
+  _esfConsOficinaKey = _contOficinaActual;
 
   const container = document.getElementById('esf-cons-container');
 
-  // Si ya hay listener activo para este mes, re-renderizar desde caché
+  // Si ya hay listener activo para este mes y esta oficina, re-renderizar desde caché
   if (_esfConsListener) {
     if (container._lastDocs) container.innerHTML = _renderEsfConsolidado(container._lastDocs, mesKey);
     return;
@@ -4058,8 +4083,8 @@ function loadEsfConsolidado() {
 
   container.innerHTML = '<div style="padding:32px;text-align:center;color:var(--text-muted)">⏳ Cargando…</div>';
 
-  _esfConsListener = db.collection('patriarca_esf_resumen').onSnapshot(snap => {
-    const docs = snap.docs
+  _esfConsListener = db.collection('patriarca_esf_resumen').onSnapshot(async snap => {
+    const docsTodos = snap.docs
       .map(d => ({ uid: d.id, ...d.data(), uid: d.data().uid || d.id }))
       .filter(d => d.mesKey === mesKey && !(d.nombre || '').endsWith('@admin.aj16.com') && !(d.uid || '').endsWith('@admin.aj16.com'))
       // Deduplicar: si hay doc viejo (uid) y nuevo (uid_mesKey) del mismo operador, queda el más reciente
@@ -4073,12 +4098,21 @@ function loadEsfConsolidado() {
       }, [])
       .sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''));
 
+    // patriarca_esf_resumen no guarda la oficina del operador — sin este cruce,
+    // ESF Consolidado mezclaba Golden y Unity sin importar cuál estuviera
+    // seleccionada en el panel izquierdo del Contador.
+    let docs = docsTodos;
+    if (_contOficinaActual) {
+      const uidsOficina = await _esfUidsDeOficina(_contOficinaActual);
+      if (uidsOficina) docs = docsTodos.filter(d => uidsOficina.has(d.uid));
+    }
+
     const status = document.getElementById('esf-cons-status');
     if (status) status.textContent = docs.length ? `${docs.length} operador(es)` : 'Sin datos para este mes';
 
     if (!docs.length) {
       container.innerHTML = `<div style="padding:32px;text-align:center;color:var(--text-muted)">
-        ⚠ No hay ESF guardados para este mes.<br>
+        ⚠ No hay ESF guardados para este mes en esta oficina.<br>
         <span style="font-size:11px">Los operadores deben abrir su portal → pestaña ESF.</span>
       </div>`;
       return;

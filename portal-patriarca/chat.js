@@ -244,6 +244,24 @@ const CSS = `
   .ch-lista{width:100%;max-height:230px}
   .ch-panel{height:65vh}
   .ch-msg{max-width:86%}
+}
+
+/* Burbuja flotante, fija abajo a la derecha en todo el portal */
+.ch-globo-flot{position:fixed;right:22px;bottom:22px;width:56px;height:56px;border-radius:50%;background:var(--green);color:#0d0f14;border:none;box-shadow:0 8px 22px rgba(0,0,0,.4);font-size:23px;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:9997;transition:transform .15s}
+.ch-globo-flot:hover{transform:scale(1.06)}
+.ch-globo-flot.ch-globo-oculto{display:none}
+.ch-globo-badge{position:absolute;top:-3px;right:-3px;background:#e05050;color:#fff;border-radius:20px;min-width:19px;height:19px;padding:0 5px;font-size:10.5px;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 2px var(--bg2)}
+
+/* Botón de cerrar del panel flotante — invisible fuera de ese modo */
+.ch-flot-cerrar{display:none;position:absolute;top:10px;right:12px;width:28px;height:28px;border-radius:50%;background:var(--bg3);border:1px solid var(--border);color:var(--text2);font-size:14px;align-items:center;justify-content:center;cursor:pointer;z-index:2}
+.ch-flot-cerrar:hover{color:var(--text);border-color:var(--green)}
+
+/* El chat como ventana flotante encima del portal, sin cambiar de pestaña */
+#sec-mensajes.ch-flotante{display:flex !important;flex-direction:column;position:fixed !important;right:22px;bottom:90px;left:auto;top:auto;width:min(720px,calc(100vw - 44px));height:min(560px,calc(100vh - 130px));background:var(--bg2);border:1px solid var(--border);border-radius:16px;box-shadow:0 26px 60px rgba(0,0,0,.5);z-index:9996;padding:16px;overflow:hidden}
+#sec-mensajes.ch-flotante .ch-flot-cerrar{display:flex}
+#sec-mensajes.ch-flotante .ch-wrap{height:100% !important;min-height:0}
+@media(max-width:820px){
+  #sec-mensajes.ch-flotante{right:12px;left:12px;bottom:82px;width:auto;height:min(72vh,600px)}
 }`;
 
 function inyectarEstilos() {
@@ -251,6 +269,50 @@ function inyectarEstilos() {
   const s = document.createElement('style');
   s.id = 'ch-css'; s.textContent = CSS;
   document.head.appendChild(s);
+}
+
+/* ── burbuja flotante ───────────────────────────────────────────────────────
+   El chat ya vivía en su propia pestaña, al final del menú. Para que se note
+   sin tener que ir a buscarlo, se agrega un botón circular fijo abajo a la
+   derecha (como WhatsApp/Intercom) que abre el mismo #sec-mensajes de siempre
+   pero como ventana flotante encima del portal, sin cambiar de pestaña. La
+   pestaña "💬 Chat" del menú se deja donde estaba — sigue funcionando igual. */
+
+function crearGlobo() {
+  if (!document.getElementById('ch-globo-flot')) {
+    const b = document.createElement('button');
+    b.id = 'ch-globo-flot'; b.className = 'ch-globo-flot'; b.title = 'Chat';
+    b.innerHTML = '💬<span class="ch-globo-badge" id="ch-globo-badge" style="display:none">0</span>';
+    b.onclick = () => toggleFlotante();
+    document.body.appendChild(b);
+  }
+  const sec = document.getElementById('sec-mensajes');
+  if (sec && !document.getElementById('ch-flot-cerrar')) {
+    const x = document.createElement('button');
+    x.id = 'ch-flot-cerrar'; x.className = 'ch-flot-cerrar'; x.title = 'Cerrar';
+    x.innerHTML = '✕';
+    x.onclick = () => toggleFlotante(false);
+    sec.insertBefore(x, sec.firstChild);
+  }
+}
+
+function actualizarGloboBadge(n) {
+  const b = document.getElementById('ch-globo-badge');
+  if (!b) return;
+  if (n > 0) { b.style.display = 'flex'; b.textContent = n > 99 ? '99+' : n; }
+  else b.style.display = 'none';
+}
+
+function toggleFlotante(forzar) {
+  const sec = document.getElementById('sec-mensajes');
+  if (!sec) return;
+  const activar = typeof forzar === 'boolean' ? forzar : !sec.classList.contains('ch-flotante');
+  sec.classList.toggle('ch-flotante', activar);
+  const globo = document.getElementById('ch-globo-flot');
+  if (globo) globo.classList.toggle('ch-globo-oculto', activar);
+  // Si se cierra el flotante pero la pestaña Chat sigue activa de fondo,
+  // no se marca como "cerrado" para efectos de leído.
+  if (window.AJChat) AJChat.visible(activar || sec.classList.contains('active'));
 }
 
 /* ── contexto adjunto ───────────────────────────────────────────────────── */
@@ -1154,11 +1216,16 @@ const Admin = {
    ARRANQUE
    ══════════════════════════════════════════════════════════════════════════ */
 
+// Contador de no leídos sobre la burbuja flotante (Usuario.pintarGlobo y
+// Admin.pintarGlobo ya llaman esto si existe; antes no hacía nada).
+global.AJChatGlobo = actualizarGloboBadge;
+
 global.AJChat = {
 
   // Operador y cajero
   iniciarUsuario(o) {
     inyectarEstilos();
+    crearGlobo();
     Object.assign(CH, {
       db:o.db, auth:o.auth, uid:o.uid, nombre:o.nombre || '',
       rol:o.rol || 'operador', oficina:o.oficina || '', esAdmin:false,
@@ -1193,6 +1260,7 @@ global.AJChat = {
   // Administrador
   iniciarAdmin(o) {
     inyectarEstilos();
+    crearGlobo();
     Object.assign(CH, {
       db:o.db, auth:o.auth, uid:o.uid, nombre:o.nombre || 'Administración', esAdmin:true
     });
@@ -1230,6 +1298,11 @@ global.AJChat = {
       if (uid) marcarLeido(uid);
     }
   },
+
+  // Abrir/cerrar el chat como ventana flotante (burbuja abajo a la derecha),
+  // sin tocar la pestaña "Chat" del menú. toggleFlotante(true/false) fuerza
+  // el estado; sin argumento, alterna.
+  toggleFlotante(forzar) { toggleFlotante(forzar); },
 
   /* Reportar con contexto. El portal lo llama desde el botón del objeto:
        AJChat.reportar({ tipo:'cupon', ref:id, resumen:'...' })            */

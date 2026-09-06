@@ -4058,6 +4058,32 @@ async function _esfUidsDeOficina(oficinaId) {
   return uids;
 }
 
+// El ESF guarda el nombre tal como lo trae Firebase Auth (displayName del
+// operador) y, si el operador nunca puso uno, cae en su correo — por eso en
+// la tabla salían columnas como "juan@aj16.com" al lado de otras con nombre
+// real. El nombre bueno, el que edita el administrador, vive en admin_usuarios
+// — mismo cruce que ya usa Participación para este mismo problema.
+let _esfNombresPorUid = null, _esfNombresPorEmail = null;
+async function _esfResolverNombres(ops) {
+  if (!_esfNombresPorUid) {
+    const snap = await db.collection('admin_usuarios').where('rol', '==', 'operador').get();
+    _esfNombresPorUid = {}; _esfNombresPorEmail = {};
+    snap.docs.forEach(d => {
+      const u = d.data();
+      const n = (u.nombre || '').trim();
+      if (!n || n === '—') return;
+      if (u.uid)   _esfNombresPorUid[u.uid] = n;
+      if (u.email) _esfNombresPorEmail[(u.email || '').toLowerCase()] = n;
+    });
+  }
+  ops.forEach(op => {
+    const esCorreo = (op.nombre || '').includes('@');
+    const bueno = _esfNombresPorUid[op.uid]
+      || (esCorreo ? _esfNombresPorEmail[op.nombre.toLowerCase()] : null);
+    if (bueno) op.nombre = bueno;
+  });
+}
+
 function loadEsfConsolidado() {
   const mesKey = document.getElementById('esf-cons-mes')?.value;
   if (!mesKey) return;
@@ -4095,8 +4121,14 @@ function loadEsfConsolidado() {
         const tOld = acc[idx].actualizadoEn?.toMillis?.() || 0;
         if (tNew > tOld) acc[idx] = d;
         return acc;
-      }, [])
-      .sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''));
+      }, []);
+
+    // El nombre guardado en el ESF es el de Firebase Auth (a veces solo el
+    // correo, si el operador nunca puso displayName) — se reemplaza por el
+    // nombre bueno de admin_usuarios antes de ordenar, si no el orden
+    // alfabético también salía raro (correos primero, nombres después).
+    await _esfResolverNombres(docsTodos);
+    docsTodos.sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''));
 
     // patriarca_esf_resumen no guarda la oficina del operador — sin este cruce,
     // ESF Consolidado mezclaba Golden y Unity sin importar cuál estuviera

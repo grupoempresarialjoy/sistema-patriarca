@@ -100,9 +100,21 @@ async function vigilarCuadre(db) {
     const snap = await ref.get();
     const previo = snap.exists ? snap.data() : { diasAtraso: 0 };
 
+    // Un solo incremento por día de calendario: si esta oficina ya se revisó
+    // hoy (por el cron o porque alguien la disparó a mano para probar), no se
+    // vuelve a subir el contador — si no, cada corrida manual sumaría un "día"
+    // aunque sea el mismo día real. Los documentos de antes de este chequeo no
+    // traen `ultimaRevisionDia`, así que en vez de confiar en su diasAtraso
+    // acumulado (pudo inflarse antes de este arreglo) se arranca de nuevo en 1.
+    const yaRevisadoHoy = previo.ultimaRevisionDia === hoy;
+
     let estado, diasAtraso;
-    if (pendientes > 0) {
-      diasAtraso = (previo.diasAtraso || 0) + 1;
+    if (yaRevisadoHoy) {
+      estado = previo.estado || 'ok';
+      diasAtraso = previo.diasAtraso || 0;
+    } else if (pendientes > 0) {
+      const base = previo.ultimaRevisionDia ? (previo.diasAtraso || 0) : 0;
+      diasAtraso = base + 1;
       estado = diasAtraso >= 2 ? 'bloqueado' : 'advertencia';
     } else {
       diasAtraso = 0;
@@ -111,6 +123,7 @@ async function vigilarCuadre(db) {
 
     const datos = {
       oficina, estado, pendientes, diasAtraso,
+      ultimaRevisionDia: hoy,
       ultimaRevision: admin.firestore.FieldValue.serverTimestamp(),
     };
     if (estado === 'ok') datos.ultimoCuadre = admin.firestore.FieldValue.serverTimestamp();

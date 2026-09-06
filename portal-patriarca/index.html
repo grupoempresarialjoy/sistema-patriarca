@@ -4063,13 +4063,19 @@ async function _esfUidsDeOficina(oficinaId) {
 // la tabla salían columnas como "juan@aj16.com" al lado de otras con nombre
 // real. El nombre bueno, el que edita el administrador, vive en admin_usuarios
 // — mismo cruce que ya usa Participación para este mismo problema.
-let _esfNombresPorUid = null, _esfNombresPorEmail = null;
+//
+// De paso: el cajero también guarda su propio resumen en patriarca_esf_resumen
+// (abre su portal y le corre el mismo cálculo que a un operador), pero ESF
+// Consolidado es solo de operadores — su fila hay que excluirla, no solo
+// arreglarle el nombre.
+let _esfNombresPorUid = null, _esfNombresPorEmail = null, _esfUidsCajero = null;
 async function _esfResolverNombres(ops) {
   if (!_esfNombresPorUid) {
-    const snap = await db.collection('admin_usuarios').where('rol', '==', 'operador').get();
-    _esfNombresPorUid = {}; _esfNombresPorEmail = {};
+    const snap = await db.collection('admin_usuarios').where('rol', 'in', ['operador', 'cajero']).get();
+    _esfNombresPorUid = {}; _esfNombresPorEmail = {}; _esfUidsCajero = new Set();
     snap.docs.forEach(d => {
       const u = d.data();
+      if (u.rol === 'cajero' && u.uid) _esfUidsCajero.add(u.uid);
       const n = (u.nombre || '').trim();
       if (!n || n === '—') return;
       if (u.uid)   _esfNombresPorUid[u.uid] = n;
@@ -4110,7 +4116,7 @@ function loadEsfConsolidado() {
   container.innerHTML = '<div style="padding:32px;text-align:center;color:var(--text-muted)">⏳ Cargando…</div>';
 
   _esfConsListener = db.collection('patriarca_esf_resumen').onSnapshot(async snap => {
-    const docsTodos = snap.docs
+    let docsTodos = snap.docs
       .map(d => ({ uid: d.id, ...d.data(), uid: d.data().uid || d.id }))
       .filter(d => d.mesKey === mesKey && !(d.nombre || '').endsWith('@admin.aj16.com') && !(d.uid || '').endsWith('@admin.aj16.com'))
       // Deduplicar: si hay doc viejo (uid) y nuevo (uid_mesKey) del mismo operador, queda el más reciente
@@ -4128,6 +4134,9 @@ function loadEsfConsolidado() {
     // nombre bueno de admin_usuarios antes de ordenar, si no el orden
     // alfabético también salía raro (correos primero, nombres después).
     await _esfResolverNombres(docsTodos);
+    // El cajero también guarda su ESF (abre su portal y le corre el mismo
+    // cálculo), pero ESF Consolidado es solo de operadores.
+    docsTodos = docsTodos.filter(d => !_esfUidsCajero.has(d.uid));
     docsTodos.sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''));
 
     // patriarca_esf_resumen no guarda la oficina del operador — sin este cruce,

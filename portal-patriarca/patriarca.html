@@ -11589,7 +11589,7 @@ async function tbMontarDesdeChat(ref, claveMercado){
   let ev;
   try {
     const doc = await db.collection('trixibot_eventos').doc(ref).get();
-    if (!doc.exists){ toast('Ese partido ya no está disponible (probablemente ya se jugó)', 'error'); return; }
+    if (!doc.exists){ toast('Esa cuota ya no está disponible (la casa la corrigió, cerró el mercado, o el partido ya empezó)', 'error'); return; }
     ev = { id: doc.id, ...doc.data() };
   } catch(e){ toast(cpErrorClaro(e), 'error'); return; }
 

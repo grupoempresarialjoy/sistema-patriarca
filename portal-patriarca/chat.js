@@ -258,8 +258,10 @@ const CSS = `
 
 /* El chat como ventana flotante encima del portal, sin cambiar de pestaña */
 #sec-mensajes.ch-flotante{display:flex !important;flex-direction:column;position:fixed !important;right:22px;bottom:90px;left:auto;top:auto;width:min(720px,calc(100vw - 44px));height:min(560px,calc(100vh - 130px));background:var(--bg2);border:1px solid var(--border);border-radius:16px;box-shadow:0 26px 60px rgba(0,0,0,.5);z-index:9996;padding:16px;overflow:hidden}
+#sec-mensajes.ch-flotante > .sec-header{flex-shrink:0}
+#sec-mensajes.ch-flotante > #ch-montar{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
 #sec-mensajes.ch-flotante .ch-flot-cerrar{display:flex}
-#sec-mensajes.ch-flotante .ch-wrap{height:100% !important;min-height:0}
+#sec-mensajes.ch-flotante .ch-wrap{flex:1;height:auto !important;min-height:0}
 @media(max-width:820px){
   #sec-mensajes.ch-flotante{right:12px;left:12px;bottom:82px;width:auto;height:min(72vh,600px)}
 }`;

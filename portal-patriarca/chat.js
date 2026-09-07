@@ -255,11 +255,25 @@ const CSS = `
 .ch-quien-fila{display:flex;justify-content:space-between;padding:3px 0;color:var(--text2)}
 .ch-quien-si{color:var(--green)}
 
+/* Botón "← Volver" del panel — solo existe visualmente en celular (ver abajo),
+   para regresar de la conversación abierta a la lista de contactos. */
+.ch-cab-volver{display:none;background:var(--bg3);border:1px solid var(--border);color:var(--text2);border-radius:8px;width:30px;height:30px;font-size:16px;cursor:pointer;flex-shrink:0;align-items:center;justify-content:center}
+.ch-cab-volver:hover{color:var(--text);border-color:var(--green)}
+
+/* En celular, la lista de contactos y la conversación abierta no caben lado a
+   lado — en vez de apretarlas una encima de la otra (como pasaba antes),
+   se muestra una sola a la vez, estilo WhatsApp: se arranca en la lista, y
+   al tocar una conversación esa ocupa toda la ventana con un botón "←" para
+   volver. #sec-mensajes.ch-panel-abierto es lo que decide cuál se ve — lo
+   agregan/quitan mostrarPanelMovil()/volverListaMovil() (ver más abajo). */
 @media(max-width:820px){
-  .ch-wrap{flex-direction:column;height:auto}
-  .ch-lista{width:100%;max-height:230px}
-  .ch-panel{height:65vh}
+  .ch-wrap{flex-direction:column;height:calc(100vh - 190px);min-height:360px}
   .ch-msg{max-width:86%}
+  #sec-mensajes .ch-lista{flex:1;min-height:0;max-height:none}
+  #sec-mensajes .ch-panel{flex:1;min-height:0}
+  #sec-mensajes:not(.ch-panel-abierto) .ch-panel{display:none}
+  #sec-mensajes.ch-panel-abierto .ch-lista{display:none}
+  #sec-mensajes.ch-panel-abierto .ch-cab-volver{display:flex}
 }
 
 /* Burbuja flotante, fija abajo a la derecha en todo el portal */
@@ -289,14 +303,12 @@ const CSS = `
 #sec-mensajes.ch-flotante .ch-panel{background:var(--bg2)}
 @media(max-width:820px){
   #sec-mensajes.ch-flotante{right:12px;left:12px;bottom:82px;width:auto;height:min(72vh,600px)}
-  /* La regla genérica de arriba (.ch-panel{height:65vh}) es para la pestaña
-     "Chat" de pantalla completa — dentro de la ventana flotante ya limitada
-     en altura, esa medida no cabe y el panel se sale por debajo, tapando el
-     fondo del portal. Acá todo se reparte con flex dentro del espacio real
-     que ya tiene la ventana flotante, no con una medida fija de la pantalla. */
-  #sec-mensajes.ch-flotante .ch-wrap{flex-direction:column;height:auto !important;min-height:0;gap:10px}
-  #sec-mensajes.ch-flotante .ch-lista{width:100%;max-height:170px;flex-shrink:0}
-  #sec-mensajes.ch-flotante .ch-panel{flex:1;height:auto !important;min-height:0}
+  /* Dentro de la ventana flotante (ya con una altura fija propia) la lista y
+     el panel se reparten con flex el espacio real que hay, no con la medida
+     de arriba (calc(100vh - 190px)) pensada para la pestaña de pantalla
+     completa — si no, el panel se sale por debajo tapando el fondo. */
+  #sec-mensajes.ch-flotante .ch-wrap{flex-direction:column;height:auto !important;min-height:0}
+  #sec-mensajes.ch-flotante .ch-lista{width:100%}
 }
 
 /* Aviso emergente cuando llega un mensaje nuevo de administración, mientras
@@ -368,6 +380,22 @@ function toggleFlotante(forzar) {
   // Si se cierra el flotante pero la pestaña Chat sigue activa de fondo,
   // no se marca como "cerrado" para efectos de leído.
   if (window.AJChat) AJChat.visible(activar || sec.classList.contains('active'));
+}
+
+/* ── navegación estilo WhatsApp en celular ─────────────────────────────────
+   En pantalla angosta, la lista de contactos y la conversación abierta no
+   caben lado a lado (ver CSS de #sec-mensajes.ch-panel-abierto). Estas dos
+   funciones son las que deciden cuál se ve: se llaman desde cada función que
+   abre una conversación (mostrarPanelMovil) y desde el botón "←" del panel
+   (volverListaMovil). En pantallas anchas la clase no cambia nada — el CSS
+   que la usa solo existe dentro de la media query. */
+function mostrarPanelMovil() {
+  const sec = document.getElementById('sec-mensajes');
+  if (sec) sec.classList.add('ch-panel-abierto');
+}
+function volverListaMovil() {
+  const sec = document.getElementById('sec-mensajes');
+  if (sec) sec.classList.remove('ch-panel-abierto');
 }
 
 /* ── aviso de versión nueva publicada ──────────────────────────────────────
@@ -856,11 +884,15 @@ const Usuario = {
     </div>`).join('');
   },
 
+  // Llamado siempre desde un clic real (lista de conversaciones) — por eso
+  // acá sí se pasa siempre al panel en celular, a diferencia de
+  // verAdministracion(), que montar() también llama sola al abrir el chat.
   ver(vista) {
     if (vista === 'trixi' && !CH.trixibotActivo) return;
     if (vista === 'anuncios') Usuario.verAnuncios();
     else if (vista === 'trixi') Usuario.verTrixiPanel();
     else Usuario.verAdministracion();
+    mostrarPanelMovil();
   },
 
   verAdministracion() {
@@ -869,6 +901,7 @@ const Usuario = {
     const p = document.getElementById('ch-panel'); if (!p) return;
     p.innerHTML = `
       <div class="ch-cab">
+        <button class="ch-cab-volver" onclick="AJChat.volverListaMovil()" title="Volver a la lista">←</button>
         <div class="ch-ava">A</div>
         <div>
           <div class="ch-cab-nom">Administración</div>
@@ -902,6 +935,7 @@ const Usuario = {
     const p = document.getElementById('ch-panel'); if (!p) return;
     p.innerHTML = `
       <div class="ch-cab">
+        <button class="ch-cab-volver" onclick="AJChat.volverListaMovil()" title="Volver a la lista">←</button>
         <div class="ch-ava" style="background:linear-gradient(135deg,#f0a050,#d88020)">📢</div>
         <div><div class="ch-cab-nom">Anuncios del ecosistema</div>
           <div class="ch-cab-sub">Avisos de la administración para todo el equipo</div></div>
@@ -917,6 +951,7 @@ const Usuario = {
     const p = document.getElementById('ch-panel'); if (!p) return;
     p.innerHTML = `
       <div class="ch-cab">
+        <button class="ch-cab-volver" onclick="AJChat.volverListaMovil()" title="Volver a la lista">←</button>
         <div class="ch-ava" style="background:linear-gradient(135deg,#35CC2F,#24BF62)">🎰</div>
         <div><div class="ch-cab-nom">Trixi Bot</div>
           <div class="ch-cab-sub">Oportunidades que el bot va encontrando — toca una para editarla</div></div>
@@ -1271,6 +1306,7 @@ const Admin = {
     const p = document.getElementById('ch-panel');
     p.innerHTML = `
       <div class="ch-cab">
+        <button class="ch-cab-volver" onclick="AJChat.volverListaMovil()" title="Volver a la lista">←</button>
         <div class="ch-ava ${caj ? 'ch-ava-caj' : ''}">${esc((h.nombre||'?').charAt(0).toUpperCase())}</div>
         <div style="flex:1">
           <div class="ch-cab-nom">${esc(h.nombre || uid)}</div>
@@ -1299,6 +1335,7 @@ const Admin = {
       escucharMensajes(uid, Admin.pintarMensajes)
     ];
     Admin.pintarHilos();
+    mostrarPanelMovil();
   },
 
   soltarHilo() { (CH._hiloOff || []).forEach(f => { try { f(); } catch(_){} }); CH._hiloOff = []; },
@@ -1348,12 +1385,14 @@ const Admin = {
     const p = document.getElementById('ch-panel');
     p.innerHTML = `
       <div class="ch-cab">
+        <button class="ch-cab-volver" onclick="AJChat.volverListaMovil()" title="Volver a la lista">←</button>
         <div class="ch-ava" style="background:linear-gradient(135deg,#35CC2F,#24BF62)">🎰</div>
         <div><div class="ch-cab-nom">Trixi Bot</div>
           <div class="ch-cab-sub">Oportunidades que el bot va encontrando — un solo canal para todos</div></div>
       </div>
       <div class="ch-cuerpo" id="ch-feed-trixi"></div>`;
     Admin.pintarTrixi();
+    mostrarPanelMovil();
   },
 
   pintarTrixi() {
@@ -1363,11 +1402,16 @@ const Admin = {
 
   /* ── anuncios ── */
 
-  verAnuncios() {
+  // porClicUsuario: true cuando viene de un clic real (lista de contactos o
+  // el botón AJChat.verAnuncios) — ahí sí se pasa al panel en celular. Falso
+  // cuando lo llama montar() para dejar algo seleccionado por defecto al
+  // abrir el chat: eso no debe tapar la lista de conversaciones en celular.
+  verAnuncios(porClicUsuario) {
     CH.vista = 'anuncios'; CH.hiloUid = ''; Admin.soltarHilo();
     const p = document.getElementById('ch-panel');
     p.innerHTML = `
       <div class="ch-cab">
+        <button class="ch-cab-volver" onclick="AJChat.volverListaMovil()" title="Volver a la lista">←</button>
         <div class="ch-ava" style="background:linear-gradient(135deg,#f0a050,#d88020)">📢</div>
         <div><div class="ch-cab-nom">Anuncios del ecosistema</div>
           <div class="ch-cab-sub">Lo que publiques aquí lo leen todos los que elijas</div></div>
@@ -1392,6 +1436,7 @@ const Admin = {
         <div id="ch-an-lista"></div>
       </div>`;
     Admin.pintarAnuncios();
+    if (porClicUsuario) mostrarPanelMovil();
   },
 
   pintarAnuncios() {
@@ -1620,7 +1665,7 @@ global.AJChat = {
     CH.contexto = ctx || null;
     // Si estaba mirando Anuncios o Trixi Bot, «Reportar» siempre debe volver
     // a la conversación con administración — es la única que se compone.
-    if (!CH.esAdmin) Usuario.verAdministracion();
+    if (!CH.esAdmin) { Usuario.verAdministracion(); mostrarPanelMovil(); }
     if (global.AJChatIrAMensajes) global.AJChatIrAMensajes();
     setTimeout(() => { const t = document.getElementById('ch-txt'); if (t) t.focus(); }, 120);
   },
@@ -1682,8 +1727,9 @@ global.AJChat = {
   },
 
   abrirHilo: uid => Admin.abrirHilo(uid),
-  verAnuncios: () => Admin.verAnuncios(),
+  verAnuncios: () => Admin.verAnuncios(true),
   verTrixi: () => Admin.verTrixi(),
+  volverListaMovil: () => volverListaMovil(),
   verQuien: id => Admin.verQuien(id),
   publicar: () => Admin.publicar(),
   borrarAnuncio: id => Admin.borrarAnuncio(id),

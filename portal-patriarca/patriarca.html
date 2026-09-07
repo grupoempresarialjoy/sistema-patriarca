@@ -4974,6 +4974,11 @@ async function enviarSolicitudCorreccion() {
       estado:         'pendiente',
       creadoEn:       firebase.firestore.FieldValue.serverTimestamp()
     });
+    const montoViejo = '$' + Math.round(tx.monto || 0).toLocaleString('es-CO');
+    const montoNuevo = '$' + Math.round(newMonto || 0).toLocaleString('es-CO');
+    if (window.AJChat) AJChat.enviarAutomatico(
+      `🔧 Solicitó corregir ${tx.tipo === 'comision' ? 'una comisión' : 'un saldo'} de ${tx.metodo} — de ${montoViejo} a ${montoNuevo} · motivo: "${motivo}"`
+    ).catch(() => {});
     toast('✅ Solicitud enviada — el admin la revisará');
     cerrarModalCorreccion();
   } catch(e) {
@@ -5333,6 +5338,11 @@ async function solicitarEliminarMovimiento(id) {
       solicitud_eliminar_op: operadorNombre || opId,
       solicitud_eliminar_motivo: motivo.trim(),
     });
+    const m = allMovimientos.find(x => x.id === id);
+    const monto = m ? '$' + Math.round(m.monto || 0).toLocaleString('es-CO') : '';
+    if (window.AJChat) AJChat.enviarAutomatico(
+      `🗑️ Solicitó eliminar un movimiento — ${(m && m.tipo) || ''} ${monto} · motivo: "${motivo.trim()}"`
+    ).catch(() => {});
     toast('✅ Solicitud enviada — el administrador debe aprobarla', 'info');
   } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
 }
@@ -7422,6 +7432,10 @@ async function saveDeleteRequest() {
       estado: 'pendiente',
       ts: firebase.firestore.FieldValue.serverTimestamp(),
     });
+    const monto = '$' + Math.round(ix.monto || 0).toLocaleString('es-CO');
+    if (window.AJChat) AJChat.enviarAutomatico(
+      `🗑️ Solicitó eliminar un intercambio — ${ix.ix_id || '—'} · ${monto} · motivo: "${motivo}"`
+    ).catch(() => {});
     toast('📤 Solicitud enviada — el administrador revisará y eliminará si aprueba', 'success');
     closeModal('modal-del-ix');
   } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
@@ -7467,6 +7481,10 @@ async function saveDeleteInvRequest() {
       estado: 'pendiente',
       ts: firebase.firestore.FieldValue.serverTimestamp(),
     });
+    const monto = '$' + Math.round(inv.monto || 0).toLocaleString('es-CO');
+    if (window.AJChat) AJChat.enviarAutomatico(
+      `🗑️ Solicitó eliminar una apuesta — Ap# ${inv.op_id || '—'} · ${monto} · motivo: "${motivo}"`
+    ).catch(() => {});
     toast('📤 Solicitud enviada — el administrador aprobará la eliminación', 'success');
     closeModal('modal-del-inv');
   } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
@@ -7595,6 +7613,9 @@ async function saveCorreccion() {
   btn.disabled = true; btn.textContent = 'Enviando...';
   try {
     await db.collection('patriarca_ix_correcciones').add(corrData);
+    if (window.AJChat) AJChat.enviarAutomatico(
+      `🔧 Solicitó una corrección de intercambio (la revisa el Cajero) — ${ix.ix_id || '—'} · motivo: "${motivo}"`
+    ).catch(() => {});
     toast('📤 Solicitud enviada — el Cajero revisará y aplicará el cambio si lo aprueba', 'success');
     closeModal('modal-correccion');
   } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }

@@ -139,6 +139,11 @@ const CSS = `
 .ch-lista{width:290px;flex-shrink:0;background:var(--bg2);border:1px solid var(--border);border-radius:10px;display:flex;flex-direction:column;overflow:hidden}
 .ch-lista-cab{padding:10px 12px;border-bottom:1px solid var(--border);font-size:11px;font-weight:700;color:var(--text2);letter-spacing:.4px;text-transform:uppercase}
 .ch-lista-scroll{flex:1;overflow-y:auto}
+.ch-buscar-cont{padding:8px 10px;border-bottom:1px solid var(--border);position:relative}
+.ch-buscar{width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px 10px 8px 30px;color:var(--text);font-size:12.5px;font-family:inherit;box-sizing:border-box}
+.ch-buscar:focus{outline:none;border-color:var(--green)}
+.ch-buscar-ico{position:absolute;left:19px;top:50%;transform:translateY(-50%);font-size:12px;color:var(--text2);pointer-events:none}
+.ch-buscar-vacio{padding:22px 12px;color:var(--text2);font-size:12px;text-align:center}
 .ch-item{padding:11px 12px;border-bottom:1px solid var(--border);cursor:pointer;display:flex;gap:10px;align-items:flex-start}
 .ch-item:hover{background:var(--row-hover)}
 .ch-item.act{background:rgba(53,204,47,.10);border-left:3px solid var(--green);padding-left:9px}
@@ -906,6 +911,11 @@ const Admin = {
       <div class="ch-wrap">
         <div class="ch-lista">
           <div class="ch-lista-cab">Conversaciones</div>
+          <div class="ch-buscar-cont">
+            <span class="ch-buscar-ico">🔍</span>
+            <input class="ch-buscar" id="ch-buscar" type="text" placeholder="Buscar operador o cajero…"
+              oninput="Admin.filtrarHilos(this.value)">
+          </div>
           <div class="ch-lista-scroll">
             <div class="ch-item" id="ch-item-anuncios" onclick="AJChat.verAnuncios()">
               <div class="ch-ava" style="background:linear-gradient(135deg,#f0a050,#d88020)">📢</div>
@@ -929,11 +939,32 @@ const Admin = {
     Admin.verAnuncios();
   },
 
+  // Filtro de la búsqueda tipo WhatsApp: se guarda para que sobreviva a los
+  // repintados en vivo del listado (cada vez que llega un mensaje nuevo,
+  // pintarHilos() se vuelve a llamar solo — si no se conservara el texto acá,
+  // la búsqueda se borraría sola en cuanto alguien escribiera).
+  _filtro: '',
+  filtrarHilos(valor) {
+    Admin._filtro = (valor || '').toLowerCase().trim();
+    const norm = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    const f = norm(Admin._filtro);
+    const anuncios = document.getElementById('ch-item-anuncios');
+    const trixi = document.getElementById('ch-item-trixi');
+    if (anuncios) anuncios.style.display = !f || norm('Anuncios del ecosistema').includes(f) ? '' : 'none';
+    if (trixi) trixi.style.display = !f || norm('Trixi Bot').includes(f) ? '' : 'none';
+    Admin.pintarHilos();
+  },
+
   pintarHilos() {
     const c = document.getElementById('ch-hilos'); if (!c) return;
-    const orden = [...CH.hilos].sort((a,b) => ms(b.ultimoTs) - ms(a.ultimoTs));
+    const norm = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    const f = norm(Admin._filtro || '');
+    let orden = [...CH.hilos].sort((a,b) => ms(b.ultimoTs) - ms(a.ultimoTs));
+    if (f) orden = orden.filter(h => norm(h.nombre).includes(f) || norm(h.oficina).includes(f));
     if (!orden.length) {
-      c.innerHTML = `<div style="padding:18px 12px;color:var(--text2);font-size:12px;text-align:center">
+      c.innerHTML = f
+        ? `<div class="ch-buscar-vacio">Nadie coincide con "${esc(Admin._filtro)}".</div>`
+        : `<div style="padding:18px 12px;color:var(--text2);font-size:12px;text-align:center">
         Nadie ha escrito todavía.</div>`;
       return;
     }

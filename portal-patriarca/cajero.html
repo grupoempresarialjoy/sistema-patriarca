@@ -2592,6 +2592,10 @@ async function eliminarIX(globalId) {
       estado:      'pendiente',
       ts:          firebase.firestore.FieldValue.serverTimestamp(),
     });
+    const montoTxt = '$' + Math.round(ix.monto || 0).toLocaleString('es-CO');
+    if (window.AJChat) AJChat.enviarAutomatico(
+      `🗑️ El cajero solicitó eliminar un intercambio — ${montoTxt} · motivo: "${motivo.trim()}"`
+    ).catch(() => {});
     toast('📤 Solicitud enviada — el administrador debe aprobarla', 'info');
   } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
 }

@@ -752,7 +752,13 @@ function pintarFeed(contenedorId, lista, coleccion, vacio) {
     c.innerHTML = `<div class="ch-vacio"><div class="ch-vacio-ico">📭</div><div>${esc(vacio)}</div></div>`;
     return;
   }
-  c.innerHTML = lista.map(a => `<div class="ch-an">
+  // "lista" llega más nuevo primero (así se pide a Firestore, para que el
+  // límite de 60 se quede con los más recientes). Para que se lea como
+  // cualquier chat normal — lo viejo arriba, lo nuevo abajo, sin tener que
+  // bajar para ver lo último — acá se voltea antes de pintar.
+  const pegado = c.scrollHeight - c.scrollTop - c.clientHeight < 90;
+  const orden = [...lista].reverse();
+  c.innerHTML = orden.map(a => `<div class="ch-an">
     <div class="ch-an-cab">
       ${a.fijado ? '<span class="ch-an-pub">📌 Importante</span>' : ''}
       <span class="ch-an-fec">${esc(hace(a.ts))}</span>
@@ -761,6 +767,7 @@ function pintarFeed(contenedorId, lista, coleccion, vacio) {
     ${a.texto ? `<div class="ch-an-txt">${esc(a.texto).replace(/\n/g,'<br>')}</div>` : ''}
   </div>`).join('');
   cargarImagenes();
+  if (pegado) c.scrollTop = c.scrollHeight;
 }
 
 /* ── envío ─────────────────────────────────────────────────────────────── */
@@ -1416,7 +1423,7 @@ const Admin = {
         <div><div class="ch-cab-nom">Anuncios del ecosistema</div>
           <div class="ch-cab-sub">Lo que publiques aquí lo leen todos los que elijas</div></div>
       </div>
-      <div class="ch-cuerpo" style="gap:0">
+      <div class="ch-cuerpo" style="gap:0" id="ch-an-cuerpo">
         <div class="ch-form" style="border-bottom:1px solid var(--border);padding-bottom:16px;margin-bottom:16px">
           <label>Mensaje</label>
           <textarea id="ch-an-txt" placeholder="Ej: En unos días vamos a hacer un cuadre del sistema. Tengan todo anotado y al día, como si fuera un cierre de mes."></textarea>
@@ -1447,8 +1454,14 @@ const Admin = {
         Todavía no has publicado ningún anuncio.</div>`;
       return;
     }
+    // CH.anuncios llega más nuevo primero (para el límite de 60). Se voltea
+    // acá para que se lea como un chat: lo viejo arriba, lo último que
+    // publicaste abajo del todo — igual que Trixi Bot y que cualquier otra
+    // conversación, en vez de tener que bajar para ver lo más reciente.
+    const cuerpo = document.getElementById('ch-an-cuerpo');
+    const pegado = !cuerpo || cuerpo.scrollHeight - cuerpo.scrollTop - cuerpo.clientHeight < 90;
     const NOMBRE = { todos:'Todos', operadores:'Operadores', cajeros:'Cajeros' };
-    c.innerHTML = CH.anuncios.map(a => {
+    c.innerHTML = [...CH.anuncios].reverse().map(a => {
       const publico = a.publico || 'todos';
       const total = Admin.destinatarios(publico).length;
       const leyeron = Object.keys(a.leidoPor || {}).length;
@@ -1470,6 +1483,7 @@ const Admin = {
       </div>`;
     }).join('');
     cargarImagenes();
+    if (pegado && cuerpo) cuerpo.scrollTop = cuerpo.scrollHeight;
   },
 
   destinatarios(publico) {

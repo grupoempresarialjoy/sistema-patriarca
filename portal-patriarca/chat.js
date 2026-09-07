@@ -344,29 +344,52 @@ function toggleFlotante(forzar) {
 }
 
 /* ── aviso emergente de mensaje nuevo (solo lado operador/cajero) ─────────── */
+// Una tarjeta genérica: se reutiliza tanto para un mensaje de Administración
+// como para una oportunidad de Trixi Bot — mismo look, mismo tiempo en
+// pantalla, cada una con su ícono/título/acción al hacer clic.
 
 let _toastMsgTimer = null;
 
-function mostrarToastMensaje(m) {
+function mostrarToast({ ico, tit, texto, alClic }) {
   let t = document.getElementById('ch-toast');
   if (!t) {
     t = document.createElement('div');
     t.id = 'ch-toast'; t.className = 'ch-toast';
     document.body.appendChild(t);
   }
-  const texto = (m.texto || '').trim() || '📎 Envió un adjunto';
   t.innerHTML = `
-    <div class="ch-toast-ico">A</div>
+    <div class="ch-toast-ico">${ico}</div>
     <div class="ch-toast-txt">
-      <div class="ch-toast-tit">📩 Administración</div>
+      <div class="ch-toast-tit"></div>
       <div class="ch-toast-prev"></div>
     </div>
     <button class="ch-toast-x" title="Cerrar">✕</button>`;
+  t.querySelector('.ch-toast-tit').textContent = tit;
   t.querySelector('.ch-toast-prev').textContent = texto;   // por texto, no por HTML: evita inyección
   t.querySelector('.ch-toast-x').onclick = e => { e.stopPropagation(); cerrarToastMensaje(); };
-  t.onclick = () => { cerrarToastMensaje(); toggleFlotante(true); };
+  t.onclick = () => { cerrarToastMensaje(); alClic(); };
   clearTimeout(_toastMsgTimer);
   _toastMsgTimer = setTimeout(cerrarToastMensaje, 13000);
+}
+
+function mostrarToastMensaje(m) {
+  mostrarToast({
+    ico: 'A', tit: '📩 Administración',
+    texto: (m.texto || '').trim() || '📎 Envió un adjunto',
+    alClic: () => toggleFlotante(true)
+  });
+}
+
+function mostrarToastTrixi(ev) {
+  const texto = (ev.contexto && ev.contexto.resumen) || ev.texto || 'Nueva oportunidad detectada';
+  mostrarToast({
+    ico: '🎰', tit: '🎰 Trixi Bot',
+    texto,
+    alClic: () => {
+      toggleFlotante(true);
+      if (window.AJChat && AJChat.verUsuario) AJChat.verUsuario('trixi');
+    }
+  });
 }
 
 function cerrarToastMensaje() {
@@ -824,11 +847,22 @@ const Usuario = {
     if (CH.vistaU === 'anuncios') Usuario.pintarAnunciosFeed();
   },
 
-  // El canal de Trixi Bot es puramente informativo — sin franja ni ventana
-  // emergente. Con el bot corriendo cada pocos minutos, interrumpir cada vez
-  // que aparece algo sería peor que el spam que se quiso evitar en el chat.
+  // El canal de Trixi Bot es informativo, pero una cuota buena se acaba
+  // rápido — si nadie ve el aviso a tiempo, se pierde. Por eso sí avisa con
+  // el mismo toast flotante que un mensaje de administración (mismo criterio:
+  // solo lo nuevo desde que se abrió el portal, y no si ya lo está viendo).
   alCambiarTrixi() {
     if (CH.vistaU === 'trixi') Usuario.pintarTrixiFeed();
+    Usuario.avisarNuevoTrixi();
+  },
+
+  avisarNuevoTrixi() {
+    (CH.trixi || []).forEach(ev => {
+      if (CH._trixiVistoIds.has(ev.id)) return;
+      CH._trixiVistoIds.add(ev.id);
+      if (CH.vistaU === 'trixi') return;
+      if (ms(ev.ts) > CH._sesionInicio) mostrarToastTrixi(ev);
+    });
   },
 
   // ── La ventana flotante ───────────────────────────────────────────────
@@ -1329,7 +1363,7 @@ global.AJChat = {
       vistaU:'chat', trixibotActivo:false, trixi:[],
       // Para el aviso emergente: solo avisa de mensajes que lleguen de aquí
       // en adelante, nunca del atraso que ya traía al entrar.
-      _sesionInicio: Date.now(), _vistoIds: new Set()
+      _sesionInicio: Date.now(), _vistoIds: new Set(), _trixiVistoIds: new Set()
     });
     if (o.montarEn) Usuario.montar(o.montarEn);
 

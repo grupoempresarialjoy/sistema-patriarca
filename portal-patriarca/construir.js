@@ -111,6 +111,12 @@ async function procesarHtml(terser, texto, nombre) {
   let antes = 0, despues = 0;
   console.log('\nConstruyendo publico/\n');
 
+  // Sello de esta construcción. Cada portal lo trae de entrada (inyectado en
+  // el <head>) y chat.js lo compara cada tanto contra version.json — si no
+  // coinciden, es que alguien publicó una versión nueva mientras esa pestaña
+  // seguía abierta, y ahí sale el aviso de actualizar.
+  const BUILD_V = Date.now();
+
   for (const nombre of PUBLICAR) {
     const origen = path.join(RAIZ, nombre);
     if (!fs.existsSync(origen)) { console.log('  · ' + nombre.padEnd(20) + 'no existe, se salta'); continue; }
@@ -123,7 +129,7 @@ async function procesarHtml(terser, texto, nombre) {
       detalle = '';
     } else {
       const r = await procesarHtml(terser, texto, nombre);
-      salida  = r.salida;
+      salida  = r.salida.replace('<head>', '<head><script>window.__BUILD__=' + BUILD_V + ';</script>');
       detalle = ' · ' + r.bloques + ' bloques de script';
     }
 
@@ -135,6 +141,9 @@ async function procesarHtml(terser, texto, nombre) {
       + kb(texto.length).padStart(8) + ' → ' + kb(salida.length).padStart(8)
       + detalle);
   }
+
+  fs.writeFileSync(path.join(DESTINO, 'version.json'), JSON.stringify({ v: BUILD_V }));
+  console.log('  · version.json' + ' '.repeat(6) + '— sello ' + BUILD_V);
 
   const quedan = (s) => (s.match(/\/\/[^\n]{15,}/g) || []).length;
   const comentariosFuente = PUBLICAR

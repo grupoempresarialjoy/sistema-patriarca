@@ -290,7 +290,13 @@ const CSS = `
 .ch-toast-x{background:none;border:none;color:var(--text2);font-size:19px;cursor:pointer;padding:0 2px;flex-shrink:0;line-height:1}
 .ch-toast-x:hover{color:var(--text)}
 @keyframes chToastIn{from{opacity:0;transform:translateY(14px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}
-@media(max-width:820px){ .ch-toast{right:12px;bottom:86px;width:calc(100vw - 24px)} }`;
+@media(max-width:820px){ .ch-toast{right:12px;bottom:86px;width:calc(100vw - 24px)} }
+
+/* Aviso de versión nueva publicada — franja fija arriba de todo el portal */
+.ch-banner-ver{position:fixed;top:0;left:0;right:0;z-index:99990;background:linear-gradient(90deg,#2a7fd8,#4a9eff);color:#fff;padding:9px 16px;font-size:12.5px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap;box-shadow:0 2px 10px rgba(0,0,0,.25)}
+.ch-banner-ver button{background:#fff;color:#1a5fb4;border:none;border-radius:7px;padding:5px 14px;font-size:12px;font-weight:700;cursor:pointer}
+.ch-banner-ver button:hover{filter:brightness(.96)}
+.ch-banner-ver-x{background:none !important;color:#fff !important;opacity:.85;font-size:15px !important;padding:0 4px !important;box-shadow:none}`;
 
 function inyectarEstilos() {
   if (document.getElementById('ch-css')) return;
@@ -341,6 +347,44 @@ function toggleFlotante(forzar) {
   // Si se cierra el flotante pero la pestaña Chat sigue activa de fondo,
   // no se marca como "cerrado" para efectos de leído.
   if (window.AJChat) AJChat.visible(activar || sec.classList.contains('active'));
+}
+
+/* ── aviso de versión nueva publicada ──────────────────────────────────────
+   Las pestañas se quedan abiertas todo el día; el navegador no vuelve a
+   pedir el código nuevo hasta que alguien recarga. Cada portal trae de
+   entrada su propio sello (window.__BUILD__, lo inyecta construir.js en el
+   <head>) y esto lo compara cada tanto contra version.json — un archivo
+   chiquito, sin caché, que sí se vuelve a pedir en cada revisión. Si no
+   coinciden, alguien publicó una versión más nueva mientras esa pestaña
+   seguía abierta: se avisa arriba, sin forzar la recarga — que decida cuándo. */
+
+let _verChequeoTimer = null;
+
+function iniciarChequeoVersion() {
+  if (_verChequeoTimer || typeof window.__BUILD__ !== 'number') return;
+  const revisar = () => {
+    fetch('/version.json?_=' + Date.now(), { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d && d.v && d.v !== window.__BUILD__) {
+          mostrarBannerVersion();
+          clearInterval(_verChequeoTimer); _verChequeoTimer = null;   // ya se avisó, no hace falta seguir preguntando
+        }
+      }).catch(() => {});
+  };
+  setTimeout(revisar, 30000);                       // primera revisión a los 30s de abrir
+  _verChequeoTimer = setInterval(revisar, 5 * 60000); // luego cada 5 minutos
+}
+
+function mostrarBannerVersion() {
+  if (document.getElementById('ch-banner-ver')) return;
+  const b = document.createElement('div');
+  b.id = 'ch-banner-ver'; b.className = 'ch-banner-ver';
+  b.innerHTML = `
+    <span>🔄 Hay una actualización del sistema disponible.</span>
+    <button onclick="location.reload()">Actualizar ahora</button>
+    <button class="ch-banner-ver-x" title="Recordar más tarde" onclick="this.parentElement.remove()">✕</button>`;
+  document.body.appendChild(b);
 }
 
 /* ── aviso emergente de mensaje nuevo (solo lado operador/cajero) ─────────── */
@@ -1357,6 +1401,7 @@ global.AJChat = {
   iniciarUsuario(o) {
     inyectarEstilos();
     crearGlobo();
+    iniciarChequeoVersion();
     Object.assign(CH, {
       db:o.db, auth:o.auth, uid:o.uid, nombre:o.nombre || '',
       rol:o.rol || 'operador', oficina:o.oficina || '', esAdmin:false,
@@ -1395,6 +1440,7 @@ global.AJChat = {
   iniciarAdmin(o) {
     inyectarEstilos();
     crearGlobo();
+    iniciarChequeoVersion();
     Object.assign(CH, {
       db:o.db, auth:o.auth, uid:o.uid, nombre:o.nombre || 'Administración', esAdmin:true
     });

@@ -74,6 +74,13 @@ const esc = s => String(s == null ? '' : s)
 const ms = t => !t ? 0 : (typeof t.toMillis === 'function' ? t.toMillis()
                         : (t.seconds ? t.seconds * 1000 : +new Date(t) || 0));
 
+// Para el buscador de conversaciones: minúsculas y sin tildes, con un mapa
+// explícito en vez de normalize('NFD') + regex de marcas combinadas — ese
+// regex necesita caracteres Unicode literales en el código fuente y es fácil
+// que se dañe al pasar por herramientas de edición o el minificador.
+const _MAPA_ACENTOS = { á:'a', é:'e', í:'i', ó:'o', ú:'u', ñ:'n', ü:'u' };
+const norm = s => String(s || '').toLowerCase().replace(/[áéíóúñü]/g, c => _MAPA_ACENTOS[c] || c);
+
 function hora(t) {
   const d = new Date(ms(t)); if (!ms(t)) return '';
   return d.toLocaleTimeString('es-CO', { hour:'2-digit', minute:'2-digit' });
@@ -274,16 +281,16 @@ const CSS = `
 /* Aviso emergente cuando llega un mensaje nuevo de administración, mientras
    el operador/cajero no lo está viendo en ese momento. Se cierra sola o con
    la X; el globito de la burbuja se queda como recordatorio permanente. */
-.ch-toast{position:fixed;right:22px;bottom:90px;width:300px;max-width:calc(100vw - 44px);background:var(--bg2);border:1px solid var(--border);border-left:3px solid var(--green);border-radius:12px;box-shadow:0 12px 34px rgba(0,0,0,.4);padding:12px 13px;z-index:9998;display:flex;gap:10px;align-items:flex-start;cursor:pointer;animation:chToastIn .22s ease}
+.ch-toast{position:fixed;right:22px;bottom:96px;width:380px;max-width:calc(100vw - 40px);background:var(--bg2);border:1px solid var(--border);border-left:4px solid var(--green);border-radius:14px;box-shadow:0 18px 46px rgba(0,0,0,.5);padding:18px 18px;z-index:9998;display:flex;gap:14px;align-items:flex-start;cursor:pointer;animation:chToastIn .25s ease}
 .ch-toast:hover{border-color:var(--green)}
-.ch-toast-ico{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#35CC2F,#24BF62);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#0d0f14;flex-shrink:0}
+.ch-toast-ico{width:42px;height:42px;border-radius:50%;background:linear-gradient(135deg,#35CC2F,#24BF62);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;color:#0d0f14;flex-shrink:0}
 .ch-toast-txt{flex:1;min-width:0}
-.ch-toast-tit{font-size:12.5px;font-weight:700;color:var(--text);margin-bottom:2px}
-.ch-toast-prev{font-size:12px;color:var(--text2);line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-.ch-toast-x{background:none;border:none;color:var(--text2);font-size:15px;cursor:pointer;padding:0 2px;flex-shrink:0;line-height:1}
+.ch-toast-tit{font-size:15px;font-weight:700;color:var(--text);margin-bottom:4px}
+.ch-toast-prev{font-size:14px;color:var(--text2);line-height:1.45;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
+.ch-toast-x{background:none;border:none;color:var(--text2);font-size:19px;cursor:pointer;padding:0 2px;flex-shrink:0;line-height:1}
 .ch-toast-x:hover{color:var(--text)}
-@keyframes chToastIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
-@media(max-width:820px){ .ch-toast{right:12px;bottom:82px} }`;
+@keyframes chToastIn{from{opacity:0;transform:translateY(14px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+@media(max-width:820px){ .ch-toast{right:12px;bottom:86px;width:calc(100vw - 24px)} }`;
 
 function inyectarEstilos() {
   if (document.getElementById('ch-css')) return;
@@ -359,7 +366,7 @@ function mostrarToastMensaje(m) {
   t.querySelector('.ch-toast-x').onclick = e => { e.stopPropagation(); cerrarToastMensaje(); };
   t.onclick = () => { cerrarToastMensaje(); toggleFlotante(true); };
   clearTimeout(_toastMsgTimer);
-  _toastMsgTimer = setTimeout(cerrarToastMensaje, 9000);
+  _toastMsgTimer = setTimeout(cerrarToastMensaje, 13000);
 }
 
 function cerrarToastMensaje() {
@@ -1005,7 +1012,6 @@ const Admin = {
   _filtro: '',
   filtrarHilos(valor) {
     Admin._filtro = (valor || '').toLowerCase().trim();
-    const norm = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
     const f = norm(Admin._filtro);
     const anuncios = document.getElementById('ch-item-anuncios');
     const trixi = document.getElementById('ch-item-trixi');
@@ -1016,7 +1022,6 @@ const Admin = {
 
   pintarHilos() {
     const c = document.getElementById('ch-hilos'); if (!c) return;
-    const norm = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
     const f = norm(Admin._filtro || '');
     let orden = [...CH.hilos].sort((a,b) => ms(b.ultimoTs) - ms(a.ultimoTs));
     if (f) orden = orden.filter(h => norm(h.nombre).includes(f) || norm(h.oficina).includes(f));

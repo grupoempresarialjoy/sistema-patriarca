@@ -73,6 +73,11 @@ main{flex:1;padding:20px;overflow:auto}
 .kpi.orange .kpi-value{color:var(--orange)}
 .kpi-sub{font-size:11px;color:var(--text2);margin-top:3px}
 .panel{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:20px}
+details.panel summary{outline:none}
+details.panel summary::-webkit-details-marker,details.panel summary::marker{display:none;content:''}
+/* Dentro del chat flotante: si el aviso del día está abierto, que no se
+   coma toda la ventana — se vuelve scrolleable con un tope de alto. */
+#sec-mensajes.ch-flotante #aviso-dia-panel{flex-shrink:0;max-height:250px;overflow-y:auto}
 .panel-header{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
 .panel-title{font-weight:600;font-size:13px}
 .panel-body{padding:16px}
@@ -563,26 +568,30 @@ select option{background:var(--bg3)}
         <div><div class="sec-title">💬 Chat</div>
           <div class="sec-sub">Anuncios al ecosistema y conversación privada con cada operador y cajero</div></div>
       </div>
-      <div class="panel" style="margin-bottom:16px">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:10px;flex-wrap:wrap">
-          <div>
-            <div style="font-weight:700;font-size:14px">📢 Aviso del día</div>
-            <div style="font-size:11px;color:var(--text2)">Franja fija arriba del portal del operador — solo se ve hoy, desaparece sola mañana.</div>
+      <details class="panel" id="aviso-dia-panel" style="margin-bottom:16px;padding:14px"
+        ontoggle="document.getElementById('aviso-dia-caret').textContent = this.open ? '▴ cerrar' : '▾ ver / editar'">
+        <summary style="cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:12px">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <span style="font-weight:700;font-size:14px">📢 Aviso del día</span>
+            <span id="aviso-dia-estado" style="font-size:11px;color:var(--text2)">Cargando…</span>
           </div>
-          <span id="aviso-dia-estado" style="font-size:11px;color:var(--text2)">Cargando…</span>
+          <span id="aviso-dia-caret" style="font-size:10px;color:var(--text2)">▾ ver / editar</span>
+        </summary>
+        <div style="margin-top:12px">
+          <div style="font-size:11px;color:var(--text2);margin-bottom:8px">Franja fija arriba del portal del operador — solo se ve hoy, desaparece sola mañana.</div>
+          <textarea id="aviso-dia-texto" rows="3" placeholder="Ej: Hoy es cierre de mes — envía tu cierre antes de las 11pm."
+            style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:13px;resize:vertical;box-sizing:border-box"></textarea>
+          <div style="font-size:11px;color:var(--text2);margin-top:10px;margin-bottom:4px">
+            Checklist (opcional) — un paso por línea. Le sale flotante al operador y no lo suelta hasta que marque todo.
+          </div>
+          <textarea id="aviso-dia-checklist" rows="4" placeholder="Retirar todo el saldo posible de clientes&#10;No dejar inversiones abiertas&#10;Cerrar todos los eventos abiertos&#10;Cuadrar los métodos (pagar lo que debas)"
+            style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:13px;resize:vertical;box-sizing:border-box"></textarea>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <button class="btn btn-purple" onclick="enviarAvisoDia()">📢 Enviar aviso de hoy</button>
+            <button class="btn" onclick="quitarAvisoDia()" id="aviso-dia-quitar-btn" style="display:none">✕ Quitar aviso de hoy</button>
+          </div>
         </div>
-        <textarea id="aviso-dia-texto" rows="3" placeholder="Ej: Hoy es cierre de mes — envía tu cierre antes de las 11pm."
-          style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:13px;resize:vertical;box-sizing:border-box"></textarea>
-        <div style="font-size:11px;color:var(--text2);margin-top:10px;margin-bottom:4px">
-          Checklist (opcional) — un paso por línea. Le sale flotante al operador y no lo suelta hasta que marque todo.
-        </div>
-        <textarea id="aviso-dia-checklist" rows="4" placeholder="Retirar todo el saldo posible de clientes&#10;No dejar inversiones abiertas&#10;Cerrar todos los eventos abiertos&#10;Cuadrar los métodos (pagar lo que debas)"
-          style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:13px;resize:vertical;box-sizing:border-box"></textarea>
-        <div style="display:flex;gap:8px;margin-top:8px">
-          <button class="btn btn-purple" onclick="enviarAvisoDia()">📢 Enviar aviso de hoy</button>
-          <button class="btn" onclick="quitarAvisoDia()" id="aviso-dia-quitar-btn" style="display:none">✕ Quitar aviso de hoy</button>
-        </div>
-      </div>
+      </details>
       <div id="ch-montar"></div>
     </div>
 

@@ -272,14 +272,31 @@ const CSS = `
 .ch-flot-cerrar{display:none;position:absolute;top:10px;right:12px;width:28px;height:28px;border-radius:50%;background:var(--bg3);border:1px solid var(--border);color:var(--text2);font-size:14px;align-items:center;justify-content:center;cursor:pointer;z-index:2}
 .ch-flot-cerrar:hover{color:var(--text);border-color:var(--green)}
 
-/* El chat como ventana flotante encima del portal, sin cambiar de pestaña */
-#sec-mensajes.ch-flotante{display:flex !important;flex-direction:column;position:fixed !important;right:22px;bottom:90px;left:auto;top:auto;width:min(720px,calc(100vw - 44px));height:min(560px,calc(100vh - 130px));background:var(--bg2);border:1px solid var(--border);border-radius:16px;box-shadow:0 26px 60px rgba(0,0,0,.5);z-index:9996;padding:16px;overflow:hidden}
+/* El chat como ventana flotante encima del portal, sin cambiar de pestaña.
+   Fondo un poco más claro que el resto del portal (var(--bg3) en vez de
+   var(--bg2), que es el mismo tono que usan las tarjetas del Dashboard) y un
+   borde con un toque de verde, para que se note de un vistazo que es una
+   ventana flotante y no una tarjeta más de la pantalla de atrás. */
+#sec-mensajes.ch-flotante{display:flex !important;flex-direction:column;position:fixed !important;right:22px;bottom:90px;left:auto;top:auto;width:min(720px,calc(100vw - 44px));height:min(560px,calc(100vh - 130px));background:var(--bg3);border:1px solid rgba(53,204,47,.35);border-radius:16px;box-shadow:0 26px 70px rgba(0,0,0,.65),0 0 0 1px rgba(53,204,47,.06);z-index:9996;padding:16px;overflow:hidden}
 #sec-mensajes.ch-flotante > .sec-header{flex-shrink:0}
 #sec-mensajes.ch-flotante > #ch-montar{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
 #sec-mensajes.ch-flotante .ch-flot-cerrar{display:flex}
 #sec-mensajes.ch-flotante .ch-wrap{flex:1;height:auto !important;min-height:0}
+/* La lista de contactos queda más oscura (como una barra lateral) y el panel
+   de la conversación abierta más claro (como la superficie "activa") — así
+   se distinguen entre sí, no solo de la ventana flotante. */
+#sec-mensajes.ch-flotante .ch-lista{background:var(--bg)}
+#sec-mensajes.ch-flotante .ch-panel{background:var(--bg2)}
 @media(max-width:820px){
   #sec-mensajes.ch-flotante{right:12px;left:12px;bottom:82px;width:auto;height:min(72vh,600px)}
+  /* La regla genérica de arriba (.ch-panel{height:65vh}) es para la pestaña
+     "Chat" de pantalla completa — dentro de la ventana flotante ya limitada
+     en altura, esa medida no cabe y el panel se sale por debajo, tapando el
+     fondo del portal. Acá todo se reparte con flex dentro del espacio real
+     que ya tiene la ventana flotante, no con una medida fija de la pantalla. */
+  #sec-mensajes.ch-flotante .ch-wrap{flex-direction:column;height:auto !important;min-height:0;gap:10px}
+  #sec-mensajes.ch-flotante .ch-lista{width:100%;max-height:170px;flex-shrink:0}
+  #sec-mensajes.ch-flotante .ch-panel{flex:1;height:auto !important;min-height:0}
 }
 
 /* Aviso emergente cuando llega un mensaje nuevo de administración, mientras

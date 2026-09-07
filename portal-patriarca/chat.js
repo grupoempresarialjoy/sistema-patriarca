@@ -1014,7 +1014,7 @@ const Admin = {
           <div class="ch-buscar-cont">
             <span class="ch-buscar-ico">🔍</span>
             <input class="ch-buscar" id="ch-buscar" type="text" placeholder="Buscar operador o cajero…"
-              oninput="Admin.filtrarHilos(this.value)">
+              oninput="AJChat.filtrarHilos(this.value)">
           </div>
           <div class="ch-lista-scroll">
             <div class="ch-item" id="ch-item-anuncios" onclick="AJChat.verAnuncios()">
@@ -1516,6 +1516,7 @@ global.AJChat = {
   // Lado operador: cambia entre Administración / Anuncios / Trixi Bot en su
   // propia lista de conversaciones.
   verUsuario: vista => Usuario.ver(vista),
+  filtrarHilos: valor => Admin.filtrarHilos(valor),
 
   soltar() {
     (CH._off || []).forEach(f => { try { f(); } catch(_){} });

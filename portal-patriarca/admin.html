@@ -352,6 +352,10 @@ select option{background:var(--bg3)}
         </div>
       </div>
       <div id="pend-panel" style="display:none;background:var(--bg2);border:1px solid var(--border);border-radius:10px;margin:-6px 0 20px;overflow:auto"></div>
+
+      <!-- ── Estado de Cuadre por oficina (bloqueo por atraso) ── -->
+      <div id="cuadre-panel" style="margin-bottom:20px"></div>
+
       <!-- ── Resumen ESF por Operador ── -->
       <div style="margin-bottom:20px">
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap">
@@ -2965,6 +2969,8 @@ function loadDashboard() {
     document.getElementById('kpi-pend').textContent = _pendMovs.length;
     renderPendPanelSiAbierto();
   }, e => console.warn('pendientes cajero:', e.message));
+
+  escucharCuadreDashboard();
 }
 
 // ── Panel desplegable de "Pendientes cajero" ────────────────────────────────
@@ -3005,6 +3011,135 @@ function renderPendPanel() {
       <td>${mv.casa || '—'}</td>
       <td>${mv.metodo || '—'}</td>
       <td style="text-align:right;font-weight:700;color:var(--orange)">${ciPesos(mv.monto)}</td>
+    </tr>`).join('')}</tbody>
+  </table>`;
+}
+
+// ── Estado de Cuadre por oficina ─────────────────────────────────────────
+// La revisión diaria (functions/cuadre.js) escribe en patriarca_cuadre_estado
+// un doc por oficina con estado ok/advertencia/bloqueado. Aquí se pinta esa
+// foto en el Dashboard y, al hacer clic en una oficina con problema, se traen
+// los pendientes puntuales (mismas 5 colecciones que cuenta la revisión) para
+// que el administrador sepa exactamente qué falta sin tener que preguntar.
+let _cuadreEstados = [];
+let _cuadreAbierta = null;
+
+function escucharCuadreDashboard() {
+  db.collection('patriarca_cuadre_estado').onSnapshot(snap => {
+    _cuadreEstados = snap.docs.map(d => ({ oficina: d.id, ...d.data() }));
+    renderCuadrePanel();
+  }, e => console.warn('cuadre estado:', e.message));
+}
+
+function renderCuadrePanel() {
+  const cont = document.getElementById('cuadre-panel');
+  if (!cont) return;
+  if (!_cuadreEstados.length) { cont.innerHTML = ''; return; }
+  const orden = { bloqueado: 0, advertencia: 1, ok: 2 };
+  const lista = [..._cuadreEstados].sort((a, b) => (orden[a.estado] ?? 3) - (orden[b.estado] ?? 3));
+  const colores = {
+    bloqueado:   ['#e05050', 'rgba(224,80,80,.12)'],
+    advertencia: ['#e0a030', 'rgba(224,160,48,.12)'],
+    ok:          ['#24BF62', 'rgba(36,191,98,.10)']
+  };
+  const etiquetas = { bloqueado: '🔴 Bloqueado', advertencia: '🟡 Advertencia', ok: '🟢 Al día' };
+  cont.innerHTML = `
+    <div style="font-weight:700;font-size:14px;color:var(--text);margin-bottom:10px">🗓️ Estado de Cuadre por Oficina</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+      ${lista.map(o => {
+        const [color, bg] = colores[o.estado] || colores.ok;
+        const clic = o.estado !== 'ok' ? ` onclick="cuadreToggleDetalle('${o.oficina}')"` : '';
+        const cursor = o.estado !== 'ok' ? 'cursor:pointer' : '';
+        const activa = _cuadreAbierta === o.oficina ? `;box-shadow:0 0 0 2px ${color}` : '';
+        return `<div${clic} style="${cursor};background:${bg};border:1px solid ${color};border-radius:10px;padding:10px 16px;min-width:170px${activa}">
+          <div style="font-weight:700;font-size:13px;color:var(--text)">${o.oficina}</div>
+          <div style="font-size:12px;color:${color};font-weight:700;margin-top:2px">${etiquetas[o.estado] || o.estado}</div>
+          <div style="font-size:11px;color:var(--text2);margin-top:2px">${o.pendientes || 0} pendiente(s)${o.diasAtraso ? ' · ' + o.diasAtraso + ' día(s) de atraso' : ''}</div>
+        </div>`;
+      }).join('')}
+    </div>
+    <div id="cuadre-detalle" style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:auto"></div>
+  `;
+  if (_cuadreAbierta) cuadreRenderDetalle(_cuadreAbierta);
+}
+
+async function cuadreToggleDetalle(oficina) {
+  _cuadreAbierta = _cuadreAbierta === oficina ? null : oficina;
+  renderCuadrePanel();
+}
+
+// Trae los pendientes puntuales de una oficina, cruzando uid → oficina por
+// admin_usuarios — el mismo cruce que ya usa functions/cuadre.js server-side.
+async function cuadreDetalleOficina(oficina) {
+  const usuSnap = await db.collection('admin_usuarios').get();
+  const mapaOf = new Map(), nombreDe = new Map();
+  usuSnap.forEach(d => {
+    const u = d.data();
+    const of_ = u.oficinaNombre || u.oficina || '';
+    if (!u.uid) return;
+    if (of_) mapaOf.set(u.uid, of_);
+    nombreDe.set(u.uid, u.nombre || u.email || u.uid);
+  });
+
+  const items = [];
+  const agregar = (of_, tipo, obj) => { if (of_ === oficina) items.push({ tipo, ...obj }); };
+
+  const movs = await db.collection('patriarca_movimientos').where('estado_cajero', '==', 'Pendiente').get();
+  movs.forEach(d => {
+    const m = d.data();
+    if (m.eliminado) return;
+    agregar(mapaOf.get(m.opId), 'Movimiento', {
+      operador: nombreDe.get(m.opId) || m.opId, detalle: m.tipo || m.concepto || '—', monto: m.monto, fecha: m.fecha
+    });
+  });
+
+  const corr = await db.collection('patriarca_ix_correcciones').where('estado', '==', 'pendiente').get();
+  corr.forEach(d => {
+    const c = d.data();
+    agregar(mapaOf.get(c.solicitante_uid), 'Corrección', {
+      operador: nombreDe.get(c.solicitante_uid) || c.solicitante_uid, detalle: c.motivo || '—'
+    });
+  });
+
+  const ix = await db.collection('patriarca_intercambios').where('estado', 'in', ['pendiente_cajera', 'pendiente_op2']).get();
+  ix.forEach(d => {
+    const i = d.data();
+    const of_ = mapaOf.get(i.op1_uid) || mapaOf.get(i.op2_uid);
+    agregar(of_, 'Intercambio', {
+      operador: nombreDe.get(i.op1_uid) || i.op1_uid,
+      detalle: 'con ' + (nombreDe.get(i.op2_uid) || i.op2_uid || '—') + ' · ' + (i.estado || '')
+    });
+  });
+
+  const pagos = await db.collection('corresponsal_pagos_op').where('estado', '==', 'pendiente').get();
+  pagos.forEach(d => { const p = d.data(); agregar(p.oficina, 'Pago corresponsal', { detalle: '—', monto: p.monto }); });
+
+  const retiros = await db.collection('corresponsal_retiros').where('estado', '==', 'pendiente').get();
+  retiros.forEach(d => { const r = d.data(); agregar(r.oficina, 'Retiro corresponsal', { detalle: '—', monto: r.monto }); });
+
+  return items;
+}
+
+async function cuadreRenderDetalle(oficina) {
+  const det = document.getElementById('cuadre-detalle');
+  if (!det) return;
+  det.innerHTML = `<div style="padding:14px;color:var(--text2);font-size:12px">Cargando pendientes de ${oficina}...</div>`;
+  let items;
+  try { items = await cuadreDetalleOficina(oficina); }
+  catch (e) { det.innerHTML = `<div style="padding:14px;color:var(--red);font-size:12px">Error: ${e.message || e}</div>`; return; }
+  if (!items.length) {
+    det.innerHTML = `<div style="padding:14px;color:var(--text2);font-size:12px">No se encontraron pendientes puntuales para ${oficina} en este momento.</div>`;
+    return;
+  }
+  det.innerHTML = `<div style="padding:10px 14px;font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.4px">Pendientes de ${oficina}</div>
+  <table class="tbl" style="width:100%">
+    <thead><tr><th>Tipo</th><th>Operador</th><th>Detalle</th><th style="text-align:right">Monto</th><th>Fecha</th></tr></thead>
+    <tbody>${items.map(it => `<tr>
+      <td>${it.tipo}</td>
+      <td>${it.operador || '—'}</td>
+      <td>${it.detalle || '—'}</td>
+      <td style="text-align:right;font-weight:700;color:var(--orange)">${it.monto != null ? ciPesos(it.monto) : '—'}</td>
+      <td>${it.fecha || '—'}</td>
     </tr>`).join('')}</tbody>
   </table>`;
 }

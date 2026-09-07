@@ -3051,10 +3051,14 @@ function renderCuadrePanel() {
         const clic = o.estado !== 'ok' ? ` onclick="cuadreToggleDetalle('${o.oficina}')"` : '';
         const cursor = o.estado !== 'ok' ? 'cursor:pointer' : '';
         const activa = _cuadreAbierta === o.oficina ? `;box-shadow:0 0 0 2px ${color}` : '';
+        const boton = o.estado !== 'ok'
+          ? `<button onclick="event.stopPropagation();cuadreDesbloquear('${o.oficina}')" style="margin-top:7px;font-size:10.5px;font-weight:700;padding:4px 10px;border-radius:6px;border:1px solid ${color};background:none;color:${color};cursor:pointer">🔓 Desbloquear manual</button>`
+          : '';
         return `<div${clic} style="${cursor};background:${bg};border:1px solid ${color};border-radius:10px;padding:10px 16px;min-width:170px${activa}">
           <div style="font-weight:700;font-size:13px;color:var(--text)">${o.oficina}</div>
           <div style="font-size:12px;color:${color};font-weight:700;margin-top:2px">${etiquetas[o.estado] || o.estado}</div>
           <div style="font-size:11px;color:var(--text2);margin-top:2px">${o.pendientes || 0} pendiente(s)${o.diasAtraso ? ' · ' + o.diasAtraso + ' día(s) de atraso' : ''}</div>
+          ${boton}
         </div>`;
       }).join('')}
     </div>
@@ -3066,6 +3070,45 @@ function renderCuadrePanel() {
 async function cuadreToggleDetalle(oficina) {
   _cuadreAbierta = _cuadreAbierta === oficina ? null : oficina;
   renderCuadrePanel();
+}
+
+// Desbloqueo manual: para casos de excepción (el administrador decide dejar
+// operar aunque falte algo por resolver). No es un bypass permanente — solo
+// reinicia el contador de días a hoy. Si los pendientes de la oficina siguen
+// sin resolverse, la revisión de mañana los vuelve a contar desde el día 1
+// (advertencia) y, si persiste, se bloquea otra vez pasado mañana. El
+// historial mensual (para las multas) no se toca: el incumplimiento ya
+// registrado se queda.
+function pad2Cuadre(n) { return String(n).padStart(2, '0'); }
+function diaKeyCuadre(f) {
+  return f.getFullYear() + '-' + pad2Cuadre(f.getMonth() + 1) + '-' + pad2Cuadre(f.getDate());
+}
+
+async function cuadreDesbloquear(oficina) {
+  const est = _cuadreEstados.find(o => o.oficina === oficina) || {};
+  const ok = confirm(
+    `¿Desbloquear "${oficina}" manualmente ahora mismo?\n\n` +
+    `Quedan ${est.pendientes || 0} pendiente(s) sin resolver. Si no se resuelven, ` +
+    `el sistema los vuelve a contar desde mañana: un día de advertencia y, si sigue ` +
+    `igual, se bloquea otra vez en 2 días más.`
+  );
+  if (!ok) return;
+  try {
+    await db.collection('patriarca_cuadre_estado').doc(oficina).set({
+      estado: 'ok',
+      diasAtraso: 0,
+      ultimaRevisionDia: diaKeyCuadre(new Date()),
+      ultimoCuadre: firebase.firestore.FieldValue.serverTimestamp(),
+      desbloqueoManual: {
+        por: auth.currentUser?.email || 'admin',
+        cuando: firebase.firestore.FieldValue.serverTimestamp(),
+        pendientesEnEseMomento: est.pendientes || 0
+      }
+    }, { merge: true });
+    toast(`${oficina} desbloqueada manualmente`, 'success');
+  } catch (e) {
+    toast('No se pudo desbloquear: ' + (e.message || e), 'error');
+  }
 }
 
 // Trae los pendientes puntuales de una oficina, cruzando uid → oficina por

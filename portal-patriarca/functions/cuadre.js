@@ -45,9 +45,19 @@ async function contarPendientesPorOficina(db) {
 
   // 1) Movimientos que el operador mandó y el cajero no ha aceptado/rechazado.
   //    Los internos (I-OP) nacen ya "Realizada" — nunca entran aquí.
+  //    Ojo con los eliminados: cuando se aprueba una solicitud de eliminación
+  //    el movimiento queda con eliminado:true pero estado_cajero nunca se
+  //    toca — sigue diciendo "Pendiente" para siempre aunque ya no exista
+  //    para nadie. Si no se descarta aquí, bloquea la oficina por un
+  //    pendiente fantasma (mismo bug que ya se había resuelto en el panel
+  //    del Dashboard del admin — aquí faltaba el mismo filtro).
   const movsSnap = await db.collection('patriarca_movimientos')
     .where('estado_cajero', '==', 'Pendiente').get();
-  movsSnap.forEach(d => sumar(oficinaDeUid(mapa, d.data().opId), 1));
+  movsSnap.forEach(d => {
+    const m = d.data();
+    if (m.eliminado) return;
+    sumar(oficinaDeUid(mapa, m.opId), 1);
+  });
 
   // 2) Correcciones de inversión sin resolver
   const corrSnap = await db.collection('patriarca_ix_correcciones')

@@ -23,6 +23,7 @@ const { archivar } = require('./chat');
 const { analizarCombinadas, calcularTablaRendimiento } = require('./analisis');
 const { vigilarTrixiBot } = require('./trixibot');
 const { vigilarCuadre } = require('./cuadre');
+const { alMensajeUsuario, alTrixiNuevo } = require('./notificaciones');
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -846,3 +847,10 @@ exports.vigilarCuadreAhora = onRequest(async (req, res) => {
   try { res.json(await vigilarCuadre(db)); }
   catch (e) { res.status(500).json({ ok: false, error: String(e && e.message || e) }); }
 });
+
+// ── Notificaciones push (App AJ1.6 — administradores) ───────────────────────
+// Ver functions/notificaciones.js: un mensaje nuevo de un operador/cajero, o
+// una oportunidad nueva de Trixi Bot, manda un push a todos los admins con
+// la app instalada y sesión iniciada, aunque la tengan cerrada.
+exports.notifPushMensaje = alMensajeUsuario;
+exports.notifPushTrixi   = alTrixiNuevo;

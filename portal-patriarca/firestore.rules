@@ -160,6 +160,25 @@ service cloud.firestore {
       allow write: if esAdmin();
     }
 
+    // ── TOKENS DE NOTIFICACIONES PUSH (App AJ1.6) ─────────────────────────
+    // Un doc por administrador, con id == su propio uid — solo él puede
+    // escribir el suyo. Nadie lo lee desde el cliente: quien manda los push
+    // (functions/notificaciones.js) usa el SDK de administrador, que no pasa
+    // por estas reglas.
+    match /admin_fcm_tokens/{uid} {
+      allow read:  if false;
+      allow write: if request.auth != null && request.auth.uid == uid && esAdmin();
+    }
+
+    // Igual que admin_fcm_tokens, pero para las suscripciones de Web Push
+    // (navegador/PWA agregada a Inicio en iPhone) en vez del token nativo de
+    // Firebase Cloud Messaging — misma idea, un doc por administrador con
+    // id == su propio uid, nadie lo lee desde el cliente.
+    match /admin_webpush_subs/{uid} {
+      allow read:  if false;
+      allow write: if request.auth != null && request.auth.uid == uid && esAdmin();
+    }
+
     // ── EL RESTO DEL SISTEMA ──────────────────────────────────────────────
     // Queda como estaba, salvo por el candado de auditoría en la escritura.
     // En Firestore basta con que UNA regla permita el acceso, así que este
@@ -172,19 +191,23 @@ service cloud.firestore {
         && !(col in ['patriarca_chat_hilos',
                      'patriarca_chat_anuncios',
                      'patriarca_chat_trixi',
-                     'patriarca_chat_archivo']);
+                     'patriarca_chat_archivo',
+                     'admin_fcm_tokens',
+                     'admin_webpush_subs']);
 
       // Ver, siempre. Escribir, no si el candado de auditoría está puesto —
       // salvo que sea el administrador o esa persona tenga la excepción.
-      // El cuadre por oficina tampoco entra aquí: ese solo lo escribe la
-      // función programada o el administrador (regla propia arriba).
+      // El cuadre por oficina y los tokens de push tampoco entran aquí: cada
+      // uno tiene su regla propia arriba, más estricta que esta genérica.
       allow write: if request.auth != null
         && !(col in ['patriarca_chat_hilos',
                      'patriarca_chat_anuncios',
                      'patriarca_chat_trixi',
                      'patriarca_chat_archivo',
                      'patriarca_cuadre_estado',
-                     'patriarca_cuadre_historial'])
+                     'patriarca_cuadre_historial',
+                     'admin_fcm_tokens',
+                     'admin_webpush_subs'])
         && (esAdmin() || !auditoriaActiva() || permitidoEnAuditoria());
     }
   }

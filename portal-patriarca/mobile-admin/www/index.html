@@ -48,6 +48,8 @@
   header button{background:none; border:none; color:var(--muted); font-size:13px; cursor:pointer}
 
   main{flex:1; padding:14px 14px 90px}
+  .page{display:none}
+  .page.active{display:block}
   .card{
     background:var(--card); border:1px solid var(--border); border-radius:14px;
     padding:16px; margin-bottom:12px;
@@ -60,6 +62,16 @@
   }
   .badge.live{background:rgba(53,204,47,.18); color:var(--accent)}
   .dot{width:8px;height:8px;border-radius:50%; background:var(--danger); display:inline-block}
+
+  .chat-item{display:flex; gap:12px; align-items:flex-start; padding:12px 0; border-bottom:1px solid var(--border)}
+  .chat-item:last-child{border-bottom:none}
+  .chat-ava{width:38px; height:38px; border-radius:50%; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:700; color:#06210f; background:linear-gradient(135deg,#35CC2F,#24BF62)}
+  .chat-ava.caj{background:linear-gradient(135deg,#4a9eff,#2a7fd8)}
+  .chat-txt{flex:1; min-width:0}
+  .chat-nom{font-size:14px; font-weight:600; display:flex; justify-content:space-between; gap:8px}
+  .chat-fec{font-size:10.5px; color:var(--muted); font-weight:400; flex-shrink:0}
+  .chat-ult{font-size:12.5px; color:var(--muted); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .chat-glob{background:var(--accent2); color:#06210f; border-radius:20px; min-width:18px; height:18px; padding:0 6px; font-size:10px; font-weight:700; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; margin-left:6px}
 
   nav.tabbar{
     position:fixed; bottom:0; left:0; right:0;
@@ -113,39 +125,73 @@
   </header>
 
   <main>
-    <div class="card" id="page-notificaciones">
-      <h3>🔔 Notificaciones <span class="badge">Próximamente</span></h3>
-      <p>Aquí llegarán los avisos de pendientes por aprobar, alertas de auditoría y resumen de actividad — en cuanto conectemos el envío de notificaciones push.</p>
+    <div class="page active" id="page-inicio">
+      <div class="card" id="page-notificaciones">
+        <h3>🔔 Notificaciones <span class="badge" id="push-badge">Revisando…</span></h3>
+        <p id="push-texto">Aquí llegarán los avisos de mensajes nuevos y oportunidades de Trixi Bot, aunque tengas la app cerrada.</p>
+        <button id="push-btn" onclick="pedirPermisoPush()" style="display:none;margin-top:12px;padding:9px 16px;background:var(--accent2);border:none;border-radius:9px;color:#06210f;font-weight:700;font-size:13px;cursor:pointer">Activar notificaciones</button>
+      </div>
+
+      <div class="card" id="page-pendientes">
+        <h3>✅ Pendientes <span class="badge">Próximamente</span></h3>
+        <p>Solicitudes y aprobaciones que hoy revisas desde el computador.</p>
+      </div>
+
+      <div class="card" id="page-trixi">
+        <h3>🎯 Bot Trixi <span class="badge">Próximamente</span></h3>
+        <p>Vista rápida de las cuotas que el bot va detectando — la misma información que revisas hoy en el portal, en formato de lectura para el celular.</p>
+      </div>
+
+      <div class="card" id="page-combinadas">
+        <h3>🧩 Bot de Combinadas <span class="badge">Próximamente</span></h3>
+        <p>Combinadas detectadas por el bot, para revisarlas sin tener que estar frente al computador.</p>
+      </div>
     </div>
 
-    <div class="card" id="page-mensajes">
-      <h3>💬 Chat <span class="badge">Próximamente</span></h3>
-      <p>Chat con operadores y cajeros, igual que en el portal de escritorio.</p>
+    <div class="page" id="page-alertas">
+      <div class="card">
+        <h3>🔔 Notificaciones</h3>
+        <p id="push-texto-2">El estado de las notificaciones push se ve en Inicio.</p>
+      </div>
     </div>
 
-    <div class="card" id="page-pendientes">
-      <h3>✅ Pendientes <span class="badge">Próximamente</span></h3>
-      <p>Solicitudes y aprobaciones que hoy revisas desde el computador.</p>
+    <div class="page" id="page-mensajes">
+      <div class="card">
+        <h3>💬 Chat</h3>
+        <p style="margin-bottom:10px">Conversaciones de operadores y cajeros con administración — de solo lectura por ahora, para responder toca usar el portal de escritorio.</p>
+        <div id="chat-lista"><p style="color:var(--muted);font-size:13px">Cargando…</p></div>
+      </div>
     </div>
 
-    <div class="card" id="page-trixi">
-      <h3>🎯 Bot Trixi <span class="badge">Próximamente</span></h3>
-      <p>Vista rápida de las cuotas que el bot va detectando — la misma información que revisas hoy en el portal, en formato de lectura para el celular.</p>
+    <div class="page" id="page-pendientes-tab">
+      <div class="card">
+        <h3>✅ Pendientes <span class="badge">Próximamente</span></h3>
+        <p>Solicitudes y aprobaciones que hoy revisas desde el computador.</p>
+      </div>
     </div>
 
-    <div class="card" id="page-combinadas">
-      <h3>🧩 Bot de Combinadas <span class="badge">Próximamente</span></h3>
-      <p>Combinadas detectadas por el bot, para revisarlas sin tener que estar frente al computador.</p>
+    <div class="page" id="page-trixi-tab">
+      <div class="card">
+        <h3>🎯 Bot Trixi <span class="badge">Próximamente</span></h3>
+        <p>Vista rápida de las cuotas que el bot va detectando.</p>
+      </div>
+    </div>
+
+    <div class="page" id="page-combinadas-tab">
+      <div class="card">
+        <h3>🧩 Bot de Combinadas <span class="badge">Próximamente</span></h3>
+        <p>Combinadas detectadas por el bot.</p>
+      </div>
     </div>
   </main>
 
   <nav class="tabbar">
-    <button class="active"><span class="ic">🏠</span>Inicio</button>
-    <button><span class="ic">🔔</span>Alertas</button>
-    <button><span class="ic">💬</span>Chat</button>
-    <button><span class="ic">✅</span>Pendientes</button>
-    <button><span class="ic">🎯</span>Trixi</button>
-    <button><span class="ic">🧩</span>Combinadas</button>
+    <button class="active" data-tab="inicio" onclick="mostrarTab('inicio')"><span class="ic">🏠</span>Inicio</button>
+    <button data-tab="alertas" onclick="mostrarTab('alertas')"><span class="ic">🔔</span>Alertas</button>
+    <button data-tab="mensajes" onclick="mostrarTab('mensajes')"><span class="ic">💬</span>Chat</button>
+    <button data-tab="pendientes-tab" onclick="mostrarTab('pendientes-tab')"><span class="ic">✅</span>Pendientes</button>
+    <button data-tab="trixi-tab" onclick="mostrarTab('trixi-tab')"><span class="ic">🎯</span>Trixi</button>
+    <button data-tab="combinadas-tab" onclick="mostrarTab('combinadas-tab')"><span class="ic">🧩</span>Combinadas</button>
   </nav>
 </div>
 
@@ -220,11 +266,142 @@
       if (!localStorage.getItem('patriarca_admin_welcome_seen')) {
         document.getElementById('welcome-overlay').style.display = 'flex';
       }
+      iniciarPush(user.uid);
+      escucharChat();
     } catch (e) {
       mostrarError('No se pudo verificar el acceso. Revisa tu conexión.');
       auth.signOut();
     }
   });
+
+  // ──────────────────── TABS ────────────────────
+  function mostrarTab(nombre) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.tabbar button').forEach(b => b.classList.remove('active'));
+    const pagina = document.getElementById('page-' + nombre);
+    if (pagina) pagina.classList.add('active');
+    const boton = document.querySelector('.tabbar button[data-tab="' + nombre + '"]');
+    if (boton) boton.classList.add('active');
+  }
+
+  // ──────────────────── NOTIFICACIONES PUSH ────────────────────
+  // Usa el plugin nativo (@capacitor-firebase/messaging), disponible en
+  // window.Capacitor.Plugins dentro de la app compilada — en un navegador de
+  // escritorio normal no existe, así que todo esto se queda callado ahí.
+  function pluginPush() {
+    return (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.FirebaseMessaging) || null;
+  }
+
+  function pintarEstadoPush(texto, activarBoton) {
+    const badge = document.getElementById('push-badge');
+    const txt = document.getElementById('push-texto');
+    const txt2 = document.getElementById('push-texto-2');
+    const btn = document.getElementById('push-btn');
+    if (badge) { badge.textContent = activarBoton ? 'Inactivas' : 'Activas'; badge.className = 'badge' + (activarBoton ? '' : ' live'); }
+    if (txt) txt.textContent = texto;
+    if (txt2) txt2.textContent = texto;
+    if (btn) btn.style.display = activarBoton ? 'inline-block' : 'none';
+  }
+
+  async function iniciarPush(uid) {
+    const FirebaseMessaging = pluginPush();
+    if (!FirebaseMessaging) {
+      pintarEstadoPush('Las notificaciones push solo funcionan dentro de la app instalada en el celular, no en este navegador.', false);
+      return;
+    }
+    window._pushUid = uid;
+    try {
+      const estado = await FirebaseMessaging.checkPermissions();
+      if (estado.receive === 'granted') {
+        await registrarTokenPush(FirebaseMessaging, uid);
+      } else {
+        pintarEstadoPush('Actívalas para recibir aviso de mensajes y oportunidades de Trixi Bot aunque tengas la app cerrada.', true);
+      }
+    } catch (e) { console.warn('push init:', e && e.message); }
+
+    // Si el sistema operativo renueva el token solo, se vuelve a guardar.
+    try {
+      FirebaseMessaging.addListener('tokenReceived', ev => {
+        if (ev && ev.token) guardarTokenPush(ev.token, uid);
+      });
+    } catch (_) {}
+  }
+
+  async function pedirPermisoPush() {
+    const FirebaseMessaging = pluginPush();
+    if (!FirebaseMessaging || !window._pushUid) return;
+    try {
+      const r = await FirebaseMessaging.requestPermissions();
+      if (r.receive === 'granted') await registrarTokenPush(FirebaseMessaging, window._pushUid);
+      else pintarEstadoPush('No se activaron los permisos — puedes cambiarlo luego desde Ajustes del celular.', true);
+    } catch (e) { console.warn('push permiso:', e && e.message); }
+  }
+
+  async function registrarTokenPush(FirebaseMessaging, uid) {
+    try {
+      const { token } = await FirebaseMessaging.getToken();
+      if (token) await guardarTokenPush(token, uid);
+      pintarEstadoPush('Activas — vas a recibir aviso de mensajes nuevos y oportunidades de Trixi Bot.', false);
+    } catch (e) { console.warn('push token:', e && e.message); }
+  }
+
+  async function guardarTokenPush(token, uid) {
+    try {
+      await db.collection('admin_fcm_tokens').doc(uid).set({
+        token, plataforma: 'ios', actualizado: firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+    } catch (e) { console.warn('push guardar:', e && e.message); }
+  }
+
+  // ──────────────────── CHAT (solo lectura) ────────────────────
+  let _chatOff = null;
+  function escucharChat() {
+    if (_chatOff) return;   // no duplicar el listener si vuelve a correr
+    _chatOff = db.collection('patriarca_chat_hilos').onSnapshot(snap => {
+      const hilos = snap.docs.map(d => ({ uid: d.id, ...d.data() }))
+        .sort((a, b) => msDe(b.ultimoTs) - msDe(a.ultimoTs));
+      pintarChat(hilos);
+    }, e => console.warn('chat:', e.message));
+  }
+
+  function msDe(ts) {
+    if (!ts) return 0;
+    if (typeof ts.toMillis === 'function') return ts.toMillis();
+    return ts.seconds ? ts.seconds * 1000 : 0;
+  }
+
+  function haceCuanto(ts) {
+    const v = msDe(ts); if (!v) return '';
+    const min = Math.round((Date.now() - v) / 60000);
+    if (min < 1) return 'ahora';
+    if (min < 60) return min + ' min';
+    const h = Math.round(min / 60);
+    if (h < 24) return h + ' h';
+    return Math.round(h / 24) + ' d';
+  }
+
+  function escHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function pintarChat(hilos) {
+    const c = document.getElementById('chat-lista');
+    if (!c) return;
+    if (!hilos.length) { c.innerHTML = '<p style="color:var(--muted);font-size:13px">Nadie ha escrito todavía.</p>'; return; }
+    c.innerHTML = hilos.map(h => {
+      const n = h.noLeidosAdmin || 0;
+      const ini = (h.nombre || '?').trim().charAt(0).toUpperCase();
+      const caj = h.rol === 'cajero';
+      return '<div class="chat-item">'
+        + '<div class="chat-ava' + (caj ? ' caj' : '') + '">' + escHtml(ini) + '</div>'
+        + '<div class="chat-txt">'
+        +   '<div class="chat-nom"><span>' + escHtml(h.nombre || h.uid) + (n > 0 ? '<span class="chat-glob">' + (n > 99 ? '99+' : n) + '</span>' : '') + '</span>'
+        +     '<span class="chat-fec">' + escHtml(haceCuanto(h.ultimoTs)) + '</span></div>'
+        +   '<div class="chat-ult">' + (h.ultimoDe === 'admin' ? 'Tú: ' : '') + escHtml(h.ultimoTexto || '') + '</div>'
+        + '</div></div>';
+    }).join('');
+  }
 
   (function () {
     function wirePasswordToggles() {

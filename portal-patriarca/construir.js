@@ -44,6 +44,12 @@ const PUBLICAR = [
   'chat.js'
 ];
 
+// Estos se copian tal cual, sin pasar por terser — son de lectura pública
+// por diseño (el manifest y el service worker los pide el propio navegador
+// por su cuenta, no dependen del login) y no tiene sentido "ofuscar" JSON o
+// un service worker de tres funciones.
+const COPIAR_TAL_CUAL = ['manifest.json', 'sw.js', 'icons'];
+
 const RAIZ    = __dirname;
 const DESTINO = path.join(RAIZ, 'publico');
 
@@ -144,6 +150,29 @@ async function procesarHtml(terser, texto, nombre) {
 
   fs.writeFileSync(path.join(DESTINO, 'version.json'), JSON.stringify({ v: BUILD_V }));
   console.log('  · version.json' + ' '.repeat(6) + '— sello ' + BUILD_V);
+
+  // Copia archivo por archivo (en vez de fs.cpSync recursivo) porque algunas
+  // carpetas de trabajo viven en una unidad sincronizada (OneDrive y
+  // similares) donde la copia recursiva de directorios de Node falla con
+  // EACCES aunque los archivos sueltos sí se puedan escribir sin problema.
+  function copiarTalCual(origen, destino) {
+    const st = fs.statSync(origen);
+    if (st.isDirectory()) {
+      fs.mkdirSync(destino, { recursive: true });
+      for (const hijo of fs.readdirSync(origen)) {
+        copiarTalCual(path.join(origen, hijo), path.join(destino, hijo));
+      }
+    } else {
+      fs.copyFileSync(origen, destino);
+    }
+  }
+
+  for (const nombre of COPIAR_TAL_CUAL) {
+    const origen = path.join(RAIZ, nombre);
+    if (!fs.existsSync(origen)) { console.log('  · ' + nombre.padEnd(20) + 'no existe, se salta'); continue; }
+    copiarTalCual(origen, path.join(DESTINO, nombre));
+    console.log('  · ' + nombre.padEnd(20) + '— copiado tal cual');
+  }
 
   const quedan = (s) => (s.match(/\/\/[^\n]{15,}/g) || []).length;
   const comentariosFuente = PUBLICAR

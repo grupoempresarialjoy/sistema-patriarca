@@ -151,6 +151,10 @@ const CSS = `
 .ch-buscar:focus{outline:none;border-color:var(--green)}
 .ch-buscar-ico{position:absolute;left:19px;top:50%;transform:translateY(-50%);font-size:12px;color:var(--text2);pointer-events:none}
 .ch-buscar-vacio{padding:22px 12px;color:var(--text2);font-size:12px;text-align:center}
+.ch-lista-cab{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.ch-webpush-btn{background:var(--bg3);border:1px solid var(--border);border-radius:8px;min-width:26px;height:26px;padding:0 8px;font-size:12px;cursor:pointer;color:var(--text2);display:flex;align-items:center;justify-content:center;gap:4px;flex-shrink:0;white-space:nowrap}
+.ch-webpush-btn:hover{border-color:var(--green)}
+.ch-webpush-btn.activo{color:var(--green);border-color:var(--green)}
 .ch-item{padding:11px 12px;border-bottom:1px solid var(--border);cursor:pointer;display:flex;gap:10px;align-items:flex-start}
 .ch-item:hover{background:var(--row-hover)}
 .ch-item.act{background:rgba(53,204,47,.10);border-left:3px solid var(--green);padding-left:9px}
@@ -385,6 +389,90 @@ function mostrarBannerVersion() {
     <button onclick="location.reload()">Actualizar ahora</button>
     <button class="ch-banner-ver-x" title="Recordar más tarde" onclick="this.parentElement.remove()">✕</button>`;
   document.body.appendChild(b);
+}
+
+/* ── notificaciones push del administrador, vía Web Push estándar ─────────
+   Sin pasar por Apple Developer ni por la app nativa: cualquier navegador
+   que soporte Service Worker + Push (Chrome, y Safari en iPhone SIEMPRE que
+   la página esté agregada a la pantalla de Inicio) puede suscribirse. La
+   llave pública VAPID no es secreta, viaja tal cual al navegador; la privada
+   solo vive en functions/notificaciones.js, nunca acá. */
+
+const VAPID_PUBLICA = 'BNKCUmJbV1mD-59zIg0DSOmk9g_uFwEXKIivRTQfUb6Tie8IjVhwnKsoBbbS0_g4bQrbUNxHTSpsbqiJsG39FCc';
+
+function _base64UrlAUint8Array(base64) {
+  const relleno = '='.repeat((4 - base64.length % 4) % 4);
+  const normal = (base64 + relleno).replace(/-/g, '+').replace(/_/g, '/');
+  const cruda = atob(normal);
+  const salida = new Uint8Array(cruda.length);
+  for (let i = 0; i < cruda.length; i++) salida[i] = cruda.charCodeAt(i);
+  return salida;
+}
+
+async function estadoWebPush() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return 'no-soportado';
+  try {
+    const reg = await navigator.serviceWorker.getRegistration();
+    if (!reg) return 'inactivo';
+    const sub = await reg.pushManager.getSubscription();
+    return sub ? 'activo' : 'inactivo';
+  } catch (e) { return 'inactivo'; }
+}
+
+async function activarWebPush() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    alert('Este navegador no soporta notificaciones.\n\nEn iPhone: abre esta página en Safari, toca "Compartir" → "Agregar a Inicio", y ábrela desde ese ícono (no desde la pestaña normal de Safari) — ahí sí funciona.');
+    return;
+  }
+  try {
+    const reg = await navigator.serviceWorker.register('/sw.js');
+    const permiso = await Notification.requestPermission();
+    if (permiso !== 'granted') {
+      if (global.toast) toast('No diste permiso de notificaciones — no se pudo activar.', 'error');
+      return;
+    }
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: _base64UrlAUint8Array(VAPID_PUBLICA)
+      });
+    }
+    const uid = CH.uid || (CH.auth && CH.auth.currentUser && CH.auth.currentUser.uid);
+    if (!uid || !CH.db) return;
+    await CH.db.collection('admin_webpush_subs').doc(uid).set(
+      Object.assign(sub.toJSON(), { actualizado: ahora() }),
+      { merge: true }
+    );
+    if (global.toast) toast('🔔 Notificaciones activadas en este dispositivo', 'success');
+    Admin.actualizarBotonWebPush();
+  } catch (e) {
+    if (global.toast) toast('No se pudo activar: ' + (e.message || e), 'error');
+    else alert('No se pudo activar: ' + (e.message || e));
+  }
+}
+
+// El número rojo sobre el ícono de la PWA: se limpia solo al abrir/enfocar
+// la app (no hace falta que el admin toque nada). Si el navegador no
+// soporta la Badging API (Safari fuera de una PWA instalada, por ejemplo)
+// esto simplemente no hace nada — no rompe el resto del chat.
+let _badgeYaLimpio = false;
+function limpiarBadgePush() {
+  if (_badgeYaLimpio) return;
+  _badgeYaLimpio = true;
+  try { if (navigator.clearAppBadge) navigator.clearAppBadge().catch(() => {}); } catch (e) {}
+  try {
+    if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+      navigator.serviceWorker.controller.postMessage({ tipo: 'limpiarBadge' });
+    }
+  } catch (e) {}
+}
+function iniciarBadgePush() {
+  if (!('setAppBadge' in navigator)) return;
+  limpiarBadgePush();
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) { _badgeYaLimpio = false; limpiarBadgePush(); }
+  });
 }
 
 /* ── aviso emergente de mensaje nuevo (solo lado operador/cajero) ─────────── */
@@ -1054,7 +1142,10 @@ const Admin = {
     cont.innerHTML = `
       <div class="ch-wrap">
         <div class="ch-lista">
-          <div class="ch-lista-cab">Conversaciones</div>
+          <div class="ch-lista-cab">
+            <span>Conversaciones</span>
+            <button class="ch-webpush-btn" id="ch-webpush-btn" onclick="AJChat.activarWebPush()">🔔</button>
+          </div>
           <div class="ch-buscar-cont">
             <span class="ch-buscar-ico">🔍</span>
             <input class="ch-buscar" id="ch-buscar" type="text" placeholder="Buscar operador o cajero…"
@@ -1081,6 +1172,27 @@ const Admin = {
         <div class="ch-panel" id="ch-panel"></div>
       </div>`;
     Admin.verAnuncios();
+    Admin.actualizarBotonWebPush();
+  },
+
+  // Estado del botón 🔔: si este dispositivo/navegador ya tiene una
+  // suscripción push activa, se lo muestra en verde. iPhone solo puede
+  // suscribirse si esta página se abrió desde el ícono de Inicio (PWA
+  // agregada con Safira → Compartir → Agregar a inicio) — en Safari normal
+  // el navegador no ofrece esa API, así que el botón lo explica al tocarlo.
+  async actualizarBotonWebPush() {
+    const btn = document.getElementById('ch-webpush-btn');
+    if (!btn) return;
+    const estado = await estadoWebPush();
+    if (estado === 'activo') {
+      btn.classList.add('activo');
+      btn.innerHTML = '🔔 Activas';
+      btn.title = 'Notificaciones activas en este dispositivo';
+    } else {
+      btn.classList.remove('activo');
+      btn.innerHTML = '🔔';
+      btn.title = 'Activar notificaciones en este dispositivo';
+    }
   },
 
   // Filtro de la búsqueda tipo WhatsApp: se guarda para que sobreviva a los
@@ -1441,6 +1553,7 @@ global.AJChat = {
     inyectarEstilos();
     crearGlobo();
     iniciarChequeoVersion();
+    iniciarBadgePush();
     Object.assign(CH, {
       db:o.db, auth:o.auth, uid:o.uid, nombre:o.nombre || 'Administración', esAdmin:true
     });
@@ -1563,6 +1676,7 @@ global.AJChat = {
   // propia lista de conversaciones.
   verUsuario: vista => Usuario.ver(vista),
   filtrarHilos: valor => Admin.filtrarHilos(valor),
+  activarWebPush: () => activarWebPush(),
 
   soltar() {
     (CH._off || []).forEach(f => { try { f(); } catch(_){} });

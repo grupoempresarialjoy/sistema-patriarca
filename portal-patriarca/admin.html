@@ -60,6 +60,32 @@ nav{overflow:visible}
   text-align:center;margin-left:6px;vertical-align:middle}
 .navgrp-item{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .navgrp-item .nav-aviso{margin-left:auto}
+
+/* ── Celular (iPhone en Safari / PWA) ──────────────────────────────────────
+   El header y el nav quedan FIJOS arriba (sticky) para no perderlos al bajar
+   dentro de una sección larga. El nav de pestañas se desliza horizontal en
+   vez de desbordarse fuera de la pantalla, y el menú de cada grupo
+   (Usuarios/Reportes/Gestión/Configuración) pasa a position:fixed centrado
+   bajo el nav — así el scroll horizontal del nav no se lo recorta. */
+@media(max-width:760px){
+  header{position:sticky;top:0;z-index:700;padding:0 10px!important;gap:6px}
+  header>div:first-child{gap:6px!important;flex-wrap:nowrap}
+  .header-logo{font-size:11px!important;letter-spacing:.3px!important}
+  .header-badge{display:none!important}
+  #admin-mes-badge,#aud-badge{font-size:9px!important;padding:2px 6px!important;white-space:nowrap}
+  .header-right{gap:5px}
+  .header-user{display:none}
+  .btn-logout{padding:4px 9px;font-size:11px}
+  .btn-theme{padding:3px 7px;font-size:13px}
+
+  nav{position:sticky;top:52px;z-index:650;height:44px;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;flex-wrap:nowrap;scrollbar-width:none}
+  nav::-webkit-scrollbar{display:none}
+  .tab{padding:9px 12px;font-size:11px;flex-shrink:0}
+
+  .navgrp-menu{position:fixed;top:96px;left:10px;right:10px;width:auto;min-width:0;max-height:calc(100vh - 110px);overflow-y:auto;z-index:660}
+
+  main{padding:12px}
+}
 main{flex:1;padding:20px;overflow:auto}
 .section{display:none}
 .section.active{display:block}

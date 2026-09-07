@@ -269,7 +269,21 @@ const CSS = `
 #sec-mensajes.ch-flotante .ch-wrap{flex:1;height:auto !important;min-height:0}
 @media(max-width:820px){
   #sec-mensajes.ch-flotante{right:12px;left:12px;bottom:82px;width:auto;height:min(72vh,600px)}
-}`;
+}
+
+/* Aviso emergente cuando llega un mensaje nuevo de administración, mientras
+   el operador/cajero no lo está viendo en ese momento. Se cierra sola o con
+   la X; el globito de la burbuja se queda como recordatorio permanente. */
+.ch-toast{position:fixed;right:22px;bottom:90px;width:300px;max-width:calc(100vw - 44px);background:var(--bg2);border:1px solid var(--border);border-left:3px solid var(--green);border-radius:12px;box-shadow:0 12px 34px rgba(0,0,0,.4);padding:12px 13px;z-index:9998;display:flex;gap:10px;align-items:flex-start;cursor:pointer;animation:chToastIn .22s ease}
+.ch-toast:hover{border-color:var(--green)}
+.ch-toast-ico{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#35CC2F,#24BF62);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#0d0f14;flex-shrink:0}
+.ch-toast-txt{flex:1;min-width:0}
+.ch-toast-tit{font-size:12.5px;font-weight:700;color:var(--text);margin-bottom:2px}
+.ch-toast-prev{font-size:12px;color:var(--text2);line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.ch-toast-x{background:none;border:none;color:var(--text2);font-size:15px;cursor:pointer;padding:0 2px;flex-shrink:0;line-height:1}
+.ch-toast-x:hover{color:var(--text)}
+@keyframes chToastIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@media(max-width:820px){ .ch-toast{right:12px;bottom:82px} }`;
 
 function inyectarEstilos() {
   if (document.getElementById('ch-css')) return;
@@ -320,6 +334,38 @@ function toggleFlotante(forzar) {
   // Si se cierra el flotante pero la pestaña Chat sigue activa de fondo,
   // no se marca como "cerrado" para efectos de leído.
   if (window.AJChat) AJChat.visible(activar || sec.classList.contains('active'));
+}
+
+/* ── aviso emergente de mensaje nuevo (solo lado operador/cajero) ─────────── */
+
+let _toastMsgTimer = null;
+
+function mostrarToastMensaje(m) {
+  let t = document.getElementById('ch-toast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'ch-toast'; t.className = 'ch-toast';
+    document.body.appendChild(t);
+  }
+  const texto = (m.texto || '').trim() || '📎 Envió un adjunto';
+  t.innerHTML = `
+    <div class="ch-toast-ico">A</div>
+    <div class="ch-toast-txt">
+      <div class="ch-toast-tit">📩 Administración</div>
+      <div class="ch-toast-prev"></div>
+    </div>
+    <button class="ch-toast-x" title="Cerrar">✕</button>`;
+  t.querySelector('.ch-toast-prev').textContent = texto;   // por texto, no por HTML: evita inyección
+  t.querySelector('.ch-toast-x').onclick = e => { e.stopPropagation(); cerrarToastMensaje(); };
+  t.onclick = () => { cerrarToastMensaje(); toggleFlotante(true); };
+  clearTimeout(_toastMsgTimer);
+  _toastMsgTimer = setTimeout(cerrarToastMensaje, 9000);
+}
+
+function cerrarToastMensaje() {
+  clearTimeout(_toastMsgTimer);
+  const t = document.getElementById('ch-toast');
+  if (t) t.remove();
 }
 
 /* ── contexto adjunto ───────────────────────────────────────────────────── */
@@ -895,6 +941,19 @@ const Usuario = {
     }
   },
 
+  // Aviso emergente: solo para mensajes de administración que llegan DESPUÉS
+  // de abrir el portal (no el atraso viejo al iniciar sesión) y solo si en
+  // ese momento no está ya viendo la conversación (si la tiene abierta, ya
+  // lo está leyendo en vivo, avisarle encima sería redundante).
+  avisarNuevos() {
+    (CH.mensajes || []).forEach(m => {
+      if (m.de !== 'admin' || CH._vistoIds.has(m.id)) return;
+      CH._vistoIds.add(m.id);
+      if (CH.abierto) return;
+      if (ms(m.ts) > CH._sesionInicio) mostrarToastMensaje(m);
+    });
+  },
+
   pintar() { Usuario.pintarMensajes(); Usuario.pintarGlobo(); Usuario.pintarLista(); }
 };
 
@@ -1262,7 +1321,10 @@ global.AJChat = {
     Object.assign(CH, {
       db:o.db, auth:o.auth, uid:o.uid, nombre:o.nombre || '',
       rol:o.rol || 'operador', oficina:o.oficina || '', esAdmin:false,
-      vistaU:'chat', trixibotActivo:false, trixi:[]
+      vistaU:'chat', trixibotActivo:false, trixi:[],
+      // Para el aviso emergente: solo avisa de mensajes que lleguen de aquí
+      // en adelante, nunca del atraso que ya traía al entrar.
+      _sesionInicio: Date.now(), _vistoIds: new Set()
     });
     if (o.montarEn) Usuario.montar(o.montarEn);
 
@@ -1274,7 +1336,7 @@ global.AJChat = {
     const publicos = ['todos', CH.rol === 'cajero' ? 'cajeros' : 'operadores'];
     CH._off = [
       escucharHilo(CH.uid, Usuario.pintar),
-      escucharMensajes(CH.uid, Usuario.pintar),
+      escucharMensajes(CH.uid, () => { Usuario.avisarNuevos(); Usuario.pintar(); }),
       escucharAnuncios(publicos, Usuario.alCambiarAnuncios)
     ];
 

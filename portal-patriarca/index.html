@@ -1342,8 +1342,8 @@
               <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Escalera de ganancia, bono e interés de capital — mes cerrado</div>
             </div>
             <div style="display:flex;gap:10px;align-items:center">
-              <select id="par-oficina" class="sel-oficina" onchange="cargarParticipacion()"
-                style="padding:7px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);font-size:12px;font-family:inherit">
+              <!-- Oculto: la oficina ya la determina el menú lateral (Unity / Golden) -->
+              <select id="par-oficina" class="sel-oficina" onchange="cargarParticipacion()" style="display:none">
                 <option value="">Todas las oficinas</option>
               </select>
               <select id="par-mes" onchange="cargarParticipacion()"
@@ -1396,8 +1396,8 @@
               <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Ingresos, costos y distribución de utilidad del mes — replica el Excel mes a mes</div>
             </div>
             <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-              <select id="res-oficina" class="sel-oficina" onchange="cargarResultados()"
-                style="padding:7px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);font-size:12px;font-family:inherit">
+              <!-- Oculto: la oficina ya la determina el menú lateral (Unity / Golden) -->
+              <select id="res-oficina" class="sel-oficina" onchange="cargarResultados()" style="display:none">
                 <option value="">Todas las oficinas</option>
               </select>
               <select id="res-mes" onchange="cargarResultados()"
@@ -2205,8 +2205,8 @@ function goTo(page) {
   if(idPagina==='administradores')     loadAdministradores();
   if(idPagina==='contador')            loadContador(esGolden ? idGolden : idUnity);
   if(idPagina==='solicitudes')         loadSolicitudes();
-  if(idPagina==='participacion')       initParticipacion(esGolden ? idGolden : '');
-  if(idPagina==='resultados')          initResultados(esGolden ? idGolden : '');
+  if(idPagina==='participacion')       initParticipacion(esGolden ? idGolden : idUnity);
+  if(idPagina==='resultados')          initResultados(esGolden ? idGolden : idUnity);
 }
 
 

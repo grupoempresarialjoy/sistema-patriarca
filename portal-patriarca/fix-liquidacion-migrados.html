@@ -109,6 +109,19 @@ const db = firebase.firestore();
   <div style="overflow-x:auto;margin-top:12px" id="wrap-esf"></div>
 </div>
 
+<div class="panel" id="panel-bono" style="display:none">
+  <b style="color:#a070ff">PASO 4 — Recargas por canal para el Bono (Wplay / Be Movil, Golden Agosto 2026)</b>
+  <p style="color:#8890a8;margin:6px 0 10px">
+    El Bono de "Participación de Operadores" compara las recargas de cada operador en el canal Wplay y en el
+    canal Be Movil contra la meta de $40.000.000. Del archivo que envió Ronaldo se verificó que la columna
+    "total" de cada operador es exactamente Wplay + Be Movil (sin sobrar ni faltar un peso) — así que se
+    guardan las dos columnas reales, sin duplicar nada.
+  </p>
+  <button class="btn btn-purple" onclick="prepararBono()">🔍 Revisar</button>
+  <button class="btn btn-green" id="btn-bono-todos" onclick="arreglarBonoTodos()" style="display:none">✅ Guardar recargas de bono para TODOS los de la lista</button>
+  <div style="overflow-x:auto;margin-top:12px" id="wrap-bono"></div>
+</div>
+
 <div class="panel">
   <b>Log de operaciones</b>
   <div class="log" id="log">Esperando login...</div>
@@ -141,6 +154,7 @@ firebase.auth().onAuthStateChanged(u => {
     document.getElementById('panel-load').style.display = 'block';
     document.getElementById('panel-desglose').style.display = 'block';
     document.getElementById('panel-esf').style.display = 'block';
+    document.getElementById('panel-bono').style.display = 'block';
     logear('✅ Sesión iniciada como ' + u.email);
   }
 });
@@ -498,6 +512,103 @@ async function arreglarEsfTodos() {
     if (esfPendientes[i].estado !== 'hecho') await arreglarEsfUno(i);
   }
   logear('\n✅✅ Resumen ESF guardado para todos los pendientes.');
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   PASO 4 — Recargas por canal (Wplay / Be Movil) para el Bono, Golden
+   Bets, Agosto 2026. Verificado con Ronaldo: la columna "total" de la
+   imagen que envió es exactamente Wplay + Be Movil en las 11 filas, sin
+   sobrar ni faltar un peso — así que solo se guardan las dos columnas
+   reales (nunca el total, para no duplicar el monto de Be Movil).
+   Se guarda en el mismo doc de patriarca_esf_resumen que arma el PASO 3,
+   en el campo recargasBono — Participación de Operadores (panel CEO) lo
+   usa en vez de sumar movimientos reales cuando el operador es migrado.
+   ══════════════════════════════════════════════════════════════════════ */
+const BONO_GOLDEN_AGOSTO = {
+  'Andersson Rodney Vargas Lozano':      { wplay: 2616000,  bemovil: 36597900 },
+  'Rosemberth Donato González Manzano':  { wplay: 342100,   bemovil: 41837099 },
+  'María Fernanda Uribe Ardila':         { wplay: 3363000,  bemovil: 30452100 },
+  'Neiver Andrey Gaona Montes':          { wplay: 2912400,  bemovil: 30411900 },
+  'Camilo Rodigurez Villamil':           { wplay: 7656400,  bemovil: 31849800 },
+  'Leonardo Andrés Herrera Oyaga':       { wplay: 3555900,  bemovil: 30588800 },
+  'Diego Alexander Avendaño rojas':      { wplay: 6315650,  bemovil: 25356300 }
+  // Neili, Erick y Eileen quedan sin fila — sus recargas están en $0 en la hoja.
+};
+
+let bonoPendientes = [];
+
+async function prepararBono() {
+  logear('\n— Revisando recargas de bono (Golden Bets, Agosto 2026) —');
+  const usuariosSnap = await db.collection('admin_usuarios').where('rol', '==', 'operador').get();
+  const norm = s => (s || '').normalize('NFC');
+  const porNombre = {};
+  usuariosSnap.docs.forEach(d => { const u = d.data(); porNombre[norm(u.nombre)] = u.uid || d.id; });
+
+  bonoPendientes = [];
+  for (const nombre of Object.keys(BONO_GOLDEN_AGOSTO)) {
+    const opId = porNombre[norm(nombre)];
+    if (!opId) { logear('  ⚠ No encontré a "' + nombre + '" en admin_usuarios — se salta'); continue; }
+    const { wplay, bemovil } = BONO_GOLDEN_AGOSTO[nombre];
+    const ref = db.collection('patriarca_esf_resumen').doc(`${opId}_2026-08`);
+    const snap = await ref.get();
+    const rb = snap.exists ? (snap.data().recargasBono || null) : null;
+    const yaTenia = !!rb && Math.round(rb.wplay || 0) === wplay && Math.round(rb.bemovil || 0) === bemovil;
+    bonoPendientes.push({ opId, nombre, ref, wplay, bemovil, existeFicha: snap.exists, yaTenia, estado: yaTenia ? 'hecho' : 'pendiente' });
+  }
+  pintarBono();
+  document.getElementById('btn-bono-todos').style.display = bonoPendientes.some(p=>p.estado!=='hecho') ? 'inline-block' : 'none';
+  logear('Listo. Revisa la tabla antes de guardar.');
+}
+
+function pintarBono() {
+  const fmt = n => '$' + Math.round(n || 0).toLocaleString('es-CO');
+  const wrap = document.getElementById('wrap-bono');
+  wrap.innerHTML = `<table>
+    <thead><tr><th>Operador</th><th>Estado</th><th>Acción</th><th>Wplay</th><th>Be Movil</th><th>Combinado</th></tr></thead>
+    <tbody>` + bonoPendientes.map((p,i) => {
+      const badge = p.estado === 'hecho'
+        ? '<span class="badge-ok">✅ ' + (p.yaTenia ? 'ya coincidía' : 'guardado') + '</span>'
+        : (p.existeFicha ? '<span style="color:#8890a8">resumen ESF existe, falta bono</span>' : '<span style="color:#e05050">sin resumen ESF todavía (corre el PASO 3)</span>');
+      return `<tr>
+        <td><b>${p.nombre}</b></td>
+        <td id="bono-estado-${i}">${badge}</td>
+        <td><button class="btn btn-red" id="bono-btn-${i}" onclick="arreglarBonoUno(${i})" ${p.estado==='hecho'?'disabled':''}>Guardar</button></td>
+        <td>${fmt(p.wplay)}</td>
+        <td>${fmt(p.bemovil)}</td>
+        <td><b>${fmt(p.wplay + p.bemovil)}</b></td>
+      </tr>`;
+    }).join('') + '</tbody></table>';
+}
+
+async function arreglarBonoUno(i) {
+  const p = bonoPendientes[i];
+  if (!p || p.estado === 'hecho') return;
+  const btn = document.getElementById('bono-btn-' + i);
+  btn.disabled = true;
+  logear('\n— Guardando recargas de bono: ' + p.nombre + ' —');
+  try {
+    // merge:true — si el PASO 3 ya guardó utilidad/comisiones, esto solo le
+    // agrega el campo recargasBono sin tocar lo demás.
+    await p.ref.set({
+      operadorId: p.opId, operadorNombre: p.nombre, mesKey: '2026-08', mes: 'Agosto 2026',
+      recargasBono: { wplay: p.wplay, bemovil: p.bemovil }
+    }, { merge: true });
+    logear('  · recargasBono cargado — Wplay $' + p.wplay.toLocaleString('es-CO') + ' + Be Movil $' + p.bemovil.toLocaleString('es-CO'));
+    p.estado = 'hecho';
+    pintarBono();
+    logear('✅ Listo: ' + p.nombre);
+  } catch (e) {
+    logear('❌ Error con ' + p.nombre + ': ' + e.message);
+    btn.disabled = false;
+  }
+}
+
+async function arreglarBonoTodos() {
+  document.getElementById('btn-bono-todos').disabled = true;
+  for (let i = 0; i < bonoPendientes.length; i++) {
+    if (bonoPendientes[i].estado !== 'hecho') await arreglarBonoUno(i);
+  }
+  logear('\n✅✅ Recargas de bono guardadas para todos los pendientes.');
 }
 </script>
 </body>

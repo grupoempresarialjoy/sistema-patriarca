@@ -2277,9 +2277,19 @@ const _PAR_RANGOS_FALLBACK = [
 ];
 
 // El bono sale del volumen de recargas: Wplay 1:1, Be Movil ponderado por casa
+// Decide el % de bono ya con los montos finales de cada canal — separado de
+// _parBono() para poder reusarlo con montos que no vienen de un movimiento
+// real (operadores migrados, ver recargasBono más abajo).
+function _parBonoCalc(wplay, bemovil, bonoCfg) {
+  const b    = bonoCfg || {};
+  const meta = b.meta || 40000000;
+  if (wplay >= meta || bemovil >= meta) return { pct: b.pct_solo || 5,  tipo:'solo',  wplay, bemovil, meta };
+  if (wplay + bemovil >= meta)          return { pct: b.pct_combo || 3, tipo:'combo', wplay, bemovil, meta };
+  return { pct: 0, tipo:'sin', wplay, bemovil, meta };
+}
+
 function _parBono(movsRecargas, bonoCfg) {
   const b       = bonoCfg || {};
-  const meta    = b.meta || 40000000;
   const cWplay  = (b.canal_wplay   || 'WPLAY UNITY').toUpperCase();
   const cBemov  = (b.canal_bemovil || 'BE MOVIL CAJA').toUpperCase();
   const factor  = {};
@@ -2293,9 +2303,7 @@ function _parBono(movsRecargas, bonoCfg) {
     else if (met === cBemov) bemovil += monto * (factor[(mv.casa||'SIN CASA').toUpperCase()] ?? 1);
   });
 
-  if (wplay >= meta || bemovil >= meta) return { pct: b.pct_solo || 5,  tipo:'solo',  wplay, bemovil, meta };
-  if (wplay + bemovil >= meta)          return { pct: b.pct_combo || 3, tipo:'combo', wplay, bemovil, meta };
-  return { pct: 0, tipo:'sin', wplay, bemovil, meta };
+  return _parBonoCalc(wplay, bemovil, bonoCfg);
 }
 
 async function cargarParticipacion(forzar) {
@@ -2376,7 +2384,7 @@ async function cargarParticipacion(forzar) {
 
     for (const op of ops) {
       // 1. Productividad — del cierre si existe, si no del ESF
-      let productividad = null, fuente = '';
+      let productividad = null, fuente = '', recargasBono = null;
       const cieSnap = await db.collection('patriarca_cierres')
         .where('operadorId','==',op.uid).where('mes','==',mesLabel).get();
       const cierre = cieSnap.docs.map(d => d.data())
@@ -2389,6 +2397,10 @@ async function cargarParticipacion(forzar) {
           const e = esf.data();
           productividad = Math.round((e.utilidad||0) - (e.totalGastos||0) + (e.totalComisiones||0));
           fuente = 'esf';
+          // Operador migrado sin movimientos reales en el sistema (ver PASO 4
+          // de fix-liquidacion-migrados.html) — trae las recargas por canal
+          // ya cargadas a mano, para no calcular el bono con datos vacíos.
+          if (e.recargasBono) recargasBono = e.recargasBono;
         }
       }
       if (productividad == null) continue;
@@ -2401,21 +2413,29 @@ async function cargarParticipacion(forzar) {
       const esc = _parEscalera(productividad, cfg.vinc, cfg.metodo_participacion, cfg.participacion);
 
       // 4. Bono — recargas del mes por los dos canales
-      // Acotado al mes para no traer todo el histórico
-      let movDocs;
-      try {
-        movDocs = (await db.collection('patriarca_movimientos')
-          .where('opId','==',op.uid)
-          .where('fecha','>=', mk + '-01').where('fecha','<=', mk + '-31').get()).docs;
-      } catch(e) {
-        // Si falta el índice compuesto, caer al histórico completo
-        movDocs = (await db.collection('patriarca_movimientos').where('opId','==',op.uid).get()).docs;
-      }
-      const recargas = movDocs.map(d => d.data()).filter(m =>
-        (m.tipo||'').toUpperCase() === 'RECARGAS' && (m.fecha||'').startsWith(mk));
       const escCfg = _parEscaleras[cfg.metodo_participacion || 'Escalera de Ganancia'] || {};
-      const bono = esc.esSocio ? { pct:0, tipo:'sin', wplay:0, bemovil:0, meta:0 }
-                               : _parBono(recargas, escCfg.bono);
+      let bono;
+      if (esc.esSocio) {
+        bono = { pct:0, tipo:'sin', wplay:0, bemovil:0, meta:0 };
+      } else if (recargasBono) {
+        // Migrado — ya viene el total de cada canal, sin necesidad de sumar
+        // movimientos (no hay movimientos reales de este mes para él).
+        bono = _parBonoCalc(recargasBono.wplay || 0, recargasBono.bemovil || 0, escCfg.bono);
+      } else {
+        // Acotado al mes para no traer todo el histórico
+        let movDocs;
+        try {
+          movDocs = (await db.collection('patriarca_movimientos')
+            .where('opId','==',op.uid)
+            .where('fecha','>=', mk + '-01').where('fecha','<=', mk + '-31').get()).docs;
+        } catch(e) {
+          // Si falta el índice compuesto, caer al histórico completo
+          movDocs = (await db.collection('patriarca_movimientos').where('opId','==',op.uid).get()).docs;
+        }
+        const recargas = movDocs.map(d => d.data()).filter(m =>
+          (m.tipo||'').toUpperCase() === 'RECARGAS' && (m.fecha||'').startsWith(mk));
+        bono = _parBono(recargas, escCfg.bono);
+      }
 
       // 5. Cuentas
       const baseNeta = Math.max(0, productividad - esc.rojo);

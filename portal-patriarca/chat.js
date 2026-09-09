@@ -61,6 +61,7 @@ const CH = {
   vista: 'chat',            // lado admin: 'chat' | 'anuncios' | 'trixi'
   vistaU: 'chat',           // lado operador: 'chat' | 'anuncios' | 'trixi'
   contexto: null,           // adjunto pendiente de enviar
+  imgAnuncio: null,         // imagen elegida en "Redactar anuncio", pendiente de publicar
   abierto: false,           // ¿la pantalla de mensajes está a la vista?
   _off: []                  // suscripciones para poder soltarlas
 };
@@ -250,6 +251,12 @@ const CSS = `
 .ch-check{display:flex;align-items:flex-start;gap:9px;margin-top:12px;cursor:pointer;font-size:12.5px;color:var(--text)}
 .ch-check input{margin-top:2px;width:15px;height:15px;accent-color:var(--green);cursor:pointer}
 .ch-check-sub{font-size:11px;color:var(--text2);margin-top:2px;line-height:1.4}
+
+.ch-an-img-btn{display:inline-flex;align-items:center;gap:6px;background:var(--bg3);border:1px solid var(--border);color:var(--text2);border-radius:8px;padding:8px 13px;font-size:12.5px;cursor:pointer;margin-top:2px}
+.ch-an-img-btn:hover{color:var(--text);border-color:var(--green)}
+.ch-an-img-prev{position:relative;display:inline-block;margin-top:10px}
+.ch-an-img-prev img{max-width:180px;max-height:180px;border-radius:8px;border:1px solid var(--border);display:block}
+.ch-an-img-x{position:absolute;top:-8px;right:-8px;background:#e05050;color:#fff;border:none;border-radius:50%;width:22px;height:22px;font-size:13px;cursor:pointer;line-height:1}
 
 .ch-quien{margin-top:8px;padding:9px 11px;background:var(--bg2);border:1px solid var(--border);border-radius:7px;font-size:11.5px}
 .ch-quien-fila{display:flex;justify-content:space-between;padding:3px 0;color:var(--text2)}
@@ -1415,6 +1422,7 @@ const Admin = {
   // abrir el chat: eso no debe tapar la lista de conversaciones en celular.
   verAnuncios(porClicUsuario) {
     CH.vista = 'anuncios'; CH.hiloUid = ''; Admin.soltarHilo();
+    CH.imgAnuncio = null;
     const p = document.getElementById('ch-panel');
     p.innerHTML = `
       <div class="ch-cab">
@@ -1426,7 +1434,11 @@ const Admin = {
       <div class="ch-cuerpo" style="gap:0" id="ch-an-cuerpo">
         <div class="ch-form" style="border-bottom:1px solid var(--border);padding-bottom:16px;margin-bottom:16px">
           <label>Mensaje</label>
-          <textarea id="ch-an-txt" placeholder="Ej: En unos días vamos a hacer un cuadre del sistema. Tengan todo anotado y al día, como si fuera un cierre de mes."></textarea>
+          <textarea id="ch-an-txt" placeholder="Ej: En unos días vamos a hacer un cuadre del sistema. Tengan todo anotado y al día, como si fuera un cierre de mes." onpaste="AJChat.pegarImagenAnuncio(event)"></textarea>
+          <label>Imagen (opcional) — también puedes pegarla con Ctrl+V dentro del texto</label>
+          <input type="file" accept="image/*" id="ch-an-img-input" style="display:none" onchange="AJChat.elegirImagenAnuncio(this)">
+          <label class="ch-an-img-btn" for="ch-an-img-input">📎 Adjuntar imagen</label>
+          <div id="ch-an-img-prev"></div>
           <label>Quién lo ve</label>
           <select id="ch-an-pub">
             <option value="todos">Todos — operadores y cajeros</option>
@@ -1507,19 +1519,101 @@ const Admin = {
       : '<div class="ch-quien-fila">Sin destinatarios activos</div>') + `</div>`;
   },
 
+  // Achica la foto antes de guardarla (una foto de celular sin tocar pesa
+  // varios MB; Firestore no acepta documentos de más de 1MB). 1280px de
+  // lado más largo y calidad .82 deja cupones/capturas perfectamente
+  // legibles y el archivo queda liviano. La usan tanto el botón "Adjuntar
+  // imagen" como pegar con Ctrl+V en el textarea.
+  _procesarImagenAnuncio(archivo) {
+    if (!archivo || !archivo.type || !archivo.type.startsWith('image/')) return;
+    const lector = new FileReader();
+    lector.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const max = 1280;
+        const esc2 = Math.min(1, max / Math.max(img.width, img.height));
+        const cv = document.createElement('canvas');
+        cv.width = Math.round(img.width * esc2); cv.height = Math.round(img.height * esc2);
+        cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+        CH.imgAnuncio = cv.toDataURL('image/jpeg', .82);
+        Admin.pintarPrevAnuncio();
+      };
+      img.onerror = () => { if (global.toast) toast('No se pudo leer la imagen', 'error'); };
+      img.src = lector.result;
+    };
+    lector.readAsDataURL(archivo);
+  },
+
+  elegirImagenAnuncio(input) {
+    const archivo = input.files && input.files[0];
+    if (!archivo) return;
+    if (!archivo.type.startsWith('image/')) {
+      if (global.toast) toast('Elige un archivo de imagen', 'error'); input.value = ''; return;
+    }
+    Admin._procesarImagenAnuncio(archivo);
+    input.value = '';    // permite elegir el mismo archivo otra vez si lo quita y lo vuelve a poner
+  },
+
+  // Ctrl+V con una imagen en el portapapeles (captura de pantalla, imagen
+  // copiada de WhatsApp Web, etc.) — mismo resultado que el botón, sin tener
+  // que guardar el archivo primero.
+  pegarImagenAnuncio(event) {
+    const items = event.clipboardData && event.clipboardData.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.type && item.type.startsWith('image/')) {
+        event.preventDefault();
+        Admin._procesarImagenAnuncio(item.getAsFile());
+        if (global.toast) toast('🖼 Imagen pegada', 'success');
+        return;
+      }
+    }
+  },
+
+  quitarImagenAnuncio() {
+    CH.imgAnuncio = null;
+    Admin.pintarPrevAnuncio();
+  },
+
+  pintarPrevAnuncio() {
+    const c = document.getElementById('ch-an-img-prev'); if (!c) return;
+    c.innerHTML = CH.imgAnuncio
+      ? `<div class="ch-an-img-prev"><img src="${CH.imgAnuncio}" alt="">
+           <button type="button" class="ch-an-img-x" title="Quitar imagen" onclick="AJChat.quitarImagenAnuncio()">✕</button></div>`
+      : '';
+  },
+
   async publicar() {
     const txt = document.getElementById('ch-an-txt');
     const v = (txt.value || '').trim();
-    if (!v) { if (global.toast) toast('Escribe el anuncio primero', 'error'); return; }
+    if (!v && !CH.imgAnuncio) { if (global.toast) toast('Escribe el anuncio o adjunta una imagen', 'error'); return; }
     const publico = document.getElementById('ch-an-pub').value;
     const fijado  = document.getElementById('ch-an-fij').checked;
+    const ref = CH.db.collection(COL_ANUNCIOS).doc();
+
+    // Igual que en transmitir(): la imagen va en su propio documento (subcolección
+    // "imagenes" del anuncio), y el anuncio solo guarda la referencia — así la
+    // lista de anuncios se sigue leyendo liviana.
+    let contexto = null;
+    if (CH.imgAnuncio) {
+      try {
+        const img = await ref.collection('imagenes').add({ datos: CH.imgAnuncio, ts: ahora() });
+        contexto = { tipo: 'otro', imagenRef: img.id };
+      } catch (e) {
+        console.warn('imagen del anuncio:', e.message);
+        if (global.toast) toast('No se pudo subir la imagen, se publica solo el texto', 'error');
+      }
+    }
+
     try {
-      await CH.db.collection(COL_ANUNCIOS).add({
+      await ref.set({
         texto: v, publico, fijado,
         autorUid: CH.uid, autorNombre: CH.nombre,
+        ...(contexto ? { contexto } : {}),
         ts: ahora(), leidoPor: {}
       });
       txt.value = ''; document.getElementById('ch-an-fij').checked = false;
+      Admin.quitarImagenAnuncio();
       if (global.toast) toast('📢 Anuncio publicado', 'success');
     } catch (e) { if (global.toast) toast('No se pudo publicar: ' + e.message, 'error'); }
   },
@@ -1746,6 +1840,9 @@ global.AJChat = {
   volverListaMovil: () => volverListaMovil(),
   verQuien: id => Admin.verQuien(id),
   publicar: () => Admin.publicar(),
+  elegirImagenAnuncio: input => Admin.elegirImagenAnuncio(input),
+  pegarImagenAnuncio: event => Admin.pegarImagenAnuncio(event),
+  quitarImagenAnuncio: () => Admin.quitarImagenAnuncio(),
   borrarAnuncio: id => Admin.borrarAnuncio(id),
   verArchivo: uid => Admin.verArchivo(uid),
 

@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Fix Cliente Externo Duplicado — AJ1.6</title>
+<style>
+body{font-family:monospace;background:#0d0f14;color:#e8eaf0;padding:20px;font-size:13px}
+h2{color:#a070ff;margin-bottom:8px}
+.panel{background:#13161d;border:1px solid #2a2f3f;border-radius:8px;padding:16px;margin-bottom:16px}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{background:#1a1e28;color:#8890a8;padding:7px 10px;text-align:left}
+td{padding:7px 10px;border-bottom:1px solid #2a2f3f;vertical-align:top}
+.btn{padding:7px 14px;border-radius:5px;border:none;cursor:pointer;font-size:12px;font-weight:700;font-family:monospace}
+.btn-red{background:rgba(224,80,80,.2);border:1px solid #e05050;color:#e05050}
+.btn-green{background:rgba(36,191,98,.2);border:1px solid #24BF62;color:#24BF62}
+.btn-purple{background:#a070ff;color:#fff}
+.btn:disabled{opacity:.4;cursor:default}
+.log{background:#000;border:1px solid #2a2f3f;border-radius:4px;padding:12px;min-height:100px;max-height:340px;overflow:auto;white-space:pre-wrap;font-size:11px;color:#24BF62}
+.badge-dup{background:rgba(224,80,80,.15);color:#e05050;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:700}
+.badge-ok{background:rgba(36,191,98,.15);color:#24BF62;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:700}
+.pre-mini{background:#000;border:1px solid #2a2f3f;border-radius:4px;padding:8px;font-size:10.5px;color:#8890a8;white-space:pre-wrap;margin-top:6px}
+</style>
+</head>
+<body>
+<h2>🔧 Fix Cliente "Externo" Duplicado</h2>
+<p style="color:#8890a8;margin-bottom:16px">
+  El sistema ya trae un cliente "Externo" incorporado (id fijo <code>_externo_</code>), pero varios operadores
+  crearon SU PROPIO cliente real llamado "Externo" / "EXTERNO" / "Externo (cliente)" — eso deja los movimientos,
+  inversiones y el saldo inicial de esa persona partidos en dos, y el reporte los muestra como si fueran dos
+  clientes distintos. Esta herramienta busca esos duplicados en TODOS los operadores, muestra exactamente qué
+  va a tocar antes de tocarlo, y al confirmar: mueve los movimientos e inversiones al Externo del sistema, SUMA
+  el saldo inicial de las dos entradas (positivo + negativo = el neto real) y borra el cliente duplicado.
+</p>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script>
+firebase.initializeApp({
+  apiKey:"AIzaSyBQ42PzffxkEUEJVaPIVxHPKDqA_wk6IS0",
+  authDomain:"portal-patriarca-aj16.firebaseapp.com",
+  projectId:"portal-patriarca-aj16",
+  storageBucket:"portal-patriarca-aj16.firebasestorage.app",
+  messagingSenderId:"1073575698338",
+  appId:"1:1073575698338:web:f014083b3092c6dc245cfb"
+});
+const db = firebase.firestore();
+</script>
+
+<div class="panel" id="panel-login">
+  <b style="color:#a070ff">LOGIN — Autenticación requerida</b>
+  <p style="color:#8890a8;margin:6px 0 10px">Entra con tu cuenta Google (ronaldo140294@gmail.com)</p>
+  <button class="btn" onclick="doGoogleLogin()" style="background:#fff;color:#222;border:1px solid #ccc;padding:10px 20px;font-size:13px;display:flex;align-items:center;gap:10px">
+    <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+    Entrar con Google
+  </button>
+  <div style="margin-top:12px;border-top:1px solid #2a2f3f;padding-top:12px">
+    <p style="color:#8890a8;font-size:11px;margin-bottom:8px">O con email y contraseña:</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <input type="email" id="login-email" placeholder="Email" value="ronaldo140294@gmail.com" style="background:#1a1e28;border:1px solid #2a2f3f;border-radius:4px;color:#e8eaf0;padding:7px 10px;font-size:12px;font-family:monospace;flex:1;min-width:200px">
+      <input type="password" id="login-pass" placeholder="Contraseña" style="background:#1a1e28;border:1px solid #2a2f3f;border-radius:4px;color:#e8eaf0;padding:7px 10px;font-size:12px;font-family:monospace;flex:1;min-width:150px">
+      <button class="btn btn-purple" onclick="doLogin()">Entrar</button>
+    </div>
+  </div>
+</div>
+
+<div class="panel" id="panel-load" style="display:none">
+  <b style="color:#a070ff">PASO 1 — Buscar duplicados</b>
+  <div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap">
+    <button class="btn btn-purple" onclick="buscarDuplicados()">🔍 Buscar clientes "Externo" duplicados en todos los operadores</button>
+    <button class="btn btn-green" id="btn-arreglar-todos" onclick="arreglarTodos()" style="display:none">✅ Arreglar TODOS los de la lista</button>
+  </div>
+</div>
+
+<div class="panel" id="panel-lista" style="display:none">
+  <b>Duplicados encontrados</b>
+  <div style="overflow-x:auto;margin-top:10px">
+    <table>
+      <thead><tr><th>Operador</th><th>Estado</th><th>Acción</th><th>Nombre duplicado</th><th>Movimientos</th><th>Inversiones</th><th>Saldo inicial</th></tr></thead>
+      <tbody id="tbody-lista"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="panel">
+  <b>Log de operaciones</b>
+  <div class="log" id="log">Esperando login...</div>
+</div>
+
+<script>
+let duplicados = [];
+let buscando = false;
+
+function logear(msg) {
+  const l = document.getElementById('log');
+  l.textContent += '\n' + msg;
+  l.scrollTop = l.scrollHeight;
+}
+
+async function doGoogleLogin() {
+  try {
+    await firebase.auth().signInWithPopup(new firebase.auth.GoogleAuthProvider());
+  } catch (e) { alert('Error: ' + e.message); }
+}
+async function doLogin() {
+  const email = document.getElementById('login-email').value;
+  const pass = document.getElementById('login-pass').value;
+  try {
+    await firebase.auth().signInWithEmailAndPassword(email, pass);
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+firebase.auth().onAuthStateChanged(u => {
+  if (u) {
+    document.getElementById('panel-login').style.display = 'none';
+    document.getElementById('panel-load').style.display = 'block';
+    logear('✅ Sesión iniciada como ' + u.email);
+  }
+});
+
+// Normaliza un nombre de cliente para detectar "Externo" en cualquiera de
+// sus variantes: mayúsculas/minúsculas, con o sin "(cliente)", espacios de más.
+function esVarianteExterno(nombre) {
+  return (nombre || '').trim().toLowerCase()
+    .replace(/[()]/g, '').replace(/cliente/g, '').trim() === 'externo';
+}
+
+async function buscarDuplicados() {
+  if (buscando) { logear('(ya está buscando, espera a que termine)'); return; }
+  buscando = true;
+  const btnBuscar = document.querySelector('#panel-load button.btn-purple');
+  if (btnBuscar) { btnBuscar.disabled = true; btnBuscar.textContent = '⏳ Buscando... espera'; }
+  try {
+  logear('\n— Buscando clientes duplicados —');
+  const [clientesSnap, usuariosSnap] = await Promise.all([
+    db.collection('patriarca_clientes').get(),
+    db.collection('admin_usuarios').get()
+  ]);
+  const nombreOp = {};
+  usuariosSnap.docs.forEach(d => { const u = d.data(); if (u.uid) nombreOp[u.uid] = u.nombre || u.email || u.uid; });
+
+  const encontrados = clientesSnap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .filter(r => esVarianteExterno(r.nombre_completo || r.nombre));
+
+  logear('Encontrados: ' + encontrados.length);
+
+  duplicados = [];
+  for (const c of encontrados) {
+    const opId = c.opId;
+    const dupId = c.id;
+    const [movs, invs] = await Promise.all([
+      db.collection('patriarca_movimientos').where('opId','==',opId).where('cliente_id','==',dupId).get(),
+      db.collection('patriarca_inversiones').where('opId','==',opId).where('cliente_id','==',dupId).get()
+    ]);
+    // Revisa los últimos ~14 meses de saldo_inicial buscando esta clave —
+    // más que suficiente para cualquier caso real, sin tener que listar
+    // toda la colección.
+    const mesesAfectados = [];
+    const hoy = new Date();
+    for (let i = 0; i < 14; i++) {
+      const f = new Date(hoy.getFullYear(), hoy.getMonth() - i, 1);
+      const mesKey = f.getFullYear() + '-' + String(f.getMonth()+1).padStart(2,'0');
+      const ref = db.collection('patriarca_saldo_inicial').doc(opId + '_' + mesKey);
+      const doc = await ref.get();
+      if (doc.exists && doc.data().saldos && doc.data().saldos[dupId]) {
+        mesesAfectados.push({ mesKey, ref, dup: doc.data().saldos[dupId], oficial: (doc.data().saldos['_externo_']||{}) });
+      }
+    }
+
+    duplicados.push({
+      opId, dupId,
+      operador: nombreOp[opId] || opId,
+      nombreDup: c.nombre_completo || c.nombre,
+      movimientos: movs.docs,
+      inversiones: invs.docs,
+      mesesAfectados,
+      estado: 'pendiente'
+    });
+  }
+
+  pintarLista();
+  document.getElementById('panel-lista').style.display = 'block';
+  document.getElementById('btn-arreglar-todos').style.display = duplicados.length ? 'inline-block' : 'none';
+  logear('Listo. Revisa la tabla antes de arreglar.');
+  } finally {
+    buscando = false;
+    if (btnBuscar) { btnBuscar.disabled = false; btnBuscar.textContent = '🔍 Buscar clientes "Externo" duplicados en todos los operadores'; }
+  }
+}
+
+function pintarLista() {
+  const tb = document.getElementById('tbody-lista');
+  tb.innerHTML = duplicados.map((d, i) => {
+    const previewSaldo = d.mesesAfectados.map(m => {
+      const suma = {};
+      Object.keys(m.dup).forEach(casa => { suma[casa] = (m.oficial[casa]||0) + m.dup[casa]; });
+      return m.mesKey + ': ' + JSON.stringify(suma);
+    }).join('\n') || '(sin saldo inicial afectado)';
+    const estadoBadge = d.estado === 'hecho'
+      ? '<span class="badge-ok">✅ arreglado</span>'
+      : '<span class="badge-dup">pendiente</span>';
+    return `<tr>
+      <td><b>${d.operador}</b></td>
+      <td id="estado-${i}">${estadoBadge}</td>
+      <td><button class="btn btn-red" id="btn-${i}" onclick="arreglarUno(${i})" ${d.estado==='hecho'?'disabled':''}>Arreglar</button></td>
+      <td>"${d.nombreDup}"<br><span style="color:#666;font-size:10px">${d.dupId}</span></td>
+      <td>${d.movimientos.length}</td>
+      <td>${d.inversiones.length}</td>
+      <td>${d.mesesAfectados.length} mes(es)<div class="pre-mini">${previewSaldo}</div></td>
+    </tr>`;
+  }).join('');
+}
+
+async function arreglarUno(i) {
+  const d = duplicados[i];
+  if (!d || d.estado === 'hecho') return;
+  const btn = document.getElementById('btn-' + i);
+  btn.disabled = true;
+  logear('\n— Arreglando: ' + d.operador + ' (' + d.nombreDup + ') —');
+
+  let batch = db.batch();
+  let ops = 0;
+  const commits = [];
+  function addOp(fn) {
+    fn(batch); ops++;
+    if (ops >= 450) { commits.push(batch.commit()); batch = db.batch(); ops = 0; }
+  }
+
+  d.movimientos.forEach(doc => addOp(b => b.update(doc.ref, { cliente_id: '_externo_', cliente: 'Externo' })));
+  d.inversiones.forEach(doc => addOp(b => b.update(doc.ref, { cliente_id: '_externo_', cliente: 'Externo' })));
+  logear('  · ' + d.movimientos.length + ' movimientos → Externo del sistema');
+  logear('  · ' + d.inversiones.length + ' inversiones → Externo del sistema');
+
+  for (const m of d.mesesAfectados) {
+    const doc = await m.ref.get();
+    const saldos = doc.data().saldos || {};
+    const oficial = Object.assign({}, saldos['_externo_'] || {});
+    Object.keys(m.dup).forEach(casa => { oficial[casa] = (oficial[casa]||0) + m.dup[casa]; });
+    const nuevo = Object.assign({}, saldos);
+    nuevo['_externo_'] = oficial;
+    delete nuevo[d.dupId];
+    addOp(b => b.update(m.ref, { saldos: nuevo }));
+    logear('  · saldo inicial ' + m.mesKey + ' fusionado → ' + JSON.stringify(oficial));
+  }
+
+  addOp(b => b.delete(db.collection('patriarca_clientes').doc(d.dupId)));
+  logear('  · cliente duplicado eliminado (' + d.dupId + ')');
+
+  commits.push(batch.commit());
+  await Promise.all(commits);
+
+  d.estado = 'hecho';
+  pintarLista();
+  logear('✅ Listo: ' + d.operador);
+}
+
+async function arreglarTodos() {
+  document.getElementById('btn-arreglar-todos').disabled = true;
+  for (let i = 0; i < duplicados.length; i++) {
+    if (duplicados[i].estado !== 'hecho') await arreglarUno(i);
+  }
+  logear('\n✅✅ Todos los duplicados fueron arreglados.');
+}
+</script>
+</body>
+</html>

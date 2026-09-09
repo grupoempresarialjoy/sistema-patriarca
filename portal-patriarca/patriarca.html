@@ -3103,6 +3103,15 @@ async function loadAllData() {
 
   safeSnapshot(userColl('clientes'), snap => {
     allClientes = sortByTs(snap.docs.map(d => ({id:d.id,...d.data()})));
+    // "Externo" viene de fábrica, igual que los 3 eventos base: no es un
+    // documento real (patriarca_clientes es una colección compartida por
+    // todos los operadores, así que un id fijo chocaría entre cuentas) —
+    // es el mismo _externo_ que ya usan movimientos/inversiones/saldo
+    // inicial, agregado aquí en memoria para que aparezca en la lista y en
+    // los selectores como si el operador ya lo hubiera registrado.
+    if (!allClientes.some(c => c.id === '_externo_')) {
+      allClientes.push({ id:'_externo_', opId, nombre_completo:'Externo', nombre:'Externo', apellidos:'', esSistema:true });
+    }
     renderClientes();
     populateClienteSelects();
   }, 'clientes');
@@ -5411,7 +5420,8 @@ async function ejecutarImportCli() {
       nombreCompleto = (nombre + (apellidos ? ' ' + apellidos : '')).trim();
     }
 
-    if (!nombreCompleto || nombreCompleto.toLowerCase() === 'externo') { skip++; continue; }
+    const _normExt = nombreCompleto.toLowerCase().replace(/[()]/g,'').replace(/cliente/g,'').trim();
+    if (!nombreCompleto || _normExt === 'externo') { skip++; continue; }
 
     // Omitir duplicados
     if (existentes.has(nombreCompleto.toLowerCase())) { dup++; continue; }
@@ -7631,12 +7641,12 @@ function renderClientes() {
   }
   tbody.innerHTML = allClientes.map((c,i)=>`
     <tr>
-      <td><input type="checkbox" class="chk-cli" data-id="${c.id}" onchange="actualizarSelCli()"></td>
+      <td>${c.esSistema ? '' : `<input type="checkbox" class="chk-cli" data-id="${c.id}" onchange="actualizarSelCli()">`}</td>
       <td>${i+1}</td>
-      <td style="font-weight:600">${c.nombre_completo}</td>
+      <td style="font-weight:600">${c.nombre_completo}${c.esSistema ? ' <span style="font-size:10px;font-weight:400;color:var(--text2)">· del sistema</span>' : ''}</td>
       <td>${c.cedula||'—'}</td>
       <td>${c.telefono||'—'}</td>
-      <td><button class="btn-del" onclick="deleteDoc('clientes','${c.id}')">🗑</button></td>
+      <td>${c.esSistema ? '' : `<button class="btn-del" onclick="deleteDoc('clientes','${c.id}')">🗑</button>`}</td>
     </tr>`).join('');
   actualizarSelCli();
 }
@@ -7695,6 +7705,13 @@ async function saveCliente() {
   const apellido = document.getElementById('cl-apellido').value.trim();
   if (!nombre) { toast('⚠ Ingresa el nombre','error'); return; }
   const nombre_completo = `${nombre} ${apellido}`.trim();
+  // "Externo" ya existe de fábrica (ver arriba) — crear otro a mano es lo que
+  // causó los duplicados que se corrigieron en todos los operadores.
+  const normalizado = nombre_completo.toLowerCase().replace(/[()]/g,'').replace(/cliente/g,'').trim();
+  if (normalizado === 'externo') {
+    toast('⚠ "Externo" ya existe como cliente del sistema — no hace falta crearlo', 'error');
+    return;
+  }
   try {
     await coll('clientes').add({
       opId, nombre_completo, nombre, apellidos: apellido,

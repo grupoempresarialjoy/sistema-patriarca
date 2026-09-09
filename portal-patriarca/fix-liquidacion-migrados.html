@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Fix Liquidación — Operadores Migrados — AJ1.6</title>
+<style>
+body{font-family:monospace;background:#0d0f14;color:#e8eaf0;padding:20px;font-size:13px}
+h2{color:#a070ff;margin-bottom:8px}
+.panel{background:#13161d;border:1px solid #2a2f3f;border-radius:8px;padding:16px;margin-bottom:16px}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{background:#1a1e28;color:#8890a8;padding:7px 10px;text-align:left}
+td{padding:7px 10px;border-bottom:1px solid #2a2f3f;vertical-align:top}
+.btn{padding:7px 14px;border-radius:5px;border:none;cursor:pointer;font-size:12px;font-weight:700;font-family:monospace}
+.btn-red{background:rgba(224,80,80,.2);border:1px solid #e05050;color:#e05050}
+.btn-green{background:rgba(36,191,98,.2);border:1px solid #24BF62;color:#24BF62}
+.btn-purple{background:#a070ff;color:#fff}
+.btn:disabled{opacity:.4;cursor:default}
+.log{background:#000;border:1px solid #2a2f3f;border-radius:4px;padding:12px;min-height:100px;max-height:340px;overflow:auto;white-space:pre-wrap;font-size:11px;color:#24BF62}
+.badge-ok{background:rgba(36,191,98,.15);color:#24BF62;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:700}
+</style>
+</head>
+<body>
+<h2>🔧 Liquidación pendiente — Operadores migrados</h2>
+<p style="color:#8890a8;margin-bottom:16px">
+  Un operador recién migrado (como Golden Bets) nunca pasó por "solicitar cierre → aceptar cierre" dentro del
+  sistema — su pasivo "Liquidación por Pagar" se cargó a mano en Cupo Inicial por Operador. Eso deja su pestaña
+  de Liquidación en "Sin datos", aunque el pasivo sí se ve bien en el ESF. Esta herramienta busca operadores en
+  esa situación (pasivo manual cargado, cero cierres aceptados, sin ficha de liquidación todavía) y les crea la
+  ficha de Liquidación del mes anterior usando el mismo total que ya está en su ESF — así pueden empezar a
+  registrar pagos contra ese pasivo. No toca el pasivo del ESF ni ningún saldo — solo crea el documento que le
+  falta a la pestaña Liquidación.
+</p>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script>
+firebase.initializeApp({
+  apiKey:"AIzaSyBQ42PzffxkEUEJVaPIVxHPKDqA_wk6IS0",
+  authDomain:"portal-patriarca-aj16.firebaseapp.com",
+  projectId:"portal-patriarca-aj16",
+  storageBucket:"portal-patriarca-aj16.firebasestorage.app",
+  messagingSenderId:"1073575698338",
+  appId:"1:1073575698338:web:f014083b3092c6dc245cfb"
+});
+const db = firebase.firestore();
+</script>
+
+<div class="panel" id="panel-login">
+  <b style="color:#a070ff">LOGIN — Autenticación requerida</b>
+  <p style="color:#8890a8;margin:6px 0 10px">Entra con tu cuenta Google (ronaldo140294@gmail.com)</p>
+  <button class="btn" onclick="doGoogleLogin()" style="background:#fff;color:#222;border:1px solid #ccc;padding:10px 20px;font-size:13px;display:flex;align-items:center;gap:10px">
+    <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+    Entrar con Google
+  </button>
+  <div style="margin-top:12px;border-top:1px solid #2a2f3f;padding-top:12px">
+    <p style="color:#8890a8;font-size:11px;margin-bottom:8px">O con email y contraseña:</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <input type="email" id="login-email" placeholder="Email" value="ronaldo140294@gmail.com" style="background:#1a1e28;border:1px solid #2a2f3f;border-radius:4px;color:#e8eaf0;padding:7px 10px;font-size:12px;font-family:monospace;flex:1;min-width:200px">
+      <input type="password" id="login-pass" placeholder="Contraseña" style="background:#1a1e28;border:1px solid #2a2f3f;border-radius:4px;color:#e8eaf0;padding:7px 10px;font-size:12px;font-family:monospace;flex:1;min-width:150px">
+      <button class="btn btn-purple" onclick="doLogin()">Entrar</button>
+    </div>
+  </div>
+</div>
+
+<div class="panel" id="panel-load" style="display:none">
+  <b style="color:#a070ff">PASO 1 — Buscar operadores migrados con Liquidación pendiente</b>
+  <div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap">
+    <button class="btn btn-purple" onclick="buscarPendientes()">🔍 Buscar</button>
+    <button class="btn btn-green" id="btn-arreglar-todos" onclick="arreglarTodos()" style="display:none">✅ Crear ficha para TODOS los de la lista</button>
+  </div>
+</div>
+
+<div class="panel" id="panel-lista" style="display:none">
+  <b>Pendientes encontrados</b>
+  <div style="overflow-x:auto;margin-top:10px">
+    <table>
+      <thead><tr><th>Operador</th><th>Estado</th><th>Acción</th><th>Mes de la ficha</th><th>Ganancia (pasivo)</th><th>Comisiones</th></tr></thead>
+      <tbody id="tbody-lista"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="panel" id="panel-desglose" style="display:none">
+  <b style="color:#a070ff">PASO 2 — Cargar desglose de comisiones por método (Golden Bets, Agosto 2026)</b>
+  <p style="color:#8890a8;margin:6px 0 10px">
+    Del archivo "Situación Financiera Golden Bet Agosto 2026" (hoja AMC - GOLDEN), fila TOTAL COMISIONES —
+    ya se verificó que coincide peso a peso con el total que cada operador tiene guardado en el sistema.
+    Esto solo agrega el desglose por método (que faltaba) a la ficha de Liquidación de cada uno — no cambia
+    ningún total.
+  </p>
+  <button class="btn btn-purple" onclick="buscarDesglose()">🔍 Revisar desglose por operador</button>
+  <button class="btn btn-green" id="btn-desglose-todos" onclick="arreglarDesgloseTodos()" style="display:none">✅ Cargar desglose para TODOS los de la lista</button>
+  <div style="overflow-x:auto;margin-top:12px" id="wrap-desglose"></div>
+</div>
+
+<div class="panel">
+  <b>Log de operaciones</b>
+  <div class="log" id="log">Esperando login...</div>
+</div>
+
+<script>
+let pendientes = [];
+let buscando = false;
+
+function logear(msg) {
+  const l = document.getElementById('log');
+  l.textContent += '\n' + msg;
+  l.scrollTop = l.scrollHeight;
+}
+
+async function doGoogleLogin() {
+  try { await firebase.auth().signInWithPopup(new firebase.auth.GoogleAuthProvider()); }
+  catch (e) { alert('Error: ' + e.message); }
+}
+async function doLogin() {
+  const email = document.getElementById('login-email').value;
+  const pass = document.getElementById('login-pass').value;
+  try { await firebase.auth().signInWithEmailAndPassword(email, pass); }
+  catch (e) { alert('Error: ' + e.message); }
+}
+
+firebase.auth().onAuthStateChanged(u => {
+  if (u) {
+    document.getElementById('panel-login').style.display = 'none';
+    document.getElementById('panel-load').style.display = 'block';
+    document.getElementById('panel-desglose').style.display = 'block';
+    logear('✅ Sesión iniciada como ' + u.email);
+  }
+});
+
+const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+function parseMesLabel(str) {
+  const s = (str || '').trim().toLowerCase();
+  const idx = MESES.findIndex(m => s.includes(m));
+  const ym = s.match(/\d{4}/);
+  return { num: idx >= 0 ? idx + 1 : null, año: ym ? parseInt(ym[0]) : null };
+}
+function mesAnterior(num, año) {
+  return num === 1 ? { num: 12, año: año - 1 } : { num: num - 1, año };
+}
+function mesKeyDe(num, año) { return `${año}-${String(num).padStart(2, '0')}`; }
+function mesLabelDe(num, año) {
+  const n = MESES[num - 1];
+  return n.charAt(0).toUpperCase() + n.slice(1) + ' ' + año;
+}
+
+async function buscarPendientes() {
+  if (buscando) { logear('(ya está buscando, espera a que termine)'); return; }
+  buscando = true;
+  const btn = document.querySelector('#panel-load button.btn-purple');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Buscando... espera'; }
+  try {
+    logear('\n— Buscando operadores migrados con pasivo manual y liquidación pendiente —');
+    const usuariosSnap = await db.collection('admin_usuarios').where('rol', '==', 'operador').get();
+    logear('Operadores a revisar: ' + usuariosSnap.docs.length + ' (en paralelo, puede tardar unos segundos)');
+
+    // Cada operador se revisa aparte y en paralelo — antes era uno por uno en
+    // fila (una consulta espera a la anterior) y con muchos operadores se
+    // sentía trabado sin dar ninguna señal de que seguía trabajando.
+    const resultados = await Promise.all(usuariosSnap.docs.map(async uDoc => {
+      const u = uDoc.data();
+      const opId = u.uid || uDoc.id;
+      if (!opId) return null;
+
+      try {
+        const cfgSnap = await db.collection('patriarca_config').doc(opId).get();
+        if (!cfgSnap.exists) return null;
+        const cfg = cfgSnap.data();
+        const { num, año } = parseMesLabel(cfg.mes);
+        if (!num || !año) return null;
+
+        const esfIni = (cfg.esf_inicial_por_mes || {})[mesKeyDe(num, año)];
+        if (!esfIni || !esfIni.LIQ_POR_PAGAR) return null;   // sin pasivo manual cargado, no es este caso
+
+        // Solo operadores SIN ningún cierre aceptado — si ya usa el flujo normal,
+        // lo suyo lo cubre "Revisar asientos" en Cierres de Mes, no esta herramienta.
+        const cierresSnap = await db.collection('patriarca_cierres').where('operadorId', '==', opId).limit(1).get();
+        if (!cierresSnap.empty) return null;
+
+        const { num: pnum, año: paño } = mesAnterior(num, año);
+        const mesKey = mesKeyDe(pnum, paño);
+        const mesSigKey = mesKeyDe(num, año);   // mes actual — donde vive gananciaMesAnterior
+
+        const [varSnap, siSnap] = await Promise.all([
+          db.collection('patriarca_variaciones').doc(`${opId}_${mesKey}`).get(),
+          db.collection('patriarca_saldo_inicial').doc(`${opId}_${mesSigKey}`).get()
+        ]);
+        const faltaVariacion = !varSnap.exists;
+        // El "Saldo Inicial" que se ve en la pestaña Liquidación sale de ESTE
+        // campo — no del documento de variaciones. Si ya tiene el número
+        // correcto, no hay que tocarlo.
+        const faltaSaldoInicial = !siSnap.exists || Math.round(siSnap.data().gananciaMesAnterior || 0) !== Math.round(esfIni.LIQ_POR_PAGAR || 0);
+        if (!faltaVariacion && !faltaSaldoInicial) return null;   // ya está todo bien
+
+        return {
+          opId, nombre: u.nombre || opId,
+          mesKey, mesLabel: mesLabelDe(pnum, paño), mesSigKey,
+          gananciaNeta: Math.round(esfIni.LIQ_POR_PAGAR || 0),
+          totalComisiones: Math.round(esfIni.COM_MES_ANT || 0),
+          faltaVariacion, faltaSaldoInicial,
+          estado: 'pendiente'
+        };
+      } catch (e) {
+        logear('  ⚠ ' + (u.nombre || opId) + ': ' + e.message);
+        return null;
+      }
+    }));
+
+    pendientes = resultados.filter(Boolean);
+    logear('Encontrados: ' + pendientes.length);
+    pintarLista();
+    document.getElementById('panel-lista').style.display = 'block';
+    document.getElementById('btn-arreglar-todos').style.display = pendientes.length ? 'inline-block' : 'none';
+    logear('Listo. Revisa la tabla antes de crear las fichas.');
+  } finally {
+    buscando = false;
+    if (btn) { btn.disabled = false; btn.textContent = '🔍 Buscar'; }
+  }
+}
+
+function pintarLista() {
+  const tb = document.getElementById('tbody-lista');
+  const fmt = n => '$' + Math.round(n || 0).toLocaleString('es-CO');
+  tb.innerHTML = pendientes.map((p, i) => {
+    const estadoBadge = p.estado === 'hecho'
+      ? '<span class="badge-ok">✅ creada</span>'
+      : '<span style="color:#8890a8">pendiente</span>';
+    return `<tr>
+      <td><b>${p.nombre}</b></td>
+      <td id="estado-${i}">${estadoBadge}</td>
+      <td><button class="btn btn-red" id="btn-${i}" onclick="arreglarUno(${i})" ${p.estado==='hecho'?'disabled':''}>Crear ficha</button></td>
+      <td>${p.mesLabel}</td>
+      <td>${fmt(p.gananciaNeta)}</td>
+      <td>${fmt(p.totalComisiones)}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function arreglarUno(i) {
+  const p = pendientes[i];
+  if (!p || p.estado === 'hecho') return;
+  const btn = document.getElementById('btn-' + i);
+  btn.disabled = true;
+  logear('\n— Creando ficha de Liquidación: ' + p.nombre + ' (' + p.mesLabel + ') —');
+  try {
+    if (p.faltaVariacion) {
+      await db.collection('patriarca_variaciones').doc(`${p.opId}_${p.mesKey}`).set({
+        operadorId: p.opId, operadorNombre: p.nombre,
+        mesKey: p.mesKey, mes: p.mesLabel,
+        saldosPorMetodo: {}, totalSaldos: 0,          // sin desglose por método — no viene del migrado
+        comisionesPorMetodo: {}, totalComisiones: p.totalComisiones,
+        gananciaNeta: p.gananciaNeta,
+        estado: 'pendiente',
+        creadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+        creadoPor: 'backfill_migracion'
+      }, { merge: true });
+      logear('  · ficha de Liquidación creada — comisiones: $' + p.totalComisiones.toLocaleString('es-CO'));
+    }
+    if (p.faltaSaldoInicial) {
+      // Este es el campo que de verdad pinta "Saldo Inicial" en la pestaña
+      // Liquidación — sin esto, aunque la ficha exista, se ve $0 y "Liquidado".
+      await db.collection('patriarca_saldo_inicial').doc(`${p.opId}_${p.mesSigKey}`).set({
+        gananciaMesAnterior: p.gananciaNeta,
+        comisionesMesAnterior: p.totalComisiones
+      }, { merge: true });
+      logear('  · saldo inicial (' + p.mesSigKey + ') actualizado — gananciaMesAnterior: $' + p.gananciaNeta.toLocaleString('es-CO'));
+    }
+    p.estado = 'hecho';
+    pintarLista();
+    logear('✅ Listo: ' + p.nombre);
+  } catch (e) {
+    logear('❌ Error con ' + p.nombre + ': ' + e.message);
+    btn.disabled = false;
+  }
+}
+
+async function arreglarTodos() {
+  document.getElementById('btn-arreglar-todos').disabled = true;
+  for (let i = 0; i < pendientes.length; i++) {
+    if (pendientes[i].estado !== 'hecho') await arreglarUno(i);
+  }
+  logear('\n✅✅ Todas las fichas pendientes fueron creadas.');
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   PASO 2 — Desglose de comisiones por método, Golden Bets, Agosto 2026
+   Sacado del archivo "Situación Financiera Golden Bet Agosto 2026.xlsb",
+   hoja "AMC - GOLDEN", filas "Comisiones Bemovil Master" / "Comisiones
+   Wplay Pos" / "Comisiones Supergiros Maquina" (las únicas tres con datos
+   — el resto de métodos están en $0 para todos). Cada total ya se verificó
+   contra lo que el sistema tiene guardado (patriarca_config.esf_inicial_
+   por_mes.COM_MES_ANT) y coincide exacto, operador por operador.
+   ══════════════════════════════════════════════════════════════════════ */
+const DESGLOSE_GOLDEN_AGOSTO = {
+  'Andersson Rodney Vargas Lozano':      { 'BE MOVIL MASTER': 1011452,   'WPLAY GOLDEN': 78480,    'SUPER GIROS MAQUINA GOLDEN': 253182 },
+  'Rosemberth Donato González Manzano':  { 'BE MOVIL MASTER': 1165914,   'WPLAY GOLDEN': 10263,    'SUPER GIROS MAQUINA GOLDEN': 262669 },
+  'María Fernanda Uribe Ardila':         { 'BE MOVIL MASTER': 823847,    'WPLAY GOLDEN': 100890,   'SUPER GIROS MAQUINA GOLDEN': 270790 },
+  'Neiver Andrey Gaona Montes':          { 'BE MOVIL MASTER': 840841,    'WPLAY GOLDEN': 87372,    'SUPER GIROS MAQUINA GOLDEN': 217916 },
+  'Camilo Rodigurez Villamil':           { 'BE MOVIL MASTER': 881562,    'WPLAY GOLDEN': 202827,   'SUPER GIROS MAQUINA GOLDEN': 229392 },
+  'Leonardo Andrés Herrera Oyaga':       { 'BE MOVIL MASTER': 840927,    'WPLAY GOLDEN': 106677,   'SUPER GIROS MAQUINA GOLDEN': 305986 },
+  'Diego Alexander Avendaño rojas':      { 'BE MOVIL MASTER': 706776,    'WPLAY GOLDEN': 189470,   'SUPER GIROS MAQUINA GOLDEN': 232432 }
+  // Neili, Erick y Eileen quedan sin fila — sus tres comisiones están en $0 en la hoja.
+};
+
+let desglosePendientes = [];
+
+async function buscarDesglose() {
+  logear('\n— Revisando desglose de comisiones (Golden Bets, Agosto 2026) —');
+  const usuariosSnap = await db.collection('admin_usuarios').where('rol', '==', 'operador').get();
+  // .normalize('NFC') — algunos nombres en Firestore guardan tildes/ñ en su
+  // forma "descompuesta" (n + tilde combinada aparte) en vez de un solo
+  // carácter; se ven idénticos pero no son el mismo texto para ===. Se
+  // normalizan los dos lados para que la comparación no falle en silencio.
+  const norm = s => (s || '').normalize('NFC');
+  const porNombre = {};
+  usuariosSnap.docs.forEach(d => { const u = d.data(); porNombre[norm(u.nombre)] = u.uid || d.id; });
+
+  desglosePendientes = [];
+  for (const nombre of Object.keys(DESGLOSE_GOLDEN_AGOSTO)) {
+    const opId = porNombre[norm(nombre)];
+    if (!opId) { logear('  ⚠ No encontré a "' + nombre + '" en admin_usuarios — se salta'); continue; }
+    const desglose = DESGLOSE_GOLDEN_AGOSTO[nombre];
+    const total = Object.values(desglose).reduce((s, v) => s + v, 0);
+    const varRef = db.collection('patriarca_variaciones').doc(`${opId}_2026-08`);
+    const varSnap = await varRef.get();
+    const yaTiene = varSnap.exists && Object.keys(varSnap.data().comisionesPorMetodo || {}).length > 0;
+    desglosePendientes.push({ opId, nombre, ref: varRef, desglose, total, existeFicha: varSnap.exists, yaTiene, estado: yaTiene ? 'hecho' : 'pendiente' });
+  }
+  pintarDesglose();
+  document.getElementById('btn-desglose-todos').style.display = desglosePendientes.some(p=>p.estado!=='hecho') ? 'inline-block' : 'none';
+  logear('Listo. Revisa la tabla antes de cargar.');
+}
+
+function pintarDesglose() {
+  const fmt = n => '$' + Math.round(n || 0).toLocaleString('es-CO');
+  const wrap = document.getElementById('wrap-desglose');
+  wrap.innerHTML = `<table>
+    <thead><tr><th>Operador</th><th>Estado</th><th>Acción</th><th>BE MOVIL MASTER</th><th>WPLAY GOLDEN</th><th>SUPER GIROS MAQUINA GOLDEN</th><th>Total</th></tr></thead>
+    <tbody>` + desglosePendientes.map((p,i) => {
+      const badge = p.estado === 'hecho'
+        ? '<span class="badge-ok">✅ ' + (p.yaTiene ? 'ya tenía desglose' : 'cargado') + '</span>'
+        : (p.existeFicha ? '<span style="color:#8890a8">ficha existe, falta desglose</span>' : '<span style="color:#e05050">sin ficha todavía</span>');
+      return `<tr>
+        <td><b>${p.nombre}</b></td>
+        <td id="desg-estado-${i}">${badge}</td>
+        <td><button class="btn btn-red" id="desg-btn-${i}" onclick="arreglarDesgloseUno(${i})" ${p.estado==='hecho'?'disabled':''}>Cargar</button></td>
+        <td>${fmt(p.desglose['BE MOVIL MASTER'])}</td>
+        <td>${fmt(p.desglose['WPLAY GOLDEN'])}</td>
+        <td>${fmt(p.desglose['SUPER GIROS MAQUINA GOLDEN'])}</td>
+        <td><b>${fmt(p.total)}</b></td>
+      </tr>`;
+    }).join('') + '</tbody></table>';
+}
+
+async function arreglarDesgloseUno(i) {
+  const p = desglosePendientes[i];
+  if (!p || p.estado === 'hecho') return;
+  const btn = document.getElementById('desg-btn-' + i);
+  btn.disabled = true;
+  logear('\n— Cargando desglose: ' + p.nombre + ' —');
+  try {
+    // merge:true — si la ficha ya existe (creada en el PASO 1), solo le agrega
+    // comisionesPorMetodo/totalComisiones sin tocar gananciaNeta ni lo demás.
+    await p.ref.set({
+      operadorId: p.opId, operadorNombre: p.nombre, mesKey: '2026-08', mes: 'Agosto 2026',
+      comisionesPorMetodo: p.desglose,
+      totalComisiones: p.total
+    }, { merge: true });
+    logear('  · comisionesPorMetodo cargado — total $' + p.total.toLocaleString('es-CO'));
+    p.estado = 'hecho';
+    pintarDesglose();
+    logear('✅ Listo: ' + p.nombre);
+  } catch (e) {
+    logear('❌ Error con ' + p.nombre + ': ' + e.message);
+    btn.disabled = false;
+  }
+}
+
+async function arreglarDesgloseTodos() {
+  document.getElementById('btn-desglose-todos').disabled = true;
+  for (let i = 0; i < desglosePendientes.length; i++) {
+    if (desglosePendientes[i].estado !== 'hecho') await arreglarDesgloseUno(i);
+  }
+  logear('\n✅✅ Desglose cargado para todos los pendientes.');
+}
+</script>
+</body>
+</html>

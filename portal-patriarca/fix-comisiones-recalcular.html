@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Fix Comisiones — Recalcular movimientos — AJ1.6</title>
+<style>
+body{font-family:monospace;background:#0d0f14;color:#e8eaf0;padding:20px;font-size:13px}
+h2{color:#a070ff;margin-bottom:8px}
+.panel{background:#13161d;border:1px solid #2a2f3f;border-radius:8px;padding:16px;margin-bottom:16px}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{background:#1a1e28;color:#8890a8;padding:7px 10px;text-align:left}
+td{padding:7px 10px;border-bottom:1px solid #2a2f3f;vertical-align:top}
+.btn{padding:7px 14px;border-radius:5px;border:none;cursor:pointer;font-size:12px;font-weight:700;font-family:monospace}
+.btn-red{background:rgba(224,80,80,.2);border:1px solid #e05050;color:#e05050}
+.btn-green{background:rgba(36,191,98,.2);border:1px solid #24BF62;color:#24BF62}
+.btn-purple{background:#a070ff;color:#fff}
+.btn:disabled{opacity:.4;cursor:default}
+.log{background:#000;border:1px solid #2a2f3f;border-radius:4px;padding:12px;min-height:100px;max-height:340px;overflow:auto;white-space:pre-wrap;font-size:11px;color:#24BF62}
+.badge-ok{background:rgba(36,191,98,.15);color:#24BF62;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:700}
+select{background:#1a1e28;border:1px solid #2a2f3f;border-radius:4px;color:#e8eaf0;padding:7px 10px;font-size:12px;font-family:monospace}
+</style>
+</head>
+<body>
+<h2>🔧 Recalcular comisiones ya guardadas</h2>
+<p style="color:#8890a8;margin-bottom:16px">
+  La comisión de cada movimiento se calcula UNA SOLA VEZ, en el momento de registrarlo, con la tabla de
+  Comisiones por Oficina de ese momento — no se recalcula sola si la tabla cambia después. Si una oficina
+  empezó a registrar movimientos antes de tener su tabla de comisiones completa (como pasó con Golden Bets),
+  esos movimientos quedaron guardados con comisión $0 para siempre, aunque la tabla ya esté bien. Esta
+  herramienta busca, por oficina, los movimientos con comisión $0 para los que SÍ existe ahora una tasa
+  configurada, muestra la comisión correcta antes de tocar nada, y al confirmar actualiza solo el campo
+  comisión de esos movimientos — no toca monto, impacto ni ningún otro dato.<br><br>
+  Las Inversiones (apuestas) no calculan su comisión con esta misma tabla — la toman prestada de la recarga
+  a la que quedaron vinculadas ("Origen Com."). Si esa recarga tenía comisión $0, la apuesta también quedó
+  en $0. Por eso esta herramienta corrige primero los movimientos y, con ese valor ya corregido, recalcula
+  también las inversiones que dependen de ellos — en el mismo paso, por operador.
+</p>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script>
+firebase.initializeApp({
+  apiKey:"AIzaSyBQ42PzffxkEUEJVaPIVxHPKDqA_wk6IS0",
+  authDomain:"portal-patriarca-aj16.firebaseapp.com",
+  projectId:"portal-patriarca-aj16",
+  storageBucket:"portal-patriarca-aj16.firebasestorage.app",
+  messagingSenderId:"1073575698338",
+  appId:"1:1073575698338:web:f014083b3092c6dc245cfb"
+});
+const db = firebase.firestore();
+</script>
+
+<div class="panel" id="panel-login">
+  <b style="color:#a070ff">LOGIN — Autenticación requerida</b>
+  <p style="color:#8890a8;margin:6px 0 10px">Entra con tu cuenta Google (ronaldo140294@gmail.com)</p>
+  <button class="btn" onclick="doGoogleLogin()" style="background:#fff;color:#222;border:1px solid #ccc;padding:10px 20px;font-size:13px;display:flex;align-items:center;gap:10px">
+    <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+    Entrar con Google
+  </button>
+  <div style="margin-top:12px;border-top:1px solid #2a2f3f;padding-top:12px">
+    <p style="color:#8890a8;font-size:11px;margin-bottom:8px">O con email y contraseña:</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <input type="email" id="login-email" placeholder="Email" value="ronaldo140294@gmail.com" style="background:#1a1e28;border:1px solid #2a2f3f;border-radius:4px;color:#e8eaf0;padding:7px 10px;font-size:12px;font-family:monospace;flex:1;min-width:200px">
+      <input type="password" id="login-pass" placeholder="Contraseña" style="background:#1a1e28;border:1px solid #2a2f3f;border-radius:4px;color:#e8eaf0;padding:7px 10px;font-size:12px;font-family:monospace;flex:1;min-width:150px">
+      <button class="btn btn-purple" onclick="doLogin()">Entrar</button>
+    </div>
+  </div>
+</div>
+
+<div class="panel" id="panel-load" style="display:none">
+  <b style="color:#a070ff">PASO 1 — Elegir oficina y buscar</b>
+  <div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+    <select id="sel-oficina"><option value="">— Elige una oficina —</option></select>
+    <button class="btn btn-purple" onclick="buscarPendientes()">🔍 Buscar movimientos con comisión $0</button>
+    <button class="btn btn-green" id="btn-arreglar-todos" onclick="arreglarTodos()" style="display:none">✅ Recalcular TODOS los de la lista</button>
+  </div>
+</div>
+
+<div class="panel" id="panel-lista" style="display:none">
+  <b>Operadores con movimientos por recalcular</b>
+  <div style="overflow-x:auto;margin-top:10px">
+    <table>
+      <thead><tr><th>Operador</th><th>Estado</th><th>Acción</th><th>Movimientos a corregir</th><th>Comisión (movs)</th><th>Inversiones a corregir</th><th>Comisión (invs)</th></tr></thead>
+      <tbody id="tbody-lista"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="panel">
+  <b>Log de operaciones</b>
+  <div class="log" id="log">Esperando login...</div>
+</div>
+
+<script>
+let pendientes = [];
+let buscando = false;
+
+function logear(msg) {
+  const l = document.getElementById('log');
+  l.textContent += '\n' + msg;
+  l.scrollTop = l.scrollHeight;
+}
+
+async function doGoogleLogin() {
+  try { await firebase.auth().signInWithPopup(new firebase.auth.GoogleAuthProvider()); }
+  catch (e) { alert('Error: ' + e.message); }
+}
+async function doLogin() {
+  const email = document.getElementById('login-email').value;
+  const pass = document.getElementById('login-pass').value;
+  try { await firebase.auth().signInWithEmailAndPassword(email, pass); }
+  catch (e) { alert('Error: ' + e.message); }
+}
+
+firebase.auth().onAuthStateChanged(async u => {
+  if (u) {
+    document.getElementById('panel-login').style.display = 'none';
+    document.getElementById('panel-load').style.display = 'block';
+    logear('✅ Sesión iniciada como ' + u.email);
+    const ofSnap = await db.collection('admin_oficinas').get();
+    const sel = document.getElementById('sel-oficina');
+    ofSnap.docs.map(d => ({ id: d.id, ...d.data() })).forEach(o => {
+      const opt = document.createElement('option');
+      opt.value = o.id; opt.textContent = o.nombre || o.id;
+      sel.appendChild(opt);
+    });
+  }
+});
+
+const fmt = n => '$' + Math.round(n || 0).toLocaleString('es-CO');
+
+async function buscarPendientes() {
+  if (buscando) { logear('(ya está buscando, espera a que termine)'); return; }
+  const oficinaId = document.getElementById('sel-oficina').value;
+  if (!oficinaId) { alert('Elige una oficina primero'); return; }
+  buscando = true;
+  const btn = document.querySelector('#panel-load button.btn-purple');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Buscando... espera'; }
+  try {
+    const oficinaNombre = document.getElementById('sel-oficina').selectedOptions[0].textContent;
+    logear('\n— Buscando en ' + oficinaNombre + ' —');
+
+    const comSnap = await db.collection('admin_comisiones').doc(oficinaId).get();
+    const lista = comSnap.exists ? (comSnap.data().lista || []) : [];
+    const COM = {};
+    lista.forEach(c => { if (c.casa && c.metodo) COM[`${c.casa}_${c.metodo}`] = [(c.tasaRecarga||0)/100, (c.tasaPago||0)/100]; });
+    logear('Tasas configuradas: ' + Object.keys(COM).length);
+
+    const usuariosSnap = await db.collection('admin_usuarios')
+      .where('rol', '==', 'operador').where('oficina', '==', oficinaId).get();
+    logear('Operadores de esta oficina: ' + usuariosSnap.docs.length);
+
+    pendientes = [];
+    const resultados = await Promise.all(usuariosSnap.docs.map(async uDoc => {
+      const u = uDoc.data();
+      const opId = u.uid || uDoc.id;
+      if (!opId) return null;
+
+      const [movsSnap, invsSnap] = await Promise.all([
+        db.collection('patriarca_movimientos').where('opId', '==', opId).get(),
+        db.collection('patriarca_inversiones').where('opId', '==', opId).get()
+      ]);
+
+      // 1) Movimientos con comisión $0 que ya tienen tasa configurada.
+      const corregirMovs = [];
+      const movInfo = {};   // id del movimiento → {comision, monto} YA CORREGIDO, para las inversiones
+      movsSnap.docs.forEach(d => {
+        const m = d.data();
+        let comisionUsar = m.comision || 0;
+        if (comisionUsar === 0) {
+          const rate = COM[`${m.casa}_${m.metodo}`];
+          if (rate) {
+            const idx = m.tipo === 'RECARGAS' ? 0 : 1;
+            const rateVal = rate[idx];
+            if (rateVal) {
+              const comisionCorrecta = Math.round((m.monto || 0) * rateVal);
+              if (comisionCorrecta > 0) {
+                comisionUsar = comisionCorrecta;
+                corregirMovs.push({ ref: d.ref, comisionCorrecta });
+              }
+            }
+          }
+        }
+        movInfo[d.id] = { comision: comisionUsar, monto: m.monto || 0 };
+      });
+
+      // 2) Inversiones con comisión $0 cuya recarga vinculada YA tiene (o va a
+      // tener, con la corrección de arriba) una comisión distinta de $0.
+      const corregirInvs = [];
+      invsSnap.docs.forEach(d => {
+        const inv = d.data();
+        if ((inv.comision_aplicada || 0) !== 0) return;
+        if (!inv.id_recarga) return;
+        const mi = movInfo[inv.id_recarga];
+        if (!mi || !mi.monto || !mi.comision) return;
+        const rate = mi.comision / mi.monto;
+        const comisionCorrecta = Math.round((inv.monto || 0) * rate);
+        if (comisionCorrecta <= 0) return;
+        corregirInvs.push({ ref: d.ref, comisionCorrecta });
+      });
+
+      if (!corregirMovs.length && !corregirInvs.length) return null;
+      return {
+        opId, nombre: u.nombre || opId,
+        movimientos: corregirMovs,
+        inversiones: corregirInvs,
+        totalMovs: corregirMovs.reduce((s, c) => s + c.comisionCorrecta, 0),
+        totalInvs: corregirInvs.reduce((s, c) => s + c.comisionCorrecta, 0),
+        estado: 'pendiente'
+      };
+    }));
+
+    pendientes = resultados.filter(Boolean);
+    logear('Operadores con movimientos por corregir: ' + pendientes.length);
+    pintarLista();
+    document.getElementById('panel-lista').style.display = 'block';
+    document.getElementById('btn-arreglar-todos').style.display = pendientes.length ? 'inline-block' : 'none';
+    logear('Listo. Revisa la tabla antes de recalcular.');
+  } finally {
+    buscando = false;
+    if (btn) { btn.disabled = false; btn.textContent = '🔍 Buscar movimientos con comisión $0'; }
+  }
+}
+
+function pintarLista() {
+  const tb = document.getElementById('tbody-lista');
+  tb.innerHTML = pendientes.map((p, i) => {
+    const estadoBadge = p.estado === 'hecho'
+      ? '<span class="badge-ok">✅ recalculado</span>'
+      : '<span style="color:#8890a8">pendiente</span>';
+    return `<tr>
+      <td><b>${p.nombre}</b></td>
+      <td id="estado-${i}">${estadoBadge}</td>
+      <td><button class="btn btn-red" id="btn-${i}" onclick="arreglarUno(${i})" ${p.estado==='hecho'?'disabled':''}>Recalcular</button></td>
+      <td>${p.movimientos.length}</td>
+      <td>${fmt(p.totalMovs)}</td>
+      <td>${p.inversiones.length}</td>
+      <td>${fmt(p.totalInvs)}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function arreglarUno(i) {
+  const p = pendientes[i];
+  if (!p || p.estado === 'hecho') return;
+  const btn = document.getElementById('btn-' + i);
+  btn.disabled = true;
+  logear('\n— Recalculando: ' + p.nombre + ' —');
+  try {
+    const CHUNK = 400;
+    if (p.movimientos.length) {
+      for (let j = 0; j < p.movimientos.length; j += CHUNK) {
+        const batch = db.batch();
+        p.movimientos.slice(j, j + CHUNK).forEach(m => batch.update(m.ref, { comision: m.comisionCorrecta }));
+        await batch.commit();
+      }
+      logear('  · ' + p.movimientos.length + ' movimientos actualizados · +' + fmt(p.totalMovs) + ' en comisiones');
+    }
+    if (p.inversiones.length) {
+      for (let j = 0; j < p.inversiones.length; j += CHUNK) {
+        const batch = db.batch();
+        p.inversiones.slice(j, j + CHUNK).forEach(iv => batch.update(iv.ref, { comision_aplicada: iv.comisionCorrecta }));
+        await batch.commit();
+      }
+      logear('  · ' + p.inversiones.length + ' inversiones actualizadas · +' + fmt(p.totalInvs) + ' en comisiones');
+    }
+    p.estado = 'hecho';
+    pintarLista();
+    logear('✅ Listo: ' + p.nombre);
+  } catch (e) {
+    logear('❌ Error con ' + p.nombre + ': ' + e.message);
+    btn.disabled = false;
+  }
+}
+
+async function arreglarTodos() {
+  document.getElementById('btn-arreglar-todos').disabled = true;
+  for (let i = 0; i < pendientes.length; i++) {
+    if (pendientes[i].estado !== 'hecho') await arreglarUno(i);
+  }
+  logear('\n✅✅ Todos los pendientes fueron recalculados.');
+}
+</script>
+</body>
+</html>

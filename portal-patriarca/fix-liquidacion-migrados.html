@@ -94,6 +94,21 @@ const db = firebase.firestore();
   <div style="overflow-x:auto;margin-top:12px" id="wrap-desglose"></div>
 </div>
 
+<div class="panel" id="panel-esf" style="display:none">
+  <b style="color:#a070ff">PASO 3 — Guardar resumen ESF del mes (para "Participación de Operadores")</b>
+  <p style="color:#8890a8;margin:6px 0 10px">
+    "Participación de Operadores" en el panel del CEO saca la Productividad de agosto del resumen ESF
+    (patriarca_esf_resumen), que a un operador normal se le genera solo con el uso diario del sistema. Los
+    migrados no tienen esos movimientos reales de agosto adentro — esto guarda un resumen equivalente usando
+    la misma ganancia y comisiones ya verificadas en el PASO 1 (utilidad = ganancia − comisiones, para que
+    utilidad − gastos + comisiones dé exactamente esa misma ganancia neta). No inventa ningún número nuevo,
+    solo lo acomoda en el campo que esa pantalla necesita. Usa la lista del PASO 1 — corre "Buscar" primero.
+  </p>
+  <button class="btn btn-purple" onclick="prepararEsfResumen()">🔍 Revisar</button>
+  <button class="btn btn-green" id="btn-esf-todos" onclick="arreglarEsfTodos()" style="display:none">✅ Guardar resumen ESF para TODOS los de la lista</button>
+  <div style="overflow-x:auto;margin-top:12px" id="wrap-esf"></div>
+</div>
+
 <div class="panel">
   <b>Log de operaciones</b>
   <div class="log" id="log">Esperando login...</div>
@@ -125,6 +140,7 @@ firebase.auth().onAuthStateChanged(u => {
     document.getElementById('panel-login').style.display = 'none';
     document.getElementById('panel-load').style.display = 'block';
     document.getElementById('panel-desglose').style.display = 'block';
+    document.getElementById('panel-esf').style.display = 'block';
     logear('✅ Sesión iniciada como ' + u.email);
   }
 });
@@ -383,6 +399,101 @@ async function arreglarDesgloseTodos() {
     if (desglosePendientes[i].estado !== 'hecho') await arreglarDesgloseUno(i);
   }
   logear('\n✅✅ Desglose cargado para todos los pendientes.');
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   PASO 3 — Resumen ESF del mes migrado, para que "Participación de
+   Operadores" (panel CEO) tenga de dónde sacar la Productividad. Esa
+   pantalla, cuando no hay patriarca_cierres, calcula:
+     productividad = utilidad − totalGastos + totalComisiones
+   leído de patriarca_esf_resumen/{uid}_{mesKey}. Aquí se arma ese mismo
+   resultado a partir de la ganancia y comisiones YA verificadas (PASO 1),
+   sin inventar ningún dato nuevo: utilidad = ganancia − comisiones, gastos
+   en $0, así el despeje da exacto la ganancia neta real.
+   ══════════════════════════════════════════════════════════════════════ */
+let esfPendientes = [];
+
+async function prepararEsfResumen() {
+  if (!pendientes.length) { logear('\n⚠ Primero corre el PASO 1 (Buscar) — esta parte usa esa lista.'); return; }
+  logear('\n— Revisando resumen ESF de agosto para ' + pendientes.length + ' operador(es) —');
+  const norm = s => (s || '').normalize('NFC');
+  const desglosePorNombre = {};
+  Object.keys(DESGLOSE_GOLDEN_AGOSTO).forEach(n => { desglosePorNombre[norm(n)] = DESGLOSE_GOLDEN_AGOSTO[n]; });
+
+  esfPendientes = await Promise.all(pendientes.map(async p => {
+    const comByMetodo = desglosePorNombre[norm(p.nombre)] || {};
+    let yaTenia = false;
+    try {
+      const snap = await db.collection('patriarca_esf_resumen').doc(`${p.opId}_${p.mesKey}`).get();
+      if (snap.exists) {
+        const d = snap.data();
+        const valorActual = Math.round((d.utilidad || 0) - (d.totalGastos || 0) + (d.totalComisiones || 0));
+        yaTenia = Math.abs(valorActual - p.gananciaNeta) < 1;
+      }
+    } catch (e) {}
+    return {
+      opId: p.opId, nombre: p.nombre, mesKey: p.mesKey, mesLabel: p.mesLabel,
+      gananciaNeta: p.gananciaNeta, totalComisiones: p.totalComisiones,
+      comByMetodo, yaTenia, estado: yaTenia ? 'hecho' : 'pendiente'
+    };
+  }));
+
+  pintarEsf();
+  document.getElementById('btn-esf-todos').style.display = esfPendientes.some(p => p.estado !== 'hecho') ? 'inline-block' : 'none';
+  logear('Listo. Revisa la tabla antes de guardar.');
+}
+
+function pintarEsf() {
+  const fmt = n => '$' + Math.round(n || 0).toLocaleString('es-CO');
+  const wrap = document.getElementById('wrap-esf');
+  wrap.innerHTML = `<table>
+    <thead><tr><th>Operador</th><th>Estado</th><th>Acción</th><th>Mes</th><th>Ganancia neta (= Productividad)</th><th>Comisiones</th></tr></thead>
+    <tbody>` + esfPendientes.map((p, i) => {
+      const badge = p.estado === 'hecho'
+        ? '<span class="badge-ok">✅ ' + (p.yaTenia ? 'ya coincidía' : 'guardado') + '</span>'
+        : '<span style="color:#8890a8">pendiente</span>';
+      return `<tr>
+        <td><b>${p.nombre}</b></td>
+        <td id="esf-estado-${i}">${badge}</td>
+        <td><button class="btn btn-red" id="esf-btn-${i}" onclick="arreglarEsfUno(${i})" ${p.estado==='hecho'?'disabled':''}>Guardar</button></td>
+        <td>${p.mesLabel}</td>
+        <td>${fmt(p.gananciaNeta)}</td>
+        <td>${fmt(p.totalComisiones)}</td>
+      </tr>`;
+    }).join('') + '</tbody></table>';
+}
+
+async function arreglarEsfUno(i) {
+  const p = esfPendientes[i];
+  if (!p || p.estado === 'hecho') return;
+  const btn = document.getElementById('esf-btn-' + i);
+  btn.disabled = true;
+  logear('\n— Guardando resumen ESF: ' + p.nombre + ' (' + p.mesLabel + ') —');
+  try {
+    const utilidad = Math.round(p.gananciaNeta - p.totalComisiones);
+    await db.collection('patriarca_esf_resumen').doc(`${p.opId}_${p.mesKey}`).set({
+      uid: p.opId, nombre: p.nombre, mes: p.mesLabel, mesKey: p.mesKey,
+      utilidad, totalGastos: 0, totalComisiones: p.totalComisiones,
+      comByMetodo: p.comByMetodo,
+      actualizadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+      recalcByAdmin: true, creadoPor: 'backfill_migracion'
+    }, { merge: true });
+    logear('  · utilidad: $' + utilidad.toLocaleString('es-CO') + ' + comisiones: $' + p.totalComisiones.toLocaleString('es-CO') + ' = $' + p.gananciaNeta.toLocaleString('es-CO'));
+    p.estado = 'hecho';
+    pintarEsf();
+    logear('✅ Listo: ' + p.nombre);
+  } catch (e) {
+    logear('❌ Error con ' + p.nombre + ': ' + e.message);
+    btn.disabled = false;
+  }
+}
+
+async function arreglarEsfTodos() {
+  document.getElementById('btn-esf-todos').disabled = true;
+  for (let i = 0; i < esfPendientes.length; i++) {
+    if (esfPendientes[i].estado !== 'hecho') await arreglarEsfUno(i);
+  }
+  logear('\n✅✅ Resumen ESF guardado para todos los pendientes.');
 }
 </script>
 </body>

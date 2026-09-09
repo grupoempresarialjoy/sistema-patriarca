@@ -971,6 +971,9 @@ select option{background:var(--bg3)}
           <div class="sec-sub">Pagos registrados por operadores — pendientes de aprobación</div>
         </div>
         <div style="display:flex;gap:8px;align-items:center">
+          <select id="liq-admin-oficina" onchange="filtrarLiquidacionesPorOficina()" style="padding:7px 10px;font-size:12px;min-width:150px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+            <option value="">Todas las oficinas</option>
+          </select>
           <select id="liq-admin-mes" onchange="initLiquidaciones()" style="padding:7px 10px;font-size:12px;min-width:160px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text)"></select>
         </div>
       </div>
@@ -9226,7 +9229,12 @@ function renderPagosCorr() {
   if (!tb) return;
   const p = v => '$' + Math.round(v || 0).toLocaleString('es-CO');
 
-  if (!_pcPagos.length) {
+  const ofic = document.getElementById('liq-admin-oficina')?.value || '';
+  const pagos = ofic
+    ? _pcPagos.filter(x => (x.oficina || _opOficina(x.operadorUid)) === ofic)
+    : _pcPagos;
+
+  if (!pagos.length) {
     tb.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text2)">Sin pagos enviados este mes</td></tr>';
     return;
   }
@@ -9235,7 +9243,7 @@ function renderPagosCorr() {
                : e === 'rechazado' ? '<span style="color:var(--red);font-weight:700">✕ rechazado</span>'
                : '<span style="color:var(--orange);font-weight:700">⏳ pendiente</span>';
 
-  tb.innerHTML = _pcPagos.map(x => `<tr>
+  tb.innerHTML = pagos.map(x => `<tr>
     <td style="white-space:nowrap">${x.fecha || ''}</td>
     <td style="font-weight:600">${x.operadorNombre || ''}</td>
     <td style="color:var(--text2)">${x.cuentaOrigen || ''}</td>
@@ -9407,10 +9415,13 @@ async function cargarCobros(mesKey) {
   }
 }
 
-function renderCobros(filas) {
+function renderCobros(filasTodas) {
   const tb = document.getElementById('cob-tbody');
   const p  = v => '$' + Math.round(v || 0).toLocaleString('es-CO');
   const td = 'text-align:right';
+
+  const ofic = document.getElementById('liq-admin-oficina')?.value || '';
+  const filas = ofic ? filasTodas.filter(f => _opOficina(f.uid) === ofic) : filasTodas;
 
   // Lo que ya se le pasó a su cuenta del corresponsal
   const enviadoPorOp = {};
@@ -9496,6 +9507,15 @@ function initLiquidaciones() {
       sel.appendChild(opt);
     }
   }
+  // Poblar selector de oficina (una vez por sesión de datos de allUsers)
+  const selOf = document.getElementById('liq-admin-oficina');
+  if (selOf) {
+    const prev = selOf.value;
+    const ofs = [...new Set((allUsers||[]).filter(u=>u.rol==='operador'&&u.oficinaNombre).map(u=>u.oficinaNombre))].sort();
+    selOf.innerHTML = '<option value="">Todas las oficinas</option>' +
+      ofs.map(o=>`<option value="${o}"${o===prev?' selected':''}>${o}</option>`).join('');
+  }
+
   const mesKey = sel?.value;
   if (!mesKey) return;
 
@@ -9512,15 +9532,37 @@ function initLiquidaciones() {
     .onSnapshot(snap => {
       const txs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
         .sort((a,b) => (b.creadoEn?.seconds||0) - (a.creadoEn?.seconds||0));
+      _liqTxsCache = txs;
       _renderLiqAdmin(txs, mesKey);
     }, err => {
       container.innerHTML = `<div class="empty">⚠ Error: ${err.message}</div>`;
     });
 }
 
-async function _renderLiqAdmin(txs, mesKey) {
+// Mapa uid → oficinaNombre, para poder filtrar reportes de Liquidaciones
+// (los docs de patriarca_liquidacion_txs / patriarca_liq_correcciones no
+// guardan la oficina directamente, solo operadorId).
+function _opOficina(uid) {
+  const u = (allUsers||[]).find(x => x.uid === uid);
+  return u?.oficinaNombre || '';
+}
+
+// Re-renderiza las 3 secciones de Liquidaciones con los datos ya cargados
+// (sin volver a leer Firestore) aplicando el filtro de oficina elegido.
+let _liqTxsCache = [];
+function filtrarLiquidacionesPorOficina() {
+  const mesKey = document.getElementById('liq-admin-mes')?.value;
+  if (_cobFilas.length) renderCobros(_cobFilas);
+  renderPagosCorr();
+  if (mesKey) _renderLiqAdmin(_liqTxsCache, mesKey);
+}
+
+async function _renderLiqAdmin(txsTodas, mesKey) {
   const container = document.getElementById('liq-admin-container');
   const peso = n => '$' + Math.round(n||0).toLocaleString('es-CO');
+
+  const ofic = document.getElementById('liq-admin-oficina')?.value || '';
+  const txs = ofic ? txsTodas.filter(t => _opOficina(t.operadorId) === ofic) : txsTodas;
 
   // Cargar correcciones pendientes del mes
   let correcciones = [];
@@ -9529,6 +9571,8 @@ async function _renderLiqAdmin(txs, mesKey) {
       .where('mesKey', '==', mesKey).get({ source: 'server' });
     correcciones = corrSnap.docs.map(d => ({ id: d.id, ...d.data() }));
   } catch(e) {}
+
+  if (ofic) correcciones = correcciones.filter(c => _opOficina(c.operadorId) === ofic);
 
   const corrPend = correcciones.filter(c => c.estado === 'pendiente');
 

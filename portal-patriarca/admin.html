@@ -1262,9 +1262,14 @@ select option{background:var(--bg3)}
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gold);margin-bottom:12px">🎯 Bono de Productividad</div>
       <div class="form-grid" style="margin-bottom:12px">
         <div class="form-group">
-          <label>Meta de Recargas ($)</label>
+          <label>Meta de Recargas ($) <span style="color:var(--text2);font-weight:400">un canal solo</span></label>
           <input type="number" id="bono-meta" value="40000000" min="0" step="1000000">
-          <div class="hint">Meta para alcanzar el bono (ej: $40.000.000)</div>
+          <div class="hint">Meta para el bono "solo" (ej: $40.000.000)</div>
+        </div>
+        <div class="form-group">
+          <label>Meta Combinada ($) <span style="color:var(--text2);font-weight:400">entre los dos canales</span></label>
+          <input type="number" id="bono-meta-combo" value="" min="0" step="1000000" placeholder="Igual a la de arriba">
+          <div class="hint">Déjala vacía si es la misma meta de arriba — solo llénala si el combinado usa un número distinto (ej: Golden usa $30.000.000)</div>
         </div>
         <div class="form-group">
           <label>Bono Solo (%) <span style="color:var(--text2);font-weight:400">un canal llega solo</span></label>
@@ -4150,6 +4155,7 @@ function nuevaEscalera() {
   escalera_rangos = [...RANGOS_DEFAULT.map(r => ({...r}))];
   bono_casas = [...BONO_CASAS_DEFAULT.map(c=>({...c}))];
   document.getElementById('bono-meta').value        = 40000000;
+  document.getElementById('bono-meta-combo').value  = '';
   document.getElementById('bono-pct-solo').value    = 5;
   document.getElementById('bono-pct-combo').value   = 3;
   document.getElementById('bono-canal-wplay').value = 'WPLAY UNITY';
@@ -4171,6 +4177,7 @@ function editarEscalera(docId) {
   document.getElementById('esc-interes-diario').value  = e.interes_diario  ?? 0.2;
   escalera_rangos = (e.rangos || [...RANGOS_DEFAULT]).map(r => ({...r}));
   bono_casas = [...BONO_CASAS_DEFAULT.map(c=>({...c}))];
+  document.getElementById('bono-meta-combo').value = ''; // se llena abajo si esta escalera trae una propia
   cargarBono(e.bono || null);
   renderEscalera();
   renderBonoCasas();
@@ -4317,6 +4324,7 @@ function eliminarCasaBono(i) {
 function cargarBono(data) {
   if (!data) return;
   if (data.meta        != null) document.getElementById('bono-meta').value          = data.meta;
+  if (data.meta_combo  != null) document.getElementById('bono-meta-combo').value    = data.meta_combo;
   if (data.pct_solo    != null) document.getElementById('bono-pct-solo').value      = data.pct_solo;
   if (data.pct_combo   != null) document.getElementById('bono-pct-combo').value     = data.pct_combo;
   if (data.canal_wplay)         document.getElementById('bono-canal-wplay').value   = data.canal_wplay;
@@ -4326,10 +4334,14 @@ function cargarBono(data) {
 }
 
 function getBono() {
-  const _pctSoloStr  = document.getElementById('bono-pct-solo').value.trim();
-  const _pctComboStr = document.getElementById('bono-pct-combo').value.trim();
+  const _pctSoloStr   = document.getElementById('bono-pct-solo').value.trim();
+  const _pctComboStr  = document.getElementById('bono-pct-combo').value.trim();
+  const _metaComboStr = document.getElementById('bono-meta-combo').value.trim();
   return {
     meta:          parseFloat(document.getElementById('bono-meta').value)       || 40000000,
+    // Vacío = usa la misma meta de arriba (comportamiento de siempre). Solo se
+    // guarda un número aparte si el combinado tiene su propia meta (ej: Golden).
+    meta_combo:    _metaComboStr === '' ? null : (parseFloat(_metaComboStr) || null),
     pct_solo:      _pctSoloStr  === '' ? 5 : (parseFloat(_pctSoloStr)  || 0),
     pct_combo:     _pctComboStr === '' ? 3 : (parseFloat(_pctComboStr) || 0),
     canal_wplay:   (document.getElementById('bono-canal-wplay').value   || 'WPLAY UNITY').trim().toUpperCase(),

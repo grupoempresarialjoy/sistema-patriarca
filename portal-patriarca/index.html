@@ -2281,11 +2281,15 @@ const _PAR_RANGOS_FALLBACK = [
 // _parBono() para poder reusarlo con montos que no vienen de un movimiento
 // real (operadores migrados, ver recargasBono más abajo).
 function _parBonoCalc(wplay, bemovil, bonoCfg) {
-  const b    = bonoCfg || {};
-  const meta = b.meta || 40000000;
-  if (wplay >= meta || bemovil >= meta) return { pct: b.pct_solo || 5,  tipo:'solo',  wplay, bemovil, meta };
-  if (wplay + bemovil >= meta)          return { pct: b.pct_combo || 3, tipo:'combo', wplay, bemovil, meta };
-  return { pct: 0, tipo:'sin', wplay, bemovil, meta };
+  const b         = bonoCfg || {};
+  const meta      = b.meta || 40000000;
+  // meta_combo es opcional — si no está configurada, el combinado usa la
+  // misma meta que el "solo" (comportamiento de siempre, ej. Unity). Golden
+  // sí tiene su propia meta combinada, más baja que la del canal solo.
+  const metaCombo = b.meta_combo || meta;
+  if (wplay >= meta || bemovil >= meta)  return { pct: b.pct_solo || 5,  tipo:'solo',  wplay, bemovil, meta, metaCombo };
+  if (wplay + bemovil >= metaCombo)      return { pct: b.pct_combo || 3, tipo:'combo', wplay, bemovil, meta, metaCombo };
+  return { pct: 0, tipo:'sin', wplay, bemovil, meta, metaCombo };
 }
 
 function _parBono(movsRecargas, bonoCfg) {
@@ -2451,7 +2455,7 @@ async function cargarParticipacion(forzar) {
         oficina: op.oficina || '', oficinaNombre: op.oficinaNombre || '',
         productividad, rango: esc.rango, rojo: esc.rojo, baseNeta,
         participacion: esc.participacion, bonoPct: bono.pct, bonoTipo: bono.tipo,
-        bonoWplay: Math.round(bono.wplay), bonoBemovil: Math.round(bono.bemovil), bonoMeta: bono.meta,
+        bonoWplay: Math.round(bono.wplay), bonoBemovil: Math.round(bono.bemovil), bonoMeta: bono.meta, bonoMetaCombo: bono.metaCombo,
         bruta: Math.round(bruta), interesCapital: Math.round(intCap), capitalAsignado: capAsig,
         gananciaOperador: neta,
         yaGuardado: !!guardado[op.uid],
@@ -2522,7 +2526,9 @@ function renderParticipacion(desdeGuardado) {
   const conBono = _parFilas.filter(f => f.bonoWplay || f.bonoBemovil);
   document.getElementById('par-detalle-bono').innerHTML = conBono.length ? `
     <div class="section-card">
-      <div style="font-size:12px;font-weight:800;margin-bottom:10px">🎯 Base del bono — meta ${p(conBono[0].bonoMeta)}</div>
+      <div style="font-size:12px;font-weight:800;margin-bottom:10px">🎯 Base del bono — meta ${p(conBono[0].bonoMeta)}${
+        conBono[0].bonoMetaCombo && conBono[0].bonoMetaCombo !== conBono[0].bonoMeta ? ` (combinado ${p(conBono[0].bonoMetaCombo)})` : ''
+      }</div>
       <table style="width:100%;border-collapse:collapse;font-size:11px">
         <thead><tr style="border-bottom:1px solid var(--border);text-align:right">
           <th style="text-align:left;padding:6px 8px">Operador</th>

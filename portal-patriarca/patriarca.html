@@ -488,7 +488,7 @@ select option { background: var(--bg3); }
           <div style="margin-bottom:10px">
             <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px">
               <span style="color:var(--text2)">Combinado A + B</span>
-              <span><span id="bono-combo-val" style="color:var(--gold);font-weight:700">$0</span> <span style="color:var(--text2)">/ <span class="bono-meta-ref">$40.000.000</span></span></span>
+              <span><span id="bono-combo-val" style="color:var(--gold);font-weight:700">$0</span> <span style="color:var(--text2)">/ <span id="bono-meta-combo-label">$40.000.000</span></span></span>
             </div>
             <div style="background:var(--bg3);border-radius:20px;height:8px;overflow:hidden">
               <div id="bono-combo-bar" style="height:100%;background:var(--gold);border-radius:20px;width:0%;transition:width .4s"></div>
@@ -3685,6 +3685,11 @@ function _filtrarInvMes(mk) {
 function _calcBono() {
   const b       = bono_config;
   const meta    = b.meta || 40000000;
+  // meta_combo es opcional — si no está configurada, el combinado usa la
+  // misma meta que el "solo" (como siempre). Golden sí tiene una meta
+  // combinada propia, más baja que la del canal solo — ver admin.html
+  // → Usuarios → Escaleras.
+  const metaCombo = b.meta_combo || meta;
   const cWplay  = (b.canal_wplay   || 'WPLAY UNITY').toUpperCase();
   const cBemov  = (b.canal_bemovil || 'BE MOVIL CAJA').toUpperCase();
 
@@ -3729,7 +3734,7 @@ function _calcBono() {
   let bonoPct    = 0;
   if (totalWplay >= meta || totalBemovil >= meta) {
     bonoStatus = 'solo'; bonoPct = b.pct_solo || 5;
-  } else if (totalCombo >= meta) {
+  } else if (totalCombo >= metaCombo) {
     bonoStatus = 'combo'; bonoPct = b.pct_combo || 3;
   }
 
@@ -3751,21 +3756,23 @@ function _calcBono() {
   }
 
   // ── Render UI ──
-  const pct = v => Math.min(100, (v / meta) * 100).toFixed(1);
+  const pct = (v, m) => Math.min(100, (v / m) * 100).toFixed(1);
 
   document.getElementById('bono-label-wplay').textContent   = cWplay;
   document.getElementById('bono-label-bemovil').textContent = cBemov;
   document.querySelectorAll('.bono-meta-ref, #bono-meta-label').forEach(el => {
     el.textContent = peso(meta);
   });
+  const metaComboLbl = document.getElementById('bono-meta-combo-label');
+  if (metaComboLbl) metaComboLbl.textContent = peso(metaCombo);
 
   document.getElementById('bono-wplay-val').textContent  = peso(totalWplay);
   document.getElementById('bono-bemovil-val').textContent = peso(totalBemovil);
   document.getElementById('bono-combo-val').textContent   = peso(totalCombo);
 
-  document.getElementById('bono-wplay-bar').style.width   = pct(totalWplay)  + '%';
-  document.getElementById('bono-bemovil-bar').style.width = pct(totalBemovil) + '%';
-  document.getElementById('bono-combo-bar').style.width   = pct(totalCombo)  + '%';
+  document.getElementById('bono-wplay-bar').style.width   = pct(totalWplay, meta)   + '%';
+  document.getElementById('bono-bemovil-bar').style.width = pct(totalBemovil, meta) + '%';
+  document.getElementById('bono-combo-bar').style.width   = pct(totalCombo, metaCombo) + '%';
 
   // Badge estado
   const badge = document.getElementById('bono-badge');
@@ -3776,7 +3783,7 @@ function _calcBono() {
     badge.textContent = `🎯 Bono ${bonoPct}% combinado — ALCANZADO`;
     badge.style.background = 'rgba(240,160,80,.2)'; badge.style.color = 'var(--orange)';
   } else {
-    const falta = meta - totalCombo;
+    const falta = metaCombo - totalCombo;
     badge.textContent = `Faltan ${peso(falta)} para bono`;
     badge.style.background = 'var(--bg3)'; badge.style.color = 'var(--text2)';
   }

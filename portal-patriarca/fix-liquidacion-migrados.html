@@ -207,15 +207,18 @@ async function buscarPendientes() {
         // campo — no del documento de variaciones. Si ya tiene el número
         // correcto, no hay que tocarlo.
         const faltaSaldoInicial = !siSnap.exists || Math.round(siSnap.data().gananciaMesAnterior || 0) !== Math.round(esfIni.LIQ_POR_PAGAR || 0);
-        if (!faltaVariacion && !faltaSaldoInicial) return null;   // ya está todo bien
 
+        // Se devuelve siempre que el operador sea "migrado" (pasivo manual +
+        // cero cierres), esté o no ya arreglada su ficha de Liquidación —
+        // el PASO 3 (resumen ESF) es un problema aparte y necesita ver a
+        // TODOS los migrados, no solo a los que le faltan cosas al PASO 1.
         return {
           opId, nombre: u.nombre || opId,
           mesKey, mesLabel: mesLabelDe(pnum, paño), mesSigKey,
           gananciaNeta: Math.round(esfIni.LIQ_POR_PAGAR || 0),
           totalComisiones: Math.round(esfIni.COM_MES_ANT || 0),
           faltaVariacion, faltaSaldoInicial,
-          estado: 'pendiente'
+          estado: (faltaVariacion || faltaSaldoInicial) ? 'pendiente' : 'hecho'
         };
       } catch (e) {
         logear('  ⚠ ' + (u.nombre || opId) + ': ' + e.message);
@@ -224,10 +227,11 @@ async function buscarPendientes() {
     }));
 
     pendientes = resultados.filter(Boolean);
-    logear('Encontrados: ' + pendientes.length);
+    const faltantes = pendientes.filter(p => p.estado !== 'hecho').length;
+    logear('Encontrados: ' + pendientes.length + ' migrados (' + faltantes + ' con la ficha de Liquidación pendiente)');
     pintarLista();
     document.getElementById('panel-lista').style.display = 'block';
-    document.getElementById('btn-arreglar-todos').style.display = pendientes.length ? 'inline-block' : 'none';
+    document.getElementById('btn-arreglar-todos').style.display = faltantes ? 'inline-block' : 'none';
     logear('Listo. Revisa la tabla antes de crear las fichas.');
   } finally {
     buscando = false;

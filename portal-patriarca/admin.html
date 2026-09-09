@@ -3508,12 +3508,24 @@ function renderUsuarios() {
 
   tbody.innerHTML = gruposOrdenados.map(([key, g]) => {
     const filas = [...g.users].sort((a,b) => (a.nombre||'').localeCompare(b.nombre||'', 'es'));
-    return `<tr style="background:rgba(255,255,255,.03)">
+    const colapsado = _usrGrupoColapsado(key);
+    const caret = colapsado ? '▸' : '▾';
+    return `<tr style="background:rgba(255,255,255,.03);cursor:pointer" onclick="toggleUsrGrupo('${key}')" title="Clic para ${colapsado?'expandir':'contraer'}">
       <td colspan="6" style="padding:8px 8px;font-weight:800;font-size:12px;color:${g.color}">
-        ${key==='__sin_oficina__'?'—':'🏢'} ${g.nombre} <span style="font-weight:400;color:var(--text2);font-size:11px">(${filas.length})</span>
+        <span style="display:inline-block;width:14px;color:var(--text2)">${caret}</span>${key==='__sin_oficina__'?'—':'🏢'} ${g.nombre} <span style="font-weight:400;color:var(--text2);font-size:11px">(${filas.length})</span>
       </td>
-    </tr>` + filas.map(filaUsuario).join('');
+    </tr>` + (colapsado ? '' : filas.map(filaUsuario).join(''));
   }).join('');
+}
+
+// Recuerda qué grupos de oficina se dejaron contraídos en Usuarios, para
+// que al volver a abrir la pantalla se vea igual a como se dejó.
+function _usrColKey(key) { return 'admUsrColapsado_' + key; }
+function _usrGrupoColapsado(key) { return localStorage.getItem(_usrColKey(key)) === '1'; }
+function toggleUsrGrupo(key) {
+  if (_usrGrupoColapsado(key)) localStorage.removeItem(_usrColKey(key));
+  else localStorage.setItem(_usrColKey(key), '1');
+  renderUsuarios();
 }
 
 async function toggleInformativo(docId, esActualmenteInfo) {

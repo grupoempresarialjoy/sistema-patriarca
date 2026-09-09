@@ -8626,13 +8626,13 @@ async function _asentarVariacionMetodos(operadorId, operadorNombre, mesKey, fech
     if (!val) return;
     n++;
     batch.set(db.collection('cont_movimientos').doc(), {
-      op, fecha: fechaCierre, cuenta: 'ACTIVOS', subcuenta: sfNombre,
+      op, fecha: fechaCierre, oficina: _opOficinaId(operadorId), cuenta: 'ACTIVOS', subcuenta: sfNombre,
       debito: val > 0 ? val : 0, credito: val < 0 ? Math.abs(val) : 0,
       descripcion: desc, notas, origen: 'cierre_metodo',
       creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
     });
     batch.set(db.collection('cont_movimientos').doc(), {
-      op, fecha: fechaCierre, cuenta: 'PATRIMONIO', subcuenta: 'Ganancias Operadores',
+      op, fecha: fechaCierre, oficina: _opOficinaId(operadorId), cuenta: 'PATRIMONIO', subcuenta: 'Ganancias Operadores',
       debito: val < 0 ? Math.abs(val) : 0, credito: val > 0 ? val : 0,
       descripcion: desc, notas, origen: 'cierre_metodo',
       creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
@@ -8653,6 +8653,7 @@ async function _asentarComisionesCierre(cierreId, operadorNombre, mesKey, fechaC
   const cierreSnap = await db.collection('patriarca_cierres').doc(cierreId).get();
   if (!cierreSnap.exists) return 0;
   const comisiones = (cierreSnap.data().ganancia && cierreSnap.data().ganancia.comisiones) || {};
+  const oficinaIdCom = _opOficinaId(cierreSnap.data().operadorId);
 
   const todos = await db.collection('cont_movimientos').get();
   const existentes = todos.docs.filter(d => {
@@ -8684,14 +8685,14 @@ async function _asentarComisionesCierre(cierreId, operadorNombre, mesKey, fechaC
     if (m <= 0) return;
     n++;
     batch.set(db.collection('cont_movimientos').doc(), {
-      op, fecha: fechaCierre, cuenta: 'ACTIVOS',
+      op, fecha: fechaCierre, oficina: oficinaIdCom, cuenta: 'ACTIVOS',
       subcuenta: `Cuenta Por Cobrar comisiones ${metodo} Operadores`,
       debito: m, credito: 0,
       descripcion: desc, notas: 'Asiento automático de cierre',
       creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
     });
     batch.set(db.collection('cont_movimientos').doc(), {
-      op, fecha: fechaCierre, cuenta: 'PATRIMONIO', subcuenta: 'Ganancias Operadores',
+      op, fecha: fechaCierre, oficina: oficinaIdCom, cuenta: 'PATRIMONIO', subcuenta: 'Ganancias Operadores',
       debito: 0, credito: m,
       descripcion: desc, notas: 'Asiento automático de cierre',
       creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
@@ -8893,6 +8894,7 @@ async function aceptarCierre(cierreId) {
   const docSnap = await db.collection('patriarca_cierres').doc(cierreId).get();
   if (!docSnap.exists) { toast('⚠ Cierre no encontrado', 'error'); return; }
   const data = docSnap.data();
+  const oficinaIdCierre = _opOficinaId(data.operadorId);
 
   // Calcular mesSiguiente si no fue guardado correctamente (bug versiones anteriores)
   let mesSig = data.mesSiguiente || '';
@@ -9015,7 +9017,7 @@ async function aceptarCierre(cierreId) {
           hayAsientos = true;
           // DÉBITO: Cuenta Por Cobrar comisiones [METODO] (ACTIVOS)
           batchCom.set(db.collection('cont_movimientos').doc(), {
-            op: nextOp, fecha: fechaCierre,
+            op: nextOp, fecha: fechaCierre, oficina: oficinaIdCierre,
             cuenta: 'ACTIVOS',
             subcuenta: `Cuenta Por Cobrar comisiones ${metodo} Operadores`,
             debito: m, credito: 0,
@@ -9024,7 +9026,7 @@ async function aceptarCierre(cierreId) {
           });
           // CRÉDITO: Utilidad Mes Anterior (PATRIMONIO)
           batchCom.set(db.collection('cont_movimientos').doc(), {
-            op: nextOp, fecha: fechaCierre,
+            op: nextOp, fecha: fechaCierre, oficina: oficinaIdCierre,
             cuenta: 'PATRIMONIO',
             subcuenta: 'Ganancias Operadores',
             debito: 0, credito: m,
@@ -9097,7 +9099,7 @@ async function aceptarCierre(cierreId) {
           hayAsientosCajas = true;
           // DÉBITO: cuenta en ACTIVOS
           batchCajas.set(db.collection('cont_movimientos').doc(), {
-            op: nextOp, fecha: fechaCierre,
+            op: nextOp, fecha: fechaCierre, oficina: oficinaIdCierre,
             cuenta: 'ACTIVOS', subcuenta: sfNombre,
             debito: val > 0 ? val : 0,
             credito: val < 0 ? Math.abs(val) : 0,
@@ -9107,7 +9109,7 @@ async function aceptarCierre(cierreId) {
           });
           // CRÉDITO: Ganancias Operadores en PATRIMONIO
           batchCajas.set(db.collection('cont_movimientos').doc(), {
-            op: nextOp, fecha: fechaCierre,
+            op: nextOp, fecha: fechaCierre, oficina: oficinaIdCierre,
             cuenta: 'PATRIMONIO', subcuenta: 'Ganancias Operadores',
             debito: val < 0 ? Math.abs(val) : 0,
             credito: val > 0 ? val : 0,
@@ -9559,6 +9561,15 @@ function _opOficina(uid) {
   return u?.oficinaNombre || '';
 }
 
+// Igual que _opOficina, pero devuelve el ID de la oficina (admin_oficinas),
+// que es lo que el Contador (index.html → loadContador) usa para separar
+// cont_movimientos por oficina. Sin este campo, un asiento queda invisible
+// para Golden — el filtro trata todo lo que no tiene 'oficina' como Unity.
+function _opOficinaId(uid) {
+  const u = (allUsers||[]).find(x => x.uid === uid);
+  return u?.oficina || '';
+}
+
 // Re-renderiza las 3 secciones de Liquidaciones con los datos ya cargados
 // (sin volver a leer Firestore) aplicando el filtro de oficina elegido.
 let _liqTxsCache = [];
@@ -9758,6 +9769,7 @@ async function aprobarPagoLiq(txId) {
     const doc = await db.collection('patriarca_liquidacion_txs').doc(txId).get();
     if (!doc.exists) { toast('⚠ Pago no encontrado', 'error'); return; }
     const tx = { id: doc.id, ...doc.data() };
+    const oficinaId = _opOficinaId(tx.operadorId);
 
     const contSnap = await db.collection('cont_movimientos').orderBy('op','desc').limit(1).get();
     const nextOp   = contSnap.empty ? 1 : ((Number(contSnap.docs[0].data().op) || 0) + 1);
@@ -9769,14 +9781,14 @@ async function aprobarPagoLiq(txId) {
 
     if (tx.tipo === 'comision') {
       batch.set(db.collection('cont_movimientos').doc(), {
-        op: nextOp, fecha: tx.fecha,
+        op: nextOp, fecha: tx.fecha, oficina: oficinaId,
         cuenta: 'ACTIVOS', subcuenta: `Cuenta Por Cobrar comisiones ${tx.metodo}`,
         debito: tx.monto, credito: 0,
         descripcion: descOP, notas: lineDesc,
         creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
       });
       batch.set(db.collection('cont_movimientos').doc(), {
-        op: nextOp, fecha: tx.fecha,
+        op: nextOp, fecha: tx.fecha, oficina: oficinaId,
         cuenta: 'ACTIVOS', subcuenta: `Cuenta Por Cobrar comisiones ${tx.metodo} Operadores`,
         debito: 0, credito: tx.monto,
         descripcion: descOP, notas: lineDesc,
@@ -9784,14 +9796,14 @@ async function aprobarPagoLiq(txId) {
       });
     } else {
       batch.set(db.collection('cont_movimientos').doc(), {
-        op: nextOp, fecha: tx.fecha,
+        op: nextOp, fecha: tx.fecha, oficina: oficinaId,
         cuenta: 'ACTIVOS', subcuenta: destino,
         debito: tx.monto, credito: 0,
         descripcion: descOP, notas: lineDesc,
         creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
       });
       batch.set(db.collection('cont_movimientos').doc(), {
-        op: nextOp, fecha: tx.fecha,
+        op: nextOp, fecha: tx.fecha, oficina: oficinaId,
         cuenta: 'ACTIVOS', subcuenta: metodoToSFLiq(tx.metodo),
         debito: 0, credito: tx.monto,
         descripcion: descOP, notas: lineDesc,
@@ -9851,6 +9863,7 @@ async function aprobarLiquidacionCompleta(operadorId, mesKey) {
     const fecha = txs[0].fecha || new Date().toISOString().slice(0,10);
     const uid   = auth.currentUser?.uid || '';
     const email = auth.currentUser?.email || 'admin';
+    const oficinaId = _opOficinaId(operadorId);
 
     // Un solo OP para toda la liquidación
     const contSnap = await db.collection('cont_movimientos').orderBy('op','desc').limit(1).get();
@@ -9866,7 +9879,7 @@ async function aprobarLiquidacionCompleta(operadorId, mesKey) {
       if (tx.tipo === 'comision') {
         // DÉBITO: Cuenta Por Cobrar comisiones [METODO] — cuenta negra
         batch.set(db.collection('cont_movimientos').doc(), {
-          op: nextOp, fecha: tx.fecha || fecha,
+          op: nextOp, fecha: tx.fecha || fecha, oficina: oficinaId,
           cuenta: 'ACTIVOS', subcuenta: `Cuenta Por Cobrar comisiones ${tx.metodo}`,
           debito: tx.monto, credito: 0,
           descripcion: descOP, notas: lineDesc,
@@ -9874,7 +9887,7 @@ async function aprobarLiquidacionCompleta(operadorId, mesKey) {
         });
         // CRÉDITO: Cuenta Por Cobrar comisiones [METODO] Operadores — cuenta naranja
         batch.set(db.collection('cont_movimientos').doc(), {
-          op: nextOp, fecha: tx.fecha || fecha,
+          op: nextOp, fecha: tx.fecha || fecha, oficina: oficinaId,
           cuenta: 'ACTIVOS', subcuenta: `Cuenta Por Cobrar comisiones ${tx.metodo} Operadores`,
           debito: 0, credito: tx.monto,
           descripcion: descOP, notas: lineDesc,
@@ -9883,14 +9896,14 @@ async function aprobarLiquidacionCompleta(operadorId, mesKey) {
       } else {
         // Pago de saldo — DÉBITO: cuenta destino CEO / CRÉDITO: método Grupo 5 del operador
         batch.set(db.collection('cont_movimientos').doc(), {
-          op: nextOp, fecha: tx.fecha || fecha,
+          op: nextOp, fecha: tx.fecha || fecha, oficina: oficinaId,
           cuenta: 'ACTIVOS', subcuenta: destino,
           debito: tx.monto, credito: 0,
           descripcion: descOP, notas: lineDesc,
           creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
         });
         batch.set(db.collection('cont_movimientos').doc(), {
-          op: nextOp, fecha: tx.fecha || fecha,
+          op: nextOp, fecha: tx.fecha || fecha, oficina: oficinaId,
           cuenta: 'ACTIVOS', subcuenta: metodoToSFLiq(tx.metodo),
           debito: 0, credito: tx.monto,
           descripcion: descOP, notas: lineDesc,
@@ -9949,6 +9962,7 @@ async function aprobarCorreccionLiq(corrId) {
 
     const uid   = auth.currentUser?.uid || '';
     const email = auth.currentUser?.email || 'admin';
+    const oficinaIdCorr = _opOficinaId(c.operadorId);
     const batch = db.batch();
 
     // Obtener OP original y siguiente OP disponible
@@ -9965,7 +9979,7 @@ async function aprobarCorreccionLiq(corrId) {
         if ((d.subcuenta||'').includes(c.metodo)) {
           // Invertir débito y crédito para anular
           batch.set(db.collection('cont_movimientos').doc(), {
-            op: nextOp, fecha: c.newFecha,
+            op: nextOp, fecha: c.newFecha, oficina: oficinaIdCorr,
             cuenta: d.cuenta, subcuenta: d.subcuenta,
             debito:  d.credito || 0,  // invertido
             credito: d.debito  || 0,  // invertido
@@ -9982,14 +9996,14 @@ async function aprobarCorreccionLiq(corrId) {
     const descNuevo = `${descBase} · ${c.tipo==='comision'?'Comisión':'Saldo'} ${c.metodo} (corregido)`;
     if (c.tipo === 'comision') {
       batch.set(db.collection('cont_movimientos').doc(), {
-        op: opNuevo, fecha: c.newFecha,
+        op: opNuevo, fecha: c.newFecha, oficina: oficinaIdCorr,
         cuenta: 'ACTIVOS', subcuenta: `Cuenta Por Cobrar comisiones ${c.metodo}`,
         debito: c.newMonto, credito: 0,
         descripcion: descNuevo, notas: `Corrección: ${c.motivo}`,
         creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
       });
       batch.set(db.collection('cont_movimientos').doc(), {
-        op: opNuevo, fecha: c.newFecha,
+        op: opNuevo, fecha: c.newFecha, oficina: oficinaIdCorr,
         cuenta: 'ACTIVOS', subcuenta: `Cuenta Por Cobrar comisiones ${c.metodo} Operadores`,
         debito: 0, credito: c.newMonto,
         descripcion: descNuevo, notas: `Corrección: ${c.motivo}`,
@@ -9997,14 +10011,14 @@ async function aprobarCorreccionLiq(corrId) {
       });
     } else {
       batch.set(db.collection('cont_movimientos').doc(), {
-        op: opNuevo, fecha: c.newFecha,
+        op: opNuevo, fecha: c.newFecha, oficina: oficinaIdCorr,
         cuenta: 'ACTIVOS', subcuenta: `Efectivo Recibido — ${c.metodo}`,
         debito: c.newMonto, credito: 0,
         descripcion: descNuevo, notas: `Corrección: ${c.motivo}`,
         creadoPor: uid, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
       });
       batch.set(db.collection('cont_movimientos').doc(), {
-        op: opNuevo, fecha: c.newFecha,
+        op: opNuevo, fecha: c.newFecha, oficina: oficinaIdCorr,
         cuenta: 'ACTIVOS', subcuenta: `Cupo — ${c.metodo}`,
         debito: 0, credito: c.newMonto,
         descripcion: descNuevo, notas: `Corrección: ${c.motivo}`,

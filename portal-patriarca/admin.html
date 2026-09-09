@@ -4182,8 +4182,7 @@ async function _escPoblarCanales(ofId, wplayVal, bemovilVal) {
   }
   let lista = [];
   try {
-    const snap = await db.collection('admin_config_metodos').doc(ofId).get();
-    lista = snap.exists ? (snap.data().lista || []) : [];
+    lista = (await _resolverMetodosOficina(ofId)).lista;
   } catch(e) { console.warn('métodos oficina (escalera):', e); }
 
   const nombres = new Set(lista.map(m => (m.nombre||'').trim().toUpperCase()).filter(Boolean));
@@ -4524,35 +4523,43 @@ function renderMetOficinas() {
   }).join('');
 }
 
+// Resuelve la lista de métodos de una oficina con la misma cadena de
+// respaldo en los dos lugares que la necesitan (panel Métodos y Canal A/B
+// del bono en Escaleras): doc propio → legacy de Unity → copia de Unity →
+// METODOS_DEFAULT. Sin esto, Unity (que puede no tener aún su doc propio
+// en admin_config_metodos) se veía como "sin métodos" fuera del panel Métodos.
+async function _resolverMetodosOficina(ofId) {
+  const ofic = oficinas.find(o => o.id === ofId);
+  const esUnity = /unity/i.test(ofic?.nombre || '');
+  const snap = await db.collection('admin_config_metodos').doc(ofId).get();
+  if (snap.exists) return { lista: snap.data().lista || [], nuevaCopia: false, oficinaNombre: ofic?.nombre };
+  if (esUnity) {
+    const legacy = await db.collection('admin_config').doc('metodos').get();
+    const lista = legacy.exists && (legacy.data().lista||[]).length ? legacy.data().lista : [...METODOS_DEFAULT];
+    return { lista, nuevaCopia: false, oficinaNombre: ofic?.nombre };
+  }
+  // Oficina nueva sin métodos propios: arranca como copia editable de Unity.
+  const unityOf = oficinas.find(o => /unity/i.test(o.nombre || ''));
+  let base = [];
+  if (unityOf) {
+    const us = await db.collection('admin_config_metodos').doc(unityOf.id).get();
+    base = us.exists ? (us.data().lista || []) : [];
+  }
+  if (!base.length) {
+    const legacy = await db.collection('admin_config').doc('metodos').get();
+    base = legacy.exists ? (legacy.data().lista || []) : [];
+  }
+  return { lista: base.map(m => ({...m})), nuevaCopia: base.length > 0, oficinaNombre: ofic?.nombre };
+}
+
 async function cargarMetOficina(ofId) {
   metOficinaId = ofId;
   renderMetOficinas();
   const ofic = oficinas.find(o => o.id === ofId);
-  const esUnity = /unity/i.test(ofic?.nombre || '');
   document.getElementById('met-panel-title').textContent = `Métodos — ${ofic?.nombre || ofId}`;
-
-  const snap = await db.collection('admin_config_metodos').doc(ofId).get();
-  if (snap.exists) {
-    metodos = snap.data().lista || [];
-  } else if (esUnity) {
-    // Unity antes de su primer guardado con el esquema nuevo — leer del doc legacy.
-    const legacy = await db.collection('admin_config').doc('metodos').get();
-    metodos = legacy.exists && (legacy.data().lista||[]).length ? legacy.data().lista : [...METODOS_DEFAULT];
-  } else {
-    // Oficina nueva sin métodos propios: arranca como copia editable de Unity.
-    const unityOf = oficinas.find(o => /unity/i.test(o.nombre || ''));
-    let base = [];
-    if (unityOf) {
-      const us = await db.collection('admin_config_metodos').doc(unityOf.id).get();
-      base = us.exists ? (us.data().lista || []) : [];
-    }
-    if (!base.length) {
-      const legacy = await db.collection('admin_config').doc('metodos').get();
-      base = legacy.exists ? (legacy.data().lista || []) : [];
-    }
-    metodos = base.map(m => ({...m}));
-    if (metodos.length) toast(`📋 ${ofic?.nombre} arrancó con una copia editable de los métodos de Unity — ajústalos y guarda`, 'info');
-  }
+  const r = await _resolverMetodosOficina(ofId);
+  metodos = r.lista;
+  if (r.nuevaCopia) toast(`📋 ${r.oficinaNombre} arrancó con una copia editable de los métodos de Unity — ajústalos y guarda`, 'info');
   renderMetodos();
 }
 

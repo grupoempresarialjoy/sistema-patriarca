@@ -1206,9 +1206,16 @@ select option{background:var(--bg3)}
     <input type="hidden" id="esc-doc-id">
     <h3 id="esc-editor-titulo">📈 Nueva Escalera</h3>
     <div class="form-grid" style="margin-bottom:16px">
-      <div class="form-group span2">
+      <div class="form-group">
         <label>Nombre de la escalera</label>
         <input type="text" id="esc-nombre" placeholder="Ej: Escalera de Ganancia 1">
+      </div>
+      <div class="form-group">
+        <label>Oficina</label>
+        <select id="esc-oficina" onchange="escCambioOficina()">
+          <option value="">— Selecciona —</option>
+        </select>
+        <div class="hint">Define de qué oficina salen los métodos del Canal A/B del bono, abajo</div>
       </div>
     </div>
 
@@ -1281,17 +1288,17 @@ select option{background:var(--bg3)}
         </div>
       </div>
 
-      <!-- Canales -->
+      <!-- Canales — se llenan con los métodos de la oficina elegida arriba -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
         <div class="form-group">
-          <label>Canal A — Nombre del método Wplay Unity</label>
-          <input type="text" id="bono-canal-wplay" value="WPLAY UNITY" placeholder="Ej: WPLAY UNITY">
-          <div class="hint">Exactamente como aparece en movimientos</div>
+          <label>Canal A — Método "Wplay"</label>
+          <select id="bono-canal-wplay"><option value="WPLAY UNITY">WPLAY UNITY</option></select>
+          <div class="hint">Elige la oficina arriba para ver sus métodos</div>
         </div>
         <div class="form-group">
-          <label>Canal B — Nombre del método BeMovil</label>
-          <input type="text" id="bono-canal-bemovil" value="BE MOVIL CAJA" placeholder="Ej: BE MOVIL CAJA">
-          <div class="hint">Exactamente como aparece en movimientos</div>
+          <label>Canal B — Método "BeMovil"</label>
+          <select id="bono-canal-bemovil"><option value="BE MOVIL CAJA">BE MOVIL CAJA</option></select>
+          <div class="hint">Elige la oficina arriba para ver sus métodos</div>
         </div>
       </div>
 
@@ -4116,10 +4123,13 @@ async function cargarListaEscaleras() {
     if (todasEscaleras.length === 0) {
       lista.innerHTML = '<div style="color:var(--text2);font-size:12px;text-align:center;padding:20px">No hay escaleras. Crea la primera.</div>';
     } else {
-      lista.innerHTML = todasEscaleras.map(e => `
+      lista.innerHTML = todasEscaleras.map(e => {
+        const of_ = (oficinas||[]).find(o => o.id === e.oficina);
+        const badge = of_ ? ` <span style="font-size:10px;font-weight:700;color:${of_.color||'var(--text2)'};border:1px solid ${of_.color||'var(--border)'};border-radius:8px;padding:1px 7px;margin-left:6px">${of_.nombre}</span>` : '';
+        return `
         <div style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between">
           <div>
-            <div style="font-weight:600;font-size:13px">📈 ${e.nombre || e.id}</div>
+            <div style="font-weight:600;font-size:13px">📈 ${e.nombre || e.id}${badge}</div>
             <div style="font-size:11px;color:var(--text2);margin-top:2px">${(e.rangos||[]).length} rangos · Int. capital ${e.interes_capital??5}%/mes · Int. diario ${e.interes_diario??0.2}%/día</div>
           </div>
           <div style="display:flex;gap:6px">
@@ -4127,7 +4137,8 @@ async function cargarListaEscaleras() {
             <button class="btn btn-sm btn-red" onclick="eliminarEscalera('${e.id}','${e.nombre}')">🗑</button>
           </div>
         </div>
-      `).join('');
+      `;
+      }).join('');
     }
     // Actualizar dropdown en form de operador
     actualizarDropdownEscaleras();
@@ -4145,6 +4156,49 @@ function actualizarDropdownEscaleras() {
   });
 }
 
+// ── Oficina de la escalera → métodos del Canal A/B del bono ──────────────
+// Antes Canal A/B eran texto libre (fácil de dejar mal escrito, como pasó
+// con la de Golden que quedó con WPLAY UNITY / BE MOVIL CAJA). Ahora se
+// eligen de la lista real de métodos de la oficina que se seleccione aquí.
+function escPoblarOficinas(selectedId) {
+  const sel = document.getElementById('esc-oficina');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">— Selecciona —</option>' +
+    (oficinas||[]).map(o => `<option value="${o.id}"${o.id===selectedId?' selected':''}>${o.nombre}</option>`).join('');
+}
+
+async function escCambioOficina() {
+  const ofId = document.getElementById('esc-oficina').value;
+  await _escPoblarCanales(ofId);
+}
+
+async function _escPoblarCanales(ofId, wplayVal, bemovilVal) {
+  const selW = document.getElementById('bono-canal-wplay');
+  const selB = document.getElementById('bono-canal-bemovil');
+  if (!ofId) {
+    const vacio = '<option value="">— Elige oficina arriba —</option>';
+    selW.innerHTML = vacio; selB.innerHTML = vacio;
+    return;
+  }
+  let lista = [];
+  try {
+    const snap = await db.collection('admin_config_metodos').doc(ofId).get();
+    lista = snap.exists ? (snap.data().lista || []) : [];
+  } catch(e) { console.warn('métodos oficina (escalera):', e); }
+
+  const nombres = new Set(lista.map(m => (m.nombre||'').trim().toUpperCase()).filter(Boolean));
+  // Conserva el valor ya guardado en la escalera aunque ya no esté en la
+  // lista actual de métodos, para no perderlo de vista silenciosamente.
+  if (wplayVal)   nombres.add(wplayVal.toUpperCase());
+  if (bemovilVal) nombres.add(bemovilVal.toUpperCase());
+  const opts = [...nombres].sort().map(n => `<option value="${n}">${n}</option>`).join('')
+    || '<option value="">— Sin métodos en esta oficina —</option>';
+  selW.innerHTML = opts;
+  selB.innerHTML = opts;
+  if (wplayVal)   selW.value = wplayVal.toUpperCase();
+  if (bemovilVal) selB.value = bemovilVal.toUpperCase();
+}
+
 // ── Crear nueva escalera ──
 function nuevaEscalera() {
   document.getElementById('esc-doc-id').value    = '';
@@ -4158,8 +4212,8 @@ function nuevaEscalera() {
   document.getElementById('bono-meta-combo').value  = '';
   document.getElementById('bono-pct-solo').value    = 5;
   document.getElementById('bono-pct-combo').value   = 3;
-  document.getElementById('bono-canal-wplay').value = 'WPLAY UNITY';
-  document.getElementById('bono-canal-bemovil').value = 'BE MOVIL CAJA';
+  escPoblarOficinas('');
+  _escPoblarCanales(''); // vacío hasta que elijan oficina
   renderEscalera();
   renderBonoCasas();
   closeModal('modal-escaleras');
@@ -4167,7 +4221,7 @@ function nuevaEscalera() {
 }
 
 // ── Editar escalera existente ──
-function editarEscalera(docId) {
+async function editarEscalera(docId) {
   const e = todasEscaleras.find(x => x.id === docId);
   if (!e) return;
   document.getElementById('esc-doc-id').value    = docId;
@@ -4178,6 +4232,8 @@ function editarEscalera(docId) {
   escalera_rangos = (e.rangos || [...RANGOS_DEFAULT]).map(r => ({...r}));
   bono_casas = [...BONO_CASAS_DEFAULT.map(c=>({...c}))];
   document.getElementById('bono-meta-combo').value = ''; // se llena abajo si esta escalera trae una propia
+  escPoblarOficinas(e.oficina || '');
+  await _escPoblarCanales(e.oficina || '', e.bono?.canal_wplay, e.bono?.canal_bemovil);
   cargarBono(e.bono || null);
   renderEscalera();
   renderBonoCasas();
@@ -4247,9 +4303,10 @@ async function guardarEscalera() {
   const intCap  = _intCapStr === '' ? 5   : (parseFloat(_intCapStr) || 0);
   const intDia  = _intDiaStr === '' ? 0.2 : (parseFloat(_intDiaStr) || 0);
   const statusEl= document.getElementById('escalera-status');
+  const oficina = document.getElementById('esc-oficina')?.value || '';
   if (!nombre) return toast('⚠ Escribe un nombre para la escalera', 'error');
   try {
-    const data = { nombre, rangos: escalera_rangos, interes_capital: intCap, interes_diario: intDia,
+    const data = { nombre, oficina, rangos: escalera_rangos, interes_capital: intCap, interes_diario: intDia,
                    bono: getBono(),
                    actualizadoEn: firebase.firestore.FieldValue.serverTimestamp() };
     if (docId) {

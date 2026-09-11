@@ -6919,7 +6919,12 @@ async function _esfCalcOp(uid, nombre, mesKey) {
     // Filtrar por tipo dejaba esas 3 cuentas afuera del cálculo — nunca mostraban saldo
     // aunque el operador tuviera movimientos ahí. Se excluye por nombre, igual que
     // METODOS_VIRTUALES en patriarca.html, para no perder esas 3 cuentas reales.
-    const METODOS_VIRTUALES_ESF = new Set(['BONIFICACION','SIN COMISION','FREE','BIENVENIDA','REJUEGO','DESCUENTO IVA','BONO IVA','T PAGA','COSTO DE SERVICIOS','SALDO CLIENTES ANTERIOR']);
+    // 'T PAGA' salió de esta lista: originalmente representaba solo un concepto de
+    // gasto ("COMISION DE PLATAFORMA T PAGA"), pero Golden lo configuró después como
+    // un método cajero real (con cupo propio en Cupo Inicial por Operador). Al seguir
+    // en este set, su caja se excluía entera del cálculo — nunca aparecía en ESF por
+    // Operador y su cupo asignado nunca se sumaba a totalCajas/cupo.
+    const METODOS_VIRTUALES_ESF = new Set(['BONIFICACION','SIN COMISION','FREE','BIENVENIDA','REJUEGO','DESCUENTO IVA','BONO IVA','COSTO DE SERVICIOS','SALDO CLIENTES ANTERIOR']);
     const metCajeroList = (typeof metodos !== 'undefined' ? metodos : [])
       .filter(m => !METODOS_VIRTUALES_ESF.has((m.nombre||'').trim().toUpperCase()))
       .map(m => (m.nombre||'').trim().toUpperCase());

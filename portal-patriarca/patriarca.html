@@ -2353,7 +2353,11 @@ let OPERADORES = []; // se carga desde admin_usuarios
 const METODOS_INTERNOS_NOMBRES = ['EFECTIVO OPERADOR','BE MOVIL CAJA','CUENTA BANCARIA','BONIFICACION','SIN COMISION','FREE','BIENVENIDA','REJUEGO','DESCUENTO IVA','BONO IVA'];
 
 // Métodos virtuales — aparecen en movimientos pero NO tienen saldo de caja real
-const METODOS_VIRTUALES = new Set(['BONIFICACION','SIN COMISION','FREE','BIENVENIDA','REJUEGO','DESCUENTO IVA','BONO IVA','T PAGA','COSTO DE SERVICIOS','SALDO CLIENTES ANTERIOR']);
+// 'T PAGA' salió de este set: no es virtual, es un método cajero real que Golden
+// configuró con cupo propio (venía de acá solo por compartir nombre con el gasto
+// "COMISION DE PLATAFORMA T PAGA", un concepto distinto). Mientras estuvo aquí, su
+// caja quedaba excluida entera del ESF — nunca aparecía con saldo para el operador.
+const METODOS_VIRTUALES = new Set(['BONIFICACION','SIN COMISION','FREE','BIENVENIDA','REJUEGO','DESCUENTO IVA','BONO IVA','COSTO DE SERVICIOS','SALDO CLIENTES ANTERIOR']);
 
 // Estas variables se llenan desde Firestore al iniciar
 let METODOS_CAJA = ['SALDO CLIENTES ANTERIOR','EFECTIVO OPERADOR','BE MOVIL CAJA','PTM PROPIO','BE MOVIL MASTER','MEGA RED','PUNTO RED UNITY','BET RED','WPLAY UNITY','SUPER GIROS UNITY','EFECTY 1 DE MAYO','SUPER GIROS MAQUINA','CORRESPONSAL EL PARAMO','EASY CHANGER'];

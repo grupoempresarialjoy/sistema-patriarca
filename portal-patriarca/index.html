@@ -3790,6 +3790,15 @@ function _metodoFromSubcuentaOp(sub) {
   const m = (sub || '').match(/^Cuenta Por Cobrar comisiones (.+?)\s+Operadores$/);
   return m ? _normMetodo(m[1]) : null;
 }
+// El asiento manual que carga el saldo acumulado de meses anteriores al abrir un
+// mes nuevo ("Saldos de inicio de Mes ...", con fecha el día 1) no tiene un campo
+// origen propio que lo distinga de un cierre real — se detecta por su descripción.
+// Sin este filtro, ese DÉBITO a las cuentas "...Operadores" se contaba como si
+// fuera un cierre nuevo del mes, inflando "lo ya reconocido este mes" por todo el
+// histórico acumulado (ver renderSituacionFinanciera / renderVariacionesComisiones).
+function _esAperturaDeMes(mov) {
+  return /saldo.*inicio.*mes|inicio de mes/i.test(mov?.descripcion || '');
+}
 
 function _esfValG5(nombreSF) {
   const key = SF_A_ESF_G5[nombreSF];
@@ -6232,9 +6241,18 @@ function renderSituacionFinanciera() {
     totalT += _sfGananciaMesActual; // mismo valor que se pinta en la fila "Ganancia o Perdida Mes actual ESF"
 
     // ── GRUPO 3 · comisiones del mes pendientes de cobrar ──
+    // _sfComisionesMesActual es SOLO lo ganado este mes (el ESF lo calcula acotado
+    // al mes, no acumulado) — así que "ya reconocido" debe ser solo los cierres
+    // NUEVOS de este mes, no el saldo acumulado de la cuenta. El bug real: el
+    // "Saldo de inicio de Mes" (línea que carga el acumulado de TODOS los meses
+    // anteriores, con fecha 1 del mes) es un DÉBITO más a la cuenta "...Operadores"
+    // y (mov.fecha||'').startsWith(mesKey) lo dejaba pasar como si fuera un cierre
+    // nuevo — inflando "lo ya reconocido" por el acumulado histórico completo y
+    // volviendo el pendiente muy negativo (ej. Be Movil Master Golden).
     let opMesRegG3 = 0;
     delMes.forEach(mov => {
       if (mov.cuenta !== 'ACTIVOS') return;
+      if (_esAperturaDeMes(mov)) return; // saldo de inicio, no es un cierre nuevo
       const metodo = _metodoFromSubcuentaOp(mov.subcuenta);
       if (!metodo || _sfComisionesMesActual[metodo] === undefined) return;
       opMesRegG3 += (mov.debito || 0);
@@ -6341,11 +6359,18 @@ function renderSituacionFinanciera() {
     // Cuentas por Cobrar (comisiones): ajustar entradas registradas con valor ESF + variación
     // — igual que G5, muestra el valor REAL con badge de variación vs lo ya reconocido en cierres
     if (esCxC && esfActivo && Object.keys(_sfComisionesMesActual).length) {
-      // Calcular lo ya registrado en Operadores para el mes actual
+      // Calcular lo ya registrado en Operadores para el mes actual — solo cierres
+      // NUEVOS de este mes, no el "Saldo de inicio de Mes" (acumulado de meses
+      // anteriores, fechado el día 1 del mes): ese es un DÉBITO más a la cuenta
+      // "...Operadores" y antes pasaba el filtro de fecha como si fuera un cierre
+      // nuevo, inflando "lo ya reconocido" por todo el histórico y volviendo el
+      // pendiente muy negativo (ej. Be Movil Master Golden: apertura $6.27M sin
+      // cierres nuevos, contra un ESF vigente de ~$3.1M → pendiente de −$3.16M).
       const mesKey = _esfConsMesKey || getMesGlobal();
       const opMesReg = {};
       sfMovs.forEach(mov => {
         if (mov.cuenta !== 'ACTIVOS') return;
+        if (_esAperturaDeMes(mov)) return; // saldo de inicio, no es un cierre nuevo
         const metodo = _metodoFromSubcuentaOp(mov.subcuenta);
         if (!metodo) return;
         if (mesKey && !(mov.fecha || '').startsWith(mesKey)) return;
@@ -7234,10 +7259,17 @@ function renderVariacionesComisiones() {
   // ESF: usar _sfComisionesMesActual (ya cargado por ESF Consolidado para este mes)
   const esfMes = { ..._sfComisionesMesActual };
 
-  // Registrado: DÉBITO a "Cuenta Por Cobrar comisiones X Operadores" (solo cierres)
+  // Registrado: DÉBITO a "Cuenta Por Cobrar comisiones X Operadores" (solo cierres
+  // NUEVOS de este mes) — _sfComisionesMesActual (ESF) es solo lo ganado ESTE mes,
+  // así que lo comparable es solo lo que se cerró ESTE mes, no el saldo acumulado
+  // de la cuenta. El "Saldo de inicio de Mes" es un DÉBITO más a esta cuenta,
+  // fechado el día 1 del mes, pero es el acumulado de TODOS los meses anteriores —
+  // sin excluirlo, pasaba como si fuera un cierre nuevo e inflaba "lo ya
+  // reconocido" por todo el histórico (mismo arreglo que en renderSituacionFinanciera).
   const regMes = {};
   (contMovs || []).forEach(mov => {
     if (mov.cuenta !== 'ACTIVOS') return;
+    if (_esAperturaDeMes(mov)) return; // saldo de inicio, no es un cierre nuevo
     const metodo = _metodoFromSubcuentaOp(mov.subcuenta); // solo cuentas Operadores
     if (!metodo) return;
     if (!(mov.fecha || '').startsWith(mk)) return;

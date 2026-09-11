@@ -4243,8 +4243,21 @@ function _renderEsfConsolidado(ops, mesKey) {
   // reportado ese mes) para que una cuenta con actividad cero en TODOS los operadores
   // no desaparezca de la tabla — antes se armaba con un Set dinámico y una cuenta como
   // "Efectivo Operador" podía faltar entero un mes en vez de mostrar $0.
-  const cajasArr = (CUENTAS_CAT.ACTIVOS['5 · Efectivo Operadores'] || [])
-    .filter(m => m !== 'Invertido - Mes Actual'); // esa ya tiene su propia fila aparte
+  //
+  // CUENTAS_CAT es el catálogo fijo hardcoded, pero es SOLO el de Unity (igual
+  // criterio que subcuentasTipo()/getMergedCatalog() más abajo). Usarlo tal cual
+  // para cualquier otra oficina mostraba las cuentas de Unity (Wplay Unity, Mega
+  // Red...) en el ESF de Golden, mientras las cuentas reales de Golden (Be Movil
+  // Master, Wplay Golden...) quedaban fuera y aparecían como "⚠ sin cuenta SF".
+  // El catálogo real de cada oficina no-Unity vive en customCuentas (cont_catalogo
+  // filtrado por oficina, ya cargado por loadCatalogo() al abrir su Contador).
+  const _esfEsUnity = _catOficinaActual === _oficinaIdPorNombre(/unity/i);
+  const cajasArr = (_esfEsUnity
+      ? (CUENTAS_CAT.ACTIVOS['5 · Efectivo Operadores'] || [])
+      : customCuentas
+          .filter(c => c.tipo === 'ACTIVOS' && c.grupo === '5 · Efectivo Operadores')
+          .map(c => c.subcuenta)
+    ).filter(m => m !== 'Invertido - Mes Actual'); // esa ya tiene su propia fila aparte
   // El catálogo usa nombres tipo "Wplay Unity" pero cada operador guarda el método
   // en su `cajas` tal cual lo escribió el cajero (MAYÚSCULAS, y a veces con otra
   // separación de palabras: "Supergiros Maquina" del catálogo vs "SUPER GIROS MAQUINA"
@@ -6988,11 +7001,16 @@ async function renderVariaciones() {
   const clientesEsf  = ops.reduce((s, op) => s + (op.totalClientes || 0), 0);
   const invertidoEsf = ops.reduce((s, op) => s + (op.invertido    || 0), 0);
 
-  // Helper ESF por nombre SF usando datos frescos
+  // Helper ESF por nombre SF usando datos frescos.
+  // SF_A_ESF_G5 solo tiene entradas para las cuentas de Unity (algunas con
+  // traducción real, ej. "Supergiros Maquina" → "SUPER GIROS MAQUINA"). Para
+  // cualquier cuenta que no esté ahí (todo el catálogo de Golden y cualquier
+  // oficina nueva) se cae a mayúsculas del propio nombre — que es exactamente
+  // como el operador reporta el método en su ESF — en vez de devolver null y
+  // que la cuenta se vea "sin cuenta SF" a pesar de sí tener una.
   const esfVal = (nombreSF) => {
-    const key = SF_A_ESF_G5[nombreSF];
-    if (!key) return null;
-    if (key === '__clientes__') return clientesEsf || null;
+    if (nombreSF === 'Saldo Clientes') return clientesEsf || null;
+    const key = (SF_A_ESF_G5[nombreSF] || nombreSF).toUpperCase();
     const v = cajasEsf[key];
     return (v !== undefined) ? v : null;
   };
@@ -7067,7 +7085,15 @@ async function renderVariaciones() {
 
   // Construir filas — cuentas del grupo 5 que existan en SF o en ESF
   // "Saldo Clientes" no está en el catálogo fijo pero sí en los movimientos → agregar siempre
-  const cuentasGrupo5 = ['Saldo Clientes', ...(CUENTAS_CAT.ACTIVOS['5 · Efectivo Operadores'] || [])];
+  // CUENTAS_CAT es el catálogo fijo, pero SOLO el de Unity (mismo criterio que
+  // en _renderEsfConsolidado) — para cualquier otra oficina hay que usar su
+  // propio catálogo (customCuentas), o las cuentas reales de Golden salían como
+  // "⚠ sin cuenta SF" mientras se listaban cuentas de Unity que Golden ni tiene.
+  const _varEsUnity = _contOficinaActual === _oficinaIdPorNombre(/unity/i);
+  const cuentasGrupo5 = ['Saldo Clientes', ...(_varEsUnity
+    ? (CUENTAS_CAT.ACTIVOS['5 · Efectivo Operadores'] || [])
+    : customCuentas.filter(c => c.tipo === 'ACTIVOS' && c.grupo === '5 · Efectivo Operadores').map(c => c.subcuenta)
+  )];
   const rows = [];
   let totalReg = 0, totalEsf = 0, totalAsc = 0, totalVar = 0;
 
@@ -7080,9 +7106,16 @@ async function renderVariaciones() {
     rows.push({ nombre, reg, esf, asc, var: var_ });
   });
 
-  // Agregar cuentas ESF que no están en el catálogo SF
+  // Agregar cuentas ESF que no están en el catálogo SF. "En el catálogo" ahora
+  // significa "alguna fila de cuentasGrupo5 ya la cubre" (traducida o por el
+  // fallback de mayúsculas de esfVal) — no solo lo que está literal en
+  // SF_A_ESF_G5, que dejaría marcadas como huérfanas todas las cuentas de
+  // Golden aunque sí tengan su fila arriba.
+  const _cuentasCubiertas = new Set(
+    cuentasGrupo5.map(n => (SF_A_ESF_G5[n] || n).toUpperCase())
+  );
   Object.keys(cajasEsf).forEach(metodo => {
-    const enCat = Object.values(SF_A_ESF_G5).includes(metodo);
+    const enCat = _cuentasCubiertas.has(metodo);
     if (!enCat) {
       const esf = _sfCajasMesActual[metodo];
       const asc = 0;

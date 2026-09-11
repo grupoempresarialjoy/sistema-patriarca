@@ -4252,12 +4252,15 @@ function _renderEsfConsolidado(ops, mesKey) {
   // El catálogo real de cada oficina no-Unity vive en customCuentas (cont_catalogo
   // filtrado por oficina, ya cargado por loadCatalogo() al abrir su Contador).
   const _esfEsUnity = _catOficinaActual === _oficinaIdPorNombre(/unity/i);
-  const cajasArr = (_esfEsUnity
+  // Set: por si el catálogo propio de la oficina trae la misma cuenta dos veces
+  // (dos documentos en cont_catalogo con el mismo nombre) — sin esto, esa
+  // cuenta salía repetida en la tabla y su valor contado dos veces en el total.
+  const cajasArr = [...new Set(_esfEsUnity
       ? (CUENTAS_CAT.ACTIVOS['5 · Efectivo Operadores'] || [])
       : customCuentas
           .filter(c => c.tipo === 'ACTIVOS' && c.grupo === '5 · Efectivo Operadores')
           .map(c => c.subcuenta)
-    ).filter(m => m !== 'Invertido - Mes Actual'); // esa ya tiene su propia fila aparte
+  )].filter(m => m !== 'Invertido - Mes Actual'); // esa ya tiene su propia fila aparte
   // El catálogo usa nombres tipo "Wplay Unity" pero cada operador guarda el método
   // en su `cajas` tal cual lo escribió el cajero (MAYÚSCULAS, y a veces con otra
   // separación de palabras: "Supergiros Maquina" del catálogo vs "SUPER GIROS MAQUINA"
@@ -7090,10 +7093,15 @@ async function renderVariaciones() {
   // propio catálogo (customCuentas), o las cuentas reales de Golden salían como
   // "⚠ sin cuenta SF" mientras se listaban cuentas de Unity que Golden ni tiene.
   const _varEsUnity = _contOficinaActual === _oficinaIdPorNombre(/unity/i);
-  const cuentasGrupo5 = ['Saldo Clientes', ...(_varEsUnity
+  // Set: "Saldo Clientes" se agrega siempre a mano (no está en el catálogo fijo
+  // de Unity), pero el catálogo propio de una oficina no-Unity SÍ puede traerla
+  // como cuenta propia — sin el Set salía duplicada (y su valor contado dos
+  // veces en TOTAL GRUPO 5). También cubre cualquier cuenta repetida por
+  // accidente dentro del propio catálogo de la oficina.
+  const cuentasGrupo5 = [...new Set(['Saldo Clientes', ...(_varEsUnity
     ? (CUENTAS_CAT.ACTIVOS['5 · Efectivo Operadores'] || [])
     : customCuentas.filter(c => c.tipo === 'ACTIVOS' && c.grupo === '5 · Efectivo Operadores').map(c => c.subcuenta)
-  )];
+  )])];
   const rows = [];
   let totalReg = 0, totalEsf = 0, totalAsc = 0, totalVar = 0;
 

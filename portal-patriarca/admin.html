@@ -358,6 +358,7 @@ select option{background:var(--bg3)}
         <div class="navgrp-item" data-sec="solicitudes"  id="tab-solicitudes" onclick="showTab('solicitudes')">🗑 Solicitudes</div>
         <div class="navgrp-item" data-sec="cierres"      id="tab-cierres" onclick="showTab('cierres');initCierres()">📅 Cierres</div>
         <div class="navgrp-item" data-sec="trixibot"     onclick="showTab('trixibot');initTrixiBot()">🤖 Servicios</div>
+        <div class="navgrp-item" data-sec="promos"       onclick="showTab('promos');initPromosAdmin()">🎁 Promociones</div>
       </div>
     </div>
 
@@ -914,6 +915,62 @@ select option{background:var(--bg3)}
       <div id="ap-panel" style="font-size:12px;color:var(--text2)">Cargando…</div>
     </div>
 
+    <!-- PROMOCIONES -->
+    <div class="section" id="sec-promos">
+      <div class="sec-header">
+        <div>
+          <div class="sec-title">🎁 Promociones</div>
+          <div class="sec-subtitle">Rushbet se carga solo (revisa cada 30 min) · las demás casas, por ahora, se agregan aquí a mano</div>
+        </div>
+        <button class="btn btn-gold" onclick="promAbrirForm()">+ Agregar promoción</button>
+      </div>
+
+      <div id="prom-form" style="display:none;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:16px">
+        <input type="hidden" id="prom-edit-id" value="">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+          <div>
+            <label style="font-size:11px;color:var(--text2)">Casa</label>
+            <input id="prom-casa" placeholder="Ej: WPLAY" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:7px 9px;font-size:13px;text-transform:uppercase">
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--text2)">Badge (opcional)</label>
+            <input id="prom-badge" placeholder="Ej: CÓDIGO: BIENVENIDA" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:7px 9px;font-size:13px">
+          </div>
+        </div>
+        <div style="margin-bottom:10px">
+          <label style="font-size:11px;color:var(--text2)">Título</label>
+          <input id="prom-titulo" placeholder="Ej: BONO BIENVENIDA" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:7px 9px;font-size:13px">
+        </div>
+        <div style="margin-bottom:10px">
+          <label style="font-size:11px;color:var(--text2)">Subtítulo</label>
+          <input id="prom-subtitulo" placeholder="Ej: Igualamos tu 1er depósito hasta $100.000" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:7px 9px;font-size:13px">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+          <div>
+            <label style="font-size:11px;color:var(--text2)">Categorías (separadas por coma)</label>
+            <input id="prom-categorias" placeholder="Ej: Deportes, Casino" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:7px 9px;font-size:13px">
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--text2)">Link (opcional)</label>
+            <input id="prom-url" placeholder="https://…" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);padding:7px 9px;font-size:13px">
+          </div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-gold" onclick="promGuardar()">💾 Guardar</button>
+          <button class="btn btn-ghost" onclick="promCerrarForm()">Cancelar</button>
+        </div>
+      </div>
+
+      <div style="overflow:auto">
+        <table class="tbl">
+          <thead><tr>
+            <th>Casa</th><th>Título</th><th>Subtítulo</th><th>Origen</th>
+            <th style="text-align:center">Vigente</th><th style="text-align:right">Acciones</th>
+          </tr></thead>
+          <tbody id="prom-body"><tr><td colspan="6" style="text-align:center;color:var(--text2);padding:20px">Cargando…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
 
     <!-- COMBINADAS -->
     <div class="section" id="sec-combinadas">
@@ -2112,6 +2169,7 @@ function showTab(name) {
   if (name === 'cierres')    initCierres();
   if (name === 'auditor') initAuditor();
   if (name === 'trixibot') initTrixiBot();
+  if (name === 'promos') initPromosAdmin();
   if (window.AJChat) AJChat.visible(name === 'mensajes');
 }
 
@@ -10395,6 +10453,130 @@ function tbAdminPlanCambio(uid){
   lim.disabled = (plan === 'full');
   if (plan === 'full') lim.value = '';
   else if (!lim.value) lim.value = 1;
+}
+
+// ── PROMOCIONES (panel manual) ──────────────────────────────────────────
+// Rushbet se captura sola (functions/promobot.js, cada 30 min contra su API
+// pública). Wplay y cualquier otra casa que no se pueda leer sola se cargan
+// aquí a mano — mismo esquema de datos, para que la pestaña del operador no
+// tenga que distinguir entre una promo automática y una manual.
+let _promAdminCache = [];
+
+const _promEsc = s => String(s == null ? '' : s)
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+async function initPromosAdmin(){
+  const body = document.getElementById('prom-body');
+  if (!body) return;
+  body.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text2);padding:20px">Cargando…</td></tr>';
+  try {
+    const snap = await db.collection('patriarca_promociones').orderBy('detectadaEn','desc').get();
+    _promAdminCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    promPintar();
+  } catch(e) {
+    body.innerHTML = `<tr><td colspan="6" style="color:var(--red);padding:20px">Error: ${e.message}</td></tr>`;
+  }
+}
+
+function promPintar(){
+  const body = document.getElementById('prom-body');
+  if (!body) return;
+  if (!_promAdminCache.length) {
+    body.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text2);padding:20px">Todavía no hay promociones cargadas.</td></tr>';
+    return;
+  }
+  body.innerHTML = _promAdminCache.map(p => `
+    <tr>
+      <td><span class="badge badge-blue">${_promEsc(p.casa)}</span></td>
+      <td style="font-weight:600">${_promEsc(p.titulo)}</td>
+      <td style="color:var(--text2);font-size:12px">${_promEsc(p.subtitulo||'—')}</td>
+      <td><span class="badge ${p.fuente==='manual'?'badge-orange':'badge-green'}">${p.fuente==='manual'?'Manual':'Automática'}</span></td>
+      <td style="text-align:center">
+        <input type="checkbox" ${p.vigente!==false?'checked':''} onchange="promToggleVigente('${p.id}',this.checked)" style="width:16px;height:16px;cursor:pointer">
+      </td>
+      <td style="text-align:right;white-space:nowrap">
+        ${p.fuente==='manual' ? `
+          <button class="btn btn-ghost btn-sm" onclick="promEditar('${p.id}')">✏️</button>
+          <button class="btn btn-red btn-sm" onclick="promEliminar('${p.id}')">🗑</button>
+        ` : '<span style="color:var(--text2);font-size:11px">—</span>'}
+      </td>
+    </tr>`).join('');
+}
+
+function promAbrirForm(){
+  document.getElementById('prom-edit-id').value = '';
+  ['prom-casa','prom-badge','prom-titulo','prom-subtitulo','prom-categorias','prom-url'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+  document.getElementById('prom-form').style.display = 'block';
+}
+
+function promCerrarForm(){
+  document.getElementById('prom-form').style.display = 'none';
+}
+
+function promEditar(id){
+  const p = _promAdminCache.find(x => x.id === id);
+  if (!p) return;
+  document.getElementById('prom-edit-id').value = id;
+  document.getElementById('prom-casa').value = p.casa || '';
+  document.getElementById('prom-badge').value = p.badge || '';
+  document.getElementById('prom-titulo').value = p.titulo || '';
+  document.getElementById('prom-subtitulo').value = p.subtitulo || '';
+  document.getElementById('prom-categorias').value = (p.categorias||[]).join(', ');
+  document.getElementById('prom-url').value = p.url || '';
+  document.getElementById('prom-form').style.display = 'block';
+}
+
+async function promGuardar(){
+  const casa = (document.getElementById('prom-casa').value || '').trim().toUpperCase();
+  const titulo = (document.getElementById('prom-titulo').value || '').trim();
+  if (!casa || !titulo) { toast('Falta la casa o el título', 'error'); return; }
+
+  const categorias = (document.getElementById('prom-categorias').value || '')
+    .split(',').map(s => s.trim()).filter(Boolean);
+
+  const editId = document.getElementById('prom-edit-id').value;
+  // Namespace propio para que nunca choque con lo que escribe promobot.js
+  // (que usa "<CASA>_<idDeLaCasa>") — si algún día esa casa se automatiza,
+  // los ids no se pisan entre sí.
+  const id = editId || ('MANUAL_' + casa.replace(/[^A-Za-z0-9]/g,'_') + '_' + Date.now());
+
+  const data = {
+    casa, titulo,
+    badge: (document.getElementById('prom-badge').value || '').trim(),
+    subtitulo: (document.getElementById('prom-subtitulo').value || '').trim(),
+    categorias,
+    url: (document.getElementById('prom-url').value || '').trim(),
+    fuente: 'manual',
+    vigente: true,
+    cargadaPor: auth.currentUser?.email || 'admin'
+  };
+  if (!editId) data.detectadaEn = firebase.firestore.FieldValue.serverTimestamp();
+
+  try {
+    await db.collection('patriarca_promociones').doc(id).set(data, { merge: true });
+    toast('✅ Promoción guardada', 'success');
+    promCerrarForm();
+    await initPromosAdmin();
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+async function promToggleVigente(id, vigente){
+  try {
+    await db.collection('patriarca_promociones').doc(id).set({ vigente }, { merge: true });
+    const p = _promAdminCache.find(x => x.id === id);
+    if (p) p.vigente = vigente;
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+async function promEliminar(id){
+  if (!confirm('¿Eliminar esta promoción cargada a mano?')) return;
+  try {
+    await db.collection('patriarca_promociones').doc(id).delete();
+    toast('🗑 Eliminada', 'success');
+    await initPromosAdmin();
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
 
 async function tbAdminGuardar(){

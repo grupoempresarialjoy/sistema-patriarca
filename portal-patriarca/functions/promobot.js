@@ -13,14 +13,22 @@
 // Devuelve JSON con cada promoción (id, name, badge, title, subtitle,
 // categorías). No hace falta ni sesión ni parsear HTML.
 //
-// WPLAY: su sección de Promociones vive en www.wplay.co (no en
-// apuestas.wplay.co, que es de donde casas.js ya lee cuotas sin problema).
-// www.wplay.co está detrás de un reto de Cloudflare que bloqueó incluso una
-// visita normal de navegador — un fetch de servidor probablemente también
-// quede bloqueado. Por ahora WPLAY se deja fuera de la captura automática;
-// sus promociones se cargan a mano desde el panel de administración. Si más
-// adelante aparece una forma confiable de leerla (API propia, app móvil con
-// menos protección...), se agrega aquí igual que Rushbet.
+// YA JUEGOS: mismo hallazgo, subdominio aparte (promociones.yajuego.co) con
+// su propio feed JSON público:
+//   GET https://promociones.yajuego.co/promotions/feapi/JsObjectAjax
+// Devuelve cada promo con P_ID, P_TITLE, P_DESCRIPTION, P_CTA_LINK_DESKTOP.
+//
+// Casas revisadas y descartadas por ahora:
+//   · WPLAY: su Promociones vive en www.wplay.co (no en apuestas.wplay.co,
+//     de donde casas.js ya lee cuotas sin problema). www.wplay.co está detrás
+//     de un reto de Cloudflare que bloqueó incluso una visita normal de
+//     navegador.
+//   · BET PLAY: tiene una API (apicms.betplay.com.co/api/v3/promotions) pero
+//     exige un token de autorización — no es contenido abierto, así que no
+//     se usa.
+// Sus promociones se cargan a mano desde el panel de administración. Si
+// alguna consigue una vía pública más adelante, se agrega aquí igual que
+// Rushbet o Ya Juegos.
 // ════════════════════════════════════════════════════════════════════════════
 
 const admin = require('firebase-admin');
@@ -70,10 +78,41 @@ async function leerRushbetPromos() {
   return out;
 }
 
+// ── YA JUEGOS ────────────────────────────────────────────────────────────
+// Mismo hallazgo que Rushbet: su propio sitio de promociones (subdominio
+// aparte) pinta las tarjetas con un feed JSON público, sin sesión:
+//   GET https://promociones.yajuego.co/promotions/feapi/JsObjectAjax
+// Referer copiado del mismo criterio que ya usa leerYaJuegos() en casas.js
+// para las cuotas — por si el servidor lo exige aunque en la prueba a mano
+// respondió igual sin él.
+async function leerYaJuegosPromos() {
+  const url = 'https://promociones.yajuego.co/promotions/feapi/JsObjectAjax';
+  const j = await traerJSON(url, { headers: { 'Referer': 'https://promociones.yajuego.co/' } });
+  if (j.R !== 'OK') throw new Error('respuesta ' + j.R);
+  const promos = (j.D && j.D.promotions && j.D.promotions.promos) || [];
+  const out = [];
+  promos.forEach(p => {
+    const titulo = (p.P_TITLE || '').trim();
+    if (!titulo || p.P_ID == null) return;
+    out.push({
+      casa: 'YA JUEGOS',
+      promoId: 'YAJUEGOS_' + p.P_ID,
+      codigo: String(p.P_ID),
+      titulo,
+      subtitulo: (p.P_DESCRIPTION || '').trim(),
+      badge: (p.P_CTA_TEXT || '').trim(),
+      categorias: [],
+      url: p.P_CTA_LINK_DESKTOP || 'https://promociones.yajuego.co'
+    });
+  });
+  return out;
+}
+
 // ── Lista de lectores activos. Agregar una casa nueva = agregar una entrada
 // aquí, siempre que devuelva la misma forma de objeto. ─────────────────────
 const LECTORES = [
-  { casa: 'RUSHBET', fn: leerRushbetPromos }
+  { casa: 'RUSHBET',   fn: leerRushbetPromos },
+  { casa: 'YA JUEGOS', fn: leerYaJuegosPromos }
 ];
 
 function idDoc(p) {

@@ -7271,8 +7271,13 @@ function _esfRenderTabla(esfMap, mes) {
   const ops = Object.values(esfMap).sort((a,b) => (a.nombre||'').localeCompare(b.nombre||''));
   if (!ops.length) return `<div class="empty"><div class="empty-icon">📋</div><p>No hay ESF para <strong>${mes}</strong>.</p></div>`;
 
-  // Primer nombre de cada operador para el header
-  const firstName = n => (n||'').split(' ')[0];
+  // Nombre completo del operador para el header, en dos líneas (nombre / apellido)
+  // para no ensanchar cada columna — antes se cortaba al primer nombre solo.
+  const firstName = n => {
+    const partes = (n||'').trim().split(/\s+/).filter(Boolean);
+    if (partes.length <= 1) return partes[0] || '—';
+    return `${partes[0]}<br>${partes.slice(1).join(' ')}`;
+  };
 
   // Recolectar todos los métodos de cajas únicos
   const allMets = [];

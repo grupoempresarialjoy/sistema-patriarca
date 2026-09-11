@@ -133,6 +133,14 @@ service cloud.firestore {
       }
     }
 
+    // Promociones detectadas por casa (Promobot): igual criterio que el canal
+    // de Trixi Bot — todo el que tenga sesión las lee, pero solo la vigilancia
+    // automática (SDK de administrador) o el propio administrador las escriben.
+    match /patriarca_promociones/{id} {
+      allow read:  if request.auth != null;
+      allow write: if esAdmin();
+    }
+
     // ── ESTADO DEL BOT ────────────────────────────────────────────────────
     // Acá vive, entre otras cosas, la tabla de rendimiento: el resultado de
     // analizar 113.155 apuestas. Antes estaba escrita en el portal y cualquiera

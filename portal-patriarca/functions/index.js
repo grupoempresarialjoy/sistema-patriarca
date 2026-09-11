@@ -23,6 +23,7 @@ const { archivar } = require('./chat');
 const { analizarCombinadas, calcularTablaRendimiento } = require('./analisis');
 const { vigilarTrixiBot } = require('./trixibot');
 const { vigilarCuadre } = require('./cuadre');
+const { vigilarPromociones } = require('./promobot');
 const { alMensajeUsuario, alTrixiNuevo } = require('./notificaciones');
 
 admin.initializeApp();
@@ -845,6 +846,22 @@ exports.vigilarCuadreDiario = onSchedule(
 // Para dispararla a mano y ver el resultado
 exports.vigilarCuadreAhora = onRequest(async (req, res) => {
   try { res.json(await vigilarCuadre(db)); }
+  catch (e) { res.status(500).json({ ok: false, error: String(e && e.message || e) }); }
+});
+
+// ── Radar de promociones por casa ────────────────────────────────────────
+// Cada 30 minutos en horario despierto: las promociones no cambian con la
+// urgencia de una cuota en vivo, así que no hace falta la frecuencia del
+// captador de partidos. Ver functions/promobot.js.
+exports.vigilarPromos = onSchedule(
+  { schedule: '*/30 6-23 * * *', timeZone: 'America/Bogota' },
+  async () => { const r = await vigilarPromociones(db); console.log('vigilarPromos', JSON.stringify(r)); }
+);
+
+// Para dispararla a mano y ver el resultado
+exports.vigilarPromosAhora = onRequest(async (req, res) => {
+  res.set('Access-Control-Allow-Origin', '*');
+  try { res.json(await vigilarPromociones(db)); }
   catch (e) { res.status(500).json({ ok: false, error: String(e && e.message || e) }); }
 });
 

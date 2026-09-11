@@ -6700,6 +6700,13 @@ function _esfRenderVista() {
   // Enriquecer con productividad y snapshots
   Object.values(esfMap).forEach(r => {
     r.mes = r.mes || mes;
+    // El ESF guarda el nombre tal como lo trae Firebase Auth (displayName del
+    // operador) — si el operador nunca puso uno, ahí quedó guardado su correo, y
+    // esta tabla lo mostraba tal cual aunque el admin ya le haya puesto un nombre
+    // real en Usuarios. _esfOpsAllOps ya trae ese nombre bueno (admin_usuarios,
+    // cargado en adminESFAll) — mismo cruce que ya hace ESF Consolidado en el
+    // panel del Contador para este mismo problema.
+    if (_esfOpsAllOps[r.uid]) r.nombre = _esfOpsAllOps[r.uid];
     if (_esfProdMap[r.uid]) {
       r.productividad = _esfProdMap[r.uid];
       if (_esfProdMap[r.uid].invertido_live != null) r.invertido = _esfProdMap[r.uid].invertido_live;

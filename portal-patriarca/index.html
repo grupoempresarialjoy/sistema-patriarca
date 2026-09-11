@@ -3793,11 +3793,33 @@ function _metodoFromSubcuentaOp(sub) {
 
 function _esfValG5(nombreSF) {
   const key = SF_A_ESF_G5[nombreSF];
-  if (!key) return null;
   if (key === '__clientes__')  return _sfClientesMesActual  || null;
   if (key === '__invertido__') return _sfInvertidoMesActual || null;
-  const v = _sfCajasMesActual[key];
+  // Antes: si nombreSF no era una de las ~10 cuentas hardcodeadas de SF_A_ESF_G5
+  // (que son sobre todo las de Unity), esta función devolvía null sin más — con lo
+  // que cuentas reales de otra oficina (Be Movil Master, Super Giros Maquina Golden...)
+  // nunca se reemplazaban por su valor ESF en Situación Financiera: se quedaban
+  // mostrando el saldo del libro contable en vez del ESF, y por eso no cuadraban
+  // contra ESF CONSOLIDADO. Mismo fallback que ya usa esfVal() en renderVariaciones:
+  // sin traducción explícita, se usa el propio nombre en mayúsculas (que es la
+  // misma clave con la que _renderEsfConsolidado guarda newCajas[cajaKeyDe(m)]).
+  const claveBusqueda = (key || nombreSF).toUpperCase();
+  const v = _sfCajasMesActual[claveBusqueda];
   return (v !== undefined) ? v : null;
+}
+
+// Cuentas de Grupo 5 (Efectivo Operadores) de la oficina actual — Unity usa el
+// catálogo fijo CUENTAS_CAT, cualquier otra oficina usa su propio catálogo real
+// (customCuentas). Se usa en Situación Financiera para no depender solo de
+// SF_A_ESF_G5 (Unity-céntrico) al recorrer las cuentas de Grupo 5.
+function _grupo5CuentasOficina() {
+  const oficina = (typeof _catOficinaActual !== 'undefined' ? _catOficinaActual : null)
+    ?? (typeof _contOficinaActual !== 'undefined' ? _contOficinaActual : null);
+  const esUnity = oficina === _oficinaIdPorNombre(/unity/i);
+  const arr = esUnity
+    ? (CUENTAS_CAT.ACTIVOS['5 · Efectivo Operadores'] || [])
+    : customCuentas.filter(c => c.tipo === 'ACTIVOS' && c.grupo === '5 · Efectivo Operadores').map(c => c.subcuenta);
+  return [...new Set(['Saldo Clientes', 'Invertido - Mes Actual', ...arr])];
 }
 
 function toggleEsfExcluido(uid) {
@@ -6183,7 +6205,7 @@ function renderSituacionFinanciera() {
     // El saldo del libro se reemplaza por el del ESF. Si el mes ya está cerrado
     // ambos coinciden y el delta es cero; si no, la diferencia es lo que falta registrar.
     let totalA_g5Delta = 0;
-    Object.entries(SF_A_ESF_G5).forEach(([nombreSF]) => {
+    _grupo5CuentasOficina().forEach(nombreSF => {
       const esfV = _esfValG5(nombreSF);
       if (esfV === null) return;
       const reg = saldos[nombreSF]?.saldo || 0;
@@ -6308,7 +6330,7 @@ function renderSituacionFinanciera() {
     // Grupo 5: agregar cuentas ESF sin movimiento registrado
     if (esEfect && esfActivo) {
       const yaEnFilas = new Set(filas.map(f => f.sub));
-      Object.entries(SF_A_ESF_G5).forEach(([nombreSF]) => {
+      _grupo5CuentasOficina().forEach(nombreSF => {
         if (yaEnFilas.has(nombreSF)) return;
         const esfV = _esfValG5(nombreSF);
         if (esfV !== null && esfV !== 0)

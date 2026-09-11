@@ -259,7 +259,7 @@ select option { background: var(--bg3); }
     <div class="tab" onclick="showTab('saldos')">💰 Saldos</div>
     <div class="tab" onclick="showTab('productividad')">📈 Productividad</div>
     <div class="tab" id="tab-trixi" onclick="showTab('trixibot')">🧮 Trixi</div>
-    <div class="tab" id="tab-promos" onclick="showTab('promociones')" style="position:relative">🎁 Promos<span id="promos-badge" style="display:none;position:absolute;top:2px;right:2px;background:var(--red,#ef4444);color:#fff;font-size:10px;font-weight:800;border-radius:10px;min-width:16px;height:16px;line-height:16px;text-align:center;padding:0 4px"></span></div>
+    <div class="tab" id="tab-promos" onclick="showTab('promociones')" style="display:none;position:relative">🎁 Promos<span id="promos-badge" style="display:none;position:absolute;top:2px;right:2px;background:var(--red,#ef4444);color:#fff;font-size:10px;font-weight:800;border-radius:10px;min-width:16px;height:16px;line-height:16px;text-align:center;padding:0 4px"></span></div>
     <div class="tab" id="tab-combinadas" style="display:none" onclick="showTab('combinadas')">🎰 Combinadas</div>
     <div class="tab" onclick="showTab('esf')">📋 ESF</div>
     <div class="tab" onclick="showTab('gastos')">💳 Gastos</div>
@@ -2840,8 +2840,7 @@ auth.onAuthStateChanged(async user => {
     loadActiveOperators();
     subscribeIncoming();
     _suscribirMesCerrado(); // verificar si el mes activo está cerrado
-    tbInit(); // Trixi Bot — muestra la pestaña solo si el admin la habilitó
-    promosInit(); // Radar de promociones — badge + escucha en vivo
+    tbInit(); // Trixi Bot — muestra la pestaña solo si el admin la habilitó (también arranca promosInit si Promos está habilitado)
     auditoriaEscucharOperador();
     cuadreEscucharOperador();
     avisoDiaEscuchar();
@@ -11144,6 +11143,7 @@ let _cpCfg      = { activo:false, detalle:false, compartir:false };
 // administrador por persona (dueños como Ronaldo o Vanlly, típicamente) —
 // apagado por defecto, igual que el resto de permisos de este archivo.
 let _chCfg      = { transmitir:false };
+let _promosCfg  = { activo:false };
 function chPuedeTransmitir(){ return !!(_chCfg && _chCfg.transmitir); }
 // Con "detalle" se ven probabilidades y porcentajes. Sin él, solo la etiqueta:
 // al operador el número crudo lo desanima y no le cambia la decisión.
@@ -11201,6 +11201,7 @@ async function tbInit(){
     _tbCfg = (s.exists && s.data().trixibot) || { activo:false, plan:'basico', limiteDiario:1, mercados:['1X2'] };
     _cpCfg = (s.exists && s.data().combinadas) || { activo:false, detalle:false, compartir:false };
     _chCfg = (s.exists && s.data().chat) || { transmitir:false };
+    _promosCfg = (s.exists && s.data().promociones) || { activo:false };
   } catch(_) {}
   // Combinadas Pro es un módulo aparte: si el administrador no lo habilitó,
   // la pestaña ni siquiera existe para el operador.
@@ -11210,6 +11211,11 @@ async function tbInit(){
   // Lo que se habilita o no es la sub-pestaña del buscador.
   const sub = document.getElementById('tx-subtab-bot');
   if (sub) sub.style.display = _tbCfg.activo ? '' : 'none';
+  // Promociones: igual que Combinadas Pro, la pestaña completa depende de que
+  // el administrador la haya habilitado para esta persona.
+  const tabP = document.getElementById('tab-promos');
+  if (tabP) tabP.style.display = _promosCfg.activo ? '' : 'none';
+  if (_promosCfg.activo) promosInit();
 }
 
 // Alterna entre el buscador y la calculadora dentro de la pestaña Trixi

@@ -851,7 +851,9 @@ select option{background:var(--bg3)}
         cupones pero no puede sacarlos del ecosistema.<br>
         <b style="color:var(--gold)">📢 Transmitir:</b> deja que esa persona envíe un cupón o cuota como
         anuncio a TODOS los operadores a la vez (no a los cajeros). Es para dueños u otras personas de
-        confianza — el anuncio siempre se puede cerrar, no bloquea la pantalla como un anuncio importante.
+        confianza — el anuncio siempre se puede cerrar, no bloquea la pantalla como un anuncio importante.<br>
+        <b style="color:var(--gold)">🎁 Promos:</b> muestra u oculta por completo la pestaña Promociones en
+        su portal. Apagado por defecto, igual que Combinadas Pro.
       </div>
 
       <style>
@@ -887,9 +889,10 @@ select option{background:var(--bg3)}
             <th>Mercados habilitados</th>
             <th style="text-align:center">Combinadas<br><span style="font-size:9px;font-weight:400;color:var(--text2)">PRO</span></th>
             <th style="text-align:center">📢 Transmitir</th>
+            <th style="text-align:center">🎁 Promos</th>
             <th style="text-align:right">Uso hoy</th>
           </tr></thead>
-          <tbody id="tb-admin-body"><tr><td colspan="8" style="text-align:center;color:var(--text2);padding:20px">Cargando…</td></tr></tbody>
+          <tbody id="tb-admin-body"><tr><td colspan="9" style="text-align:center;color:var(--text2);padding:20px">Cargando…</td></tr></tbody>
         </table>
       </div>
 
@@ -10297,13 +10300,15 @@ async function initTrixiBot(){
     await Promise.all(_tbAdminOps.map(async op => {
       try {
         const c = await db.collection('patriarca_config').doc(op.uid).get();
-        op.cfg  = (c.exists && c.data().trixibot)   || { activo:false, plan:'basico', limiteDiario:1 };
-        op.comb = (c.exists && c.data().combinadas) || { activo:false, detalle:false, compartir:false };
-        op.chat = (c.exists && c.data().chat)       || { transmitir:false };
+        op.cfg    = (c.exists && c.data().trixibot)     || { activo:false, plan:'basico', limiteDiario:1 };
+        op.comb   = (c.exists && c.data().combinadas)   || { activo:false, detalle:false, compartir:false };
+        op.chat   = (c.exists && c.data().chat)         || { transmitir:false };
+        op.promos = (c.exists && c.data().promociones)  || { activo:false };
       } catch(_) {
         op.cfg = { activo:false, plan:'basico', limiteDiario:1 };
         op.comb = { activo:false, detalle:false, compartir:false };
         op.chat = { transmitir:false };
+        op.promos = { activo:false };
       }
       try {
         const u = await db.collection('trixibot_uso').doc(op.uid + '_' + hoy).get();
@@ -10357,6 +10362,10 @@ async function initTrixiBot(){
           <input type="checkbox" id="tba-transmitir-${op.uid}" ${op.chat?.transmitir?'checked':''}
             style="width:16px;height:16px;cursor:pointer">
         </td>
+        <td style="text-align:center">
+          <input type="checkbox" id="tba-promos-${op.uid}" ${op.promos?.activo?'checked':''}
+            style="width:16px;height:16px;cursor:pointer" title="Acceso a la pestaña Promociones">
+        </td>
         <td style="text-align:right;font-size:12px;color:${op.usoHoy?'var(--gold)':'var(--text2)'}">${op.usoHoy}</td>
       </tr>`).join('');
 
@@ -10375,7 +10384,7 @@ async function initTrixiBot(){
 
     apRefrescar();          // estado del aprendizaje, al pie de esta misma pantalla
   } catch(e){
-    body.innerHTML = `<tr><td colspan="8" style="color:var(--red);padding:20px">Error: ${e.message}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="9" style="color:var(--red);padding:20px">Error: ${e.message}</td></tr>`;
   }
 }
 
@@ -10421,6 +10430,13 @@ async function tbAdminGuardar(){
           // Enviar un anuncio a todos los operadores a la vez. Apagado por
           // defecto — solo para quien de verdad deba poder hacerlo.
           transmitir: document.getElementById('tba-transmitir-'+op.uid)?.checked || false,
+          activadoPor: auth.currentUser?.email || 'admin',
+          activadoEn:  firebase.firestore.FieldValue.serverTimestamp()
+        },
+        promociones: {
+          // Acceso a la pestaña Promociones — apagado por defecto, como
+          // Combinadas Pro: el operador no la ve hasta que se la habilitan.
+          activo: document.getElementById('tba-promos-'+op.uid)?.checked || false,
           activadoPor: auth.currentUser?.email || 'admin',
           activadoEn:  firebase.firestore.FieldValue.serverTimestamp()
         }

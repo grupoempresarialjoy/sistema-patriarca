@@ -3292,6 +3292,8 @@ let _auditoriaAlertas = [];
 let _carteraRiesgoListener = null;
 let _carteraRiesgo = [];
 let _audalVista = 'activas';
+let _audalDetalleId = null;          // id de la alerta abierta ahora mismo (o null)
+let _audalDetalleCache = {};         // id -> { filas, error } — para no repetir la consulta al cerrar/abrir
 
 function initAuditoriaAlertas() {
   // Selector de mes: por defecto el mes actual, pero la plata estancada
@@ -3407,12 +3409,14 @@ function renderAuditoriaAlertas() {
           <th>Saldo</th><th>Días sin invertir</th><th>Última recarga</th>
         </tr></thead>
         <tbody>
-          ${alertasFiltradas.map((a, i) => `
-            <tr style="${a.urgente ? 'background:rgba(224,80,80,.16)' : a.esNueva ? 'background:rgba(224,80,80,.08)' : ''}">
+          ${alertasFiltradas.map((a, i) => {
+            const abierto = _audalDetalleId === a.id;
+            const fila = `
+            <tr style="cursor:pointer;${a.urgente ? 'background:rgba(224,80,80,.16)' : a.esNueva ? 'background:rgba(224,80,80,.08)' : ''}" onclick="toggleAuditoriaDetalle('${a.id}')">
               <td>${i + 1}</td>
               <td>${a.operadorNombre || '—'}</td>
               <td>${a.oficinaNombre || '—'}</td>
-              <td style="font-weight:600">${a.clienteNombre || '—'}
+              <td style="font-weight:600">${abierto ? '▾' : '▸'} ${a.clienteNombre || '—'}
                 ${a.urgente ? ' <span class="badge badge-red" style="font-size:9px">🔴 URGENTE</span>' : ''}
                 ${a.esNueva ? ' <span class="badge badge-red" style="font-size:9px">NUEVA</span>' : ''}
               </td>
@@ -3421,6 +3425,77 @@ function renderAuditoriaAlertas() {
               <td style="font-weight:700;color:var(--red)">${peso(a.saldo)}</td>
               <td>${a.diasSinInvertir || 0} día(s)</td>
               <td style="font-size:12px">${a.ultimaRecarga || '—'}</td>
+            </tr>`;
+            return fila + (abierto ? `<tr><td colspan="9" style="padding:0">${_audalDetalleHtml(a)}</td></tr>` : '');
+          }).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+// Clic en una fila: abre/cierra el desglose de movimientos e inversiones que
+// arman ese saldo — útil sobre todo cuando la alerta trae varios métodos
+// mezclados y no queda claro de dónde salió cada parte.
+async function toggleAuditoriaDetalle(id) {
+  if (_audalDetalleId === id) { _audalDetalleId = null; renderAuditoriaAlertas(); return; }
+  _audalDetalleId = id;
+  renderAuditoriaAlertas(); // pinta primero el "Cargando…"
+  if (_audalDetalleCache[id]) return; // ya se había consultado antes
+  const a = _auditoriaAlertas.find(x => x.id === id);
+  if (!a) return;
+  try {
+    const campo = a.clienteId ? 'cliente_id' : 'cliente';
+    const valor = a.clienteId || a.clienteNombre;
+    const [movsSnap, invsSnap] = await Promise.all([
+      db.collection('patriarca_movimientos').where(campo, '==', valor).where('casa', '==', a.casa).get(),
+      db.collection('patriarca_inversiones').where(campo, '==', valor).where('casa', '==', a.casa).get(),
+    ]);
+    const filas = [];
+    movsSnap.forEach(d => {
+      const m = d.data();
+      if (m.tipo !== 'RECARGAS' && m.tipo !== 'PAGOS') return;
+      const monto = parseFloat(m.monto) || 0;
+      filas.push({ fecha: m.fecha || '', tipo: m.tipo === 'RECARGAS' ? 'Recarga' : 'Pago', metodo: m.metodo || '—', efecto: m.tipo === 'RECARGAS' ? monto : -monto });
+    });
+    invsSnap.forEach(d => {
+      const inv = d.data();
+      const monto = parseFloat(inv.monto) || 0;
+      const ret = parseFloat(inv.retorno_cliente) || 0;
+      filas.push({ fecha: inv.fecha || '', tipo: 'Inversión', metodo: '—', efecto: -monto });
+      if (ret > 0) filas.push({ fecha: inv.fecha || '', tipo: 'Retorno', metodo: '—', efecto: ret });
+    });
+    filas.sort((x, y) => (x.fecha || '').localeCompare(y.fecha || ''));
+    let acumulado = 0;
+    filas.forEach(f => { acumulado += f.efecto; f.saldoAcumulado = acumulado; });
+    _audalDetalleCache[id] = { filas };
+  } catch (e) {
+    _audalDetalleCache[id] = { error: e.message };
+  }
+  renderAuditoriaAlertas();
+}
+
+function _audalDetalleHtml(a) {
+  const c = _audalDetalleCache[a.id];
+  const peso = n => (n < 0 ? '-$' : '$') + Math.abs(Math.round(n || 0)).toLocaleString('es-CO');
+  if (!c) return '<div style="padding:10px 20px;font-size:12px;color:var(--text2)">⏳ Cargando movimientos…</div>';
+  if (c.error) return `<div style="padding:10px 20px;font-size:12px;color:var(--red)">Error: ${c.error}</div>`;
+  if (!c.filas.length) return '<div style="padding:10px 20px;font-size:12px;color:var(--text2)">Sin movimientos encontrados (puede que el cliente/casa haya cambiado de nombre).</div>';
+  return `
+    <div style="padding:8px 20px 14px;background:var(--bg2)">
+      <table style="width:100%;font-size:12px">
+        <thead><tr style="color:var(--text2)">
+          <th style="text-align:left;padding:4px 8px">Fecha</th><th style="text-align:left;padding:4px 8px">Tipo</th>
+          <th style="text-align:left;padding:4px 8px">Método</th><th style="text-align:right;padding:4px 8px">Efecto</th>
+          <th style="text-align:right;padding:4px 8px">Saldo acumulado</th>
+        </tr></thead>
+        <tbody>
+          ${c.filas.map(f => `
+            <tr>
+              <td style="padding:4px 8px">${f.fecha}</td>
+              <td style="padding:4px 8px">${f.tipo}</td>
+              <td style="padding:4px 8px">${f.metodo}</td>
+              <td style="padding:4px 8px;text-align:right;color:${f.efecto < 0 ? 'var(--red)' : 'var(--green)'}">${peso(f.efecto)}</td>
+              <td style="padding:4px 8px;text-align:right;font-weight:600">${peso(f.saldoAcumulado)}</td>
             </tr>`).join('')}
         </tbody>
       </table>

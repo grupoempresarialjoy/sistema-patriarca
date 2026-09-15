@@ -3394,16 +3394,22 @@ function renderAuditoriaAlertas() {
     return;
   }
   const peso = n => '$' + Math.round(n || 0).toLocaleString('es-CO');
+  const totalUrgentes = alertasFiltradas.filter(a => a.urgente).length;
   wrap.innerHTML = `
+    <div style="padding:0 20px 12px;font-size:13px;color:var(--text2)">
+      <b style="color:var(--text)">${alertasFiltradas.length}</b> pendiente${alertasFiltradas.length === 1 ? '' : 's'} por arreglar
+      ${totalUrgentes ? ` · <b style="color:var(--red)">${totalUrgentes} urgente${totalUrgentes === 1 ? '' : 's'}</b>` : ''}
+    </div>
     <div class="tbl-wrap">
       <table>
         <thead><tr>
-          <th>Operador</th><th>Oficina</th><th>Cliente</th><th>Casa</th><th>Método(s)</th>
+          <th>#</th><th>Operador</th><th>Oficina</th><th>Cliente</th><th>Casa</th><th>Método(s)</th>
           <th>Saldo</th><th>Días sin invertir</th><th>Última recarga</th>
         </tr></thead>
         <tbody>
-          ${alertasFiltradas.map(a => `
+          ${alertasFiltradas.map((a, i) => `
             <tr style="${a.urgente ? 'background:rgba(224,80,80,.16)' : a.esNueva ? 'background:rgba(224,80,80,.08)' : ''}">
+              <td>${i + 1}</td>
               <td>${a.operadorNombre || '—'}</td>
               <td>${a.oficinaNombre || '—'}</td>
               <td style="font-weight:600">${a.clienteNombre || '—'}

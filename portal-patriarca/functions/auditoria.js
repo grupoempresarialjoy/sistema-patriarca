@@ -69,8 +69,11 @@ async function vigilarAuditoria(db) {
   const [operadores, clientesSnap, movsSnap, invsSnap] = await Promise.all([
     auMapaOperadores(db),
     db.collection('patriarca_clientes').get(),
-    db.collection('patriarca_movimientos')
-      .where('fecha', '>=', desde).where('tipo', 'in', ['RECARGAS', 'PAGOS']).get(),
+    // Sin el filtro de 'tipo' acá: combinar un rango (fecha) con un 'in'
+    // (tipo) exige un índice compuesto en Firestore. Es más simple filtrar
+    // el tipo en el código de abajo que pedirle al administrador que cree
+    // un índice a mano en la consola de Firebase.
+    db.collection('patriarca_movimientos').where('fecha', '>=', desde).get(),
     db.collection('patriarca_inversiones').where('fecha', '>=', desde).get(),
   ]);
 
@@ -96,6 +99,7 @@ async function vigilarAuditoria(db) {
 
   movsSnap.forEach(d => {
     const m = d.data();
+    if (m.tipo !== 'RECARGAS' && m.tipo !== 'PAGOS') return;
     // El cliente "Externo" (_externo_) es el cajón donde va todo lo que no se
     // asocia a una persona real — no tiene sentido auditarlo como si fuera un
     // cliente puntual, generaría solo ruido.

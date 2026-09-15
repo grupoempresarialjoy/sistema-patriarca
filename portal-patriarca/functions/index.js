@@ -843,8 +843,10 @@ exports.vigilarCuadreDiario = onSchedule(
   async () => { const r = await vigilarCuadre(db); console.log('cuadre', JSON.stringify(r)); }
 );
 
-// Para dispararla a mano y ver el resultado
+// Para dispararla a mano y ver el resultado — también la usa el botón
+// "🔄 Revisar cuadre ahora" del Panel General en admin.html.
 exports.vigilarCuadreAhora = onRequest(async (req, res) => {
+  res.set('Access-Control-Allow-Origin', '*');
   try { res.json(await vigilarCuadre(db)); }
   catch (e) { res.status(500).json({ ok: false, error: String(e && e.message || e) }); }
 });

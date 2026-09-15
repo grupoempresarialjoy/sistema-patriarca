@@ -118,17 +118,23 @@ async function vigilarCuadre(db) {
     // acumulado (pudo inflarse antes de este arreglo) se arranca de nuevo en 1.
     const yaRevisadoHoy = previo.ultimaRevisionDia === hoy;
 
+    // Resolver a 'ok' SIEMPRE puede pasar de inmediato, así ya se haya revisado
+    // hoy — no tiene sentido dejar bloqueado a un cajero que ya cuadró solo
+    // porque la corrida de las 7am ya pasó por su oficina. El guard de
+    // "yaRevisadoHoy" solo protege contra sumar dos veces un día de atraso si
+    // la función corre más de una vez el mismo día (cron + botón manual, por
+    // ejemplo) — nunca debe impedir el desbloqueo.
     let estado, diasAtraso;
-    if (yaRevisadoHoy) {
+    if (pendientes === 0) {
+      diasAtraso = 0;
+      estado = 'ok';
+    } else if (yaRevisadoHoy) {
       estado = previo.estado || 'ok';
       diasAtraso = previo.diasAtraso || 0;
-    } else if (pendientes > 0) {
+    } else {
       const base = previo.ultimaRevisionDia ? (previo.diasAtraso || 0) : 0;
       diasAtraso = base + 1;
       estado = diasAtraso >= 2 ? 'bloqueado' : 'advertencia';
-    } else {
-      diasAtraso = 0;
-      estado = 'ok';
     }
 
     const datos = {

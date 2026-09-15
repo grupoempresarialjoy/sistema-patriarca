@@ -3161,7 +3161,10 @@ function renderCuadrePanel() {
   };
   const etiquetas = { bloqueado: '🔴 Bloqueado', advertencia: '🟡 Advertencia', ok: '🟢 Al día' };
   cont.innerHTML = `
-    <div style="font-weight:700;font-size:14px;color:var(--text);margin-bottom:10px">🗓️ Estado de Cuadre por Oficina</div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+      <div style="font-weight:700;font-size:14px;color:var(--text)">🗓️ Estado de Cuadre por Oficina</div>
+      <button onclick="cuadreRevisarAhora()" id="cuadre-revisar-btn" title="Vuelve a contar los pendientes reales de cada oficina ahora mismo — si ya no quedan, la oficina se desbloquea sola. No hace falta esperar a mañana ni forzar el desbloqueo manual." style="font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:6px;border:1px solid var(--border);background:none;color:var(--text2);cursor:pointer">🔄 Revisar cuadre ahora</button>
+    </div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px">
       ${lista.map(o => {
         const [color, bg] = colores[o.estado] || colores.ok;
@@ -3187,6 +3190,31 @@ function renderCuadrePanel() {
 async function cuadreToggleDetalle(oficina) {
   _cuadreAbierta = _cuadreAbierta === oficina ? null : oficina;
   renderCuadrePanel();
+}
+
+// Antes, cuando un cajero resolvía sus pendientes a mitad de día, seguía
+// bloqueado hasta la revisión automática de las 7am del día siguiente —
+// patriarca_cuadre_estado solo se recalculaba una vez al día. El admin veía
+// "0 pendientes" en el detalle (esa consulta sí es en vivo) pero la tarjeta y
+// el propio cajero seguían leyendo la foto vieja. Este botón dispara la misma
+// revisión ahora mismo — si de verdad ya no quedan pendientes, la oficina se
+// desbloquea sola (ver functions/cuadre.js, ya no espera al día siguiente
+// para resolver a 'ok').
+async function cuadreRevisarAhora() {
+  const btn = document.getElementById('cuadre-revisar-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Revisando…'; }
+  try {
+    const r = await fetch('https://us-central1-portal-patriarca-aj16.cloudfunctions.net/vigilarCuadreAhora');
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+    toast(`✅ Cuadre revisado · ${j.revisadas} oficina(s)`, 'success');
+    // patriarca_cuadre_estado tiene un listener (escucharCuadreDashboard) que
+    // ya actualiza la tarjeta solo al escribirse — no hace falta releer aquí.
+  } catch (e) {
+    toast('❌ Error al revisar: ' + e.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🔄 Revisar cuadre ahora'; }
+  }
 }
 
 // Desbloqueo manual: para casos de excepción (el administrador decide dejar

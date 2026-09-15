@@ -3168,8 +3168,13 @@ function renderCuadrePanel() {
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px">
       ${lista.map(o => {
         const [color, bg] = colores[o.estado] || colores.ok;
-        const clic = o.estado !== 'ok' ? ` onclick="cuadreToggleDetalle('${o.oficina}')"` : '';
-        const cursor = o.estado !== 'ok' ? 'cursor:pointer' : '';
+        // El detalle se puede abrir con solo que haya pendientes > 0, aunque el
+        // estado ya diga 'ok' — puede pasar que algo quedó pendiente DESPUÉS de
+        // la última revisión del día (el bloqueo no se reactiva hasta mañana,
+        // pero el pendiente sigue ahí y el admin necesita poder verlo).
+        const tienePendientes = (o.pendientes || 0) > 0;
+        const clic = tienePendientes ? ` onclick="cuadreToggleDetalle('${o.oficina}')"` : '';
+        const cursor = tienePendientes ? 'cursor:pointer' : '';
         const activa = _cuadreAbierta === o.oficina ? `;box-shadow:0 0 0 2px ${color}` : '';
         const boton = o.estado !== 'ok'
           ? `<button onclick="event.stopPropagation();cuadreDesbloquear('${o.oficina}')" style="margin-top:7px;font-size:10.5px;font-weight:700;padding:4px 10px;border-radius:6px;border:1px solid ${color};background:none;color:${color};cursor:pointer">🔓 Desbloquear manual</button>`

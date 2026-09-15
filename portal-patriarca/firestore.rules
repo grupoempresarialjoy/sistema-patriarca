@@ -195,6 +195,16 @@ service cloud.firestore {
       allow write: if esAdmin();
     }
 
+    // Cartera en riesgo: lista curada a mano por el administrador con casos
+    // de plata que ya se sabe que no se puede recuperar (o está en duda),
+    // para llevar el seguimiento de la gestión de cobro. No la escribe
+    // ninguna función automática — es 100% manual, por eso no tiene su
+    // propio archivo en functions/. Misma privacidad que las alertas.
+    match /patriarca_cartera_riesgo/{id} {
+      allow read:  if esAdmin();
+      allow write: if esAdmin();
+    }
+
     // ── TOKENS DE NOTIFICACIONES PUSH (App AJ1.6) ─────────────────────────
     // Un doc por administrador, con id == su propio uid — solo él puede
     // escribir el suyo. Nadie lo lee desde el cliente: quien manda los push
@@ -229,6 +239,7 @@ service cloud.firestore {
                      'patriarca_chat_archivo',
                      'patriarca_auditoria_alertas',
                      'patriarca_chat_auditoria',
+                     'patriarca_cartera_riesgo',
                      'admin_fcm_tokens',
                      'admin_webpush_subs']);
 
@@ -245,6 +256,7 @@ service cloud.firestore {
                      'patriarca_cuadre_historial',
                      'patriarca_auditoria_alertas',
                      'patriarca_chat_auditoria',
+                     'patriarca_cartera_riesgo',
                      'admin_fcm_tokens',
                      'admin_webpush_subs'])
         && (esAdmin() || !auditoriaActiva() || permitidoEnAuditoria());

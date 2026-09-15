@@ -1031,11 +1031,50 @@ select option{background:var(--bg3)}
           <div class="sec-sub">Saldo recargado que no se está convirtiendo en inversión — posible dinero sin registrar bien</div>
         </div>
         <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn btn-ghost" onclick="abrirCarteraForm()">+ Agregar a cartera en riesgo</button>
           <button class="btn btn-purple" id="audal-btn-revisar" onclick="auditoriaRevisarAhora()">🔄 Revisar ahora</button>
         </div>
       </div>
+      <div style="display:flex;gap:8px;padding:14px 20px 0">
+        <button class="aud-stab active" id="audal-stab-activas" onclick="setAudalView('activas')">🚨 Alertas activas</button>
+        <button class="aud-stab" id="audal-stab-cartera" onclick="setAudalView('cartera')">📋 Cartera en riesgo</button>
+      </div>
       <div id="audal-wrap">
         <div class="empty">Cargando alertas…</div>
+      </div>
+    </div>
+
+    <!-- MODAL: agregar/editar caso de cartera en riesgo -->
+    <div class="modal-overlay" id="modal-cartera-riesgo">
+      <div class="modal">
+        <h3 id="cart-titulo">📋 Agregar a cartera en riesgo</h3>
+        <input type="hidden" id="cart-id">
+        <div class="form-grid">
+          <div class="form-group span2"><label>Cliente</label><input type="text" id="cart-cliente" placeholder="Nombre del cliente"/></div>
+          <div class="form-group"><label>Casa</label><input type="text" id="cart-casa" placeholder="ej: RUSHBET"/></div>
+          <div class="form-group"><label>Operador</label><input type="text" id="cart-operador" placeholder="Quién lo atendía"/></div>
+          <div class="form-group"><label>Monto estimado</label><input type="number" id="cart-monto" placeholder="0"/></div>
+          <div class="form-group"><label>Estado</label>
+            <select id="cart-estado">
+              <option value="pendiente">Pendiente por gestionar</option>
+              <option value="en_gestion">En gestión</option>
+              <option value="recuperado_parcial">Recuperado parcial</option>
+              <option value="recuperado">Recuperado</option>
+              <option value="perdida">Pérdida definitiva</option>
+            </select>
+          </div>
+          <div class="form-group"><label>Monto recuperado</label><input type="number" id="cart-monto-recuperado" placeholder="0"/></div>
+          <div class="form-group span2"><label>Motivo / cómo quedó atascado</label>
+            <textarea id="cart-motivo" rows="2" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;resize:vertical;box-sizing:border-box"></textarea>
+          </div>
+          <div class="form-group span2"><label>Notas de seguimiento</label>
+            <textarea id="cart-notas" rows="3" placeholder="ej: 12/09 hablé con el cliente, promete pagar la otra semana" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;resize:vertical;box-sizing:border-box"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-ghost" onclick="closeModal('modal-cartera-riesgo')">Cancelar</button>
+          <button class="btn btn-gold" onclick="guardarCarteraRiesgo()">Guardar</button>
+        </div>
       </div>
     </div>
 
@@ -3247,20 +3286,40 @@ async function cuadreRevisarAhora() {
 // mal manejo de dinero.
 let _auditoriaAlertasListener = null;
 let _auditoriaAlertas = [];
+let _carteraRiesgoListener = null;
+let _carteraRiesgo = [];
+let _audalVista = 'activas';
 
 function initAuditoriaAlertas() {
-  if (_auditoriaAlertasListener) return; // ya está escuchando
-  _auditoriaAlertasListener = db.collection('patriarca_auditoria_alertas')
-    .where('activa', '==', true)
-    .onSnapshot(snap => {
-      _auditoriaAlertas = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-        .sort((a, b) => (b.saldo || 0) - (a.saldo || 0));
-      renderAuditoriaAlertas();
-    }, e => {
-      console.warn('auditoria-alertas:', e.message);
-      const wrap = document.getElementById('audal-wrap');
-      if (wrap) wrap.innerHTML = `<div style="color:var(--red);font-size:12px">Error: ${e.message}</div>`;
-    });
+  if (!_auditoriaAlertasListener) {
+    _auditoriaAlertasListener = db.collection('patriarca_auditoria_alertas')
+      .where('activa', '==', true)
+      .onSnapshot(snap => {
+        _auditoriaAlertas = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => (b.urgente === a.urgente ? 0 : a.urgente ? -1 : 1) || (b.saldo || 0) - (a.saldo || 0));
+        if (_audalVista === 'activas') renderAuditoriaAlertas();
+      }, e => {
+        console.warn('auditoria-alertas:', e.message);
+        const wrap = document.getElementById('audal-wrap');
+        if (wrap) wrap.innerHTML = `<div style="color:var(--red);font-size:12px">Error: ${e.message}</div>`;
+      });
+  }
+  if (!_carteraRiesgoListener) {
+    _carteraRiesgoListener = db.collection('patriarca_cartera_riesgo')
+      .onSnapshot(snap => {
+        _carteraRiesgo = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => (b.creadoEn?.toMillis?.() || 0) - (a.creadoEn?.toMillis?.() || 0));
+        if (_audalVista === 'cartera') renderCarteraRiesgo();
+      }, e => console.warn('cartera-riesgo:', e.message));
+  }
+  renderAuditoriaAlertas();
+}
+
+function setAudalView(v) {
+  _audalVista = v;
+  document.getElementById('audal-stab-activas').classList.toggle('active', v === 'activas');
+  document.getElementById('audal-stab-cartera').classList.toggle('active', v === 'cartera');
+  if (v === 'activas') renderAuditoriaAlertas(); else renderCarteraRiesgo();
 }
 
 function renderAuditoriaAlertas() {
@@ -3280,16 +3339,116 @@ function renderAuditoriaAlertas() {
         </tr></thead>
         <tbody>
           ${_auditoriaAlertas.map(a => `
-            <tr style="${a.esNueva ? 'background:rgba(224,80,80,.08)' : ''}">
+            <tr style="${a.urgente ? 'background:rgba(224,80,80,.16)' : a.esNueva ? 'background:rgba(224,80,80,.08)' : ''}">
               <td>${a.operadorNombre || '—'}</td>
               <td>${a.oficinaNombre || '—'}</td>
-              <td style="font-weight:600">${a.clienteNombre || '—'}${a.esNueva ? ' <span class="badge badge-red" style="font-size:9px">NUEVA</span>' : ''}</td>
+              <td style="font-weight:600">${a.clienteNombre || '—'}
+                ${a.urgente ? ' <span class="badge badge-red" style="font-size:9px">🔴 URGENTE</span>' : ''}
+                ${a.esNueva ? ' <span class="badge badge-red" style="font-size:9px">NUEVA</span>' : ''}
+              </td>
               <td>${a.casa || '—'}</td>
               <td style="font-size:12px">${(a.metodos || []).join(', ') || '—'}</td>
               <td style="font-weight:700;color:var(--red)">${peso(a.saldo)}</td>
               <td>${a.diasSinInvertir || 0} día(s)</td>
               <td style="font-size:12px">${a.ultimaRecarga || '—'}</td>
             </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+// ── CARTERA EN RIESGO (manual) ──────────────────────────────────────────────
+// Casos que ya se sabe que la plata no se pudo recuperar (o está en duda),
+// cargados a mano por el administrador — el sistema no los detecta solo, y
+// no todos vienen de una alerta automática (varios son de antes de que esto
+// existiera). Sirve para llevar el seguimiento de la gestión de cobro.
+const CART_ESTADOS = {
+  pendiente: { label: 'Pendiente por gestionar', color: 'gray' },
+  en_gestion: { label: 'En gestión', color: 'orange' },
+  recuperado_parcial: { label: 'Recuperado parcial', color: 'blue' },
+  recuperado: { label: 'Recuperado', color: 'green' },
+  perdida: { label: 'Pérdida definitiva', color: 'red' },
+};
+
+function abrirCarteraForm(id) {
+  const c = id ? _carteraRiesgo.find(x => x.id === id) : null;
+  document.getElementById('cart-titulo').textContent = c ? '📋 Editar caso' : '📋 Agregar a cartera en riesgo';
+  document.getElementById('cart-id').value = c ? c.id : '';
+  document.getElementById('cart-cliente').value = c ? (c.clienteNombre || '') : '';
+  document.getElementById('cart-casa').value = c ? (c.casa || '') : '';
+  document.getElementById('cart-operador').value = c ? (c.operadorNombre || '') : '';
+  document.getElementById('cart-monto').value = c ? (c.montoEstimado || '') : '';
+  document.getElementById('cart-estado').value = c ? (c.estado || 'pendiente') : 'pendiente';
+  document.getElementById('cart-monto-recuperado').value = c ? (c.montoRecuperado || '') : '';
+  document.getElementById('cart-motivo').value = c ? (c.motivo || '') : '';
+  document.getElementById('cart-notas').value = c ? (c.notas || '') : '';
+  openModal('modal-cartera-riesgo');
+}
+
+async function guardarCarteraRiesgo() {
+  const id = document.getElementById('cart-id').value;
+  const clienteNombre = document.getElementById('cart-cliente').value.trim();
+  if (!clienteNombre) { toast('⚠ Ingresa el nombre del cliente', 'error'); return; }
+  const datos = {
+    clienteNombre,
+    casa: document.getElementById('cart-casa').value.trim(),
+    operadorNombre: document.getElementById('cart-operador').value.trim(),
+    montoEstimado: parseFloat(document.getElementById('cart-monto').value) || 0,
+    estado: document.getElementById('cart-estado').value,
+    montoRecuperado: parseFloat(document.getElementById('cart-monto-recuperado').value) || 0,
+    motivo: document.getElementById('cart-motivo').value.trim(),
+    notas: document.getElementById('cart-notas').value.trim(),
+    actualizadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+    actualizadoPor: currentUser?.displayName || currentUser?.email || 'admin',
+  };
+  try {
+    if (id) {
+      await db.collection('patriarca_cartera_riesgo').doc(id).update(datos);
+    } else {
+      datos.creadoEn = firebase.firestore.FieldValue.serverTimestamp();
+      datos.creadoPor = datos.actualizadoPor;
+      await db.collection('patriarca_cartera_riesgo').add(datos);
+    }
+    closeModal('modal-cartera-riesgo');
+    toast('✅ Guardado', 'success');
+  } catch (e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+function renderCarteraRiesgo() {
+  const wrap = document.getElementById('audal-wrap');
+  if (!wrap) return;
+  if (!_carteraRiesgo.length) {
+    wrap.innerHTML = '<div class="empty">Sin casos cargados todavía — usa "+ Agregar a cartera en riesgo".</div>';
+    return;
+  }
+  const peso = n => '$' + Math.round(n || 0).toLocaleString('es-CO');
+  const totalPendiente = _carteraRiesgo
+    .filter(c => c.estado !== 'recuperado' && c.estado !== 'perdida')
+    .reduce((s, c) => s + ((c.montoEstimado || 0) - (c.montoRecuperado || 0)), 0);
+  wrap.innerHTML = `
+    <div style="padding:0 20px 12px;font-size:13px;color:var(--text2)">
+      Por recuperar (activos, sin contar pérdidas definitivas): <b style="color:var(--red)">${peso(totalPendiente)}</b>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr>
+          <th>Cliente</th><th>Casa</th><th>Operador</th><th>Monto estimado</th>
+          <th>Recuperado</th><th>Estado</th><th>Notas</th><th></th>
+        </tr></thead>
+        <tbody>
+          ${_carteraRiesgo.map(c => {
+            const est = CART_ESTADOS[c.estado] || CART_ESTADOS.pendiente;
+            return `<tr>
+              <td style="font-weight:600">${c.clienteNombre || '—'}</td>
+              <td>${c.casa || '—'}</td>
+              <td>${c.operadorNombre || '—'}</td>
+              <td>${peso(c.montoEstimado)}</td>
+              <td style="color:var(--green)">${peso(c.montoRecuperado)}</td>
+              <td><span class="badge badge-${est.color}">${est.label}</span></td>
+              <td style="font-size:12px;max-width:220px">${c.notas || '—'}</td>
+              <td><button class="btn-ghost btn-sm" onclick="abrirCarteraForm('${c.id}')">✏️</button></td>
+            </tr>`;
+          }).join('')}
         </tbody>
       </table>
     </div>`;

@@ -58,6 +58,10 @@ async function vigilarAuditoria(db) {
   const diasAlerta   = cfg.diasAlerta   != null ? cfg.diasAlerta   : 3;
   const saldoMinimo  = cfg.saldoMinimo  != null ? cfg.saldoMinimo  : 50000;
   const ventanaDias  = cfg.ventanaDias  != null ? cfg.ventanaDias  : 90;
+  // Un cliente con mucha plata quieta no puede esperar los mismos 3 días que
+  // uno con poca — mientras más grande el monto, más rápido hay que verlo.
+  const saldoUrgente     = cfg.saldoUrgente     != null ? cfg.saldoUrgente     : 300000;
+  const diasAlertaUrgente = cfg.diasAlertaUrgente != null ? cfg.diasAlertaUrgente : 1;
 
   const hoy   = auHoyBogota();
   const desde = auFechaBogota(-ventanaDias);
@@ -149,7 +153,9 @@ async function vigilarAuditoria(db) {
     const referencia = g.ultimaInversion || g.primeraRecarga;
     const diasSinInvertir = referencia ? auDiasEntre(referencia, hoy) : 0;
 
-    const cumpleCondicion = g.saldo >= saldoMinimo && diasSinInvertir >= diasAlerta && !bloqueado;
+    const esUrgente = g.saldo >= saldoUrgente && diasSinInvertir >= diasAlertaUrgente;
+    const esNormal  = g.saldo >= saldoMinimo  && diasSinInvertir >= diasAlerta;
+    const cumpleCondicion = (esUrgente || esNormal) && !bloqueado;
 
     const id = auSanitizarId(k);
     const ref = db.collection('patriarca_auditoria_alertas').doc(id);
@@ -165,7 +171,7 @@ async function vigilarAuditoria(db) {
         numRecargas: g.numRecargas, numPagos: g.numPagos, numInversiones: g.numInversiones,
         primeraRecarga: g.primeraRecarga, ultimaRecarga: g.ultimaRecarga,
         ultimaInversion: g.ultimaInversion || null, diasSinInvertir,
-        clienteBloqueado: bloqueado,
+        clienteBloqueado: bloqueado, urgente: esUrgente,
         activa: true, esNueva,
         actualizadaEn: admin.firestore.FieldValue.serverTimestamp(),
         ...(esNueva ? { creadaEn: admin.firestore.FieldValue.serverTimestamp() } : {}),
@@ -177,7 +183,7 @@ async function vigilarAuditoria(db) {
         nuevasDetalle.push({
           operadorNombre: op.nombre || g.opId, oficinaNombre: op.oficinaNombre || '',
           clienteNombre: g.clienteNombre, casa: g.casa, saldo: Math.round(g.saldo),
-          diasSinInvertir, metodos: [...g.metodos],
+          diasSinInvertir, metodos: [...g.metodos], urgente: esUrgente,
         });
       }
       await commitSiHaceFalta();
@@ -211,11 +217,11 @@ async function auNotificarNuevas(db, alertas) {
   let publicadas = 0;
   for (const a of alertas) {
     try {
-      const resumen = `⚠️ ${a.clienteNombre} (${a.operadorNombre}${a.oficinaNombre ? ' · ' + a.oficinaNombre : ''}) ` +
+      const resumen = `${a.urgente ? '🔴 URGENTE — ' : '⚠️ '}${a.clienteNombre} (${a.operadorNombre}${a.oficinaNombre ? ' · ' + a.oficinaNombre : ''}) ` +
         `tiene ${auPeso(a.saldo)} recargados en ${a.casa} sin invertir hace ${a.diasSinInvertir} día(s)` +
         (a.metodos.length ? ` · método(s): ${a.metodos.join(', ')}` : '');
       await db.collection('patriarca_chat_auditoria').add({
-        texto: '🔎 Auditoría: saldo de cliente sin invertir',
+        texto: a.urgente ? '🔴 Auditoría: saldo urgente sin invertir' : '🔎 Auditoría: saldo de cliente sin invertir',
         autorNombre: '🔎 Auditoría', contexto: { tipo: 'auditoriaAlerta', resumen },
         ts: admin.firestore.FieldValue.serverTimestamp(),
       });

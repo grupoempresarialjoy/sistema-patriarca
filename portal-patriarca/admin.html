@@ -1030,7 +1030,10 @@ select option{background:var(--bg3)}
           <div class="sec-title">🚨 Alertas de Clientes</div>
           <div class="sec-sub">Saldo recargado que no se está convirtiendo en inversión — posible dinero sin registrar bien</div>
         </div>
-        <div style="display:flex;gap:8px;align-items:center">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <select id="audal-sel-mes" onchange="renderAuditoriaAlertas()" style="padding:7px 10px;font-size:12px;min-width:160px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text)"></select>
+          <select id="audal-sel-oficina" onchange="audalCambioOficina()" style="padding:7px 10px;font-size:12px;min-width:150px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text)"></select>
+          <select id="audal-sel-operador" onchange="renderAuditoriaAlertas()" style="padding:7px 10px;font-size:12px;min-width:170px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text)"></select>
           <button class="btn btn-ghost" onclick="abrirCarteraForm()">+ Agregar a cartera en riesgo</button>
           <button class="btn btn-purple" id="audal-btn-revisar" onclick="auditoriaRevisarAhora()">🔄 Revisar ahora</button>
         </div>
@@ -3291,12 +3294,33 @@ let _carteraRiesgo = [];
 let _audalVista = 'activas';
 
 function initAuditoriaAlertas() {
+  // Selector de mes: por defecto el mes actual, pero la plata estancada
+  // sigue siendo real aunque el mes haya cerrado, así que la detección de
+  // fondo NO se limita por mes — esto solo filtra qué se muestra. "Todos"
+  // deja ver el histórico completo.
+  const selMes = document.getElementById('audal-sel-mes');
+  if (selMes && !selMes.options.length) {
+    const now = new Date();
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const val = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+      const lbl = d.toLocaleDateString('es-CO', { month: 'long', year: 'numeric' });
+      const opt = document.createElement('option');
+      opt.value = val; opt.textContent = (i === 0 ? '🗓 ' : '') + lbl.charAt(0).toUpperCase() + lbl.slice(1);
+      selMes.appendChild(opt);
+    }
+    const optTodos = document.createElement('option');
+    optTodos.value = 'todos'; optTodos.textContent = 'Todos los meses';
+    selMes.appendChild(optTodos);
+  }
+  audalPoblarOficinas();
+  audalPoblarOperadores();
   if (!_auditoriaAlertasListener) {
     _auditoriaAlertasListener = db.collection('patriarca_auditoria_alertas')
       .where('activa', '==', true)
       .onSnapshot(snap => {
         _auditoriaAlertas = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-          .sort((a, b) => (b.urgente === a.urgente ? 0 : a.urgente ? -1 : 1) || (b.saldo || 0) - (a.saldo || 0));
+          .sort((a, b) => (b.diasSinInvertir || 0) - (a.diasSinInvertir || 0) || (b.saldo || 0) - (a.saldo || 0));
         if (_audalVista === 'activas') renderAuditoriaAlertas();
       }, e => {
         console.warn('auditoria-alertas:', e.message);
@@ -3322,11 +3346,51 @@ function setAudalView(v) {
   if (v === 'activas') renderAuditoriaAlertas(); else renderCarteraRiesgo();
 }
 
+function audalPoblarOficinas() {
+  const sel = document.getElementById('audal-sel-oficina');
+  if (!sel) return;
+  const prev = sel.value;
+  const ofs = [...new Set((allUsers || []).filter(u => u.rol === 'operador' && u.oficinaNombre).map(u => u.oficinaNombre))].sort();
+  sel.innerHTML = '<option value="">Todas las oficinas</option>' +
+    ofs.map(o => `<option value="${o}"${o === prev ? ' selected' : ''}>${o}</option>`).join('');
+}
+
+function audalPoblarOperadores() {
+  const sel = document.getElementById('audal-sel-operador');
+  if (!sel) return;
+  const oficina = document.getElementById('audal-sel-oficina')?.value || '';
+  const prev = sel.value;
+  const ops = [...new Set((allUsers || [])
+    .filter(u => u.rol === 'operador' && u.nombre && (!oficina || u.oficinaNombre === oficina))
+    .map(u => u.nombre))].sort();
+  sel.innerHTML = '<option value="">Todos los operadores</option>' +
+    ops.map(o => `<option value="${o}"${o === prev ? ' selected' : ''}>${o}</option>`).join('');
+}
+
+function audalCambioOficina() {
+  audalPoblarOperadores();
+  renderAuditoriaAlertas();
+}
+
 function renderAuditoriaAlertas() {
   const wrap = document.getElementById('audal-wrap');
   if (!wrap) return;
-  if (!_auditoriaAlertas.length) {
-    wrap.innerHTML = '<div class="empty">✅ Sin alertas activas — ningún cliente tiene saldo recargado sin invertir por más del umbral configurado.</div>';
+  const mesSel = document.getElementById('audal-sel-mes')?.value || '';
+  const oficinaSel = document.getElementById('audal-sel-oficina')?.value || '';
+  const operadorSel = document.getElementById('audal-sel-operador')?.value || '';
+  // Se filtra por el mes de la ÚLTIMA recarga — si no tiene fecha (caso raro,
+  // el saldo vino solo de un pago/retorno sin recarga registrada), se deja
+  // ver siempre para no esconderlo por un vacío de dato.
+  const alertasFiltradas = _auditoriaAlertas.filter(a => {
+    if (mesSel && mesSel !== 'todos' && a.ultimaRecarga && !a.ultimaRecarga.startsWith(mesSel)) return false;
+    if (oficinaSel && a.oficinaNombre !== oficinaSel) return false;
+    if (operadorSel && a.operadorNombre !== operadorSel) return false;
+    return true;
+  });
+  if (!alertasFiltradas.length) {
+    wrap.innerHTML = _auditoriaAlertas.length
+      ? '<div class="empty">Sin alertas para el mes seleccionado — prueba con "Todos los meses".</div>'
+      : '<div class="empty">✅ Sin alertas activas — ningún cliente tiene saldo recargado sin invertir por más del umbral configurado.</div>';
     return;
   }
   const peso = n => '$' + Math.round(n || 0).toLocaleString('es-CO');
@@ -3338,7 +3402,7 @@ function renderAuditoriaAlertas() {
           <th>Saldo</th><th>Días sin invertir</th><th>Última recarga</th>
         </tr></thead>
         <tbody>
-          ${_auditoriaAlertas.map(a => `
+          ${alertasFiltradas.map(a => `
             <tr style="${a.urgente ? 'background:rgba(224,80,80,.16)' : a.esNueva ? 'background:rgba(224,80,80,.08)' : ''}">
               <td>${a.operadorNombre || '—'}</td>
               <td>${a.oficinaNombre || '—'}</td>

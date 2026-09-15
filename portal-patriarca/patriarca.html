@@ -790,9 +790,9 @@ select option { background: var(--bg3); }
           <table>
             <thead><tr>
               <th style="width:32px"><input type="checkbox" id="chk-cli-all" onchange="toggleSelCli(this.checked)" title="Seleccionar todos"></th>
-              <th>#</th><th>Nombre Completo</th><th>Cédula</th><th>Teléfono</th><th></th>
+              <th>#</th><th>Nombre Completo</th><th>Cédula</th><th>Teléfono</th><th>Estado</th><th></th>
             </tr></thead>
-            <tbody id="clientes-tbody"><tr><td colspan="6"><div class="empty"><div class="empty-icon">👥</div>Sin clientes</div></td></tr></tbody>
+            <tbody id="clientes-tbody"><tr><td colspan="7"><div class="empty"><div class="empty-icon">👥</div>Sin clientes</div></td></tr></tbody>
           </table>
         </div>
       </div>
@@ -2265,6 +2265,25 @@ select option { background: var(--bg3); }
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal('modal-cliente')">Cancelar</button>
       <button class="btn btn-gold" onclick="saveCliente()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL BLOQUEO DE CLIENTE (Fase 2 — Auditoría) -->
+<div class="modal-overlay" id="modal-cliente-bloqueo">
+  <div class="modal">
+    <h3 id="cb-titulo">🔒 Bloqueo de cliente</h3>
+    <input type="hidden" id="cb-cliente-id">
+    <div id="cb-info-actual" style="font-size:13px;color:var(--text2);margin-bottom:12px;display:none;line-height:1.5"></div>
+    <div class="form-grid" id="cb-form-motivo">
+      <div class="form-group span2">
+        <label>Motivo del bloqueo (obligatorio)</label>
+        <textarea id="cb-motivo" rows="3" placeholder="ej: la casa bloqueó la cuenta por verificación de identidad" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;resize:vertical;box-sizing:border-box"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-cliente-bloqueo')">Cancelar</button>
+      <button class="btn btn-gold" id="cb-btn-guardar" onclick="guardarBloqueoCliente(true)">Marcar bloqueado</button>
     </div>
   </div>
 </div>
@@ -7752,7 +7771,7 @@ async function saveCorreccion() {
 function renderClientes() {
   const tbody = document.getElementById('clientes-tbody');
   if (!allClientes.length) {
-    tbody.innerHTML='<tr><td colspan="6"><div class="empty"><div class="empty-icon">👥</div>Sin clientes</div></td></tr>';
+    tbody.innerHTML='<tr><td colspan="7"><div class="empty"><div class="empty-icon">👥</div>Sin clientes</div></td></tr>';
     return;
   }
   tbody.innerHTML = allClientes.map((c,i)=>`
@@ -7762,9 +7781,69 @@ function renderClientes() {
       <td style="font-weight:600">${c.nombre_completo}${c.esSistema ? ' <span style="font-size:10px;font-weight:400;color:var(--text2)">· del sistema</span>' : ''}</td>
       <td>${c.cedula||'—'}</td>
       <td>${c.telefono||'—'}</td>
+      <td>${c.esSistema ? '—' : `<span class="badge badge-${c.bloqueado?'red':'gray'}" style="cursor:pointer" onclick="abrirBloqueoCliente('${c.id}')" title="${c.bloqueado ? 'Ver / desbloquear' : 'Marcar como bloqueado'}">${c.bloqueado?'🔒 Bloqueado':'🔓 Activo'}</span>`}</td>
       <td>${c.esSistema ? '' : `<button class="btn-del" onclick="deleteDoc('clientes','${c.id}')">🗑</button>`}</td>
     </tr>`).join('');
   actualizarSelCli();
+}
+
+// ── Estado formal de bloqueo del cliente (Fase 2 — Auditoría) ──────────────
+// Antes "cliente bloqueado" era solo lo que el operador decía de palabra —
+// nada quedaba registrado, así que no había forma de comprobar si de verdad
+// pasó o era una excusa para que la alerta de saldo sin invertir no se note.
+// Ahora queda con fecha, motivo y quién lo marcó.
+function abrirBloqueoCliente(id) {
+  const c = allClientes.find(x => x.id === id);
+  if (!c) return;
+  document.getElementById('cb-cliente-id').value = id;
+  const titulo = document.getElementById('cb-titulo');
+  const info = document.getElementById('cb-info-actual');
+  const formMotivo = document.getElementById('cb-form-motivo');
+  const btn = document.getElementById('cb-btn-guardar');
+  document.getElementById('cb-motivo').value = '';
+  if (c.bloqueado) {
+    titulo.textContent = '🔓 ' + c.nombre_completo;
+    info.style.display = '';
+    info.innerHTML = `Bloqueado el <b>${fmtDate(c.bloqueado_fecha)}</b> por <b>${c.bloqueado_por||'—'}</b>.<br>Motivo: ${c.bloqueado_motivo||'—'}`;
+    formMotivo.style.display = 'none';
+    btn.textContent = 'Desbloquear';
+    btn.onclick = () => guardarBloqueoCliente(false);
+  } else {
+    titulo.textContent = '🔒 ' + c.nombre_completo;
+    info.style.display = 'none';
+    formMotivo.style.display = '';
+    btn.textContent = 'Marcar bloqueado';
+    btn.onclick = () => guardarBloqueoCliente(true);
+  }
+  openModal('modal-cliente-bloqueo');
+}
+
+async function guardarBloqueoCliente(activar) {
+  const id = document.getElementById('cb-cliente-id').value;
+  if (!id) return;
+  const quien = operadorNombre || currentUser?.displayName || currentUser?.email || 'operador';
+  let datos;
+  if (activar) {
+    const motivo = document.getElementById('cb-motivo').value.trim();
+    if (!motivo) { toast('⚠ Ingresa el motivo del bloqueo', 'error'); return; }
+    datos = {
+      bloqueado: true,
+      bloqueado_fecha: firebase.firestore.FieldValue.serverTimestamp(),
+      bloqueado_motivo: motivo,
+      bloqueado_por: quien,
+    };
+  } else {
+    datos = {
+      bloqueado: false,
+      desbloqueado_fecha: firebase.firestore.FieldValue.serverTimestamp(),
+      desbloqueado_por: quien,
+    };
+  }
+  try {
+    await coll('clientes').doc(id).update(datos);
+    closeModal('modal-cliente-bloqueo');
+    toast(activar ? '🔒 Cliente marcado como bloqueado' : '🔓 Cliente desbloqueado', 'success');
+  } catch(e) { toast('⚠ Error: ' + e.message, 'error'); }
 }
 
 function toggleSelCli(checked) {

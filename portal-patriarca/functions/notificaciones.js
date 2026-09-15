@@ -163,4 +163,23 @@ const alTrixiNuevo = onDocumentCreated(
   }
 );
 
-module.exports = { alMensajeUsuario, alTrixiNuevo, enviarPush, enviarWebPush, enviarNotificacion };
+// Auditoría (Fase 2) encontró un cliente con saldo recargado que no se está
+// invirtiendo — mismo canal único que ve el administrador en su panel de
+// Auditoría. A diferencia de Trixi, esto NUNCA debe llegarle a un operador.
+const alAuditoriaNueva = onDocumentCreated(
+  'patriarca_chat_auditoria/{id}',
+  async event => {
+    const doc = event.data;
+    if (!doc) return;
+    const a = doc.data();
+    const resumen = (a.contexto && a.contexto.resumen) || a.texto || 'Alerta de auditoría nueva';
+    const db = admin.firestore();
+    await enviarNotificacion(db, {
+      titulo: '🔎 Auditoría',
+      cuerpo: String(resumen).slice(0, 120),
+      datos: { tipo: 'auditoria' }
+    });
+  }
+);
+
+module.exports = { alMensajeUsuario, alTrixiNuevo, alAuditoriaNueva, enviarPush, enviarWebPush, enviarNotificacion };

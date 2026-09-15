@@ -24,7 +24,8 @@ const { analizarCombinadas, calcularTablaRendimiento } = require('./analisis');
 const { vigilarTrixiBot } = require('./trixibot');
 const { vigilarCuadre } = require('./cuadre');
 const { vigilarPromociones } = require('./promobot');
-const { alMensajeUsuario, alTrixiNuevo } = require('./notificaciones');
+const { vigilarAuditoria } = require('./auditoria');
+const { alMensajeUsuario, alTrixiNuevo, alAuditoriaNueva } = require('./notificaciones');
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -867,9 +868,25 @@ exports.vigilarPromosAhora = onRequest(async (req, res) => {
   catch (e) { res.status(500).json({ ok: false, error: String(e && e.message || e) }); }
 });
 
+// ── Auditoría (Fase 2) — saldo de cliente sin convertir en inversión ────────
+// Dos veces al día alcanza: esto es dinero que se queda quieto, no una cuota
+// que se mueve en minutos — ver functions/auditoria.js.
+exports.vigilarAuditoria = onSchedule(
+  { schedule: '0 9,18 * * *', timeZone: 'America/Bogota' },
+  async () => { const r = await vigilarAuditoria(db); console.log('vigilarAuditoria', JSON.stringify(r)); }
+);
+
+// Para dispararla a mano y ver el resultado
+exports.vigilarAuditoriaAhora = onRequest(async (req, res) => {
+  res.set('Access-Control-Allow-Origin', '*');
+  try { res.json(await vigilarAuditoria(db)); }
+  catch (e) { res.status(500).json({ ok: false, error: String(e && e.message || e) }); }
+});
+
 // ── Notificaciones push (App AJ1.6 — administradores) ───────────────────────
 // Ver functions/notificaciones.js: un mensaje nuevo de un operador/cajero, o
 // una oportunidad nueva de Trixi Bot, manda un push a todos los admins con
 // la app instalada y sesión iniciada, aunque la tengan cerrada.
-exports.notifPushMensaje = alMensajeUsuario;
-exports.notifPushTrixi   = alTrixiNuevo;
+exports.notifPushMensaje   = alMensajeUsuario;
+exports.notifPushTrixi     = alTrixiNuevo;
+exports.notifPushAuditoria = alAuditoriaNueva;

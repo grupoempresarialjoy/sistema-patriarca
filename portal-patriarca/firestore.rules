@@ -177,6 +177,24 @@ service cloud.firestore {
       allow write: if esAdmin();
     }
 
+    // ── AUDITORÍA DE CLIENTES (Fase 2) ────────────────────────────────────
+    // Ojo: distinto del "modo auditoría" (patriarca_config_global/auditoria)
+    // de más arriba, que es un candado de solo-lectura para auditorías
+    // externas. Esto es la vigilancia nueva que detecta saldo de cliente
+    // recargado y nunca invertido — dato sensible sobre posible mal manejo
+    // de dinero, así que a diferencia de casi todo lo demás en este archivo,
+    // SOLO el administrador puede leerlo. Ni el operador dueño del cliente
+    // lo ve. Lo escribe la vigilancia automática (SDK de administrador, no
+    // pasa por estas reglas).
+    match /patriarca_auditoria_alertas/{id} {
+      allow read:  if esAdmin();
+      allow write: if esAdmin();
+    }
+    match /patriarca_chat_auditoria/{id} {
+      allow read:  if esAdmin();
+      allow write: if esAdmin();
+    }
+
     // ── TOKENS DE NOTIFICACIONES PUSH (App AJ1.6) ─────────────────────────
     // Un doc por administrador, con id == su propio uid — solo él puede
     // escribir el suyo. Nadie lo lee desde el cliente: quien manda los push
@@ -209,6 +227,8 @@ service cloud.firestore {
                      'patriarca_chat_anuncios',
                      'patriarca_chat_trixi',
                      'patriarca_chat_archivo',
+                     'patriarca_auditoria_alertas',
+                     'patriarca_chat_auditoria',
                      'admin_fcm_tokens',
                      'admin_webpush_subs']);
 
@@ -223,6 +243,8 @@ service cloud.firestore {
                      'patriarca_chat_archivo',
                      'patriarca_cuadre_estado',
                      'patriarca_cuadre_historial',
+                     'patriarca_auditoria_alertas',
+                     'patriarca_chat_auditoria',
                      'admin_fcm_tokens',
                      'admin_webpush_subs'])
         && (esAdmin() || !auditoriaActiva() || permitidoEnAuditoria());

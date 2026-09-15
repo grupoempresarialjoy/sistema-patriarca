@@ -359,6 +359,7 @@ select option{background:var(--bg3)}
         <div class="navgrp-item" data-sec="cierres"      id="tab-cierres" onclick="showTab('cierres');initCierres()">📅 Cierres</div>
         <div class="navgrp-item" data-sec="trixibot"     onclick="showTab('trixibot');initTrixiBot()">🤖 Servicios</div>
         <div class="navgrp-item" data-sec="promos"       onclick="showTab('promos');initPromosAdmin()">🎁 Promociones</div>
+        <div class="navgrp-item" data-sec="auditoria-alertas" id="tab-auditoria-alertas" onclick="showTab('auditoria-alertas');initAuditoriaAlertas()">🚨 Alertas de Clientes</div>
       </div>
     </div>
 
@@ -1019,6 +1020,22 @@ select option{background:var(--bg3)}
       </div>
       <div id="aud-wrap">
         <div class="empty">Selecciona un mes para cargar el auditor.</div>
+      </div>
+    </div>
+
+    <!-- ALERTAS DE AUDITORÍA (Fase 2) — saldo de cliente sin invertir -->
+    <div class="section" id="sec-auditoria-alertas">
+      <div class="sec-header">
+        <div>
+          <div class="sec-title">🚨 Alertas de Clientes</div>
+          <div class="sec-sub">Saldo recargado que no se está convirtiendo en inversión — posible dinero sin registrar bien</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn btn-purple" id="audal-btn-revisar" onclick="auditoriaRevisarAhora()">🔄 Revisar ahora</button>
+        </div>
+      </div>
+      <div id="audal-wrap">
+        <div class="empty">Cargando alertas…</div>
       </div>
     </div>
 
@@ -3219,6 +3236,77 @@ async function cuadreRevisarAhora() {
     toast('❌ Error al revisar: ' + e.message, 'error');
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = '🔄 Revisar cuadre ahora'; }
+  }
+}
+
+// ── ALERTAS DE AUDITORÍA (Fase 2) — saldo de cliente sin invertir ──────────
+// Ver functions/auditoria.js: cruza recargas, pagos e inversiones por cliente
+// y casa; si queda saldo sin invertir por más del umbral configurado (y el
+// cliente no está marcado como bloqueado formalmente), aparece acá. Nunca lo
+// ve un operador — solo el administrador, por ser data sensible de posible
+// mal manejo de dinero.
+let _auditoriaAlertasListener = null;
+let _auditoriaAlertas = [];
+
+function initAuditoriaAlertas() {
+  if (_auditoriaAlertasListener) return; // ya está escuchando
+  _auditoriaAlertasListener = db.collection('patriarca_auditoria_alertas')
+    .where('activa', '==', true)
+    .onSnapshot(snap => {
+      _auditoriaAlertas = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => (b.saldo || 0) - (a.saldo || 0));
+      renderAuditoriaAlertas();
+    }, e => {
+      console.warn('auditoria-alertas:', e.message);
+      const wrap = document.getElementById('audal-wrap');
+      if (wrap) wrap.innerHTML = `<div style="color:var(--red);font-size:12px">Error: ${e.message}</div>`;
+    });
+}
+
+function renderAuditoriaAlertas() {
+  const wrap = document.getElementById('audal-wrap');
+  if (!wrap) return;
+  if (!_auditoriaAlertas.length) {
+    wrap.innerHTML = '<div class="empty">✅ Sin alertas activas — ningún cliente tiene saldo recargado sin invertir por más del umbral configurado.</div>';
+    return;
+  }
+  const peso = n => '$' + Math.round(n || 0).toLocaleString('es-CO');
+  wrap.innerHTML = `
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr>
+          <th>Operador</th><th>Oficina</th><th>Cliente</th><th>Casa</th><th>Método(s)</th>
+          <th>Saldo</th><th>Días sin invertir</th><th>Última recarga</th>
+        </tr></thead>
+        <tbody>
+          ${_auditoriaAlertas.map(a => `
+            <tr style="${a.esNueva ? 'background:rgba(224,80,80,.08)' : ''}">
+              <td>${a.operadorNombre || '—'}</td>
+              <td>${a.oficinaNombre || '—'}</td>
+              <td style="font-weight:600">${a.clienteNombre || '—'}${a.esNueva ? ' <span class="badge badge-red" style="font-size:9px">NUEVA</span>' : ''}</td>
+              <td>${a.casa || '—'}</td>
+              <td style="font-size:12px">${(a.metodos || []).join(', ') || '—'}</td>
+              <td style="font-weight:700;color:var(--red)">${peso(a.saldo)}</td>
+              <td>${a.diasSinInvertir || 0} día(s)</td>
+              <td style="font-size:12px">${a.ultimaRecarga || '—'}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+async function auditoriaRevisarAhora() {
+  const btn = document.getElementById('audal-btn-revisar');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Revisando…'; }
+  try {
+    const r = await fetch('https://us-central1-portal-patriarca-aj16.cloudfunctions.net/vigilarAuditoriaAhora');
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+    toast(`✅ Auditoría revisada · ${j.activas} alerta(s) activa(s), ${j.nuevas} nueva(s)`, 'success');
+  } catch (e) {
+    toast('❌ Error al revisar: ' + e.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🔄 Revisar ahora'; }
   }
 }
 
@@ -7852,6 +7940,9 @@ function avEscuchar(){
   // no una bandeja de aprobaciones. patriarca_variaciones es la foto que se
   // guarda al cerrar el mes para la hoja de liquidación — un documento por
   // operador y mes, nada que aprobar.
+
+  // Alertas de auditoría (Fase 2): saldo de cliente sin invertir, todavía activas
+  cuenta('patriarca_auditoria_alertas', d => d.activa === true, 'auditoria-alertas', 'auditoria-alertas');
 }
 
 // ── SOLICITUDES DE ELIMINACIÓN ──────────────────────────────────────────────

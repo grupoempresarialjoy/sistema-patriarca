@@ -60,8 +60,11 @@ async function vigilarAuditoria(db) {
   const ventanaDias  = cfg.ventanaDias  != null ? cfg.ventanaDias  : 90;
   // Un cliente con mucha plata quieta no puede esperar los mismos 3 días que
   // uno con poca — mientras más grande el monto, más rápido hay que verlo.
-  const saldoUrgente     = cfg.saldoUrgente     != null ? cfg.saldoUrgente     : 300000;
-  const diasAlertaUrgente = cfg.diasAlertaUrgente != null ? cfg.diasAlertaUrgente : 1;
+  // (Se subió de $300.000/1 día: en la práctica mucha gente recarga y apuesta
+  // al día siguiente, así que con esos números casi todo salía "urgente" sin
+  // serlo de verdad — ver conversación del 2026-09-15.)
+  const saldoUrgente      = cfg.saldoUrgente      != null ? cfg.saldoUrgente      : 1000000;
+  const diasAlertaUrgente = cfg.diasAlertaUrgente != null ? cfg.diasAlertaUrgente : 2;
 
   const hoy   = auHoyBogota();
   const desde = auFechaBogota(-ventanaDias);
@@ -79,6 +82,18 @@ async function vigilarAuditoria(db) {
 
   const clientesPorId = new Map();
   clientesSnap.forEach(d => clientesPorId.set(d.id, d.data()));
+
+  // El cliente "Externo" es el cajón donde va todo lo que no se asocia a una
+  // persona real — no tiene sentido auditarlo como si fuera un cliente
+  // puntual. No siempre viene con el id del sistema (_externo_): a veces se
+  // escribió a mano como texto "Externo" sin usar el cliente real, así que
+  // hay que descartarlo también por nombre (misma normalización que ya usa
+  // saveCliente() en patriarca.html para detectar duplicados de "Externo").
+  function esExterno(clienteId, clienteNombre) {
+    if (clienteId === '_externo_') return true;
+    const norm = (clienteNombre || '').toLowerCase().replace(/[()]/g, '').replace(/cliente/g, '').trim();
+    return norm === 'externo';
+  }
 
   // Agrupar por cliente_id (o, si no viene, por nombre) + casa.
   const grupos = new Map();
@@ -100,11 +115,8 @@ async function vigilarAuditoria(db) {
   movsSnap.forEach(d => {
     const m = d.data();
     if (m.tipo !== 'RECARGAS' && m.tipo !== 'PAGOS') return;
-    // El cliente "Externo" (_externo_) es el cajón donde va todo lo que no se
-    // asocia a una persona real — no tiene sentido auditarlo como si fuera un
-    // cliente puntual, generaría solo ruido.
     if (!m.cliente_id && !m.cliente) return;
-    if (m.cliente_id === '_externo_') return;
+    if (esExterno(m.cliente_id, m.cliente)) return;
     if (!m.casa) return;
     const k = llave(m.cliente_id, m.cliente, m.casa);
     const g = asegurar(k, m.opId, m.cliente_id, m.cliente, m.casa);
@@ -124,7 +136,7 @@ async function vigilarAuditoria(db) {
   invsSnap.forEach(d => {
     const inv = d.data();
     if (!inv.cliente_id && !inv.cliente) return;
-    if (inv.cliente_id === '_externo_') return;
+    if (esExterno(inv.cliente_id, inv.cliente)) return;
     if (!inv.casa) return;
     const k = llave(inv.cliente_id, inv.cliente, inv.casa);
     // Solo contar inversión si el grupo ya existe (viene de una recarga) —
@@ -142,10 +154,12 @@ async function vigilarAuditoria(db) {
 
   let activas = 0, resueltas = 0, nuevas = 0;
   const nuevasDetalle = [];
-  const lote = db.batch();
+  let lote = db.batch();
   let opsEnLote = 0;
+  // Un WriteBatch no se puede reusar después de comprometerlo (commit) — hay
+  // que empezar uno nuevo cada vez, si no la siguiente escritura revienta.
   const commitSiHaceFalta = async () => {
-    if (opsEnLote >= 400) { await lote.commit(); opsEnLote = 0; }
+    if (opsEnLote >= 400) { await lote.commit(); lote = db.batch(); opsEnLote = 0; }
   };
 
   for (const [k, g] of grupos) {
@@ -204,6 +218,18 @@ async function vigilarAuditoria(db) {
       }
     }
   }
+  // Huérfanas: alertas que quedaron activas de una corrida anterior pero ya
+  // ni siquiera entran al agrupamiento de esta corrida (por ejemplo, "Externo"
+  // antes de este arreglo) — sin esto se quedarían en "activa" para siempre,
+  // porque el bucle de arriba solo revisa las claves que sí existen hoy.
+  const idsVigentes = new Set([...grupos.keys()].map(auSanitizarId));
+  const huerfanasSnap = await db.collection('patriarca_auditoria_alertas').where('activa', '==', true).get();
+  huerfanasSnap.forEach(d => {
+    if (idsVigentes.has(d.id)) return;
+    lote.update(d.ref, { activa: false, resueltaEn: admin.firestore.FieldValue.serverTimestamp() });
+    opsEnLote++;
+    resueltas++;
+  });
   if (opsEnLote > 0) await lote.commit();
 
   const publicadas = await auNotificarNuevas(db, nuevasDetalle);

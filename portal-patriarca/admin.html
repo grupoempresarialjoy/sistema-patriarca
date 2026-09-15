@@ -9582,9 +9582,12 @@ async function cargarCobros(mesKey) {
     // ningún cálculo de la tabla de abajo.
     const esfSnap = await db.collection('patriarca_esf_resumen').where('mesKey','==',mesKey).get();
     const comisionesPorUid = {};
+    const comByMetodoPorUid = {}; // uid -> {METODO: monto} — para el desglose por método del detalle
     esfSnap.docs.forEach(d => {
       const e = d.data();
-      if (e.uid) comisionesPorUid[e.uid] = Math.round(e.totalComisiones || 0);
+      if (!e.uid) return;
+      comisionesPorUid[e.uid] = Math.round(e.totalComisiones || 0);
+      comByMetodoPorUid[e.uid] = e.comByMetodo || {};
     });
 
     const filas = [];
@@ -9605,7 +9608,8 @@ async function cargarCobros(mesKey) {
         ? comisionesPorUid[par.uid] : null; // null = sin ESF guardado este mes para este operador
 
       filas.push({ uid: par.uid, nombre: par.nombre, ganancia, pasivo, pagado, pct, habil,
-                   liberado, retenido: ganancia - liberado, esfComisiones });
+                   liberado, retenido: ganancia - liberado, esfComisiones,
+                   comByMetodo: comByMetodoPorUid[par.uid] || {} });
     }
 
     filas.sort((a,b) => b.pct - a.pct);
@@ -9624,28 +9628,40 @@ function toggleCobDetalle(uid) {
   renderCobros(_cobFilas);
 }
 
-// Detalle de pagos de un operador: qué liquidación (comisión o saldo) ya se
-// aprobó y cuál sigue pendiente de aprobar — usa _liqTxsCache, que ya está
-// cargado en vivo por el listener de initLiquidaciones() (misma fuente que
-// alimenta la lista de aprobación de abajo, no hace falta otra consulta).
+// Detalle de pagos de un operador: qué se ya se aprobó y qué sigue pendiente.
+// Dos fuentes combinadas:
+//  1) _liqTxsCache — pagos que alguien SÍ registró (aprobados, pendientes de
+//     aprobar, o rechazados). Ya cargado en vivo por initLiquidaciones().
+//  2) f.comByMetodo — lo que el ESF del operador dice que se ganó en
+//     comisiones por método este mes (Contador → ESF Consolidado). Si para un
+//     método el total registrado (aprobado + pendiente) es menor que el ESF,
+//     falta esa diferencia por registrar — antes esto no se veía en ningún
+//     lado porque, sin una liquidación creada, simplemente no había fila.
 function _cobDetalleHtml(uid) {
   const p = v => '$' + Math.round(v || 0).toLocaleString('es-CO');
   const mesKey = document.getElementById('liq-admin-mes')?.value || '';
+  const f = (_cobFilas || []).find(x => x.uid === uid) || {};
+  const comByMetodo = f.comByMetodo || {};
   const txs = (_liqTxsCache || []).filter(t => t.operadorId === uid);
-  if (!txs.length) {
-    return `<tr><td colspan="11" style="padding:10px 24px;background:var(--bg3);color:var(--text2);font-size:12px">
-      Este operador no ha registrado ningún pago de liquidación para ${mesKey || 'este mes'} todavía.
-    </td></tr>`;
-  }
+
+  // Cuánto de cada método ya quedó registrado (aprobado o pendiente de
+  // aprobar) en una liquidación de tipo comisión — lo rechazado NO cuenta
+  // como registrado, así que su monto vuelve a aparecer como faltante.
+  const registradoPorMetodo = {};
+  txs.filter(t => t.tipo === 'comision' && t.estado !== 'rechazado').forEach(t => {
+    const m = (t.metodo || '').toUpperCase();
+    registradoPorMetodo[m] = (registradoPorMetodo[m] || 0) + Math.round(t.monto || 0);
+  });
+
   const orden = { aprobado: 0, pendiente: 1, rechazado: 2 };
-  const ordenadas = [...txs].sort((a, b) => (orden[a.estado] ?? 9) - (orden[b.estado] ?? 9));
   const etiquetaTipo = t => t.tipo === 'saldo' ? '💰 Saldo' : '💼 Comisión';
   const etiquetaEstado = {
     aprobado:  '<span style="color:var(--green);font-weight:700">✅ Pagado</span>',
     pendiente: '<span style="color:var(--orange);font-weight:700">⏳ Pendiente de aprobar</span>',
     rechazado: '<span style="color:var(--red);font-weight:700">✕ Rechazado</span>',
   };
-  const filas = ordenadas.map(t => `
+
+  const filasReales = [...txs].sort((a, b) => (orden[a.estado] ?? 9) - (orden[b.estado] ?? 9)).map(t => `
     <tr style="border-top:1px solid var(--border)">
       <td style="padding:6px 10px 6px 40px;font-size:12px">${etiquetaTipo(t)}${t.metodo ? ' · ' + t.metodo : ''}${t.destino ? ' → ' + t.destino : ''}</td>
       <td style="padding:6px 10px;font-size:12px;color:var(--text2)">${t.fecha || '—'}</td>
@@ -9653,6 +9669,45 @@ function _cobDetalleHtml(uid) {
       <td style="padding:6px 10px;font-size:12px">${etiquetaEstado[t.estado] || t.estado}</td>
       <td style="padding:6px 10px;font-size:11px;color:var(--text2)">${t.notas || ''}</td>
     </tr>`).join('');
+
+  // Métodos con ESF > lo registrado: la diferencia todavía no tiene ninguna
+  // liquidación creada — fila sintética, no viene de un documento.
+  let totalEsf = 0, totalFaltanteSinRegistrar = 0;
+  const filasFaltantes = Object.entries(comByMetodo).map(([metodo, montoEsf]) => {
+    const esf = Math.round(montoEsf || 0);
+    totalEsf += esf;
+    const registrado = registradoPorMetodo[(metodo || '').toUpperCase()] || 0;
+    const faltante = esf - registrado;
+    if (faltante <= 0) return '';
+    totalFaltanteSinRegistrar += faltante;
+    return `
+    <tr style="border-top:1px solid var(--border)">
+      <td style="padding:6px 10px 6px 40px;font-size:12px">💼 Comisión · ${metodo}</td>
+      <td style="padding:6px 10px;font-size:12px;color:var(--text2)">—</td>
+      <td style="padding:6px 10px;font-size:12px;text-align:right;font-weight:700">${p(faltante)}</td>
+      <td style="padding:6px 10px;font-size:12px"><span style="color:var(--red);font-weight:700">⚠ Falta registrar</span></td>
+      <td style="padding:6px 10px;font-size:11px;color:var(--text2)">Según ESF de este mes — nadie ha creado la liquidación todavía</td>
+    </tr>`;
+  }).join('');
+
+  if (!filasReales && !filasFaltantes) {
+    return `<tr><td colspan="11" style="padding:10px 24px;background:var(--bg3);color:var(--text2);font-size:12px">
+      Este operador no tiene comisiones ni pagos de liquidación registrados para ${mesKey || 'este mes'}.
+    </td></tr>`;
+  }
+
+  const pagadoComision = txs.filter(t => t.tipo === 'comision' && t.estado === 'aprobado')
+    .reduce((s, t) => s + Math.round(t.monto || 0), 0);
+  const pendienteTotal = Math.max(0, totalEsf - pagadoComision);
+  const resumen = totalEsf ? `
+    <tr style="border-top:2px solid var(--border);background:var(--bg2);font-weight:800">
+      <td style="padding:7px 10px 7px 40px;font-size:12px">TOTAL COMISIONES</td>
+      <td style="padding:7px 10px;font-size:11px;color:var(--text2)">ESF ${p(totalEsf)}</td>
+      <td style="padding:7px 10px;font-size:12px;text-align:right;color:var(--green)">${p(pagadoComision)} pagado</td>
+      <td colspan="2" style="padding:7px 10px;font-size:12px;color:${pendienteTotal?'var(--orange)':'var(--green)'}">${
+        pendienteTotal ? '⏳ Falta ' + p(pendienteTotal) : '✓ Comisiones al día'}</td>
+    </tr>` : '';
+
   return `<tr><td colspan="11" style="padding:0;background:var(--bg3)">
     <table style="width:100%;font-size:12px">
       <thead><tr style="color:var(--text2);font-size:10px;text-transform:uppercase">
@@ -9662,7 +9717,7 @@ function _cobDetalleHtml(uid) {
         <th style="text-align:left;padding:6px 10px">Estado</th>
         <th style="text-align:left;padding:6px 10px">Notas</th>
       </tr></thead>
-      <tbody>${filas}</tbody>
+      <tbody>${filasReales}${filasFaltantes}${resumen}</tbody>
     </table>
   </td></tr>`;
 }

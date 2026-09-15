@@ -154,6 +154,15 @@ service cloud.firestore {
       allow write: if esAdmin();
     }
 
+    // Registro histórico agregado por hora (casa + mercado + hora del día),
+    // para poder analizar más adelante si una oportunidad es estructural o
+    // solo aparece en ciertas franjas horarias. Mismo criterio que arriba:
+    // lo escribe la vigilancia automática, cualquiera con sesión lo puede leer.
+    match /trixibot_historial/{doc} {
+      allow read:  if request.auth != null;
+      allow write: if esAdmin();
+    }
+
     // ── CUADRE DIARIO POR OFICINA ─────────────────────────────────────────
     // Lo escribe solo la función programada (SDK de administrador, no pasa
     // por estas reglas) o el administrador a mano si hace falta corregir

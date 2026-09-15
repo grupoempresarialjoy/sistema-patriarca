@@ -181,6 +181,9 @@ function tbFechaBogota(offsetDias) {
   const y = base.getFullYear(), m = String(base.getMonth()+1).padStart(2,'0'), d = String(base.getDate()).padStart(2,'0');
   return `${y}-${m}-${d}`;
 }
+function tbHoraBogota() {
+  return +new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Bogota', hour: '2-digit', hour12: false }).format(new Date());
+}
 
 function tbPeso(n) { return (n < 0 ? '-$' : '$') + Math.abs(Math.round(n)).toLocaleString('es-CO'); }
 
@@ -315,6 +318,80 @@ async function notificarOportunidades(db, ops) {
   return publicadas;
 }
 
+// ── Historial agregado por hora ─────────────────────────────────────────────
+// Cada corrida (cada 5-15 min) sobreescribía trixibot_estado/vigilancia por
+// completo, así que no quedaba rastro de qué pasó hace una semana — no se
+// podía saber si una oportunidad es estructural (siempre está ahí) o si
+// aparece solo en ciertas franjas horarias. Guardar UN documento por corrida
+// sería demasiado (cientos por día, la mayoría redundantes), así que acá se
+// agrupa por hora + casas + mercado: un solo documento por combinación que se
+// va actualizando (el mejor % visto esa hora, cuántas veces se detectó) en
+// vez de crecer sin control. Con esto, en unas semanas hay suficiente data
+// real para ver patrones por casa, día de la semana y franja horaria.
+const TB_HISTORIAL_DIAS = 60; // cuánto se conserva antes de que la limpieza lo borre
+
+async function tbRegistrarHistorial(db, ops) {
+  if (!ops.length) return 0;
+  const fecha = tbHoyBogota();
+  const hora = tbHoraBogota();
+
+  // Varias oportunidades de esta misma corrida pueden caer en la misma
+  // combinación hora+casas+mercado (dos partidos distintos, misma pareja de
+  // casas) — se agrupan antes de tocar Firestore para no escribir de más.
+  const grupos = new Map();
+  ops.forEach(op => {
+    const casas = [...new Set(op.patas.map(p => p.casa))].sort().join('+');
+    const pct = +op.utilidadPct.toFixed(2);
+    const clave = `${fecha}_${String(hora).padStart(2, '0')}_${op.mercadoId}_${casas}`
+      .replace(/[^a-zA-Z0-9_+-]/g, '_');
+    const g = grupos.get(clave);
+    if (!g) {
+      grupos.set(clave, { fecha, hora, mercadoId: op.mercadoId, mercadoNombre: op.mercadoNombre,
+        casas, mejorPct: pct, zona: op.zona, vistas: 1 });
+    } else {
+      g.vistas++;
+      if (pct > g.mejorPct) { g.mejorPct = pct; g.zona = op.zona; }
+    }
+  });
+
+  for (const [id, datos] of grupos) {
+    const ref = db.collection('trixibot_historial').doc(id);
+    const snap = await ref.get();
+    const previo = snap.exists ? snap.data() : null;
+    const mejorPct = previo ? Math.max(previo.mejorPct || 0, datos.mejorPct) : datos.mejorPct;
+    await ref.set({
+      fecha: datos.fecha, hora: datos.hora, mercadoId: datos.mercadoId, mercadoNombre: datos.mercadoNombre,
+      casas: datos.casas, zona: mejorPct === datos.mejorPct ? datos.zona : (previo && previo.zona) || datos.zona,
+      mejorPct,
+      conteo: admin.firestore.FieldValue.increment(datos.vistas),
+      ultimaVez: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+  }
+  return grupos.size;
+}
+
+// Corre como máximo una vez al día (se guarda la fecha de la última corrida
+// en trixibot_estado/historial_meta) — no hace falta revisar cada 5 minutos
+// si hay datos viejos que borrar. Tope de 500 documentos por tanda para no
+// hacer un batch gigante; si algún día hay más de 500 vencidos de golpe, se
+// termina de limpiar al día siguiente.
+async function tbLimpiarHistorialViejo(db) {
+  const metaRef = db.collection('trixibot_estado').doc('historial_meta');
+  const metaSnap = await metaRef.get();
+  const hoy = tbHoyBogota();
+  if (metaSnap.exists && metaSnap.data().ultimaLimpieza === hoy) return 0;
+
+  const corte = tbFechaBogota(-TB_HISTORIAL_DIAS);
+  const snap = await db.collection('trixibot_historial').where('fecha', '<', corte).limit(500).get();
+  if (!snap.empty) {
+    const batch = db.batch();
+    snap.forEach(d => batch.delete(d.ref));
+    await batch.commit();
+  }
+  await metaRef.set({ ultimaLimpieza: hoy, borradosUltimaVez: snap.size }, { merge: true });
+  return snap.size;
+}
+
 // ── Corrida completa: lee eventos, escanea, avisa lo nuevo ──────────────────
 // La config vive en trixibot_estado/vigilancia_config para poder ajustarla
 // sin redesplegar — si no existe, arranca con valores razonables por defecto.
@@ -380,11 +457,15 @@ async function vigilarTrixiBot(db) {
   let publicadas = 0;
   if (nuevas.length) publicadas = await notificarOportunidades(db, nuevas);
 
+  const gruposHistorial = await tbRegistrarHistorial(db, ops);
+  const borradosHistorial = await tbLimpiarHistorialViejo(db);
+
   const resumen = {
     corridoEn: new Date().toISOString(), eventosEscaneados: eventos.length,
     oportunidades: ops.length, sobreUmbralAviso: ops.filter(o => o.utilidadPct >= notificarMinPct).length,
     nuevas: nuevas.length, publicadasEnCanal: publicadas,
-    mejorPct: ops.length ? +ops[0].utilidadPct.toFixed(2) : null
+    mejorPct: ops.length ? +ops[0].utilidadPct.toFixed(2) : null,
+    historialGrupos: gruposHistorial, historialBorrados: borradosHistorial
   };
   await db.collection('trixibot_estado').doc('vigilancia').set(resumen);
   return resumen;

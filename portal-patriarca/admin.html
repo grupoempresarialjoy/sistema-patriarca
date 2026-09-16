@@ -3295,6 +3295,8 @@ let _audalVista = 'activas';
 let _audalDetalleId = null;          // id de la alerta abierta ahora mismo (o null)
 let _audalDetalleCache = {};         // id -> { filas, error } — para no repetir la consulta al cerrar/abrir
 let _audalSeleccionados = new Set(); // ids de alertas marcadas para pasar a seguimiento
+let _cartDetalleId = null;           // id del caso de Cartera en riesgo abierto ahora mismo (o null)
+let _cartTicketCache = {};           // id (de patriarca_cartera_riesgo) -> [casos] — mismo esquema que _audalDetalleCache pero solo el ticket
 
 function initAuditoriaAlertas() {
   // Selector de mes: por defecto el mes actual, pero la plata estancada
@@ -3480,6 +3482,7 @@ async function audalMoverASeguimiento() {
       const cartRef = db.collection('patriarca_cartera_riesgo').doc();
       lote.set(cartRef, {
         clienteNombre: a.clienteNombre || '', casa: a.casa || '', operadorNombre: a.operadorNombre || '',
+        opId: a.opId || '', clienteId: a.clienteId || '',
         montoEstimado: a.saldo || 0, montoRecuperado: 0, estado: 'pendiente',
         motivo: `Generado desde Alertas de Clientes: ${a.diasSinInvertir || 0} día(s) sin invertir` +
           ((a.metodos || []).length ? ` · método(s): ${a.metodos.join(', ')}` : ''),
@@ -3775,20 +3778,121 @@ function renderCarteraRiesgo() {
         <tbody>
           ${_carteraRiesgo.map(c => {
             const est = CART_ESTADOS[c.estado] || CART_ESTADOS.pendiente;
-            return `<tr>
-              <td style="font-weight:600">${c.clienteNombre || '—'}</td>
+            const abierto = _cartDetalleId === c.id;
+            let fila = `<tr style="cursor:pointer" onclick="toggleCarteraDetalle('${c.id}')">
+              <td style="font-weight:600">${abierto ? '▾' : '▸'} ${c.clienteNombre || '—'}</td>
               <td>${c.casa || '—'}</td>
               <td>${c.operadorNombre || '—'}</td>
               <td>${peso(c.montoEstimado)}</td>
               <td style="color:var(--green)">${peso(c.montoRecuperado)}</td>
               <td><span class="badge badge-${est.color}">${est.label}</span></td>
               <td style="font-size:12px;max-width:220px">${c.notas || '—'}</td>
-              <td><button class="btn-ghost btn-sm" onclick="abrirCarteraForm('${c.id}')">✏️</button></td>
+              <td><button class="btn-ghost btn-sm" onclick="event.stopPropagation();abrirCarteraForm('${c.id}')">✏️</button></td>
             </tr>`;
+            if (abierto) {
+              fila += `<tr><td colspan="8" style="padding:0">${_cartDetalleHtml(c)}</td></tr>`;
+            }
+            return fila;
           }).join('')}
         </tbody>
       </table>
     </div>`;
+}
+
+// Clic en una fila de Cartera en riesgo: despliega las acciones de
+// comunicación con el operador (mismo mecanismo de ticket que en Alertas
+// activas, pero ligado a carteraId en vez de alertaId, porque una vez que el
+// caso se pasa a seguimiento la alerta original ya quedó inactiva).
+function toggleCarteraDetalle(id) {
+  if (_cartDetalleId === id) { _cartDetalleId = null; renderCarteraRiesgo(); return; }
+  _cartDetalleId = id;
+  renderCarteraRiesgo();
+  if (!_cartTicketCache[id]) carteraRefrescarTicket(id);
+}
+
+function _cartDetalleHtml(c) {
+  const acciones = `
+    <div style="padding:10px 20px;background:var(--bg2);display:flex;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--border)">
+      <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();adminBloquearCliente(${c.clienteId ? `'${c.clienteId}'` : 'null'},'${(c.clienteNombre||'').replace(/'/g,"\\'")}')" ${c.clienteId ? '' : 'disabled title="Este caso no tiene un cliente del sistema vinculado"'}>🔒 Bloquear cliente</button>
+      <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();carteraPreguntarOperador('${c.id}')" ${c.opId ? '' : 'disabled title="Este caso no tiene operador vinculado (se cargó a mano) — usa el Chat directamente"'}>❓ Preguntar al operador</button>
+    </div>`;
+  const casos = _cartTicketCache[c.id];
+  if (!casos) return acciones + '<div style="padding:10px 20px;font-size:12px;color:var(--text2)">⏳ Cargando conversación…</div>';
+  return acciones + _cartTicketHtml(casos, c.id);
+}
+
+function _cartTicketHtml(casos, carteraId) {
+  if (!casos.length) return '<div style="padding:10px 20px;font-size:12px;color:var(--text2)">Sin preguntas enviadas todavía sobre este caso.</div>';
+  const ultimo = casos[0];
+  const fecha = ultimo.creadoEn?.toDate ? ultimo.creadoEn.toDate().toLocaleString('es-CO') : '';
+  if (ultimo.estado === 'resuelto') {
+    const fechaR = ultimo.resueltoEn?.toDate ? ultimo.resueltoEn.toDate().toLocaleString('es-CO') : '';
+    return `<div style="padding:10px 20px;background:rgba(36,191,98,.08);font-size:12px">
+      ✅ <b>Ticket resuelto</b> el ${fechaR} por ${ultimo.resueltoPor || '—'} · Pregunta: "${ultimo.pregunta}"
+    </div>`;
+  }
+  return `<div style="padding:10px 20px;background:rgba(240,160,80,.1);font-size:12px">
+    🎫 <b>Esperando respuesta del operador</b> · preguntado el ${fecha}<br>
+    "${ultimo.pregunta}"
+    <div style="margin-top:6px;display:flex;gap:8px">
+      <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();carteraRefrescarTicket('${carteraId}')">🔄 Actualizar</button>
+      <button class="btn btn-purple btn-sm" onclick="event.stopPropagation();carteraResolverTicket('${ultimo.id}','${carteraId}')">✅ Marcar resuelto</button>
+    </div>
+  </div>`;
+}
+
+async function carteraRefrescarTicket(id) {
+  try {
+    const casosSnap = await db.collection('patriarca_auditoria_casos').where('carteraId', '==', id).get();
+    _cartTicketCache[id] = casosSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+      .sort((x, y) => (y.creadoEn?.toMillis?.() || 0) - (x.creadoEn?.toMillis?.() || 0));
+  } catch (e) { console.warn('refrescar ticket cartera:', e.message); _cartTicketCache[id] = []; }
+  renderCarteraRiesgo();
+}
+
+async function carteraResolverTicket(casoId, carteraId) {
+  try {
+    await db.collection('patriarca_auditoria_casos').doc(casoId).update({
+      estado: 'resuelto',
+      resueltoPor: auth.currentUser?.displayName || auth.currentUser?.email || 'admin',
+      resueltoEn: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    toast('✅ Ticket resuelto', 'success');
+    await carteraRefrescarTicket(carteraId);
+  } catch (e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+// Mismo mecanismo que auditoriaPreguntarOperador (escribe directo al hilo de
+// chat con el mismo esquema que usa chat.js), pero para un caso que ya está
+// en Cartera en riesgo — solo funciona si el caso quedó con opId (los
+// generados automáticamente desde Alertas sí lo traen; los cargados a mano
+// con el formulario, no).
+async function carteraPreguntarOperador(id) {
+  const c = _carteraRiesgo.find(x => x.id === id);
+  if (!c) return;
+  if (!c.opId) { toast('⚠ Este caso no tiene operador vinculado — usa el Chat directamente', 'error'); return; }
+  const pregunta = prompt(
+    `Pregunta para ${c.operadorNombre} sobre ${c.clienteNombre} en ${c.casa}:`,
+    `Hola, ¿cómo va la gestión con ${c.clienteNombre} en ${c.casa}? Sigue pendiente por ${'$' + Math.round((c.montoEstimado||0) - (c.montoRecuperado||0)).toLocaleString('es-CO')}.`
+  );
+  if (pregunta === null) return;
+  if (!pregunta.trim()) { toast('⚠ Escribe una pregunta', 'error'); return; }
+  try {
+    await db.collection('patriarca_chat_hilos').doc(c.opId).collection('mensajes').add({
+      de: 'admin', autorUid: auth.currentUser?.uid || '', autorNombre: auth.currentUser?.displayName || auth.currentUser?.email || 'Administrador',
+      texto: pregunta.trim(), fijado: false,
+      ts: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    await db.collection('patriarca_auditoria_casos').add({
+      carteraId: c.id, opId: c.opId, operadorNombre: c.operadorNombre || '',
+      clienteNombre: c.clienteNombre || '', casa: c.casa || '',
+      pregunta: pregunta.trim(), estado: 'esperando_respuesta',
+      creadoPor: auth.currentUser?.displayName || auth.currentUser?.email || 'admin',
+      creadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    toast('✅ Pregunta enviada al operador por el chat', 'success');
+    await carteraRefrescarTicket(c.id);
+  } catch (e) { toast('⚠ Error: ' + e.message, 'error'); }
 }
 
 async function auditoriaRevisarAhora() {

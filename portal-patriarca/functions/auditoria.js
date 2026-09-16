@@ -171,17 +171,25 @@ async function vigilarAuditoria(db) {
     const referencia = g.ultimaInversion || g.primeraRecarga;
     const diasSinInvertir = referencia ? auDiasEntre(referencia, hoy) : 0;
 
-    const esUrgente = g.saldo >= saldoUrgente && diasSinInvertir >= diasAlertaUrgente;
-    const esNormal  = g.saldo >= saldoMinimo  && diasSinInvertir >= diasAlerta;
-    const cumpleCondicion = (esUrgente || esNormal) && !bloqueado;
-
     const id = auSanitizarId(k);
     const ref = db.collection('patriarca_auditoria_alertas').doc(id);
     const op = operadores.get(g.opId) || {};
 
+    // Un solo get() para todo: ya sea para decidir si suprimirla (enGestion,
+    // igual que un cliente bloqueado) o para saber si ya estaba activa.
+    const prevSnap = await ref.get();
+    const prevData = prevSnap.exists ? prevSnap.data() : null;
+    // Alguien ya la pasó a mano a "Cartera en riesgo" — no hay que volver a
+    // subirla a Alertas activas solo porque el saldo sigue igual; ya se le
+    // está haciendo seguimiento en otro lado.
+    const enGestion = !!(prevData && prevData.enGestion);
+
+    const esUrgente = g.saldo >= saldoUrgente && diasSinInvertir >= diasAlertaUrgente;
+    const esNormal  = g.saldo >= saldoMinimo  && diasSinInvertir >= diasAlerta;
+    const cumpleCondicion = (esUrgente || esNormal) && !bloqueado && !enGestion;
+
     if (cumpleCondicion) {
-      const prevSnap = await ref.get();
-      const esNueva = !prevSnap.exists || prevSnap.data().activa !== true;
+      const esNueva = !prevData || prevData.activa !== true;
       lote.set(ref, {
         opId: g.opId, operadorNombre: op.nombre || g.opId, oficinaNombre: op.oficinaNombre || '',
         clienteId: g.clienteId, clienteNombre: g.clienteNombre, casa: g.casa,
@@ -205,17 +213,14 @@ async function vigilarAuditoria(db) {
         });
       }
       await commitSiHaceFalta();
-    } else {
-      // Si existía activa y ya dejó de cumplir (invirtió, bajó el saldo, o
-      // se marcó bloqueado formalmente), se resuelve — no se borra, para no
-      // perder el rastro de que la alerta existió.
-      const prevSnap = await ref.get();
-      if (prevSnap.exists && prevSnap.data().activa === true) {
-        lote.update(ref, { activa: false, resueltaEn: admin.firestore.FieldValue.serverTimestamp() });
-        opsEnLote++;
-        resueltas++;
-        await commitSiHaceFalta();
-      }
+    } else if (prevData && prevData.activa === true) {
+      // Si existía activa y ya dejó de cumplir (invirtió, bajó el saldo, se
+      // marcó bloqueado formalmente, o se pasó a Cartera en riesgo), se
+      // resuelve — no se borra, para no perder el rastro de que existió.
+      lote.update(ref, { activa: false, resueltaEn: admin.firestore.FieldValue.serverTimestamp() });
+      opsEnLote++;
+      resueltas++;
+      await commitSiHaceFalta();
     }
   }
   // Huérfanas: alertas que quedaron activas de una corrida anterior pero ya

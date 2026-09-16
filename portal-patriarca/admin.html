@@ -3294,6 +3294,7 @@ let _carteraRiesgo = [];
 let _audalVista = 'activas';
 let _audalDetalleId = null;          // id de la alerta abierta ahora mismo (o null)
 let _audalDetalleCache = {};         // id -> { filas, error } — para no repetir la consulta al cerrar/abrir
+let _audalSeleccionados = new Set(); // ids de alertas marcadas para pasar a seguimiento
 
 function initAuditoriaAlertas() {
   // Selector de mes: por defecto el mes actual, pero la plata estancada
@@ -3397,22 +3398,31 @@ function renderAuditoriaAlertas() {
   }
   const peso = n => '$' + Math.round(n || 0).toLocaleString('es-CO');
   const totalUrgentes = alertasFiltradas.filter(a => a.urgente).length;
+  // Solo cuentan seleccionadas las que siguen visibles con el filtro actual —
+  // si cambias de mes/oficina, lo que quedó fuera de vista no se arrastra.
+  const idsVisibles = new Set(alertasFiltradas.map(a => a.id));
+  const seleccionadas = [..._audalSeleccionados].filter(id => idsVisibles.has(id));
+  const todasSeleccionadas = alertasFiltradas.length > 0 && seleccionadas.length === alertasFiltradas.length;
   wrap.innerHTML = `
-    <div style="padding:0 20px 12px;font-size:13px;color:var(--text2)">
-      <b style="color:var(--text)">${alertasFiltradas.length}</b> pendiente${alertasFiltradas.length === 1 ? '' : 's'} por arreglar
-      ${totalUrgentes ? ` · <b style="color:var(--red)">${totalUrgentes} urgente${totalUrgentes === 1 ? '' : 's'}</b>` : ''}
+    <div style="padding:0 20px 12px;font-size:13px;color:var(--text2);display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+      <span><b style="color:var(--text)">${alertasFiltradas.length}</b> pendiente${alertasFiltradas.length === 1 ? '' : 's'} por arreglar
+      ${totalUrgentes ? ` · <b style="color:var(--red)">${totalUrgentes} urgente${totalUrgentes === 1 ? '' : 's'}</b>` : ''}</span>
+      ${seleccionadas.length ? `<button class="btn btn-purple btn-sm" onclick="audalMoverASeguimiento()">→ Pasar a seguimiento (${seleccionadas.length})</button>` : ''}
     </div>
     <div class="tbl-wrap">
       <table>
         <thead><tr>
+          <th style="width:32px"><input type="checkbox" ${todasSeleccionadas ? 'checked' : ''} onchange="audalToggleSelAll(this.checked)"></th>
           <th>#</th><th>Operador</th><th>Oficina</th><th>Cliente</th><th>Casa</th><th>Método(s)</th>
           <th>Saldo</th><th>Días sin invertir</th><th>Última recarga</th>
         </tr></thead>
         <tbody>
           ${alertasFiltradas.map((a, i) => {
             const abierto = _audalDetalleId === a.id;
+            const marcada = _audalSeleccionados.has(a.id);
             const fila = `
             <tr style="cursor:pointer;${a.urgente ? 'background:rgba(224,80,80,.16)' : a.esNueva ? 'background:rgba(224,80,80,.08)' : ''}" onclick="toggleAuditoriaDetalle('${a.id}')">
+              <td onclick="event.stopPropagation()"><input type="checkbox" ${marcada ? 'checked' : ''} onchange="audalToggleSel('${a.id}')"></td>
               <td>${i + 1}</td>
               <td>${a.operadorNombre || '—'}</td>
               <td>${a.oficinaNombre || '—'}</td>
@@ -3426,11 +3436,64 @@ function renderAuditoriaAlertas() {
               <td>${a.diasSinInvertir || 0} día(s)</td>
               <td style="font-size:12px">${a.ultimaRecarga || '—'}</td>
             </tr>`;
-            return fila + (abierto ? `<tr><td colspan="9" style="padding:0">${_audalDetalleHtml(a)}</td></tr>` : '');
+            return fila + (abierto ? `<tr><td colspan="10" style="padding:0">${_audalDetalleHtml(a)}</td></tr>` : '');
           }).join('')}
         </tbody>
       </table>
     </div>`;
+}
+
+function audalToggleSel(id) {
+  if (_audalSeleccionados.has(id)) _audalSeleccionados.delete(id); else _audalSeleccionados.add(id);
+  renderAuditoriaAlertas();
+}
+
+function audalToggleSelAll(checked) {
+  const mesSel = document.getElementById('audal-sel-mes')?.value || '';
+  const oficinaSel = document.getElementById('audal-sel-oficina')?.value || '';
+  const operadorSel = document.getElementById('audal-sel-operador')?.value || '';
+  const visibles = _auditoriaAlertas.filter(a => {
+    if (mesSel && mesSel !== 'todos' && a.ultimaRecarga && !a.ultimaRecarga.startsWith(mesSel)) return false;
+    if (oficinaSel && a.oficinaNombre !== oficinaSel) return false;
+    if (operadorSel && a.operadorNombre !== operadorSel) return false;
+    return true;
+  });
+  visibles.forEach(a => { if (checked) _audalSeleccionados.add(a.id); else _audalSeleccionados.delete(a.id); });
+  renderAuditoriaAlertas();
+}
+
+// Selecciona uno o varios casos de la lista y los pasa de una sola vez a
+// "Cartera en riesgo" — sin este botón había que abrir el formulario y
+// escribir a mano cliente/casa/monto para cada uno, uno por uno.
+// Además marca la alerta con enGestion:true, que functions/auditoria.js
+// respeta igual que a un cliente bloqueado — así deja de aparecer en
+// "Alertas activas" en la siguiente revisión, en vez de seguir sumando al
+// contador de pendientes mientras ya se le está haciendo seguimiento acá.
+async function audalMoverASeguimiento() {
+  const seleccionadas = _auditoriaAlertas.filter(a => _audalSeleccionados.has(a.id));
+  if (!seleccionadas.length) return;
+  if (!confirm(`¿Pasar ${seleccionadas.length} caso(s) a Cartera en riesgo? Dejarán de contarse como pendientes en Alertas activas.`)) return;
+  const quien = currentUser?.displayName || currentUser?.email || 'admin';
+  try {
+    const lote = db.batch();
+    for (const a of seleccionadas) {
+      const cartRef = db.collection('patriarca_cartera_riesgo').doc();
+      lote.set(cartRef, {
+        clienteNombre: a.clienteNombre || '', casa: a.casa || '', operadorNombre: a.operadorNombre || '',
+        montoEstimado: a.saldo || 0, montoRecuperado: 0, estado: 'pendiente',
+        motivo: `Generado desde Alertas de Clientes: ${a.diasSinInvertir || 0} día(s) sin invertir` +
+          ((a.metodos || []).length ? ` · método(s): ${a.metodos.join(', ')}` : ''),
+        notas: '', creadoPor: quien, actualizadoPor: quien,
+        creadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+        actualizadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      const alertRef = db.collection('patriarca_auditoria_alertas').doc(a.id);
+      lote.update(alertRef, { activa: false, enGestion: true, movidaACarteraEn: firebase.firestore.FieldValue.serverTimestamp() });
+    }
+    await lote.commit();
+    _audalSeleccionados.clear();
+    toast(`✅ ${seleccionadas.length} caso(s) movidos a Cartera en riesgo`, 'success');
+  } catch (e) { toast('⚠ Error: ' + e.message, 'error'); }
 }
 
 // Clic en una fila: abre/cierra el desglose de movimientos e inversiones que

@@ -205,6 +205,15 @@ service cloud.firestore {
       allow write: if esAdmin();
     }
 
+    // Tickets de auditoría: el admin le pregunta algo a un operador sobre un
+    // caso puntual (la pregunta en sí viaja por el chat normal, que ya tiene
+    // sus propias reglas) y este documento solo lleva el seguimiento de si
+    // ya se resolvió. Mismo criterio de privacidad que el resto de auditoría.
+    match /patriarca_auditoria_casos/{id} {
+      allow read:  if esAdmin();
+      allow write: if esAdmin();
+    }
+
     // ── TOKENS DE NOTIFICACIONES PUSH (App AJ1.6) ─────────────────────────
     // Un doc por administrador, con id == su propio uid — solo él puede
     // escribir el suyo. Nadie lo lee desde el cliente: quien manda los push
@@ -240,6 +249,7 @@ service cloud.firestore {
                      'patriarca_auditoria_alertas',
                      'patriarca_chat_auditoria',
                      'patriarca_cartera_riesgo',
+                     'patriarca_auditoria_casos',
                      'admin_fcm_tokens',
                      'admin_webpush_subs']);
 
@@ -257,6 +267,7 @@ service cloud.firestore {
                      'patriarca_auditoria_alertas',
                      'patriarca_chat_auditoria',
                      'patriarca_cartera_riesgo',
+                     'patriarca_auditoria_casos',
                      'admin_fcm_tokens',
                      'admin_webpush_subs'])
         && (esAdmin() || !auditoriaActiva() || permitidoEnAuditoria());

@@ -3504,15 +3504,22 @@ async function toggleAuditoriaDetalle(id) {
   _audalDetalleId = id;
   renderAuditoriaAlertas(); // pinta primero el "Cargando…"
   if (_audalDetalleCache[id]) return; // ya se había consultado antes
+  await _audalCargarDetalle(id);
+}
+
+async function _audalCargarDetalle(id) {
   const a = _auditoriaAlertas.find(x => x.id === id);
   if (!a) return;
   try {
     const campo = a.clienteId ? 'cliente_id' : 'cliente';
     const valor = a.clienteId || a.clienteNombre;
-    const [movsSnap, invsSnap] = await Promise.all([
+    const [movsSnap, invsSnap, casosSnap] = await Promise.all([
       db.collection('patriarca_movimientos').where(campo, '==', valor).where('casa', '==', a.casa).get(),
       db.collection('patriarca_inversiones').where(campo, '==', valor).where('casa', '==', a.casa).get(),
+      db.collection('patriarca_auditoria_casos').where('alertaId', '==', id).get(),
     ]);
+    const casos = casosSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+      .sort((x, y) => (y.creadoEn?.toMillis?.() || 0) - (x.creadoEn?.toMillis?.() || 0));
     const filas = [];
     movsSnap.forEach(d => {
       const m = d.data();
@@ -3530,20 +3537,142 @@ async function toggleAuditoriaDetalle(id) {
     filas.sort((x, y) => (x.fecha || '').localeCompare(y.fecha || ''));
     let acumulado = 0;
     filas.forEach(f => { acumulado += f.efecto; f.saldoAcumulado = acumulado; });
-    _audalDetalleCache[id] = { filas };
+    _audalDetalleCache[id] = { filas, casos };
   } catch (e) {
     _audalDetalleCache[id] = { error: e.message };
   }
   renderAuditoriaAlertas();
 }
 
+// Vuelve a consultar solo el ticket (sin repetir la consulta pesada de
+// movimientos) — para cuando el admin ya sabe que el operador respondió por
+// el chat y quiere refrescar el estado sin cerrar y reabrir la fila.
+async function auditoriaRefrescarTicket(id) {
+  try {
+    const casosSnap = await db.collection('patriarca_auditoria_casos').where('alertaId', '==', id).get();
+    const casos = casosSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+      .sort((x, y) => (y.creadoEn?.toMillis?.() || 0) - (x.creadoEn?.toMillis?.() || 0));
+    if (_audalDetalleCache[id]) _audalDetalleCache[id].casos = casos;
+  } catch (e) { console.warn('refrescar ticket:', e.message); }
+  renderAuditoriaAlertas();
+}
+
+// Manda la pregunta por el chat interno de siempre (mismo hilo admin-operador
+// que ya usan) y además deja un "ticket" ligado a la alerta puntual, para
+// saber de un vistazo si ya se le preguntó algo y si sigue sin responder.
+async function auditoriaPreguntarOperador(a) {
+  const pregunta = prompt(
+    `Pregunta para ${a.operadorNombre} sobre ${a.clienteNombre} en ${a.casa}:`,
+    `Hola, tienes a ${a.clienteNombre} con ${'$' + Math.round(a.saldo||0).toLocaleString('es-CO')} en ${a.casa} sin invertir hace ${a.diasSinInvertir||0} día(s) — ¿qué está pasando con este cliente?`
+  );
+  if (pregunta === null) return;
+  if (!pregunta.trim()) { toast('⚠ Escribe una pregunta', 'error'); return; }
+  if (!a.opId) { toast('⚠ Esta alerta no tiene operador vinculado — no se puede enviar', 'error'); return; }
+  try {
+    // Se escribe directo con el mismo esquema que usa chat.js (enviar()),
+    // que vive dentro de un IIFE y no queda expuesto como función global —
+    // solo AJChat.iniciarAdmin/etc. están en window. Mismo documento, mismo
+    // hilo, mismas reglas (patriarca_chat_hilos/{uid}/mensajes ya permite
+    // crear a esAdmin()), así que aparece igual que cualquier otro mensaje.
+    await db.collection('patriarca_chat_hilos').doc(a.opId).collection('mensajes').add({
+      de: 'admin', autorUid: currentUser?.uid || '', autorNombre: currentUser?.displayName || currentUser?.email || 'Administrador',
+      texto: pregunta.trim(), fijado: false,
+      ts: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    await db.collection('patriarca_auditoria_casos').add({
+      alertaId: a.id, opId: a.opId, operadorNombre: a.operadorNombre || '',
+      clienteNombre: a.clienteNombre || '', casa: a.casa || '',
+      pregunta: pregunta.trim(), estado: 'esperando_respuesta',
+      creadoPor: currentUser?.displayName || currentUser?.email || 'admin',
+      creadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    toast('✅ Pregunta enviada al operador por el chat', 'success');
+    delete _audalDetalleCache[a.id];
+    await _audalCargarDetalle(a.id);
+  } catch (e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+// Se marca a mano (el admin ya vio la respuesta en el chat) — no hay forma
+// confiable de detectar solo si una respuesta libre en el chat "resuelve" la
+// duda puntual, así que la última palabra la tiene quien lee la conversación.
+// Al resolver el ticket, la alerta también se da por resuelta: deja de contar
+// como pendiente en Alertas activas, igual que si se hubiera pasado a
+// Cartera en riesgo (mismo campo enGestion, que la función automática ya
+// respeta).
+async function auditoriaResolverTicket(casoId, alertaId) {
+  try {
+    await db.collection('patriarca_auditoria_casos').doc(casoId).update({
+      estado: 'resuelto',
+      resueltoPor: currentUser?.displayName || currentUser?.email || 'admin',
+      resueltoEn: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    await db.collection('patriarca_auditoria_alertas').doc(alertaId).update({
+      activa: false, enGestion: true,
+      resueltaEn: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    toast('✅ Ticket y alerta resueltos', 'success');
+  } catch (e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+// Bloqueo directo desde el administrador — mismo campo que usa patriarca.html,
+// para que la alerta lo reconozca igual sin importar quién lo haya marcado.
+// Solo funciona si la alerta tiene un cliente real vinculado (clienteId): si
+// vino agrupada solo por nombre (cliente sin id en el sistema), no hay a qué
+// documento escribirle el bloqueo.
+async function adminBloquearCliente(clienteId, clienteNombre) {
+  if (!clienteId) { toast('⚠ Este caso no tiene un cliente del sistema vinculado — no se puede bloquear directamente', 'error'); return; }
+  const motivo = prompt(`Motivo del bloqueo para ${clienteNombre}:`);
+  if (motivo === null) return;
+  if (!motivo.trim()) { toast('⚠ El motivo es obligatorio', 'error'); return; }
+  try {
+    await db.collection('patriarca_clientes').doc(clienteId).update({
+      bloqueado: true,
+      bloqueado_fecha: firebase.firestore.FieldValue.serverTimestamp(),
+      bloqueado_motivo: motivo.trim(),
+      bloqueado_por: (currentUser?.displayName || currentUser?.email || 'admin') + ' (admin)',
+    });
+    toast('🔒 Cliente bloqueado', 'success');
+  } catch (e) { toast('⚠ Error: ' + e.message, 'error'); }
+}
+
+function _audalAccionesHtml(a) {
+  const clienteIdJs = a.clienteId ? `'${a.clienteId}'` : 'null';
+  return `
+    <div style="padding:10px 20px;background:var(--bg2);display:flex;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--border)">
+      <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();adminBloquearCliente(${clienteIdJs},'${(a.clienteNombre||'').replace(/'/g,"\\'")}')" ${a.clienteId ? '' : 'disabled title="Este caso no tiene un cliente del sistema vinculado"'}>🔒 Bloquear cliente</button>
+      <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();auditoriaPreguntarOperador(_auditoriaAlertas.find(x=>x.id==='${a.id}'))">❓ Preguntar al operador</button>
+    </div>`;
+}
+
+function _audalTicketHtml(casos, alertaId) {
+  if (!casos || !casos.length) return '';
+  const ultimo = casos[0];
+  const fecha = ultimo.creadoEn?.toDate ? ultimo.creadoEn.toDate().toLocaleString('es-CO') : '';
+  if (ultimo.estado === 'resuelto') {
+    const fechaR = ultimo.resueltoEn?.toDate ? ultimo.resueltoEn.toDate().toLocaleString('es-CO') : '';
+    return `<div style="padding:10px 20px;background:rgba(36,191,98,.08);font-size:12px;border-bottom:1px solid var(--border)">
+      ✅ <b>Ticket resuelto</b> el ${fechaR} por ${ultimo.resueltoPor || '—'} · Pregunta: "${ultimo.pregunta}"
+    </div>`;
+  }
+  return `<div style="padding:10px 20px;background:rgba(240,160,80,.1);font-size:12px;border-bottom:1px solid var(--border)">
+    🎫 <b>Esperando respuesta del operador</b> · preguntado el ${fecha}<br>
+    "${ultimo.pregunta}"
+    <div style="margin-top:6px;display:flex;gap:8px">
+      <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();auditoriaRefrescarTicket('${alertaId}')">🔄 Actualizar</button>
+      <button class="btn btn-purple btn-sm" onclick="event.stopPropagation();auditoriaResolverTicket('${ultimo.id}','${alertaId}')">✅ Marcar resuelto</button>
+    </div>
+  </div>`;
+}
+
 function _audalDetalleHtml(a) {
   const c = _audalDetalleCache[a.id];
   const peso = n => (n < 0 ? '-$' : '$') + Math.abs(Math.round(n || 0)).toLocaleString('es-CO');
-  if (!c) return '<div style="padding:10px 20px;font-size:12px;color:var(--text2)">⏳ Cargando movimientos…</div>';
-  if (c.error) return `<div style="padding:10px 20px;font-size:12px;color:var(--red)">Error: ${c.error}</div>`;
-  if (!c.filas.length) return '<div style="padding:10px 20px;font-size:12px;color:var(--text2)">Sin movimientos encontrados (puede que el cliente/casa haya cambiado de nombre).</div>';
-  return `
+  const acciones = _audalAccionesHtml(a);
+  if (!c) return acciones + '<div style="padding:10px 20px;font-size:12px;color:var(--text2)">⏳ Cargando movimientos…</div>';
+  if (c.error) return acciones + `<div style="padding:10px 20px;font-size:12px;color:var(--red)">Error: ${c.error}</div>`;
+  const ticket = _audalTicketHtml(c.casos, a.id);
+  if (!c.filas.length) return acciones + ticket + '<div style="padding:10px 20px;font-size:12px;color:var(--text2)">Sin movimientos encontrados (puede que el cliente/casa haya cambiado de nombre).</div>';
+  return acciones + ticket + `
     <div style="padding:8px 20px 14px;background:var(--bg2)">
       <table style="width:100%;font-size:12px">
         <thead><tr style="color:var(--text2)">

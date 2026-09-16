@@ -3577,11 +3577,24 @@ async function auditoriaPreguntarOperador(a) {
     // solo AJChat.iniciarAdmin/etc. están en window. Mismo documento, mismo
     // hilo, mismas reglas (patriarca_chat_hilos/{uid}/mensajes ya permite
     // crear a esAdmin()), así que aparece igual que cualquier otro mensaje.
-    await db.collection('patriarca_chat_hilos').doc(a.opId).collection('mensajes').add({
+    // OJO: además del mensaje, enviar() SIEMPRE actualiza el resumen del
+    // hilo (ultimoTexto/ultimoTs/noLeidosUsuario) — si no se replica acá, el
+    // mensaje queda guardado pero no aparece como nuevo en la lista del
+    // operador ni le suma al contador, dando la impresión de que "no llegó".
+    const hiloRef = db.collection('patriarca_chat_hilos').doc(a.opId);
+    await hiloRef.collection('mensajes').add({
       de: 'admin', autorUid: auth.currentUser?.uid || '', autorNombre: auth.currentUser?.displayName || auth.currentUser?.email || 'Administrador',
       texto: pregunta.trim(), fijado: false,
       ts: firebase.firestore.FieldValue.serverTimestamp(),
     });
+    await hiloRef.set({
+      uid: a.opId,
+      ultimoTexto: pregunta.trim(),
+      ultimoTs: firebase.firestore.FieldValue.serverTimestamp(),
+      ultimoDe: 'admin',
+      noLeidosUsuario: firebase.firestore.FieldValue.increment(1),
+      leidoHastaAdmin: firebase.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
     await db.collection('patriarca_auditoria_casos').add({
       alertaId: a.id, opId: a.opId, operadorNombre: a.operadorNombre || '',
       clienteNombre: a.clienteNombre || '', casa: a.casa || '',
@@ -3878,11 +3891,23 @@ async function carteraPreguntarOperador(id) {
   if (pregunta === null) return;
   if (!pregunta.trim()) { toast('⚠ Escribe una pregunta', 'error'); return; }
   try {
-    await db.collection('patriarca_chat_hilos').doc(c.opId).collection('mensajes').add({
+    const hiloRef = db.collection('patriarca_chat_hilos').doc(c.opId);
+    await hiloRef.collection('mensajes').add({
       de: 'admin', autorUid: auth.currentUser?.uid || '', autorNombre: auth.currentUser?.displayName || auth.currentUser?.email || 'Administrador',
       texto: pregunta.trim(), fijado: false,
       ts: firebase.firestore.FieldValue.serverTimestamp(),
     });
+    // Ver nota en auditoriaPreguntarOperador: hay que actualizar el resumen
+    // del hilo a mano, igual que hace enviar() en chat.js, o el mensaje
+    // queda guardado pero invisible como "nuevo" para el operador.
+    await hiloRef.set({
+      uid: c.opId,
+      ultimoTexto: pregunta.trim(),
+      ultimoTs: firebase.firestore.FieldValue.serverTimestamp(),
+      ultimoDe: 'admin',
+      noLeidosUsuario: firebase.firestore.FieldValue.increment(1),
+      leidoHastaAdmin: firebase.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
     await db.collection('patriarca_auditoria_casos').add({
       carteraId: c.id, opId: c.opId, operadorNombre: c.operadorNombre || '',
       clienteNombre: c.clienteNombre || '', casa: c.casa || '',

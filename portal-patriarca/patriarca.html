@@ -517,7 +517,7 @@ select option { background: var(--bg3); }
     <div class="section" id="sec-eventos">
       <div class="sec-header">
         <div><div class="sec-title">Eventos</div><div class="sec-subtitle">Partidos y eventos de apuesta</div></div>
-        <button class="btn btn-gold" onclick="abrirRegistro('modal-evento','registrar eventos')">+ Nuevo Evento</button>
+        <button class="btn btn-gold" onclick="abrirRegistro('modal-evento','registrar eventos');cargarCatalogoEventosModal()">+ Nuevo Evento</button>
         <button id="btn-import-ev" class="btn btn-ghost btn-sm" onclick="toggleImportEv()" style="border-color:#3b82f6;color:#93c5fd">📋 Importar Excel</button>
       </div>
       <!-- Panel importar Excel Eventos -->
@@ -1888,7 +1888,13 @@ select option { background: var(--bg3); }
   <div class="modal">
     <h3>📅 Registrar Evento</h3>
     <div class="form-grid">
-      <div class="form-group span2"><label>Nombre del Evento</label><input type="text" id="ev-nombre" placeholder="ej: COLOMBIA VS ARGENTINA"/></div>
+      <div class="form-group span2" style="position:relative"><label>Nombre del Evento</label>
+        <input type="text" id="ev-nombre" placeholder="Busca el partido real o escribe el nombre…" autocomplete="off"
+               oninput="filterCatEventoDD()" onfocus="showCatEventoDD()"
+               onblur="setTimeout(()=>{const d=document.getElementById('ev-cat-dd');if(d)d.style.display='none'},200)"/>
+        <input type="hidden" id="ev-cat-id">
+        <div id="ev-cat-dd" style="position:absolute;top:100%;left:0;right:0;background:var(--bg);border:1px solid var(--border);border-radius:8px;max-height:240px;overflow-y:auto;z-index:300;display:none;box-shadow:0 4px 16px rgba(0,0,0,0.4)"></div>
+      </div>
       <div class="form-group"><label>Fecha de Registro</label><input type="date" id="ev-fecha-reg"/></div>
       <div class="form-group"><label>Fecha del Evento</label><input type="date" id="ev-fecha-ev"/></div>
       <div class="form-group"><label>Deporte</label>
@@ -4162,6 +4168,76 @@ async function _asegurarEventosBase() {
   }
 }
 
+// ── Catálogo real de partidos (trixibot_eventos) para "Registrar Evento" ──
+// Antes cada operador escribía el nombre a mano ("Nacional vs America",
+// "Nacional America de Cali"...) y quedaban como eventos distintos aunque
+// fueran el mismo partido. Este buscador ofrece los partidos reales que ya
+// capta el sistema (mismos datos que usa Trixi Bot: functions/casas.js),
+// con nombre de equipos, liga y fecha ya normalizados — al elegir uno, el
+// nombre del evento sale siempre con el mismo formato. Si el partido no
+// aparece (liga menor no cubierta por el captador), se puede seguir
+// escribiendo el nombre a mano como siempre — el catálogo es una ayuda, no
+// una obligación, porque no cubre todo.
+let _catEventos = [];
+
+async function cargarCatalogoEventosModal() {
+  try {
+    const desde = tbFechaBogota(-1), hasta = tbFechaBogota(2);
+    const snap = await db.collection('trixibot_eventos')
+      .where('fecha', '>=', desde).where('fecha', '<=', hasta).get();
+    _catEventos = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch (e) { console.warn('catálogo de eventos:', e.message); _catEventos = []; }
+}
+
+function _renderCatEventoDD(list) {
+  const dd = document.getElementById('ev-cat-dd');
+  if (!dd) return;
+  if (!list.length) {
+    dd.innerHTML = '<div style="padding:10px 12px;font-size:13px;color:var(--text2)">Sin partidos del catálogo para estas fechas — puedes escribir el nombre a mano</div>';
+    dd.style.display = '';
+    return;
+  }
+  dd.innerHTML = list.slice(0, 30).map(e => {
+    const local = (e.local || '?'), visita = (e.visitante || '?');
+    return `<div onmousedown="selectCatEventoItem('${e.id}',\`${local.replace(/`/g,"'")}\`,\`${visita.replace(/`/g,"'")}\`,'${e.fecha||''}','${(e.deporte||'').replace(/'/g,"\\'")}')"
+      style="padding:9px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border)"
+      onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background=''">
+      <div style="display:flex;justify-content:space-between;gap:8px">
+        <span style="font-weight:600">${local} vs ${visita}</span>
+        <span style="font-size:11px;color:var(--text2)">${e.fecha||''}${e.hora?' '+e.hora:''}</span>
+      </div>
+      <div style="font-size:11px;color:var(--text2)">${e.liga||''}${e.pais?' · '+e.pais:''}</div>
+    </div>`;
+  }).join('') + `<div style="padding:7px 14px;font-size:11px;color:var(--text2);border-top:1px solid var(--border)">¿No está tu partido? Sigue escribiendo y se guarda tal cual lo pongas.</div>`;
+  dd.style.display = '';
+}
+
+function showCatEventoDD() {
+  const q = (document.getElementById('ev-nombre')?.value || '').toLowerCase().trim();
+  const base = q
+    ? _catEventos.filter(e => (e.local||'').toLowerCase().includes(q) || (e.visitante||'').toLowerCase().includes(q) || (e.liga||'').toLowerCase().includes(q))
+    : _catEventos;
+  _renderCatEventoDD(base);
+}
+
+function filterCatEventoDD() {
+  document.getElementById('ev-cat-id').value = ''; // se escribió a mano: ya no es la selección del catálogo
+  showCatEventoDD();
+}
+
+function selectCatEventoItem(id, local, visitante, fecha, deporte) {
+  document.getElementById('ev-cat-id').value = id;
+  document.getElementById('ev-nombre').value = `${local} VS ${visitante}`.toUpperCase();
+  const dd = document.getElementById('ev-cat-dd');
+  if (dd) dd.style.display = 'none';
+  if (fecha) document.getElementById('ev-fecha-ev').value = fecha;
+  const depSel = document.getElementById('ev-deporte');
+  if (depSel && deporte) {
+    const opciones = [...depSel.options].map(o => o.value.toUpperCase());
+    if (opciones.includes(deporte.toUpperCase())) depSel.value = deporte.toUpperCase();
+  }
+}
+
 async function saveEvento() {
   if (_checkLock('registrar eventos')) return;
   const nombre = document.getElementById('ev-nombre').value.trim();
@@ -4177,6 +4253,7 @@ async function saveEvento() {
     toast(`⚠ Ya existe un evento "${nombreUpper}" en este mes`, 'error');
     return;
   }
+  const catId = document.getElementById('ev-cat-id').value || null;
   try {
     await coll('eventos').add({
       opId,
@@ -4189,14 +4266,17 @@ async function saveEvento() {
       opciones:   document.getElementById('ev-opciones').value,
       estado:     document.getElementById('ev-estado').value,
       opcion_ganadora: document.getElementById('ev-ganadora').value || null,
+      catalogoId: catId,
+      fuente: catId ? 'catalogo' : 'manual',
       ts: firebase.firestore.FieldValue.serverTimestamp(),
     });
     // No cerrar el modal — limpiar solo el nombre para el siguiente evento
     document.getElementById('ev-nombre').value = '';
+    document.getElementById('ev-cat-id').value = '';
     document.getElementById('ev-nombre').focus();
     document.getElementById('ev-estado').value = 'ABIERTO';
     document.getElementById('ev-ganadora').value = '';
-    toast('✅ Evento #' + num + ' registrado','success');
+    toast('✅ Evento #' + num + ' registrado' + (catId ? ' (del catálogo)' : ''),'success');
   } catch(e) { toast('⚠ Error al guardar: ' + e.message, 'error'); }
 }
 

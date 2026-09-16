@@ -1759,6 +1759,19 @@ global.AJChat = {
     if (v) {
       const uid = CH.esAdmin ? CH.hiloUid : CH.uid;
       if (uid) marcarLeido(uid);
+      // Mientras el chat estuvo oculto (display:none, ni pestaña activa ni
+      // flotante abierto), el contenedor medía alto 0 — así que si llegó un
+      // mensaje nuevo en ese rato, pintarMensajes() lo "pegó" a un
+      // scrollTop=0 que no era el fondo real, solo lo parecía por estar
+      // escondido. Justo ahora que se vuelve visible sí hay medidas reales,
+      // así que se fuerza el salto al último mensaje — como cualquier chat
+      // normal — en vez de dejar la marca vieja de cuando estaba oculto.
+      // Se llama tanto al abrir el flotante (toggleFlotante) como al entrar
+      // a la pestaña "Chat" normal (showTab/mostrarSeccion de cada portal).
+      requestAnimationFrame(() => {
+        const cuerpo = document.getElementById('ch-cuerpo');
+        if (cuerpo) cuerpo.scrollTop = cuerpo.scrollHeight;
+      });
     }
   },
 

@@ -3473,7 +3473,7 @@ async function audalMoverASeguimiento() {
   const seleccionadas = _auditoriaAlertas.filter(a => _audalSeleccionados.has(a.id));
   if (!seleccionadas.length) return;
   if (!confirm(`¿Pasar ${seleccionadas.length} caso(s) a Cartera en riesgo? Dejarán de contarse como pendientes en Alertas activas.`)) return;
-  const quien = currentUser?.displayName || currentUser?.email || 'admin';
+  const quien = auth.currentUser?.displayName || auth.currentUser?.email || 'admin';
   try {
     const lote = db.batch();
     for (const a of seleccionadas) {
@@ -3575,7 +3575,7 @@ async function auditoriaPreguntarOperador(a) {
     // hilo, mismas reglas (patriarca_chat_hilos/{uid}/mensajes ya permite
     // crear a esAdmin()), así que aparece igual que cualquier otro mensaje.
     await db.collection('patriarca_chat_hilos').doc(a.opId).collection('mensajes').add({
-      de: 'admin', autorUid: currentUser?.uid || '', autorNombre: currentUser?.displayName || currentUser?.email || 'Administrador',
+      de: 'admin', autorUid: auth.currentUser?.uid || '', autorNombre: auth.currentUser?.displayName || auth.currentUser?.email || 'Administrador',
       texto: pregunta.trim(), fijado: false,
       ts: firebase.firestore.FieldValue.serverTimestamp(),
     });
@@ -3583,7 +3583,7 @@ async function auditoriaPreguntarOperador(a) {
       alertaId: a.id, opId: a.opId, operadorNombre: a.operadorNombre || '',
       clienteNombre: a.clienteNombre || '', casa: a.casa || '',
       pregunta: pregunta.trim(), estado: 'esperando_respuesta',
-      creadoPor: currentUser?.displayName || currentUser?.email || 'admin',
+      creadoPor: auth.currentUser?.displayName || auth.currentUser?.email || 'admin',
       creadoEn: firebase.firestore.FieldValue.serverTimestamp(),
     });
     toast('✅ Pregunta enviada al operador por el chat', 'success');
@@ -3603,7 +3603,7 @@ async function auditoriaResolverTicket(casoId, alertaId) {
   try {
     await db.collection('patriarca_auditoria_casos').doc(casoId).update({
       estado: 'resuelto',
-      resueltoPor: currentUser?.displayName || currentUser?.email || 'admin',
+      resueltoPor: auth.currentUser?.displayName || auth.currentUser?.email || 'admin',
       resueltoEn: firebase.firestore.FieldValue.serverTimestamp(),
     });
     await db.collection('patriarca_auditoria_alertas').doc(alertaId).update({
@@ -3629,7 +3629,7 @@ async function adminBloquearCliente(clienteId, clienteNombre) {
       bloqueado: true,
       bloqueado_fecha: firebase.firestore.FieldValue.serverTimestamp(),
       bloqueado_motivo: motivo.trim(),
-      bloqueado_por: (currentUser?.displayName || currentUser?.email || 'admin') + ' (admin)',
+      bloqueado_por: (auth.currentUser?.displayName || auth.currentUser?.email || 'admin') + ' (admin)',
     });
     toast('🔒 Cliente bloqueado', 'success');
   } catch (e) { toast('⚠ Error: ' + e.message, 'error'); }
@@ -3736,7 +3736,7 @@ async function guardarCarteraRiesgo() {
     motivo: document.getElementById('cart-motivo').value.trim(),
     notas: document.getElementById('cart-notas').value.trim(),
     actualizadoEn: firebase.firestore.FieldValue.serverTimestamp(),
-    actualizadoPor: currentUser?.displayName || currentUser?.email || 'admin',
+    actualizadoPor: auth.currentUser?.displayName || auth.currentUser?.email || 'admin',
   };
   try {
     if (id) {
